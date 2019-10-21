@@ -1,7 +1,8 @@
 #include <SDL/SDL.h>
-#include "System/Root/System.h"
+#include "System/Public/System.h"
 
-int main() {
+int main()
+{
 	System sys;
 
 	if (sys.Initialize())

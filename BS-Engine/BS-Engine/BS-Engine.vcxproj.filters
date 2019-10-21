@@ -42,7 +42,10 @@
     <ClCompile Include="Source\Container\Private\Map.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Memory\Memory\Private\IMemory.cpp">
+    <ClCompile Include="Source\Memory\MemoryManager\Private\MemoryManager.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Memory\Pointer\Private\Pointer.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
@@ -75,6 +78,15 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="Source\Memory\Memory\Public\IMemory.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Memory\Allocator\Public\IAllocator.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Memory\MemoryManager\Public\MemoryManager.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Memory\Pointer\Public\Pointer.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

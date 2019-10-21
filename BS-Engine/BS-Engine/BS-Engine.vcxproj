@@ -125,7 +125,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Source\Memory\Memory\Private\IMemory.cpp" />
+    <ClCompile Include="Source\Memory\Pointer\Private\Pointer.cpp" />
+    <ClCompile Include="Source\Memory\MemoryManager\Private\MemoryManager.cpp" />
     <ClCompile Include="Source\Container\Private\Array.cpp" />
     <ClCompile Include="Source\Container\Private\Map.cpp" />
     <ClCompile Include="Launch\main.cpp" />
@@ -137,6 +138,9 @@
     <ClCompile Include="Source\String\Private\Text.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Memory\Pointer\Public\Pointer.h" />
+    <ClInclude Include="Source\Memory\MemoryManager\Public\MemoryManager.h" />
+    <ClInclude Include="Source\Memory\Allocator\Public\IAllocator.h" />
     <ClInclude Include="Source\Memory\Memory\Public\IMemory.h" />
     <ClInclude Include="Source\Container\Public\Array.h" />
     <ClInclude Include="Source\Container\Public\Map.h" />

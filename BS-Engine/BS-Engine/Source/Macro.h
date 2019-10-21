@@ -17,3 +17,11 @@ using tchar = wchar_t;
 using tchar = char;
 #define TEXT(x) x
 #endif
+
+#define INTERFACE_BEGIN(name) \
+class BS_API I##name abstract { \
+	public:
+#define INTERFACE_END };
+
+#define INTERFACE_DEF(ret, name, ...) \
+virtual ret name(__VA_ARGS__) = 0;

@@ -1,6 +1,7 @@
 #pragma once
 
-class System {
+class System
+{
 public:
 	bool Initialize();
 	void RunLoop();

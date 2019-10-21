@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -76,6 +76,8 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(ProjectDir)Source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -123,11 +125,30 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Container\Private\Array.cpp" />
+    <ClCompile Include="Source\Container\Private\Map.cpp" />
+    <ClCompile Include="Source\Base\HandleTable\Private\HandleTable.cpp" />
     <ClCompile Include="Launch\main.cpp" />
+    <ClCompile Include="Source\String\Private\Name.cpp" />
+    <ClCompile Include="Source\Launch\main.cpp" />
+    <ClCompile Include="Source\System\Private\System.cpp" />
+    <ClCompile Include="Source\String\Private\String.cpp" />
     <ClCompile Include="System\Root\System.cpp" />
+    <ClCompile Include="Source\String\Private\Text.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Container\Public\Array.h" />
+    <ClInclude Include="Source\Container\Public\Map.h" />
+    <ClInclude Include="Source\Base\HandleTable\Public\HandleTable.h" />
+    <ClInclude Include="Source\Base\Pointer\Public\Pointer.h" />
+    <ClInclude Include="Source\Allocator\Interface\IAllocatable.h" />
+    <ClInclude Include="Source\Core.h" />
+    <ClInclude Include="Source\Macro.h" />
+    <ClInclude Include="Source\String\Public\Name.h" />
+    <ClInclude Include="Source\System\Public\System.h" />
+    <ClInclude Include="Source\String\Public\String.h" />
     <ClInclude Include="System\Root\System.h" />
+    <ClInclude Include="Source\String\Public\Text.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

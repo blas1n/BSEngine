@@ -1,2 +1,5 @@
 # BS-Engine
-My own game engine project.
+
+It is my own game engine project.
+
+- See [this document](./Architecture.md) for a description of the structure.

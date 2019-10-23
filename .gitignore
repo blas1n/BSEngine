@@ -424,5 +424,11 @@ MigrationBackup/
 
 # End of https://www.gitignore.io/api/c++,windows,visualstudio,visualstudiocode
 
-#Custom temp folder
+# Visual studio sln, proj file
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# Custom temp folder
 [Tt]emp/

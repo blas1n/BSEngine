@@ -18,15 +18,30 @@ public:
 	 * @return Address of allocated memory.
 	 * @retval nullptr Returned when the memory is full and can no longer be allocated.
 	*/
-	void* Malloc(size_t size) override;
+	void* Malloc(size_t size) noexcept override;
 
 	/**
 	 * @param[in] ptr New top pointer
 	 * @warning If you try to free a pointer that is not at the top, all the pointers above it are freed.
 	*/
-	void Free(void* ptr) override;
+	void Free(void* ptr) noexcept override;
 
-	void Clear() override;
+	void Clear() noexcept override;
+
+	size_t GetAssignedByte() const noexcept override
+	{
+		return cur - start;
+	}
+
+	size_t GetAssignedByte() const noexcept override
+	{
+		return end - cur;
+	}
+
+	size_t GetMaxByte() const noexcept override
+	{
+		return end - start;
+	}
 
 private:
 	using byte = unsigned char;

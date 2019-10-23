@@ -16,4 +16,13 @@ INTERFACE_BEGIN(Memory)
 
 	/// @brief Clear memory
 	INTERFACE_DEF(void, Clear);
+
+	/// @brief Get the number of bytes of memory that assigned
+	CONST_INTERFACE_DEF(size_t, GetAssignedByte);
+
+	/// @brief Get the number of bytes of memory that can be allocated
+	CONST_INTERFACE_DEF(size_t, GetAssignableByte);
+
+	/// @brief Get the maximum memory size
+	CONST_INTERFACE_DEF(size_t, GetMaxByte);
 INTERFACE_END

@@ -12,11 +12,26 @@ public:
 	PoolMemory(size_t count) noexcept;
 	~PoolMemory();
 
-	void* Malloc(size_t count = 1) override;
+	void* Malloc(size_t count = 1) noexcept override;
 
-	void Free(void* ptr) override;
+	void Free(void* ptr) noexcept override;
 
-	void Clear() override;
+	void Clear() noexcept override;
+
+	size_t GetAssignedByte() const noexcept override
+	{
+		return curNum * Size;
+	}
+
+	size_t GetAssignedByte() const noexcept override
+	{
+		return (maxNum - curNum) * Size;
+	}
+
+	size_t GetMaxByte() const noexcept override
+	{
+		return maxNum * Size;
+	}
 
 private:
 	using byte = unsigned char;

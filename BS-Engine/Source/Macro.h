@@ -1,14 +1,8 @@
 #pragma once
 
-#ifdef BUILD_ME_AS_STATICLIB
-#define BS_API declspec(dllimport)
-#else
-#ifdef BUILD_ME_AS_DLL
-#define BS_API declspec(dllexport)
-#else
-#define BS_API 
-#endif
-#endif
+#include <cassert>
+
+#define BS_API
 
 #ifdef _UNICODE
 using tchar = wchar_t;
@@ -25,3 +19,9 @@ class BS_API I##name abstract { \
 
 #define INTERFACE_DEF(ret, name, ...) \
 virtual ret name(__VA_ARGS__) = 0;
+
+#if _DEBUG
+#define check(expr) assert(expr); 
+#else
+#define check(expr) { if (!expr) { return; } }
+#endif

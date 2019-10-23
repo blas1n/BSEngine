@@ -1,7 +1,7 @@
 #include "../Public/StackMemory.h"
 #include <memory>
 
-StackMemory::StackMemory(size_t size)
+StackMemory::StackMemory(size_t size) noexcept
 	: cur(nullptr),
 	start(nullptr),
 	end(nullptr)
@@ -30,7 +30,7 @@ void* StackMemory::Malloc(size_t size)
 
 void StackMemory::Free(void* ptr)
 {
-	check(ptr < start || ptr > cur);
+	check(ptr < start && ptr > cur);
 	cur = static_cast<byte*>(ptr);
 }
 

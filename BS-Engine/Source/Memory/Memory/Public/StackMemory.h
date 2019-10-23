@@ -10,7 +10,7 @@
 class BS_API StackMemory final : public IMemory
 {
 public:
-	constexpr StackMemory(size_t size) noexcept;
+	StackMemory(size_t size) noexcept;
 	~StackMemory();
 
 	/**

@@ -36,16 +36,13 @@
     <ClCompile Include="Source\System\Private\System.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Container\Private\Array.cpp">
-      <Filter>소스 파일</Filter>
-    </ClCompile>
-    <ClCompile Include="Source\Container\Private\Map.cpp">
-      <Filter>소스 파일</Filter>
-    </ClCompile>
     <ClCompile Include="Source\Memory\MemoryManager\Private\MemoryManager.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="Source\Memory\Pointer\Private\Pointer.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Memory\Memory\Private\StackMemory.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
@@ -71,12 +68,6 @@
     <ClInclude Include="Source\System\Public\System.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
-    <ClInclude Include="Source\Container\Public\Array.h">
-      <Filter>헤더 파일</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\Container\Public\Map.h">
-      <Filter>헤더 파일</Filter>
-    </ClInclude>
     <ClInclude Include="Source\Memory\Memory\Public\IMemory.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
@@ -87,6 +78,9 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="Source\Memory\Pointer\Public\Pointer.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Memory\Memory\Public\StackMemory.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

@@ -6,6 +6,14 @@
 #include <utility>
 #include <variant>
 
+/**
+ * @brief
+ * Custom pointer class that can be used like a normal pointer
+ * @detail
+ * It is implemented for pointer stability.
+ * Indirectly accessed via handle.
+ * @todo Access with handle.
+*/
 template <class T>
 class Pointer {
 public:

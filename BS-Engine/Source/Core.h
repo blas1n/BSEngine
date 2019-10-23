@@ -1,9 +1,6 @@
 #pragma once
 
 #include "Macro.h"
-#include "String/Public/Name.h"
-#include "String/Public/String.h"
-#include "String/Public/Text.h"
 
 using uint8 = unsigned char;
 using uint16 = unsigned short;

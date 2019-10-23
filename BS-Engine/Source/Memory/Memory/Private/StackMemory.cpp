@@ -29,16 +29,11 @@ void* StackMemory::Malloc(size_t size)
 
 void StackMemory::Free(void* ptr)
 {
-	if (ptr < start || ptr > cur)
-	{
-		// todo : If debug mode, log
-		return;
-	}
-
+	check(ptr < start || ptr > cur);
 	cur = static_cast<byte*>(ptr);
 }
 
-void StackMemory::FreeAll()
+void StackMemory::Clear()
 {
 	cur = start;
 }

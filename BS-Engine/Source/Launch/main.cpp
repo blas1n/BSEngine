@@ -1,4 +1,3 @@
-#include <SDL/SDL.h>
 #include "System/Public/System.h"
 
 int main()
@@ -7,8 +6,8 @@ int main()
 
 	if (sys.Initialize())
 		sys.RunLoop();
-	else
-		SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Failed to initialize engine.");
+	
+	/// @todo If init return false, log
 	
 	sys.Release();
 	return 0;

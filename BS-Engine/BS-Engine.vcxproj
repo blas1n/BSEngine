@@ -126,30 +126,22 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Memory\Memory\Private\PoolMemory.cpp" />
     <ClCompile Include="Source\Memory\Memory\Private\StackMemory.cpp" />
     <ClCompile Include="Source\Memory\Pointer\Private\Pointer.cpp" />
-    <ClCompile Include="Source\Memory\MemoryManager\Private\MemoryManager.cpp" />
-    <ClCompile Include="Launch\main.cpp" />
-    <ClCompile Include="Source\String\Private\Name.cpp" />
     <ClCompile Include="Source\Launch\main.cpp" />
     <ClCompile Include="Source\System\Private\System.cpp" />
-    <ClCompile Include="Source\String\Private\String.cpp" />
-    <ClCompile Include="System\Root\System.cpp" />
-    <ClCompile Include="Source\String\Private\Text.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Memory\Memory\Public\HeapMemory.h" />
+    <ClInclude Include="Source\Memory\Memory\Public\PoolMemory.h" />
     <ClInclude Include="Source\Memory\Memory\Public\StackMemory.h" />
     <ClInclude Include="Source\Memory\Pointer\Public\Pointer.h" />
-    <ClInclude Include="Source\Memory\MemoryManager\Public\MemoryManager.h" />
     <ClInclude Include="Source\Memory\Allocator\Public\IAllocator.h" />
     <ClInclude Include="Source\Memory\Memory\Public\IMemory.h" />
     <ClInclude Include="Source\Core.h" />
     <ClInclude Include="Source\Macro.h" />
-    <ClInclude Include="Source\String\Public\Name.h" />
     <ClInclude Include="Source\System\Public\System.h" />
-    <ClInclude Include="Source\String\Public\String.h" />
-    <ClInclude Include="System\Root\System.h" />
-    <ClInclude Include="Source\String\Public\Text.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

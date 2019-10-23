@@ -8,11 +8,11 @@ class System
 {
 public:
 	/// @brief Initializes everything necessary to run the game engine.
-	bool Initialize();
+	bool Initialize() noexcept;
 
 	/// @brief To constantly call to update the scene with the manager.
-	void RunLoop();
+	void RunLoop() noexcept;
 
 	/// @brief Clean up everything created by the game engine.
-	void Release();
+	void Release() noexcept;
 };

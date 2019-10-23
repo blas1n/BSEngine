@@ -1,5 +1,5 @@
 #include "../Public/StackMemory.h"
-#include <cstdlib>
+#include <memory>
 
 StackMemory::StackMemory(size_t size)
 	: cur(nullptr),
@@ -22,6 +22,7 @@ void* StackMemory::Malloc(size_t size)
 	if (nextCur > end)
 		return nullptr;
 
+	std::memset(cur, 0, nextCur - cur);
 	void* ret = cur;
 	cur = nextCur;
 	return ret;

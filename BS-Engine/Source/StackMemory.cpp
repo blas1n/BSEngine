@@ -1,4 +1,4 @@
-#include "../Public/StackMemory.h"
+#include "StackMemory.h"
 #include <memory>
 
 StackMemory::StackMemory(size_t size) noexcept

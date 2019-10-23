@@ -1,4 +1,4 @@
-#include "../Public/System.h"
+#include "System.h"
 
 bool System::Initialize() noexcept {
 	return true;

@@ -6,10 +6,11 @@ template <size_t Size>
 PoolMemory<Size>::PoolMemory(size_t count) noexcept
 	: memory(nullptr), marker(nullptr), curNum(0), maxNum(count)
 {
-	if (maxNum == 0) return;
-
-	memory = static_cast<byte*>(std::malloc(Size * maxNum));
-	marker = new size_t[maxNum];
+	if (maxNum > 0)
+	{
+		memory = static_cast<byte*>(std::malloc(Size * maxNum));
+		marker = new size_t[maxNum];
+	}
 }
 
 template <size_t Size>
@@ -41,13 +42,14 @@ void* PoolMemory<Size>::Malloc(size_t count /*= 1*/)
 
 	/// @todo Implement defragmentation.
 	curNum++;
+	return nullptr;
 }
 
 template <size_t Size>
 void PoolMemory<Size>::Free(void* ptr)
 {
 	const auto diff = static_cast<byte*>(ptr) - memory;
-	check(diff < 0 && diff >= maxNum && (diff % Size) == 0);
+	check(diff < 0 && static_cast<size_t>(diff) >= maxNum && (diff % Size) == 0);
 
 	const auto index = diff / Size;
 	const auto mark = marker[index];

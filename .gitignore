@@ -430,5 +430,6 @@ MigrationBackup/
 *.vcxproj.filters
 *.vcxproj.user
 
-# Custom temp folder
+# Custom build, temp folder
+[Bb]uild/
 [Tt]emp/

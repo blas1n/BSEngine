@@ -18,7 +18,10 @@ class BS_API I##name abstract { \
 #define INTERFACE_END };
 
 #define INTERFACE_DEF(ret, name, ...) \
-virtual ret name(__VA_ARGS__) = 0;
+virtual ret name(__VA_ARGS__) noexcept = 0;
+
+#define CONST_INTERFACE_DEF(ret, name, ...) \
+virtual ret name(__VA_ARGS__) const noexcept = 0;
 
 #if _DEBUG
 #define check(expr) assert(expr); 

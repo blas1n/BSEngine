@@ -30,7 +30,7 @@ private:
 	 * @brief Initialize space to be allocated and update data
 	 * @detail Start and end is index (half-closed interval)
 	*/
-	void Allocation(size_t start, size_t end) noexcept;
+	void Allocation(size_t start, size_t end, size_t mark) noexcept;
 
 	/**
 	 * @brief Defragment memory
@@ -40,9 +40,7 @@ private:
 	void Defragment() noexcept;
 
 	byte* memory;
-
 	size_t* marker;
-	size_t index;
 
 	size_t curNum;
 	size_t maxNum;
@@ -50,7 +48,7 @@ private:
 
 template <size_t Size>
 PoolMemory<Size>::PoolMemory(size_t count) noexcept
-	: memory(nullptr), marker(nullptr), index(0), curNum(0), maxNum(count)
+	: memory(nullptr), marker(nullptr), curNum(0), maxNum(count)
 {
 	if (maxNum > 0)
 	{
@@ -75,22 +73,31 @@ void* PoolMemory<Size>::Malloc(size_t count /*= 1*/) noexcept
 	if (count == 0 || maxNum - curNum < count)
 		return nullptr;
 	
+	size_t mark = 1, startIndex = 0;
 	for (size_t i = 0, clearSectionNum = 0; i < maxNum; ++i) {
-		if (marker[i] == 0)
+		const auto curMark = marker[i];
+		
+		if (curMark == 0)
 		{
-			if (++clearSectionNum >= count)
-			{
-				const auto startIndex = i - count + 1;
-				Allocation(startIndex, i + 1);
-				return memory + (startIndex * Size);
-			}
+			if (++clearSectionNum == count)
+				startIndex = i - count + 2;
 		}
-		else clearSectionNum = 0;
+		else if (curMark == mark)
+			++mark;
+		else
+			clearSectionNum = 0;
+
 	}
 
-	Defragment();
-	Allocation(curNum, curNum + count);
-	return memory + (curNum * Size);
+	if (startIndex == 0)
+	{
+		Defragment();
+		startIndex = curNum + 1;
+	}
+
+	--startIndex;
+	Allocation(startIndex, startIndex + count, mark);
+	return memory + (startIndex * Size);
 }
 
 template <size_t Size>
@@ -107,7 +114,6 @@ void PoolMemory<Size>::Free(void* ptr) noexcept
 		marker[i] = 0;
 
 	curNum -= i - startIndex;
-	--index;
 }
 
 template <size_t Size>
@@ -116,7 +122,7 @@ void PoolMemory<Size>::Clear() noexcept
 	const auto n = maxNum * Size;
 	std::memset(memory, 0, n);
 	std::memset(marker, 0, n);
-	index = curNum = 0;
+	 curNum = 0;
 }
 
 template <size_t Size>
@@ -138,16 +144,14 @@ size_t PoolMemory<Size>::GetMaxByte() const noexcept
 }
 
 template <size_t Size>
-void PoolMemory<Size>::Allocation(size_t start, size_t end) noexcept
+void PoolMemory<Size>::Allocation(size_t start, size_t end, size_t mark) noexcept
 {
-	++index;
-
 	const auto diff = end - start;
 	curNum += diff;
 
 	std::memset(memory + (start * Size), 0, diff * Size);
 	for (size_t i = start; i < end; ++i)
-		marker[i] = index;
+		marker[i] = mark;
 }
 
 template <size_t Size>

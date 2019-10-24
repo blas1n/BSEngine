@@ -3,6 +3,11 @@
 
 TEST(StackMemory, Create)
 {
+	StackMemory invalidStack{ 0 };
+	ASSERT_EQ(invalidStack.GetAssignedByte(), 0);
+	ASSERT_EQ(invalidStack.GetAssignableByte(), 0);
+	ASSERT_EQ(invalidStack.GetMaxByte(), 0);
+
 	StackMemory stack{ 12 };
 	ASSERT_EQ(stack.GetAssignedByte(), 0);
 	ASSERT_EQ(stack.GetAssignableByte(), 12);
@@ -72,4 +77,26 @@ TEST(StackMemory, FreeWithInvalidSequence)
 #else
 	pool.Free(b);
 #endif
+}
+
+TEST(StackMemory, ReadWrite)
+{
+	StackMemory stack{ 10 };
+
+	auto a = static_cast<int*>(stack.Malloc(4));
+	*a = rand() % std::numeric_limits<int>::max();
+	auto b = static_cast<short*>(stack.Malloc(2));
+	*b = rand() % std::numeric_limits<short>::max();
+
+	stack.Free(b);
+	auto c = static_cast<int*>(stack.Malloc(4));
+	ASSERT_EQ(*c, 0);
+
+	stack.Free(a);
+	auto d = static_cast<char*>(stack.Malloc(3));
+	d[0] = 'a';
+	d[1] = 'b';
+	d[2] = 0;
+	
+	ASSERT_STREQ(d, "ab");
 }

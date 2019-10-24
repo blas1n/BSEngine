@@ -5,7 +5,10 @@
 
 class BS_API Vector2 {
 public:
-	//constexpr Vector2
+	static const Vector2 Zero;
+	static const Vector2 One;
+	static const Vector2 UnitX;
+	static const Vector2 UnitY;
 
 	float x;
 	float y;

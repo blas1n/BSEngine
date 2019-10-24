@@ -5,6 +5,12 @@
 
 class BS_API Vector3 {
 public:
+	static const Vector3 Zero;
+	static const Vector3 One;
+	static const Vector3 UnitX;
+	static const Vector3 UnitY;
+	static const Vector3 UnitZ;
+
 	float x;
 	float y;
 	float z;

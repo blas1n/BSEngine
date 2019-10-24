@@ -15,7 +15,7 @@ StackMemory::~StackMemory()
 	std::free(start);
 }
 
-void* StackMemory::Malloc(size_t size)
+void* StackMemory::Malloc(size_t size) noexcept
 {
 	const auto nextCur = cur + size;
 
@@ -28,13 +28,13 @@ void* StackMemory::Malloc(size_t size)
 	return ret;
 }
 
-void StackMemory::Free(void* ptr)
+void StackMemory::Free(void* ptr) noexcept
 {
 	check(ptr < start && ptr > cur);
 	cur = static_cast<byte*>(ptr);
 }
 
-void StackMemory::Clear()
+void StackMemory::Clear() noexcept
 {
 	cur = start;
 }

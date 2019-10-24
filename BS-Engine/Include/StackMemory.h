@@ -33,7 +33,7 @@ public:
 		return cur - start;
 	}
 
-	size_t GetAssignedByte() const noexcept override
+	size_t GetAssignableByte() const noexcept override
 	{
 		return end - cur;
 	}

@@ -42,6 +42,13 @@ public:
 	friend Vector4 operator*(const float scalar, const Vector4& vec) noexcept;
 	friend Vector4 operator/(const Vector4& lhs, const Vector4& rhs) noexcept;
 	friend Vector4 operator/(const Vector4& vec, const float scalar) noexcept;
+
+private:
+	/// @warning Do not use it as an operator for the underlying API.
+	operator const float*() const noexcept
+	{
+		return &x;
+	}
 };
 
 Vector4::Vector4() noexcept

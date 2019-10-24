@@ -32,6 +32,13 @@ private:
 	*/
 	void Allocation(size_t start, size_t end) noexcept;
 
+	/**
+	 * @brief Defragment memory
+	 * @warning If memory has a raw pointer, it is dangerous
+	 * @todo Replace to better algorithm
+	*/
+	void Defragment() noexcept;
+
 	byte* memory;
 
 	size_t* marker;
@@ -81,9 +88,9 @@ void* PoolMemory<Size>::Malloc(size_t count /*= 1*/) noexcept
 		else clearSectionNum = 0;
 	}
 
-	/// @todo Implement defragmentation.
-	
-	return nullptr;
+	Defragment();
+	Allocation(curNum, curNum + count);
+	return memory + (curNum * Size);
 }
 
 template <size_t Size>
@@ -141,4 +148,39 @@ void PoolMemory<Size>::Allocation(size_t start, size_t end) noexcept
 	std::memset(memory + (start * Size), 0, diff * Size);
 	for (size_t i = start; i < end; ++i)
 		marker[i] = index;
+}
+
+template <size_t Size>
+void PoolMemory<Size>::Defragment() noexcept
+{
+	size_t startIndex = 0, curIndex = 0;
+	bool isFound = false;
+
+	for (size_t i = 0; i < maxNum; ++i)
+	{
+		if (isFound)
+		{
+			if (marker[i] != marker[startIndex])
+			{
+				const auto diff = i - startIndex;
+				std::memmove(memory + (curIndex * Size), memory + (startIndex * Size), diff * Size);
+
+				const auto mark = marker[startIndex];
+				std::memset(marker + startIndex, 0, diff * Size);
+
+				for (size_t j = curIndex; j < curIndex + diff; ++j)
+					marker[j] = mark;
+
+				curIndex += diff;
+				isFound = false;
+				--i;
+			}
+		}
+		else if (marker[i] != 0)
+		{
+			startIndex = i;
+			isFound = true;
+			--i;
+		}
+	}
 }

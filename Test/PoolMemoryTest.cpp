@@ -50,9 +50,15 @@ TEST(PoolMemory, Free)
 TEST(PoolMemory, FreeInvalidArgument)
 {
 	PoolMemory<sizeof(int)> pool{ 5 };
-
 	auto p = static_cast<unsigned char*>(pool.Malloc(1));
-	ASSERT_DEBUG_DEATH(pool.Free(p - 1), ".*");
-	ASSERT_DEBUG_DEATH(pool.Free(p + 1), ".*");
-	ASSERT_DEBUG_DEATH(pool.Free(nullptr), ".*");
+
+#if _DEBUG
+	ASSERT_DEBUG_DEATH(pool.Free(p - 1), ".*Assert.*");
+	ASSERT_DEBUG_DEATH(pool.Free(p + 1), ".*Assert.*");
+	ASSERT_DEBUG_DEATH(pool.Free(nullptr), ".*Assert.*");
+#else
+	pool.Free(p - 1);
+	pool.Free(p + 1);
+	pool.Free(nullptr);
+#endif
 }

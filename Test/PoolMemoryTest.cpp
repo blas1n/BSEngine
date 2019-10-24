@@ -47,7 +47,7 @@ TEST(PoolMemory, Free)
 	ASSERT_EQ(pool.GetAssignedByte(), 0);	
 }
 
-TEST(PoolMemory, FreeInvalidArgument)
+TEST(PoolMemory, FreeWithInvalidArgument)
 {
 	PoolMemory<sizeof(int)> pool{ 5 };
 	auto p = static_cast<unsigned char*>(pool.Malloc(1));

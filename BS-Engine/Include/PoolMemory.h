@@ -39,15 +39,15 @@ private:
 
 template <size_t Size>
 PoolMemory<Size>::PoolMemory(size_t count) noexcept
-	: memory(nullptr), marker(nullptr), index(0), curNum(0), maxNum(count * Size)
+	: memory(nullptr), marker(nullptr), index(0), curNum(0), maxNum(count)
 {
 	if (maxNum > 0)
 	{
-		memory = static_cast<byte*>(std::malloc(maxNum));
-		marker = static_cast<size_t*>(std::malloc(count * sizeof(size_t)));
+		memory = static_cast<byte*>(std::malloc(maxNum * Size));
+		marker = static_cast<size_t*>(std::malloc(maxNum * sizeof(size_t)));
 
 		if (marker != nullptr)
-			std::memset(marker, 0, count * sizeof(size_t));
+			std::memset(marker, 0, maxNum * sizeof(size_t));
 	}
 }
 
@@ -61,7 +61,7 @@ PoolMemory<Size>::~PoolMemory()
 template <size_t Size>
 void* PoolMemory<Size>::Malloc(size_t count /*= 1*/) noexcept
 {
-	if (count == 0 || GetAssignableByte() < count * Size)
+	if (count == 0 || maxNum - curNum < count)
 		return nullptr;
 	
 	for (size_t i = 0, clearSectionNum = 0; i < maxNum; ++i) {
@@ -70,9 +70,8 @@ void* PoolMemory<Size>::Malloc(size_t count /*= 1*/) noexcept
 			if (++clearSectionNum >= count)
 			{
 				const auto startIndex = i - count + 1;
-				const auto ret = memory + startIndex;
-				Allocation(ret, memory + i);
-				return ret;
+				Allocation(startIndex, i + 1);
+				return memory + (startIndex * Size);
 			}
 		}
 		else clearSectionNum = 0;
@@ -87,7 +86,7 @@ template <size_t Size>
 void PoolMemory<Size>::Free(void* ptr) noexcept
 {
 	const auto diff = static_cast<byte*>(ptr) - memory;
-	check(diff >= 0 && static_cast<size_t>(diff) < maxNum && (diff % Size) == 0);
+	check(diff >= 0 && static_cast<size_t>(diff) < maxNum * Size && (diff % Size) == 0);
 
 	const auto startIndex = diff / Size;
 	const auto mark = marker[startIndex];
@@ -96,45 +95,46 @@ void PoolMemory<Size>::Free(void* ptr) noexcept
 	for (i = startIndex; i < maxNum && marker[i] == mark; ++i)
 		marker[i] = 0;
 
-	curNum -= i * Size;
+	curNum -= i - startIndex;
 	--index;
 }
 
 template <size_t Size>
 void PoolMemory<Size>::Clear() noexcept
 {
-	std::memset(memory, 0, maxNum);
-	std::memset(marker, 0, maxNum);
+	const auto n = maxNum * Size;
+	std::memset(memory, 0, n);
+	std::memset(marker, 0, n);
 	index = curNum = 0;
 }
 
 template <size_t Size>
 size_t PoolMemory<Size>::GetAssignedByte() const noexcept
 {
-	return curNum;
+	return curNum * Size;
 }
 
 template <size_t Size>
 size_t PoolMemory<Size>::GetAssignableByte() const noexcept
 {
-	return maxNum - curNum;
+	return (maxNum - curNum) * Size;
 }
 
 template <size_t Size>
 size_t PoolMemory<Size>::GetMaxByte() const noexcept
 {
-	return maxNum;
+	return maxNum * Size;
 }
 
 template <size_t Size>
-void PoolMemory<Size>::Allocation(byte* start, byte* end)
+void PoolMemory<Size>::Allocation(size_t start, size_t end) noexcept
 {
 	++index;
 
-	const auto diff = end - start + 1;
-	curNum += diff * Size;
+	const auto diff = end - start;
+	curNum += diff;
 
-	std::memset(start, 0, end - start + 1);
-	for (size_t i = start - memory; i <= end - memory; ++i)
+	std::memset(memory + (start * Size), 0, diff * Size);
+	for (size_t i = start; i < end; ++i)
 		marker[i] = index;
 }

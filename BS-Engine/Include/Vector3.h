@@ -9,8 +9,8 @@ public:
 	float y;
 	float z;
 
-	Vector3() noexcept;
-	Vector3(float inX, float inY, float inZ) noexcept;
+	constexpr Vector3() noexcept;
+	constexpr Vector3(float inX, float inY, float inZ) noexcept;
 	Vector3(float* elems) noexcept;
 
 	void Set(float inX, float inY, float inZ) noexcept;
@@ -51,10 +51,10 @@ private:
 	}
 };
 
-Vector3::Vector3() noexcept
+constexpr Vector3::Vector3() noexcept
 	: x(0.0f), y(0.0f), z(0.0f) {}
 
-Vector3::Vector3(float inX, float inY, float inZ) noexcept
+constexpr Vector3::Vector3(float inX, float inY, float inZ) noexcept
 	: x(inX), y(inY), z(inZ) {}
 
 Vector3::Vector3(float* elems) noexcept

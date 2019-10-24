@@ -10,8 +10,8 @@ public:
 	float z;
 	float w;
 
-	Vector4() noexcept;
-	Vector4(float inX, float inY, float inZ, float inW) noexcept;
+	constexpr Vector4() noexcept;
+	constexpr Vector4(float inX, float inY, float inZ, float inW) noexcept;
 	Vector4(float* elems) noexcept;
 
 	void Set(float inX, float inY, float inZ, float inW) noexcept;
@@ -51,10 +51,10 @@ private:
 	}
 };
 
-Vector4::Vector4() noexcept
+constexpr Vector4::Vector4() noexcept
 	: x(0.0f), y(0.0f), z(0.0f), w(0.0f) {}
 
-Vector4::Vector4(const float inX, const float inY, const float inZ, const float inW) noexcept
+constexpr Vector4::Vector4(const float inX, const float inY, const float inZ, const float inW) noexcept
 	: x(inX), y(inY), z(inZ), w(inW) {}
 
 Vector4::Vector4(float* elems) noexcept

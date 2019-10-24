@@ -30,6 +30,7 @@ public:
 	static Vector3 Normalize(const Vector3& vec) noexcept;
 
 	static float Dot(const Vector3& lhs, const Vector3& rhs) noexcept;
+	static Vector3 Cross(const Vector3& lhs, const Vector3& rhs) noexcept;
 	static Vector3 Reflect(const Vector3& v, const Vector3& n) noexcept;
 	static Vector3 Transform(const Vector3& vec, const class Matrix3& mat, float w = 1.0f) noexcept;
 
@@ -129,6 +130,15 @@ Vector3 Vector3::Normalize(const Vector3& vec) noexcept
 float Vector3::Dot(const Vector3& lhs, const Vector3& rhs) noexcept
 {
 	return (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z);
+}
+
+Vector3 Vector3::Cross(const Vector3& lhs, const Vector3& rhs) noexcept
+{
+	return Vector3{
+		lhs.y * rhs.z - lhs.z * rhs.y,
+		lhs.z * rhs.x - lhs.x * rhs.z,
+		lhs.x * rhs.y - lhs.y * rhs.x
+	};
 }
 
 Vector3 Vector3::Reflect(const Vector3& v, const Vector3& n) noexcept

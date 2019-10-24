@@ -99,15 +99,9 @@ namespace Math
 	}
 
 	template <class T, class = IsArithmetic<T>>
-	inline T Pow(const T& x, const T& y)
+	inline T Pow(const T& x, const T& y = 2.0f)
 	{
 		return std::powf(x, y);
-	}
-
-	template <class T, class = IsArithmetic<T>>
-	inline T Exp(const T & x)
-	{
-		return std::powf(x, static_cast<T>(2.0f));
 	}
 
 	inline float Sqrt(const float value)

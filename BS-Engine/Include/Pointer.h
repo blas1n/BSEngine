@@ -35,7 +35,7 @@ public:
 	Pointer(T* ptr) noexcept
 		: handle(ptr) {}
 
-	~Pointer() = default;
+	~Pointer() noexcept = default;
 
 	template <class U>
 	Pointer& operator=(const Pointer<U>& other) noexcept

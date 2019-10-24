@@ -10,7 +10,7 @@ template <size_t Size>
 class BS_API PoolMemory : public IMemory {
 public:
 	PoolMemory(size_t count) noexcept;
-	~PoolMemory();
+	~PoolMemory() noexcept;
 
 	void* Malloc(size_t count = 1) noexcept override;
 	void Free(void* ptr) noexcept override;
@@ -58,7 +58,7 @@ PoolMemory<Size>::PoolMemory(size_t count) noexcept
 }
 
 template <size_t Size>
-PoolMemory<Size>::~PoolMemory()
+PoolMemory<Size>::~PoolMemory() noexcept
 {
 	std::free(marker);
 	std::free(memory);

@@ -11,7 +11,7 @@ class BS_API StackMemory final : public IMemory
 {
 public:
 	StackMemory(size_t size) noexcept;
-	~StackMemory();
+	~StackMemory() noexcept;
 
 	/**
 	 * @param[in] size How much memory to allocate.

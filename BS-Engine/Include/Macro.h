@@ -12,19 +12,8 @@ using tchar = char;
 #define TEXT(x) x
 #endif
 
-#define INTERFACE_BEGIN(name) \
-class BS_API I##name abstract { \
-	public:
-#define INTERFACE_END };
-
-#define INTERFACE_DEF(ret, name, ...) \
-virtual ret name(__VA_ARGS__) noexcept = 0;
-
-#define CONST_INTERFACE_DEF(ret, name, ...) \
-virtual ret name(__VA_ARGS__) const noexcept = 0;
-
 #if _DEBUG
-#define check(expr) assert(expr); 
+#define check(expr) { if (!(expr)) { assert(false); } }
 #else
-#define check(expr) { if (!expr) { return; } }
+#define check(expr) { if (!(expr)) { return; } }
 #endif

@@ -3,9 +3,6 @@
 #include "IMemory.h"
 #include <memory>
 
-/// @todo Replace to own math library.
-#include <cmath>
-
 /**
  * @brief Memory with fixed allocation size
 */

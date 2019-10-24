@@ -82,10 +82,46 @@ TEST(PoolMemory, ReadWrite)
 	ASSERT_EQ(*c, 0);
 
 	pool.Free(a);
-	auto d = static_cast<char*>(pool.Malloc(3));
+	
+	PoolMemory<3> charPool{ 2 };
+	auto d = static_cast<char*>(charPool.Malloc(1));
 	d[0] = 'a';
 	d[1] = 'b';
 	d[2] = 0;
 
 	ASSERT_STREQ(d, "ab");
+}
+
+TEST(PoolMemory, Defragment)
+{
+	PoolMemory<sizeof(int)> pool{ 14 };
+
+	auto p = static_cast<int*>(pool.Malloc(1));
+	pool.Malloc(2);
+	pool.Malloc(1);
+	pool.Malloc(1);
+	pool.Malloc(1);
+	pool.Malloc(3);
+	pool.Malloc(1);
+
+	int v[7]
+	{ 
+		p[1] = rand() % std::numeric_limits<int>::max(),
+		p[2] = rand() % std::numeric_limits<int>::max(),
+		p[4] = rand() % std::numeric_limits<int>::max(),
+		p[6] = rand() % std::numeric_limits<int>::max(),
+		p[7] = rand() % std::numeric_limits<int>::max(),
+		p[8] = rand() % std::numeric_limits<int>::max(),
+		p[9] = rand() % std::numeric_limits<int>::max()
+	};
+
+	pool.Free(p);
+	pool.Free(p + 3);
+	pool.Free(p + 5);
+
+	auto q = static_cast<int*>(pool.Malloc(7));
+	ASSERT_TRUE(q != nullptr);
+
+	for (auto i = 0; i < 7; i++)
+		ASSERT_EQ(p[i], v[i]);
 }

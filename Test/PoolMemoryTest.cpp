@@ -3,6 +3,11 @@
 
 TEST(PoolMemory, Create)
 {
+	PoolMemory<1> invalidPool{ 0 };
+	ASSERT_EQ(invalidPool.GetAssignedByte(), 0);
+	ASSERT_EQ(invalidPool.GetAssignableByte(), 0);
+	ASSERT_EQ(invalidPool.GetMaxByte(), 0);
+
 	PoolMemory<1> pool{ 10 };
 	ASSERT_EQ(pool.GetAssignedByte(), 0);
 	ASSERT_EQ(pool.GetAssignableByte(), 10);
@@ -61,4 +66,26 @@ TEST(PoolMemory, FreeWithInvalidArgument)
 	pool.Free(p + 1);
 	pool.Free(nullptr);
 #endif
+}
+
+TEST(PoolMemory, ReadWrite)
+{
+	PoolMemory<1> pool{ 10 };
+
+	auto a = static_cast<int*>(pool.Malloc(4));
+	*a = rand() % std::numeric_limits<int>::max();
+	auto b = static_cast<short*>(pool.Malloc(2));
+	*b = rand() % std::numeric_limits<short>::max();
+
+	pool.Free(b);
+	auto c = static_cast<int*>(pool.Malloc(4));
+	ASSERT_EQ(*c, 0);
+
+	pool.Free(a);
+	auto d = static_cast<char*>(pool.Malloc(3));
+	d[0] = 'a';
+	d[1] = 'b';
+	d[2] = 0;
+
+	ASSERT_STREQ(d, "ab");
 }

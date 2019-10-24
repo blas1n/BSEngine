@@ -26,7 +26,11 @@ public:
 private:
 	using byte = unsigned char;
 
-	void Allocation(byte* start, byte* end);
+	/**
+	 * @brief Initialize space to be allocated and update data
+	 * @detail Start and end is index (half-closed interval)
+	*/
+	void Allocation(size_t start, size_t end) noexcept;
 
 	byte* memory;
 

@@ -30,7 +30,7 @@ void* StackMemory::Malloc(size_t size) noexcept
 
 void StackMemory::Free(void* ptr) noexcept
 {
-	check(ptr < start && ptr > cur);
+	check(ptr >= start && ptr < cur);
 	cur = static_cast<byte*>(ptr);
 }
 

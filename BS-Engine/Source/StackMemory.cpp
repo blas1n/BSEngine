@@ -10,7 +10,7 @@ StackMemory::StackMemory(size_t size) noexcept
 	end = start + size;
 }
 
-StackMemory::~StackMemory()
+StackMemory::~StackMemory() noexcept
 {
 	std::free(start);
 }

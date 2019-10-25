@@ -51,7 +51,7 @@ public:
 
 private:
 	/// @warning Do not use it as an operator for the underlying API.
-	operator const float* () const noexcept
+	explicit operator const float* () const noexcept
 	{
 		return &x;
 	}

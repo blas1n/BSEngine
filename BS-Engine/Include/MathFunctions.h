@@ -3,10 +3,10 @@
 #include <cmath>
 #include <limits>
 #include <type_traits>
-#include "Macro.h"
-#include "Vector2.h"
-#include "Vector3.h"
-#include "Vector4.h"
+
+class Vector2;
+class Vector3;
+class Vector4;
 
 namespace Math
 {
@@ -26,16 +26,16 @@ namespace Math
 	}
 
 	template <class T, class = IsArithmetic<T>>
-	inline int Abs(const T & x)
+	inline T Abs(const T & x)
 	{
-		T zero = 0;
+		constexpr static auto zero = static_cast<T>(0);
 		return x > zero ? x : -x;
 	}
 
 	template <class T, class = IsArithmetic<T>>
 	inline int Sign(const T& x)
 	{
-		T zero = 0;
+		constexpr static auto zero = static_cast<T>(0);
 		return x > zero ? 1 : x < zero ? -1 : 0;
 	}
 
@@ -56,25 +56,13 @@ namespace Math
 		return Abs(lhs - rhs) <= epsilon;
 	}
 
-	inline bool NearEqual(const Vector2& lhs, const Vector2& rhs, float epsilon = MACHINE_EPSILON)
-	{
-		return (lhs - rhs).LengthSquared() <= epsilon * epsilon;
-	}
-
-	inline bool NearEqual(const Vector3& lhs, const Vector3& rhs, float epsilon = MACHINE_EPSILON)
-	{
-		return (lhs - rhs).LengthSquared() <= epsilon * epsilon;
-	}
-
-	inline bool NearEqual(const Vector4& lhs, const Vector4& rhs, float epsilon = MACHINE_EPSILON)
-	{
-		return (lhs - rhs).LengthSquared() <= epsilon * epsilon;
-	}
+	bool NearEqual(const Vector2& lhs, const Vector2& rhs, float epsilon = MACHINE_EPSILON);
+	bool NearEqual(const Vector3& lhs, const Vector3& rhs, float epsilon = MACHINE_EPSILON);
+	bool NearEqual(const Vector4& lhs, const Vector4& rhs, float epsilon = MACHINE_EPSILON);
 
 	template <class T, class = IsArithmetic<T>>
 	inline T Clamp(const T& value, const T& lower, const T& upper)
 	{
-		check(lower <= upper);
 		return Min(Max(value, lower), upper);
 	}
 
@@ -83,20 +71,9 @@ namespace Math
 		return a + delta * (b - a);
 	}
 
-	inline Vector2 Lerp(const Vector2& a, const Vector2& b, float delta)
-	{
-		return a + delta * (b - a);
-	}
-
-	inline Vector3 Lerp(const Vector3& a, const Vector3& b, float delta)
-	{
-		return a + delta * (b - a);
-	}
-
-	inline Vector4 Lerp(const Vector4& a, const Vector4& b, float delta)
-	{
-		return a + delta * (b - a);
-	}
+	Vector2 Lerp(const Vector2& a, const Vector2& b, float delta);
+	Vector3 Lerp(const Vector3& a, const Vector3& b, float delta);
+	Vector4 Lerp(const Vector4& a, const Vector4& b, float delta);
 
 	template <class T, class = IsArithmetic<T>>
 	inline T Pow(const T& x, const T& y = 2.0f)

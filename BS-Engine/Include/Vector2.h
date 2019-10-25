@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Macro.h"
-#include "MathFunctions.h"
 
 class BS_API Vector2 {
 public:
@@ -19,12 +18,14 @@ public:
 
 	void Set(float inX, float inY) noexcept;
 
+	Vector2 operator+() const noexcept;
 	Vector2 operator-() const noexcept;
+
 	Vector2& operator+=(const Vector2& other) noexcept;
 	Vector2& operator-=(const Vector2& other) noexcept;
-	Vector2 operator*=(const Vector2& other) noexcept;
+	Vector2& operator*=(const Vector2& other) noexcept;
 	Vector2& operator*=(const float scalar) noexcept;
-	Vector2 operator/=(const Vector2& other) noexcept;
+	Vector2& operator/=(const Vector2& other) noexcept;
 	Vector2& operator/=(const float scalar) noexcept;
 
 	float LengthSquared() const noexcept;
@@ -54,128 +55,129 @@ private:
 	}
 };
 
-constexpr Vector2::Vector2() noexcept
+inline constexpr Vector2::Vector2() noexcept
 	: x(0.0f), y(0.0f) {}
 
-Vector2::Vector2(float inX, float inY) noexcept
+inline Vector2::Vector2(float inX, float inY) noexcept
 	: x(inX), y(inY) {}
 
-Vector2::Vector2(float* elems) noexcept
+inline Vector2::Vector2(float* elems) noexcept
 	: x(elems[0]), y(elems[1]) {}
 
-void Vector2::Set(float inX, float inY) noexcept
+inline void Vector2::Set(float inX, float inY) noexcept
 {
 	x = inX;
 	y = inY;
 }
 
-Vector2 Vector2::operator-() const noexcept
+inline Vector2 Vector2::operator+() const noexcept
 {
-	return Vector2{ -x, -y };
+	return *this;
 }
 
-Vector2& Vector2::operator+=(const Vector2& other) noexcept
+inline Vector2 Vector2::operator-() const noexcept
+{
+	return *this * -1.0f;
+}
+
+inline Vector2& Vector2::operator+=(const Vector2& other) noexcept
 {
 	x += other.x;
 	y += other.y;
+	return *this;
 }
 
-Vector2& Vector2::operator-=(const Vector2& other) noexcept
+inline Vector2& Vector2::operator-=(const Vector2& other) noexcept
 {
 	x -= other.x;
 	y -= other.y;
+	return *this;
 }
 
-Vector2 Vector2::operator*=(const Vector2& other) noexcept
+inline Vector2& Vector2::operator*=(const Vector2& other) noexcept
 {
 	x *= other.x;
 	y *= other.y;
+	return *this;
 }
 
-Vector2& Vector2::operator*=(const float scalar) noexcept
+inline Vector2& Vector2::operator*=(const float scalar) noexcept
 {
 	x *= scalar;
 	y *= scalar;
+	return *this;
 }
 
-Vector2 Vector2::operator/=(const Vector2& other) noexcept
+inline Vector2& Vector2::operator/=(const Vector2& other) noexcept
 {
 	x /= other.x;
 	y /= other.y;
+	return *this;
 }
 
-Vector2& Vector2::operator/=(const float scalar) noexcept
+inline Vector2& Vector2::operator/=(const float scalar) noexcept
 {
 	x /= scalar;
 	y /= scalar;
+	return *this;
 }
 
-float Vector2::LengthSquared() const noexcept
-{
-	return Math::Pow(x) + Math::Pow(y);
-}
-
-float Vector2::Length() const noexcept
-{
-	return Math::Sqrt(LengthSquared());
-}
-
-void Vector2::Normalized() noexcept
+inline void Vector2::Normalized() noexcept
 {
 	*this /= Length();
 }
 
-Vector2 Vector2::Normalize(const Vector2& vec) noexcept
+inline Vector2 Vector2::Normalize(const Vector2& vec) noexcept
 {
 	return vec / vec.Length();
 }
 
-float Vector2::Dot(const Vector2& lhs, const Vector2& rhs) noexcept
+inline float Vector2::Dot(const Vector2& lhs, const Vector2& rhs) noexcept
 {
 	return (lhs.x * rhs.x) + (lhs.y * rhs.y);
 }
 
-Vector2 Vector2::Reflect(const Vector2& v, const Vector2& n) noexcept
+inline Vector2 Vector2::Reflect(const Vector2& v, const Vector2& n) noexcept
 {
 	return v - 2.0f * Vector2::Dot(v, n) * n;
 }
 
-Vector2 Vector2::Transform(const Vector2& vec, const class Matrix3& mat, float w = 1.0f) noexcept
+inline Vector2 Vector2::Transform(const Vector2& vec, const class Matrix3& mat, float w /*= 1.0f*/) noexcept
 {
-
+	return Vector2::Zero;
 }
 
-Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept
+inline Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept
 {
 	return Vector2{ lhs.x + rhs.x, lhs.y + rhs.y };
 }
 
-Vector2 operator-(const Vector2& lhs, const Vector2& rhs) noexcept
+inline Vector2 operator-(const Vector2& lhs, const Vector2& rhs) noexcept
 {
 	return Vector2{ lhs.x - rhs.x, lhs.y - rhs.y };
 }
 
-Vector2 operator*(const Vector2& lhs, const Vector2& rhs) noexcept
+inline Vector2 operator*(const Vector2& lhs, const Vector2& rhs) noexcept
 {
 	return Vector2{ lhs.x * rhs.x, lhs.y * rhs.y };
 }
 
-Vector2 operator*(const Vector2& vec, const float scalar) noexcept
+inline Vector2 operator*(const Vector2& vec, const float scalar) noexcept
 {
 	return Vector2{ vec.x * scalar, vec.y * scalar };
 }
 
-Vector2 operator*(const float scalar, const Vector2& vec) noexcept
+inline Vector2 operator*(const float scalar, const Vector2& vec) noexcept
 {
 	return Vector2{ vec.x * scalar, vec.y * scalar };
 }
 
-Vector2 operator/(const Vector2& lhs, const Vector2& rhs) noexcept
+inline Vector2 operator/(const Vector2& lhs, const Vector2& rhs) noexcept
 {
 	return Vector2{ lhs.x / rhs.x, lhs.y / rhs.y };
 }
 
-Vector2 operator/(const Vector2& vec, const float scalar) noexcept
+inline Vector2 operator/(const Vector2& vec, const float scalar) noexcept
 {
 	return Vector2{ vec.x / scalar, vec.y / scalar };
 }

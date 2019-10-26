@@ -412,14 +412,42 @@ template <uint8 Row, uint8 Column>
 void Matrix<Row, Column>::Inverted() noexcept
 {
 	static_check(Row == Column);
-	const Matrix<Row, Column> ret = adjoint(*this);
+	Matrix<Row, Column> ret;
+	float sign = 1.0f;
+
+	for (uint8 row = 0; row < Row; ++row)
+	{
+		for (uint8 column = 0; column < Column; ++column)
+		{
+			Matrix<Row - 1, Column - 1> sub_matrix;
+
+			for (uint8 srcRow = 0, destRow = 0; srcRow < Row; ++srcRow)
+			{
+				if (srcRow == row) continue;
+				for (uint8 srcColumn = 0, destColumn = 0; srcColumn < Column; ++srcColumn)
+				{
+					if (srcColumn == column) continue;
+
+					sub_matrix[destRow][destColumn] = mat[srcRow][srcColumn];
+					++destColumn;
+				}
+
+				++destRow;
+			}
+
+			ret(column, row) = sign * Det(sub_matrix);
+			sign *= -1.0f;
+		}
+		sign *= -1.0f;
+	}
+
 	*this = ret / Det(*this);
 }
 
 template <uint8 Row, uint8 Column>
 const char* Matrix<Row, Column>::ToString() const noexcept
 {
-
+	return "";
 }
 
 using Matrix2x2 = Matrix<2, 2>;

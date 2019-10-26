@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Macro.h"
+#include "Core.h"
 
 class BS_API Vector3 {
 public:
@@ -19,6 +19,8 @@ public:
 	Vector3(float* elems) noexcept;
 
 	void Set(float inX, float inY, float inZ) noexcept;
+
+	float& operator[](uint8 index) noexcept;
 
 	Vector3 operator+() const noexcept;
 	Vector3 operator-() const noexcept;
@@ -72,6 +74,21 @@ inline void Vector3::Set(float inX, float inY, float inZ) noexcept
 	x = inX;
 	y = inY;
 	z = inZ;
+}
+
+inline float& Vector3::operator[](uint8 index) noexcept
+{
+	switch (index)
+	{
+	case 0:
+		return x;
+	case 1:
+		return y;
+	case 2:
+		return z;
+	default:
+		check(false);
+	}
 }
 
 inline Vector3 Vector3::operator+() const noexcept

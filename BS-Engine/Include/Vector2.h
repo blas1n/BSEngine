@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Macro.h"
+#include "Core.h"
 
 class BS_API Vector2 {
 public:
@@ -17,6 +17,8 @@ public:
 	Vector2(float* elems) noexcept;
 
 	void Set(float inX, float inY) noexcept;
+
+	float& operator[](uint8 index) noexcept;
 
 	Vector2 operator+() const noexcept;
 	Vector2 operator-() const noexcept;
@@ -38,7 +40,6 @@ public:
 	static Vector2 Reflect(const Vector2& v, const Vector2& n) noexcept;
 	static Vector2 Transform(const Vector2& vec, const class Matrix3& mat, float w = 1.0f) noexcept;
 
-	// freinds
 	friend Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept;
 	friend Vector2 operator-(const Vector2& lhs, const Vector2& rhs) noexcept;
 	friend Vector2 operator*(const Vector2& lhs, const Vector2& rhs) noexcept;
@@ -68,6 +69,19 @@ inline void Vector2::Set(float inX, float inY) noexcept
 {
 	x = inX;
 	y = inY;
+}
+
+inline float& Vector2::operator[](uint8 index) noexcept
+{
+	switch (index)
+	{
+	case 0:
+		return x;
+	case 1:
+		return y;
+	default:
+		check(false);
+	}
 }
 
 inline Vector2 Vector2::operator+() const noexcept

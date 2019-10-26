@@ -107,11 +107,11 @@ namespace Math
 		return acosf(value);
 	}
 
-	inline float ASin(const float value) {
+	inline float Asin(const float value) {
 		return asinf(value);
 	}
 
-	inline float ATan(const float value) {
+	inline float Atan(const float value) {
 		return atanf(value);
 	}
 

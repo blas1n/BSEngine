@@ -19,6 +19,7 @@ public:
 	void Set(float inX, float inY) noexcept;
 
 	float& operator[](uint8 index) noexcept;
+	const float& operator[](uint8 index) const noexcept;
 
 	Vector2 operator+() const noexcept;
 	Vector2 operator-() const noexcept;
@@ -73,15 +74,14 @@ inline void Vector2::Set(float inX, float inY) noexcept
 
 inline float& Vector2::operator[](uint8 index) noexcept
 {
-	switch (index)
-	{
-	case 0:
-		return x;
-	case 1:
-		return y;
-	default:
-		check(false);
-	}
+	check(index < 3);
+	return (&x)[index];
+}
+
+inline const float& Vector2::operator[](uint8 index) const noexcept
+{
+	check(index < 3);
+	return (&x)[index];
 }
 
 inline Vector2 Vector2::operator+() const noexcept

@@ -21,6 +21,7 @@ public:
 	void Set(float inX, float inY, float inZ) noexcept;
 
 	float& operator[](uint8 index) noexcept;
+	const float& operator[](uint8 index) const noexcept;
 
 	Vector3 operator+() const noexcept;
 	Vector3 operator-() const noexcept;
@@ -78,17 +79,14 @@ inline void Vector3::Set(float inX, float inY, float inZ) noexcept
 
 inline float& Vector3::operator[](uint8 index) noexcept
 {
-	switch (index)
-	{
-	case 0:
-		return x;
-	case 1:
-		return y;
-	case 2:
-		return z;
-	default:
-		check(false);
-	}
+	check(index < 4);
+	return (&x)[index];
+}
+
+inline const float& Vector3::operator[](uint8 index) const noexcept
+{
+	check(index < 4);
+	return (&x)[index];
 }
 
 inline Vector3 Vector3::operator+() const noexcept

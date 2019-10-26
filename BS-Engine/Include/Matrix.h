@@ -413,7 +413,7 @@ void Matrix<Row, Column>::Inverted() noexcept
 {
 	static_check(Row == Column);
 	Matrix<Row, Column> ret;
-	float sign = 1.0f;
+	auto sign = 1.0f;
 
 	for (uint8 row = 0; row < Row; ++row)
 	{

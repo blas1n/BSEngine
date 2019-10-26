@@ -13,7 +13,7 @@ public:
 	float y;
 
 	constexpr Vector2() noexcept;
-	Vector2(float inX, float inY) noexcept;
+	constexpr Vector2(float inX, float inY) noexcept;
 	Vector2(float* elems) noexcept;
 
 	void Set(float inX, float inY) noexcept;
@@ -60,7 +60,7 @@ private:
 inline constexpr Vector2::Vector2() noexcept
 	: x(0.0f), y(0.0f) {}
 
-inline Vector2::Vector2(float inX, float inY) noexcept
+inline constexpr Vector2::Vector2(float inX, float inY) noexcept
 	: x(inX), y(inY) {}
 
 inline Vector2::Vector2(float* elems) noexcept

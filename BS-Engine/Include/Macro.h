@@ -12,6 +12,8 @@ using tchar = char;
 #define TEXT(x) x
 #endif
 
+#define static_check(expr) { static_assert(expr); }
+
 #if _DEBUG
 #define check(expr) { if (!(expr)) { assert(false); } }
 #else

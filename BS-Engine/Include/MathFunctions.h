@@ -8,11 +8,12 @@ class Vector2;
 class Vector3;
 class Vector4;
 
+/// @todo Add more functions using SIMD
 namespace Math
 {
 	constexpr float PI = 3.1415926535f;
 	constexpr float MACHINE_EPSILON = std::numeric_limits<float>::epsilon();
-	
+
 	template <class T>
 	using IsArithmetic = std::enable_if_t<std::is_arithmetic_v<T>, T>;
 
@@ -78,56 +79,72 @@ namespace Math
 	template <class T, class = IsArithmetic<T>>
 	inline T Pow(const T& x, const T& y = 2.0f)
 	{
-		return std::powf(x, y);
+		return pow(x, y);
+	}
+
+	template <class T, class = IsArithmetic<T>>
+	inline T CopySign(const T& number, const T& sign)
+	{
+		return copysign(number, sign);
 	}
 
 	inline float Sqrt(const float value)
 	{
-		return std::sqrtf(value);
+		return sqrt(value);
 	}
 
 	inline float Fmod(const float numer, const float denom)
 	{
-		return std::fmodf(numer, denom);
+		return fmod(numer, denom);
 	}
 
-	inline float Cos(const float angle) {
-		return cosf(angle);
+	inline float Cos(const float angle)
+	{
+		return cos(angle);
 	}
 
-	inline float Sin(const float angle) {
-		return sinf(angle);
+	inline float Sin(const float angle)
+	{
+		return sin(angle);
 	}
 
-	inline float Tan(const float angle) {
-		return tanf(angle);
+	inline float Tan(const float angle)
+	{
+		return tan(angle);
 	}
 
-	inline float Acos(const float value) {
-		return acosf(value);
+	inline float Acos(const float value)
+	{
+		return acos(value);
 	}
 
-	inline float Asin(const float value) {
-		return asinf(value);
+	inline float Asin(const float value)
+	{
+		return asin(value);
 	}
 
-	inline float Atan(const float value) {
-		return atanf(value);
+	inline float Atan(const float value)
+	{
+		return atan(value);
 	}
 
-	inline float Atan2(const float y, const float x) {
-		return atan2f(y, x);
+	inline float Atan2(const float y, const float x)
+	{
+		return atan2(y, x);
 	}
 
-	inline float Sec(const float angle) {
+	inline float Sec(const float angle)
+	{
 		return 1.0f / Cos(angle);
 	}
 
-	inline float Cosec(const float angle) {
+	inline float Cosec(const float angle)
+	{
 		return 1.0f / Sin(angle);
 	}
 
-	inline float Cot(const float angle) {
+	inline float Cot(const float angle)
+	{
 		return 1.0f / Tan(angle);
 	}
 }

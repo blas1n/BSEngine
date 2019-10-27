@@ -7,17 +7,17 @@ namespace Math
 {
 	bool NearEqual(const Vector2& lhs, const Vector2& rhs, const float epsilon /*= MACHINE_EPSILON*/)
 	{
-		return (lhs - rhs).LengthSquared() <= Math::Pow(epsilon);
+		return (lhs - rhs).LengthSquared() <= Pow(epsilon);
 	}
 
 	bool NearEqual(const Vector3& lhs, const Vector3& rhs, const float epsilon /*= MACHINE_EPSILON*/)
 	{
-		return (lhs - rhs).LengthSquared() <= Math::Pow(epsilon);
+		return (lhs - rhs).LengthSquared() <= Pow(epsilon);
 	}
 
 	bool NearEqual(const Vector4& lhs, const Vector4& rhs, const float epsilon /*= MACHINE_EPSILON*/)
 	{
-		return (lhs - rhs).LengthSquared() <= Math::Pow(epsilon);
+		return (lhs - rhs).LengthSquared() <= Pow(epsilon);
 	}
 
 	Vector2 Lerp(const Vector2& a, const Vector2& b, const float delta)

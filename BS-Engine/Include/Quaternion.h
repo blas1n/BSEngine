@@ -1,10 +1,11 @@
 #pragma once
 
-#include "MathFunctions.h"
 #include "Vector4.h"
+#include <utility>
 
 class Vector3;
 
+/// @todo Use SIMD register
 class BS_API Quaternion
 {
 public:
@@ -91,16 +92,7 @@ inline Quaternion Quaternion::Inverse(const Quaternion& rotation) noexcept
 inline float Quaternion::Dot(const Quaternion& lhs, const Quaternion& rhs) noexcept
 {
 	return Vector4::Dot(lhs.vec, rhs.vec);
-}
-
-inline Quaternion Quaternion::Lerp(const Quaternion& a, const Quaternion& b, float delta) noexcept
-{
-	auto ret = Math::Lerp(a.vec, b.vec, delta);
-	const auto len =
-		Math::Sqrt(Math::Pow(ret.x) + Math::Pow(ret.y) + Math::Pow(ret.z) + Math::Pow(ret.w));
-
-	return Quaternion{ ret / len };
-}
+} 
 
 inline Quaternion Quaternion::operator*=(const Quaternion& other) noexcept
 {

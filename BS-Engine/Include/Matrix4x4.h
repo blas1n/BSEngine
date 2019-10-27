@@ -158,9 +158,10 @@ inline Matrix4x4& Matrix4x4::operator/=(float scaler) noexcept
 	rows[3] /= scaler;
 }
 
-Matrix4x4& Matrix4x4::operator*=(const Matrix4x4& other) noexcept
+inline Matrix4x4& Matrix4x4::operator*=(const Matrix4x4& other) noexcept
 {
 	*this = *this * other;
+	return *this;
 }
 
 inline Matrix4x4 operator+(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
@@ -215,30 +216,6 @@ inline Matrix4x4 operator/(const Matrix4x4& mat, float scaler) noexcept
 		mat[1] / scaler,
 		mat[2] / scaler,
 		mat[3] / scaler,
-	};
-}
-
-Matrix4x4 operator*(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
-{
-	auto transRhs = Matrix4x4::Transpose(rhs);
-	return Matrix4x4
-	{
-		Vector4::Dot(lhs[0], transRhs[0]),
-		Vector4::Dot(lhs[0], transRhs[1]),
-		Vector4::Dot(lhs[0], transRhs[2]),
-		Vector4::Dot(lhs[0], transRhs[3]),
-		Vector4::Dot(lhs[1], transRhs[0]),
-		Vector4::Dot(lhs[1], transRhs[1]),
-		Vector4::Dot(lhs[1], transRhs[2]),
-		Vector4::Dot(lhs[1], transRhs[3]),
-		Vector4::Dot(lhs[2], transRhs[0]),
-		Vector4::Dot(lhs[2], transRhs[1]),
-		Vector4::Dot(lhs[2], transRhs[2]),
-		Vector4::Dot(lhs[2], transRhs[3]),
-		Vector4::Dot(lhs[3], transRhs[0]),
-		Vector4::Dot(lhs[3], transRhs[1]),
-		Vector4::Dot(lhs[3], transRhs[2]),
-		Vector4::Dot(lhs[3], transRhs[3])
 	};
 }
 

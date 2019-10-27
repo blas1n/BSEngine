@@ -24,6 +24,30 @@ const Matrix4x4 Matrix4x4::Identity
 	0.0f, 0.0f, 0.0f, 1.0f
 };
 
+Matrix4x4 operator*(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
+{
+	auto transRhs = Matrix4x4::Transpose(rhs);
+	return Matrix4x4
+	{
+		Vector4::Dot(lhs[0], transRhs[0]),
+		Vector4::Dot(lhs[0], transRhs[1]),
+		Vector4::Dot(lhs[0], transRhs[2]),
+		Vector4::Dot(lhs[0], transRhs[3]),
+		Vector4::Dot(lhs[1], transRhs[0]),
+		Vector4::Dot(lhs[1], transRhs[1]),
+		Vector4::Dot(lhs[1], transRhs[2]),
+		Vector4::Dot(lhs[1], transRhs[3]),
+		Vector4::Dot(lhs[2], transRhs[0]),
+		Vector4::Dot(lhs[2], transRhs[1]),
+		Vector4::Dot(lhs[2], transRhs[2]),
+		Vector4::Dot(lhs[2], transRhs[3]),
+		Vector4::Dot(lhs[3], transRhs[0]),
+		Vector4::Dot(lhs[3], transRhs[1]),
+		Vector4::Dot(lhs[3], transRhs[2]),
+		Vector4::Dot(lhs[3], transRhs[3])
+	};
+}
+
 inline float GetDeterminant(const Matrix4x4& mat) noexcept
 {
 	return

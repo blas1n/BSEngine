@@ -139,6 +139,7 @@ inline Matrix3x3& Matrix3x3::operator*=(float scaler) noexcept
 	rows[0] *= scaler;
 	rows[1] *= scaler;
 	rows[2] *= scaler;
+	return *this;
 }
 
 inline Matrix3x3& Matrix3x3::operator/=(float scaler) noexcept
@@ -146,11 +147,13 @@ inline Matrix3x3& Matrix3x3::operator/=(float scaler) noexcept
 	rows[0] /= scaler;
 	rows[1] /= scaler;
 	rows[2] /= scaler;
+	return *this;
 }
 
-Matrix3x3& Matrix3x3::operator*=(const Matrix3x3& other) noexcept
+inline Matrix3x3& Matrix3x3::operator*=(const Matrix3x3& other) noexcept
 {
 	*this = *this * other;
+	return *this;
 }
 
 inline Matrix3x3 operator+(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
@@ -200,23 +203,6 @@ inline Matrix3x3 operator/(const Matrix3x3& mat, float scaler) noexcept
 		mat[0] / scaler,
 		mat[1] / scaler,
 		mat[2] / scaler
-	};
-}
-
-Matrix3x3 operator*(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
-{
-	auto transRhs = Matrix3x3::Transpose(rhs);
-	return Matrix3x3
-	{
-		Vector3::Dot(lhs[0], transRhs[0]),
-		Vector3::Dot(lhs[0], transRhs[1]),
-		Vector3::Dot(lhs[0], transRhs[2]),
-		Vector3::Dot(lhs[1], transRhs[0]),
-		Vector3::Dot(lhs[1], transRhs[1]),
-		Vector3::Dot(lhs[1], transRhs[2]),
-		Vector3::Dot(lhs[2], transRhs[0]),
-		Vector3::Dot(lhs[2], transRhs[1]),
-		Vector3::Dot(lhs[2], transRhs[2]),
 	};
 }
 

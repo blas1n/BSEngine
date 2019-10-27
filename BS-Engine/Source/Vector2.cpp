@@ -17,7 +17,7 @@ float Vector2::Length() const noexcept
 	return Math::Sqrt(LengthSquared());
 }
 
-Vector2 Vector2::Transform(const Vector2& vec, const Matrix3x3& mat, float w = 1.0f) noexcept
+Vector2 Vector2::Transform(const Vector2& vec, const Matrix3x3& mat, float w /*= 1.0f*/) noexcept
 {
 	return Vector2
 	{

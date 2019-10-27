@@ -21,6 +21,23 @@ const Matrix3x3 Matrix3x3::Identity
 	0.0f, 0.0f, 1.0f
 };
 
+Matrix3x3 operator*(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
+{
+	auto transRhs = Matrix3x3::Transpose(rhs);
+	return Matrix3x3
+	{
+		Vector3::Dot(lhs[0], transRhs[0]),
+		Vector3::Dot(lhs[0], transRhs[1]),
+		Vector3::Dot(lhs[0], transRhs[2]),
+		Vector3::Dot(lhs[1], transRhs[0]),
+		Vector3::Dot(lhs[1], transRhs[1]),
+		Vector3::Dot(lhs[1], transRhs[2]),
+		Vector3::Dot(lhs[2], transRhs[0]),
+		Vector3::Dot(lhs[2], transRhs[1]),
+		Vector3::Dot(lhs[2], transRhs[2]),
+	};
+}
+
 inline float GetDeterminant(const Matrix3x3& mat) noexcept
 {
 	return

@@ -1,4 +1,5 @@
 #include "Quaternion.h"
+#include "MathFunctions.h"
 #include "Vector3.h"
 
 const Quaternion Quaternion::Identity
@@ -6,7 +7,7 @@ const Quaternion Quaternion::Identity
 	0.0f, 0.0f, 0.0f, 1.0f
 };
 
-Quaternion::Quaternion(const Vector3& axis, float angle) noexcept
+Quaternion::Quaternion(const Vector3& axis, const float angle) noexcept
 	: vec()
 {
 	const auto scalar = Math::Sin(angle * 0.5f);
@@ -20,16 +21,16 @@ Quaternion::Quaternion(const Vector3& euler) noexcept
 	: vec()
 {
 	const auto halfX = euler.x * 0.5f;
-	const auto sinX = std::sin(halfX);
-	const auto cosX = std::cos(halfX);
+	const auto sinX = Math::Sin(halfX);
+	const auto cosX = Math::Cos(halfX);
 
 	const auto halfY = euler.y * 0.5f;
-	const auto sinY = std::sin(halfY);
-	const auto cosY = std::cos(halfY);
+	const auto sinY = Math::Sin(halfY);
+	const auto cosY = Math::Cos(halfY);
 
 	const auto halfZ = euler.z * 0.5f;
-	const auto sinZ = std::sin(halfZ);
-	const auto cosZ = std::cos(halfZ);
+	const auto sinZ = Math::Sin(halfZ);
+	const auto cosZ = Math::Cos(halfZ);
 
 	const auto cosYcosZ = cosY * cosZ;
 	const auto sinYcosZ = sinY * cosZ;
@@ -54,7 +55,7 @@ Vector3 Quaternion::ToEuler() const noexcept
 
 	const auto sinP = (vec.w * vec.y - vec.z * vec.x) * 2.0f;
 	if (Math::Abs(sinP) >= 1.0f)
-		ret.y = copysign(Math::PI * 0.5f, sinP);
+		ret.y = Math::CopySign(Math::PI * 0.5f, sinP);
 	else
 		ret.y = Math::Asin(sinP);
 
@@ -63,6 +64,15 @@ Vector3 Quaternion::ToEuler() const noexcept
 	ret.z = Math::Atan2(sinYcosP, cosYCosP);
 
 	return ret;
+}
+
+Quaternion Quaternion::Lerp(const Quaternion& a, const Quaternion& b, const float delta) noexcept
+{
+	const auto ret = Math::Lerp(a.vec, b.vec, delta);
+	const auto len =
+		Math::Sqrt(Math::Pow(ret.x) + Math::Pow(ret.y) + Math::Pow(ret.z) + Math::Pow(ret.w));
+
+	return Quaternion{ ret / len };
 }
 
 Quaternion Quaternion::Slerp(const Quaternion& a, const Quaternion& b, float delta) noexcept

@@ -2,6 +2,7 @@
 
 #include "Core.h"
 
+/// @todo Use SIMD register
 class BS_API Vector3 {
 public:
 	static const Vector3 Zero;

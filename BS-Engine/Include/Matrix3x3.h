@@ -3,6 +3,7 @@
 #include "Vector2.h"
 #include "Vector3.h"
 
+/// @todo Use SIMD register
 class BS_API Matrix3x3
 {
 public:

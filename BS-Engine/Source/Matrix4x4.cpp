@@ -1,5 +1,6 @@
 #include "Matrix4x4.h"
 #include "Quaternion.h"
+#include "MathFunctions.h"
 #include <algorithm>
 
 const Matrix4x4 Matrix4x4::Zero

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Vector3.h"
 #include "Vector4.h"
 
 class BS_API Matrix4x4
@@ -13,7 +14,7 @@ public:
 	Matrix4x4(Vector4 inRows[4]) noexcept;
 	Matrix4x4(const Vector4& row0, const Vector4& row1, const Vector4& row2, const Vector4& row3) noexcept;
 	Matrix4x4(float elems[4][4]) noexcept;
-	constexpr Matrix4x4(float r0c0, float r0c1, float r0c2, float r0c3,
+	Matrix4x4(float r0c0, float r0c1, float r0c2, float r0c3,
 		float r1c0, float r1c1, float r1c2, float r1c3,
 		float r2c0, float r2c1, float r2c2, float r2c3,
 		float r3c0, float r3c1, float r3c2, float r3c3) noexcept;
@@ -53,19 +54,35 @@ public:
 	Vector4& operator[](uint8 row) noexcept;
 	const Vector4& operator[](uint8 row) const noexcept;
 
+	static Matrix4x4 FromTranslation(float x, float y, float z) noexcept;
+	static Matrix4x4 FromTranslation(const Vector3& translation) noexcept;
+
+	static Matrix4x4 FromRotationX(float theta) noexcept;
+	static Matrix4x4 FromRotationY(float theta) noexcept;
+	static Matrix4x4 FromRotationZ(float theta) noexcept;
+
+	static Matrix4x4 FromQuaternion(const class Quaternion& q) noexcept;
+
+	static Matrix4x4 FromScale(float x, float y, float z) noexcept;
+	static Matrix4x4 FromScale(const Vector3& scale) noexcept;
+	static Matrix4x4 FromScale(float scale) noexcept;
+
+	Vector3 GetTranslation() const noexcept;
+	Vector3 GetScale() const noexcept;
+
 	static Matrix4x4 Transpose(const Matrix4x4& mat) noexcept;
 
 	static Matrix4x4 Invert(const Matrix4x4& mat) noexcept;
 	void Inverted() noexcept;
-
-private:
-	Vector4 rows[4];
 
 	/// @warning Do not use it as an operator for the underlying API.
 	explicit operator const float* () const noexcept
 	{
 		return reinterpret_cast<const float*>(rows);
 	}
+
+private:
+	Vector4 rows[4];
 };
 
 inline constexpr Matrix4x4::Matrix4x4() noexcept
@@ -98,7 +115,7 @@ inline Matrix4x4::Matrix4x4(float elems[4][4]) noexcept
 	rows[3].Set(elems[3][0], elems[3][1], elems[3][2], elems[3][3]);
 }
 
-inline constexpr Matrix4x4::Matrix4x4(
+inline Matrix4x4::Matrix4x4(
 	float r0c0, float r0c1, float r0c2, float r0c3,
 	float r1c0, float r1c1, float r1c2, float r1c3,
 	float r2c0, float r2c1, float r2c2, float r2c3,
@@ -237,6 +254,58 @@ inline Vector4& Matrix4x4::operator[](uint8 row) noexcept
 inline const Vector4& Matrix4x4::operator[](uint8 row) const noexcept
 {
 	return rows[row];
+}
+
+inline Matrix4x4 Matrix4x4::FromTranslation(float x, float y, float z) noexcept
+{
+	return Matrix4x4
+	{
+		1.0f, 0.0, 0.0f, 0.0f,
+		0.0f, 1.0, 0.0f, 0.0f,
+		0.0f, 0.0, 1.0f, 0.0f,
+		x, y, z, 1.0f
+	};
+}
+
+inline Matrix4x4 Matrix4x4::FromTranslation(const Vector3& translation) noexcept
+{
+	return FromTranslation(translation.x, translation.y, translation.z);
+}
+
+inline Matrix4x4 Matrix4x4::FromScale(float x, float y, float z) noexcept
+{
+	return Matrix4x4
+	{
+		x, 0.0f, 0.0f, 0.0f,
+		0.0f, y, 0.0f, 0.0f,
+		0.0f, 0.0f, z, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	};
+}
+
+inline Matrix4x4 Matrix4x4::FromScale(const Vector3& scale) noexcept
+{
+	return FromScale(scale.x, scale.y, scale.z);
+}
+
+inline Matrix4x4 Matrix4x4::FromScale(float scale) noexcept
+{
+	return FromScale(scale, scale, scale);
+}
+
+inline Vector3 Matrix4x4::GetTranslation() const noexcept
+{
+	return Vector3{ rows[3][0], rows[3][1], rows[3][2] };
+}
+
+inline Vector3 Matrix4x4::GetScale() const noexcept
+{
+	return Vector3
+	{
+		Vector3{ rows[0][0], rows[0][1], rows[0][2] }.Length(),
+		Vector3{ rows[1][0], rows[1][1], rows[1][2] }.Length(),
+		Vector3{ rows[2][0], rows[2][1], rows[2][2] }.Length()
+	};
 }
 
 inline Matrix4x4 Matrix4x4::Transpose(const Matrix4x4& mat) noexcept

@@ -1,4 +1,6 @@
 #include "Matrix4x4.h"
+#include "Quaternion.h"
+#include <algorithm>
 
 const Matrix4x4 Matrix4x4::Zero
 {
@@ -45,6 +47,62 @@ Matrix4x4 operator*(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
 		Vector4::Dot(lhs[3], transRhs[1]),
 		Vector4::Dot(lhs[3], transRhs[2]),
 		Vector4::Dot(lhs[3], transRhs[3])
+	};
+}
+
+Matrix4x4 Matrix4x4::FromQuaternion(const Quaternion& q) noexcept
+{
+	return Matrix4x4
+	{
+		1.0f - 2.0f * q[1] * q[1] - 2.0f * q[2] * q[2],
+		2.0f * q[0] * q[1] + 2.0f * q[3] * q[2],
+		2.0f * q[0] * q[2] - 2.0f * q[3] * q[1],
+		0.0f, 
+
+		2.0f * q[0] * q[1] - 2.0f * q[3] * q[2],
+		1.0f - 2.0f * q[0] * q[0] - 2.0f * q[2] * q[2],
+		2.0f * q[1] * q[2] + 2.0f * q[3] * q[0],
+		0.0f,
+
+		2.0f * q[0] * q[2] + 2.0f * q[3] * q[1],
+		2.0f * q[1] * q[2] - 2.0f * q[3] * q[0],
+		1.0f - 2.0f * q[0] * q[0] - 2.0f * q[1] * q[1],
+		0.0f,
+
+		0.0f, 0.0f, 0.0f, 1.0f
+	};
+}
+
+Matrix4x4 Matrix4x4::FromRotationX(float theta) noexcept
+{
+	return Matrix4x4
+	{
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, Math::Cos(theta), Math::Sin(theta), 0.0f,
+		0.0f, -Math::Sin(theta), Math::Cos(theta), 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	};
+}
+
+Matrix4x4 Matrix4x4::FromRotationY(float theta) noexcept
+{
+	return Matrix4x4
+	{
+		Math::Cos(theta), 0.0f, -Math::Sin(theta), 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		Math::Sin(theta), 0.0f, Math::Cos(theta), 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	};
+}
+
+Matrix4x4 Matrix4x4::FromRotationZ(float theta) noexcept
+{
+	return Matrix4x4
+	{
+		Math::Cos(theta), Math::Sin(theta), 0.0f, 0.0f,
+		-Math::Sin(theta), Math::Cos(theta), 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
 	};
 }
 

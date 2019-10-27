@@ -13,7 +13,7 @@ public:
 	Matrix4x4(Vector4 inRows[4]) noexcept;
 	Matrix4x4(const Vector4& row0, const Vector4& row1, const Vector4& row2, const Vector4& row3) noexcept;
 	Matrix4x4(float elems[4][4]) noexcept;
-	Matrix4x4(float r0c0, float r0c1, float r0c2, float r0c3,
+	constexpr Matrix4x4(float r0c0, float r0c1, float r0c2, float r0c3,
 		float r1c0, float r1c1, float r1c2, float r1c3,
 		float r2c0, float r2c1, float r2c2, float r2c3,
 		float r3c0, float r3c1, float r3c2, float r3c3) noexcept;
@@ -98,7 +98,7 @@ inline Matrix4x4::Matrix4x4(float elems[4][4]) noexcept
 	rows[3].Set(elems[3][0], elems[3][1], elems[3][2], elems[3][3]);
 }
 
-inline Matrix4x4::Matrix4x4(
+inline constexpr Matrix4x4::Matrix4x4(
 	float r0c0, float r0c1, float r0c2, float r0c3,
 	float r1c0, float r1c1, float r1c2, float r1c3,
 	float r2c0, float r2c1, float r2c2, float r2c3,

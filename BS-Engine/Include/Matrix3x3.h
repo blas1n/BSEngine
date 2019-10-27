@@ -13,7 +13,7 @@ public:
 	Matrix3x3(Vector3 inRows[3]) noexcept;
 	Matrix3x3(const Vector3& row0, const Vector3& row1, const Vector3& row2) noexcept;
 	Matrix3x3(float elems[3][3]) noexcept;
-	Matrix3x3(float r0c0, float r0c1, float r0c2,
+	constexpr Matrix3x3(float r0c0, float r0c1, float r0c2,
 		float r1c0, float r1c1, float r1c2,
 		float r2c0, float r2c1, float r2c2) noexcept;
 
@@ -94,7 +94,7 @@ inline Matrix3x3::Matrix3x3(float elems[3][3]) noexcept
 	rows[2].Set(elems[2][0], elems[2][1], elems[2][2]);
 }
 
-inline Matrix3x3::Matrix3x3(
+inline constexpr Matrix3x3::Matrix3x3(
 	float r0c0, float r0c1, float r0c2,
 	float r1c0, float r1c1, float r1c2,
 	float r2c0, float r2c1, float r2c2) noexcept

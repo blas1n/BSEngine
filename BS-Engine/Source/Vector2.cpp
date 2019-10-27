@@ -1,4 +1,5 @@
 #include "Vector2.h"
+#include "Matrix3x3.h"
 #include "MathFunctions.h"
 
 const Vector2 Vector2::Zero{ 0.0f, 0.0f };
@@ -14,4 +15,13 @@ float Vector2::LengthSquared() const noexcept
 float Vector2::Length() const noexcept
 {
 	return Math::Sqrt(LengthSquared());
+}
+
+Vector2 Vector2::Transform(const Vector2& vec, const Matrix3x3& mat, float w = 1.0f) noexcept
+{
+	return Vector2
+	{
+		vec.x * mat[0][0] + vec.y * mat[1][0] + w * mat[2][0],
+		vec.x * mat[0][1] + vec.y * mat[1][1] + w * mat[2][1]
+	};
 }

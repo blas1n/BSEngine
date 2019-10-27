@@ -39,7 +39,7 @@ public:
 
 	static float Dot(const Vector2& lhs, const Vector2& rhs) noexcept;
 	static Vector2 Reflect(const Vector2& v, const Vector2& n) noexcept;
-	static Vector2 Transform(const Vector2& vec, const class Matrix3& mat, float w = 1.0f) noexcept;
+	static Vector2 Transform(const Vector2& vec, const class Matrix3x3& mat, float w = 1.0f) noexcept;
 
 	friend Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept;
 	friend Vector2 operator-(const Vector2& lhs, const Vector2& rhs) noexcept;
@@ -154,11 +154,6 @@ inline float Vector2::Dot(const Vector2& lhs, const Vector2& rhs) noexcept
 inline Vector2 Vector2::Reflect(const Vector2& v, const Vector2& n) noexcept
 {
 	return v - 2.0f * Vector2::Dot(v, n) * n;
-}
-
-inline Vector2 Vector2::Transform(const Vector2& vec, const class Matrix3& mat, float w /*= 1.0f*/) noexcept
-{
-	return Vector2::Zero;
 }
 
 inline Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept

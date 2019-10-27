@@ -4,7 +4,6 @@
 #include "Vector4.h"
 
 class Vector3;
-class Matrix4x4;
 
 class BS_API Quaternion
 {

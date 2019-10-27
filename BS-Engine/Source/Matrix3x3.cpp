@@ -1,4 +1,5 @@
 #include "Matrix3x3.h"
+#include "MathFunctions.h"
 
 const Matrix3x3 Matrix3x3::Zero
 {
@@ -35,6 +36,16 @@ Matrix3x3 operator*(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
 		Vector3::Dot(lhs[2], transRhs[0]),
 		Vector3::Dot(lhs[2], transRhs[1]),
 		Vector3::Dot(lhs[2], transRhs[2]),
+	};
+}
+
+inline Matrix3x3 Matrix3x3::FromRotation(float theta) noexcept
+{
+	return Matrix3x3
+	{
+		Math::Cos(theta), Math::Sin(theta), 0.0f,
+		-Math::Sin(theta), Math::Cos(theta), 0.0f,
+		0.0f, 0.0f, 1.0f
 	};
 }
 

@@ -56,7 +56,6 @@ public:
 	friend Vector3 operator/(const Vector3& lhs, const Vector3& rhs) noexcept;
 	friend Vector3 operator/(const Vector3& vec, const float scalar) noexcept;
 
-private:
 	/// @warning Do not use it as an operator for the underlying API.
 	explicit operator const float* () const noexcept
 	{

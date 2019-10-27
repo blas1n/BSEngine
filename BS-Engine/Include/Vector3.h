@@ -42,7 +42,10 @@ public:
 	static float Dot(const Vector3& lhs, const Vector3& rhs) noexcept;
 	static Vector3 Cross(const Vector3& lhs, const Vector3& rhs) noexcept;
 	static Vector3 Reflect(const Vector3& v, const Vector3& n) noexcept;
-	static Vector3 Transform(const Vector3& vec, const class Matrix3& mat, float w = 1.0f) noexcept;
+	
+	static Vector3 Transform(const Vector3& v, const class Quaternion& q) noexcept;
+	static Vector3 Transform(const Vector3& vec, const class Matrix4x4& mat, float w = 1.0f) noexcept;
+	static Vector3 TransformWithPerspDiv(const Vector3& vec, const class Matrix4x4& mat, float w = 1.0f) noexcept;
 
 	// freinds
 	friend Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept;
@@ -174,11 +177,6 @@ inline Vector3 Vector3::Cross(const Vector3& lhs, const Vector3& rhs) noexcept
 inline Vector3 Vector3::Reflect(const Vector3& v, const Vector3& n) noexcept
 {
 	return v - 2.0f * Vector3::Dot(v, n) * n;
-}
-
-inline Vector3 Vector3::Transform(const Vector3& vec, const class Matrix3& mat, float w /*= 1.0f*/) noexcept
-{
-	return Vector3::Zero;
 }
 
 inline Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept

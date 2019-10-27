@@ -42,9 +42,7 @@ public:
 	static Vector4 Normalize(const Vector4& vec) noexcept;
 
 	static float Dot(const Vector4& lhs, const Vector4& rhs) noexcept;
-	static Vector4 Reflect(const Vector4& v, const Vector4& n) noexcept;
-	static Vector4 Transform(const Vector4& vec, const class Matrix3& mat, float w = 1.0f) noexcept;
-
+	
 	// freinds
 	friend Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept;
 	friend Vector4 operator-(const Vector4& lhs, const Vector4& rhs) noexcept;
@@ -168,16 +166,6 @@ inline Vector4 Vector4::Normalize(const Vector4& vec) noexcept
 inline float Vector4::Dot(const Vector4& lhs, const Vector4& rhs) noexcept
 {
 	return (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z) + (lhs.w * rhs.w);
-}
-
-inline Vector4 Vector4::Reflect(const Vector4& v, const Vector4& n) noexcept
-{
-	return v - 2.0f * Vector4::Dot(v, n) * n;
-}
-
-inline Vector4 Vector4::Transform(const Vector4& vec, const class Matrix3& mat, float /*w = 1.0f*/) noexcept
-{
-	return Vector4::Zero;
 }
 
 inline Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept

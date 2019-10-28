@@ -17,6 +17,9 @@ namespace Math
 	template <class T>
 	using IsArithmetic = std::enable_if_t<std::is_arithmetic_v<T>, T>;
 
+	template <class T>
+	using IsDecimal = std::enable_if_t<std::is_floating_point_v<T>, T>;
+
 	inline float ToRadians(const float degrees)
 	{
 		return degrees * PI / 180.0f;
@@ -50,6 +53,30 @@ namespace Math
 	inline T Max(const T& lhs, const T& rhs)
 	{
 		return lhs < rhs ? lhs : rhs;
+	}
+
+	template <class T, class = IsDecimal<T>>
+	inline T Ceil(const T & value)
+	{
+		return ceil(value);
+	}
+
+	template <class T, class = IsDecimal<T>>
+	inline T Floor(const T & value)
+	{
+		return floor(value);
+	}
+
+	template <class T, class = IsDecimal<T>>
+	inline T Round(const T & value)
+	{
+		return round(value);
+	}
+
+	template <class T, class = IsDecimal<T>>
+	inline T Truncate(const T & value)
+	{
+		return trunc(value);
 	}
 
 	inline bool NearEqual(float lhs, float rhs, float epsilon = MACHINE_EPSILON)

@@ -25,7 +25,7 @@ void HeapMemory::Release() noexcept
 		std::free(memory);
 }
 
-void* HeapMemory::Allocate(size_t n) noexcept
+void* HeapMemory::Malloc(size_t n) noexcept
 {
 	if (n == 0 || MEMORY_SIZE - curNum < n)
 		return nullptr;
@@ -50,7 +50,7 @@ void* HeapMemory::Allocate(size_t n) noexcept
 	return nullptr;
 }
 
-void HeapMemory::Dealloate(void* ptr, size_t n) noexcept
+void HeapMemory::Free(void* ptr, size_t n) noexcept
 {
 	curNum -= n;
 	const auto startIdx = static_cast<uint8*>(ptr) - memory;

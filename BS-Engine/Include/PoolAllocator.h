@@ -10,7 +10,7 @@
  * @brief Allocator with fixed allocation size
 */
 template <class T>
-class BS_API PoolAllocator : public IAllocator<T> {
+class BS_API PoolAllocator final : public IAllocator<T> {
 public:
 	PoolAllocator(size_t count) noexcept;
 	~PoolAllocator() noexcept;

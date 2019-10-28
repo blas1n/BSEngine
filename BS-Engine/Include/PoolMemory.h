@@ -87,10 +87,7 @@ void* PoolMemory<Size>::Malloc(size_t count /*= 1*/) noexcept
 	}
 
 	if (startIndex == 0)
-	{
-		Defragment();
-		startIndex = curNum + 1;
-	}
+		return nullptr;
 
 	--startIndex;
 	Allocation(startIndex, startIndex + count, mark);

@@ -8,10 +8,10 @@ public:
 	bool Init() noexcept;
 	void Release() noexcept;
 
-	void* Allocate(size_t n) noexcept;
+	void* Malloc(size_t n) noexcept;
 
 	/// @warning This method does not check the range of pointers to free.
-	void Dealloate(void* ptr, size_t n) noexcept;
+	void Free(void* ptr, size_t n) noexcept;
 
 private:
 	inline bool IsAllocated(const size_t index) const noexcept

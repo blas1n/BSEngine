@@ -1,9 +1,36 @@
 #pragma once
 
-#include "PoolMemory.h"
+#include "Core.h"
 
-/**
- * @brief Pool memory that allocation unit is 1
- * @detail Pool memory is designed for general purpose, so pool memory that allocation unit of 1 is the universal heap allocator.
-*/
-using HeapMemory = PoolMemory<1>;
+class BS_API HeapMemory final
+{
+public:
+	bool Init() noexcept;
+	void Release() noexcept;
+
+	void* Allocate(size_t n) noexcept;
+
+	/// @warning This method does not check the range of pointers to free.
+	void Dealloate(void* ptr, size_t n) noexcept;
+
+private:
+	inline bool IsAllocated(const size_t index) const noexcept
+	{
+		return (marker[index / 8] & (1 << (index % 8))) > 0;
+	}
+
+	inline void Mark(const size_t index) noexcept
+	{
+		marker[index / 8] |= 1 << (index % 8);
+	}
+
+	inline void Unmark(const size_t index) noexcept
+	{
+		marker[index / 8] &= !(1 << (index % 8));
+	}
+
+	uint8* memory;
+	uint8* marker;
+
+	size_t curNum;
+};

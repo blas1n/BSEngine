@@ -1,33 +1,22 @@
 #pragma once
 
-#include "IAllocator.h"
-#include "MemoryManager.h"
-#include "MathFunctions.h"
 #include "Core.h"
+#include "BaseAllocator.h"
+#include "MathFunctions.h"
 #include <type_traits>
 
 /**
  * @brief Allocator with fixed allocation size
 */
 template <class T>
-class BS_API PoolAllocator final : public IAllocator<T> {
+class BS_API PoolAllocator final : public BaseAllocator<T> {
 public:
 	PoolAllocator(size_t count) noexcept;
 	~PoolAllocator() noexcept;
 
 	T* allocate(size_t n = 1) noexcept override;
 	void deallocate(T* ptr, size_t n = 1) noexcept override;
-
-	template <class U, class... Args>
-	void construct(U* p, Args&&... args) noexcept override;
-
-	template <class U>
-	void destroy(U* p) noexcept override;
-
-	inline size_t max_size() const noexcept override
-	{
-		return maxNum;
-	}
+	void clear() noexcept override;
 
 private:
 	inline bool IsAllocated(const size_t index) const noexcept
@@ -45,52 +34,56 @@ private:
 		marker[index / 8] &= !(1 << (index % 8));
 	}
 
-	MemoryManager* memoryManager;
-
 	T* memory;
 	uint8* marker;
 
 	size_t curNum;
-	size_t maxNum;
 };
 
 template <class T>
 PoolAllocator<T>::PoolAllocator(size_t count) noexcept
-	: memory(nullptr), marker(nullptr), curNum(0) maxNum(count)
+	: BaseAllocator<T>(count),
+	memory(nullptr),
+	marker(nullptr),
+	curNum(0)
 {
-	if (maxNum > 0) return;
+	if (count == 0) return;
 	
 	const auto markerSize = static_cast<size_t>(
-	Math::Ceil(static_cast<float>(maxNum) * 0.25f));
+	Math::Ceil(static_cast<float>(count) * 0.25f));
 
-	const auto* ptr = memoryManager->Allocate(maxNum * sizeof(T) + markerSize);
+	const auto* ptr = GetMemoryManager()->Allocate(count * sizeof(T) + markerSize);
 	if (ptr == nullptr) return;
 
 	memory = static_cast<T*>(ptr);
-	marker = static_cast<uint8*>(ptr + maxNum * sizeof(T));
+	marker = static_cast<uint8*>(ptr + count * sizeof(T));
 }
 
 template <class T>
 PoolAllocator<T>::~PoolAllocator() noexcept
 {
+	const auto n = max_size();
+
 	if (std::is_nothrow_destructible_v<T>)
-		for (size_t i = 0; i < maxNum; ++i)
+		for (size_t i = 0; i < n; ++i)
 			if (IsAllocated(i))
 				memory[i].~T();
 
 	const auto markerSize = static_cast<size_t>(
-		Math::Ceil(static_cast<float>(maxNum) * 0.25f));
+		Math::Ceil(static_cast<float>(n) * 0.25f));
 
-	memoryManager->Deallocate(memory, maxNum * sizeof(T) + markerSize);
+	GetMemoryManager()->Deallocate(memory, n * sizeof(T) + markerSize);
 }
 
 template <class T>
 T* PoolAllocator<T>::allocate(size_t count /*= 1*/) noexcept
 {
-	if (count == 0 || maxNum - curNum < count)
+	const auto n = max_size();
+
+	if (count == 0 || n - curNum < count)
 		return nullptr;
 	
-	for (size_t i = 0, clearSectionNum = 0; i < maxNum; ++i) {
+	for (size_t i = 0, clearSectionNum = 0; i < n; ++i) {
 		if (IsAllocated(i))
 		{
 			clearSectionNum = 0;
@@ -120,18 +113,10 @@ void PoolAllocator<T>::deallocate(T* ptr, size_t n /*= 1*/) noexcept
 }
 
 template <class T>
-template <class U, class... Args>
-void PoolAllocator<T>::construct(U* p, Args&& ... args) noexcept
+void PoolAllocator<T>::clear() noexcept
 {
-#pragma push_macro("new")
-#undef new
-	::new (static_cast<void*>(p)) U(std::forward<Args>(args)...);
-#pragma pop_macro("new")
-}
-
-template <class T>
-template <class U>
-void PoolAllocator<T>::destroy(U* p) noexcept
-{
-	p->~U();
+	if (std::is_nothrow_destructible_v<T>)
+		for (size_t i = 0; i < n; ++i)
+			if (IsAllocated(i))
+				memory[i].~T();
 }

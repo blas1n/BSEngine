@@ -52,8 +52,10 @@ void* HeapMemory::Malloc(size_t n) noexcept
 
 void HeapMemory::Free(void* ptr, size_t n) noexcept
 {
+	check(ptr >= memory);
+
 	curNum -= n;
-	const auto startIdx = static_cast<uint8*>(ptr) - memory;
+	const size_t startIdx = static_cast<uint8*>(ptr) - memory;
 	for (auto i = startIdx; i < n + startIdx; ++i)
 		Unmark(i);
 }

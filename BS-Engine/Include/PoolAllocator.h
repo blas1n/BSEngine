@@ -14,6 +14,9 @@ public:
 	PoolAllocator(size_t count) noexcept;
 	~PoolAllocator() noexcept;
 
+	PoolAllocator(const PoolAllocator& other) noexcept;
+	PoolAllocator(PoolAllocator&& other) noexcept;
+
 	T* allocate(size_t n = 1) noexcept override;
 	void deallocate(T* ptr, size_t n = 1) noexcept override;
 	void clear() noexcept override;
@@ -38,6 +41,7 @@ private:
 	uint8* marker;
 
 	size_t curNum;
+	size_t markerSize;
 };
 
 template <class T>
@@ -45,13 +49,11 @@ PoolAllocator<T>::PoolAllocator(size_t count) noexcept
 	: BaseAllocator<T>(count),
 	memory(nullptr),
 	marker(nullptr),
-	curNum(0)
+	curNum(0),
+	markerSize(Math::Ceil(static_cast<float>(count) * 0.25f))
 {
 	if (count == 0) return;
 	
-	const auto markerSize = static_cast<size_t>(
-	Math::Ceil(static_cast<float>(count) * 0.25f));
-
 	const auto* ptr = GetMemoryManager()->Allocate(count * sizeof(T) + markerSize);
 	if (ptr == nullptr) return;
 
@@ -62,41 +64,44 @@ PoolAllocator<T>::PoolAllocator(size_t count) noexcept
 template <class T>
 PoolAllocator<T>::~PoolAllocator() noexcept
 {
-	const auto n = max_size();
-
-	if (std::is_nothrow_destructible_v<T>)
-		for (size_t i = 0; i < n; ++i)
-			if (IsAllocated(i))
-				memory[i].~T();
-
-	const auto markerSize = static_cast<size_t>(
-		Math::Ceil(static_cast<float>(n) * 0.25f));
-
-	GetMemoryManager()->Deallocate(memory, n * sizeof(T) + markerSize);
+	GetMemoryManager()->Deallocate(memory, max_size() * sizeof(T) + markerSize);
 }
 
 template <class T>
-T* PoolAllocator<T>::allocate(size_t count /*= 1*/) noexcept
-{
-	const auto n = max_size();
+PoolAllocator<T>::PoolAllocator(const PoolAllocator<T>& other) noexcept
+	: PoolAllocator(other.max_size()) {}
 
-	if (count == 0 || n - curNum < count)
+template <class T>
+PoolAllocator<T>::PoolAllocator(PoolAllocator<T>&& other) noexcept
+	: PoolAllocator<T>(std::move(other)),
+	memory(std::move(other.memory)),
+	marker(std::move(other.marker)),
+	curNum(std::move(other.curNum)),
+	markerSize(std::move(other.markerSize)) {}
+
+template <class T>
+T* PoolAllocator<T>::allocate(size_t n /*= 1*/) noexcept
+{
+	const auto max = max_size();
+
+	if (n == 0 || max - curNum < n)
 		return nullptr;
 	
-	for (size_t i = 0, clearSectionNum = 0; i < n; ++i) {
+	for (size_t i = 0, clearSectionNum = 0; i < max; ++i) {
 		if (IsAllocated(i))
 		{
 			clearSectionNum = 0;
 			continue;
 		}
 
-		if (++clearSectionNum < count) continue;
+		if (++clearSectionNum < n) continue;
 
-		auto idx = i - count + 1;
+		auto idx = i - n + 1;
 		for (; idx <= i; ++idx)
 			Mark(idx);
 
-		curNum += count;
+		curNum += n;
+		std::memset(memory + idx, 0, n * sizeof(T));
 		return memory + idx;
 	}
 
@@ -115,8 +120,5 @@ void PoolAllocator<T>::deallocate(T* ptr, size_t n /*= 1*/) noexcept
 template <class T>
 void PoolAllocator<T>::clear() noexcept
 {
-	if (std::is_nothrow_destructible_v<T>)
-		for (size_t i = 0; i < n; ++i)
-			if (IsAllocated(i))
-				memory[i].~T();
+	std::memset(marker, 0, markerSize);
 }

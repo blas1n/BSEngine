@@ -6,7 +6,7 @@
 class BS_API StackAllocatorBase abstract
 {
 protected:
-	StackAllocatorBase() noexcept = default;
+	StackAllocatorBase() noexcept;
 	StackAllocatorBase(size_t size) noexcept;
 	StackAllocatorBase(const StackAllocatorBase& other) noexcept;
 	StackAllocatorBase(StackAllocatorBase&& other) noexcept;
@@ -55,7 +55,7 @@ public:
 
 	template <class U>
 	StackAllocator(const StackAllocator<U>& other) noexcept
-		: Super() {}
+		: Super(other) {}
 
 	T* allocate(size_t n) noexcept override
 	{

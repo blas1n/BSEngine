@@ -35,7 +35,7 @@ public:
 	template <class U>
 	struct rebind { using other = PoolAllocator<U>; };
 
-	inline PoolAllocator(size_t count) noexcept
+	inline PoolAllocator(const size_t count) noexcept
 		: Super(count * sizeof(T)) {}
 
 	inline ~PoolAllocator() noexcept {}
@@ -50,12 +50,12 @@ public:
 	inline PoolAllocator(const PoolAllocator<U>& other) noexcept
 		: Super() {}
 
-	inline T* allocate(size_t n = 1) noexcept override
+	inline T* allocate(const size_t n = 1) noexcept override
 	{
 		return static_cast<T*>(Super::Allocate(n * sizeof(T)));
 	}
 
-	inline void deallocate(T* ptr, size_t n = 1) noexcept override
+	inline void deallocate(T* ptr, const size_t n = 1) noexcept override
 	{
 		Super::Deallocate(static_cast<void*>(ptr), n * sizeof(T));
 	}

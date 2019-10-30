@@ -5,7 +5,7 @@
 class BS_API PoolAllocatorBase abstract
 {
 protected:
-	PoolAllocatorBase() noexcept = default;
+	PoolAllocatorBase() noexcept;
 	PoolAllocatorBase(size_t size) noexcept;
 	PoolAllocatorBase(const PoolAllocatorBase& other) noexcept;
 	PoolAllocatorBase(PoolAllocatorBase&& other) noexcept;
@@ -48,7 +48,7 @@ public:
 
 	template <class U>
 	inline PoolAllocator(const PoolAllocator<U>& other) noexcept
-		: Super() {}
+		: Super(other) {}
 
 	inline T* allocate(const size_t n = 1) noexcept override
 	{

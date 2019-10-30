@@ -5,9 +5,6 @@
 
 template <class T>
 INTERFACE_BEGIN(Allocator)
-	template <class U>
-	INTERFACE_STRUCT_DEF(rebind) {};
-
 	INTERFACE_TYPE_DEF(value_type, T);
 	INTERFACE_TYPE_DEF(size_type, std::size_t)
 	INTERFACE_TYPE_DEF(difference_type, std::ptrdiff_t)

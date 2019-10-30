@@ -28,7 +28,7 @@ private:
  * @brief Allocator with fixed allocation size
 */
 template <class T>
-class BS_API PoolAllocator final : public PoolAllocatorBase, public IAllocator<T> {
+class BS_API PoolAllocator final : protected PoolAllocatorBase, public IAllocator<T> {
 	using Super = PoolAllocatorBase;
 
 public:

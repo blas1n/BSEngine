@@ -1,8 +1,8 @@
 #pragma once
 
-#include "IAllocator.h"
+#include "IAllocatorBase.h"
 
-class BS_API PoolAllocatorBase abstract
+class BS_API PoolAllocatorBase abstract : public IAllocatorBase
 {
 protected:
 	PoolAllocatorBase() noexcept;
@@ -11,11 +11,11 @@ protected:
 	PoolAllocatorBase(PoolAllocatorBase&& other) noexcept;
 	virtual ~PoolAllocatorBase() noexcept;
 
-	void* Allocate(size_t size) noexcept;
-	void Deallocate(void* ptr, size_t size) noexcept;
-	void Clear() noexcept;
+	void* Allocate(size_t size) noexcept override final;
+	void Deallocate(void* ptr, size_t size) noexcept override final;
+	void Clear() noexcept override final;
 
-	size_t GetMaxSize() const noexcept;
+	size_t GetMaxSize() const noexcept override final;
 
 private:
 	void Init(size_t size) noexcept;
@@ -28,10 +28,12 @@ private:
  * @brief Allocator with fixed allocation size
 */
 template <class T>
-class BS_API PoolAllocator final : public PoolAllocatorBase, public IAllocator<T> {
+class BS_API PoolAllocator final : public PoolAllocatorBase {
 	using Super = PoolAllocatorBase;
 
 public:
+	using value_type = T;
+
 	inline PoolAllocator(const size_t count) noexcept
 		: Super(count * sizeof(T)) {}
 
@@ -47,22 +49,22 @@ public:
 	inline PoolAllocator(const PoolAllocator<U>& other) noexcept
 		: Super(other) {}
 
-	inline T* allocate(const size_t n = 1) noexcept override
+	inline T* allocate(const size_t n = 1) noexcept
 	{
 		return static_cast<T*>(Super::Allocate(n * sizeof(T)));
 	}
 
-	inline void deallocate(T* ptr, const size_t n = 1) noexcept override
+	inline void deallocate(T* ptr, const size_t n = 1) noexcept
 	{
 		Super::Deallocate(static_cast<void*>(ptr), n * sizeof(T));
 	}
 
-	inline void clear() noexcept override
+	inline void clear() noexcept
 	{
 		Super::Clear();
 	}
 
-	inline size_t max_size() const noexcept override
+	inline size_t max_size() const noexcept
 	{
 		return Super::GetMaxSize() / sizeof(T);
 	}

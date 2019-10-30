@@ -1,9 +1,9 @@
 #pragma once
 
-#include "IAllocator.h"
+#include "IAllocatorBase.h"
 #include "Type.h"
 
-class BS_API StackAllocatorBase abstract
+class BS_API StackAllocatorBase abstract : public IAllocatorBase
 {
 protected:
 	StackAllocatorBase() noexcept;
@@ -12,11 +12,11 @@ protected:
 	StackAllocatorBase(StackAllocatorBase&& other) noexcept;
 	virtual ~StackAllocatorBase() noexcept;
 
-	void* Allocate(size_t size) noexcept;
-	void Deallocate(void* ptr, size_t size) noexcept;
-	void Clear() noexcept;
+	void* Allocate(size_t size) noexcept override final;
+	void Deallocate(void* ptr, size_t size) noexcept override final;
+	void Clear() noexcept override final;
 
-	inline size_t GetMaxSize() const noexcept
+	inline size_t GetMaxSize() const noexcept override final
 	{
 		return maxNum;
 	}
@@ -34,11 +34,13 @@ private:
  * @brief Allocator with fixed order of allocation and deallocation
 */
 template <class T>
-class BS_API StackAllocator final : public StackAllocatorBase, public IAllocator<T>
+class BS_API StackAllocator final : public StackAllocatorBase
 {
 	using Super = StackAllocatorBase;
 
 public:
+	using value_type = T;
+
 	inline StackAllocator(const size_t count) noexcept
 		: Super(count * sizeof(T)) {}
 
@@ -54,22 +56,22 @@ public:
 	StackAllocator(const StackAllocator<U>& other) noexcept
 		: Super(other) {}
 
-	T* allocate(size_t n) noexcept override
+	T* allocate(size_t n) noexcept
 	{
 		return static_cast<T*>(Super::Allocate(n * sizeof(T)));
 	}
 
-	void deallocate(T* ptr, size_t n) noexcept override
+	void deallocate(T* ptr, size_t n) noexcept
 	{
 		Super::Deallocate(static_cast<void*>(ptr), n * sizeof(T));
 	}
 
-	void clear() noexcept override
+	void clear() noexcept
 	{
 		Super::Clear();
 	}
 
-	inline size_t max_size() const noexcept override
+	inline size_t max_size() const noexcept
 	{
 		return Super::GetMaxSize() / sizeof(T);
 	}

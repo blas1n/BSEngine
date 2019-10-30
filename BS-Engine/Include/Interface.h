@@ -4,7 +4,8 @@
 
 #define INTERFACE_BEGIN(name) \
 class BS_API I##name abstract { \
-	public:
+public: \
+	virtual ~I##name() noexcept = default;
 
 #define INTERFACE_END };
 
@@ -16,3 +17,6 @@ virtual ret name(__VA_ARGS__) const noexcept abstract;
 
 #define INTERFACE_TYPE_DEF(name, type) \
 using name = type;
+
+#define INTERFACE_STRUCT_DEF(name) \
+struct name abstract

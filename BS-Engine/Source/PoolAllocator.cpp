@@ -4,11 +4,15 @@
 #include "MarkerMemory.h"
 #include <memory>
 
+PoolAllocatorBase::PoolAllocatorBase() noexcept
+	: memoryManager(nullptr), markerMemory(nullptr) {}
+
 /// @todo Link memory manager
 PoolAllocatorBase::PoolAllocatorBase(const size_t size) noexcept
-	: memoryManager(nullptr),
+	: memoryManager(new MemoryManager{ }),
 	markerMemory(nullptr)
 {
+	memoryManager->Init();
 	Init(size);
 }
 
@@ -48,7 +52,7 @@ void PoolAllocatorBase::Clear() noexcept
 
 size_t PoolAllocatorBase::GetMaxSize() const noexcept
 {
-	markerMemory->GetMemorySize();
+	return markerMemory->GetMemorySize();
 }
 
 void PoolAllocatorBase::Init(const size_t size) noexcept
@@ -56,7 +60,7 @@ void PoolAllocatorBase::Init(const size_t size) noexcept
 	if (size == 0) return;
 
 	const auto markerSize = static_cast<size_t>(
-		Math::Ceil(static_cast<float>(size) * 0.25f));
+		Math::Ceil(static_cast<float>(size) * 0.125f));
 
 	auto* ptr = memoryManager->Allocate(size + markerSize + sizeof(MarkerMemory));
 	if (ptr == nullptr) return;

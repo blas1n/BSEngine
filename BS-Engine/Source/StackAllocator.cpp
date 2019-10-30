@@ -1,6 +1,9 @@
 #include "StackAllocator.h"
 #include "MemoryManager.h"
 
+StackAllocatorBase::StackAllocatorBase() noexcept
+	: memoryManager(nullptr), cur(nullptr), start(nullptr), maxNum(0) {}
+
 /// @todo Link memory manager
 StackAllocatorBase::StackAllocatorBase(size_t size) noexcept
 	: memoryManager(new MemoryManager{ }),

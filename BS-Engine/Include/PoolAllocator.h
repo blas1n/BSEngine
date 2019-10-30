@@ -9,7 +9,7 @@ protected:
 	PoolAllocatorBase(size_t size) noexcept;
 	PoolAllocatorBase(const PoolAllocatorBase& other) noexcept;
 	PoolAllocatorBase(PoolAllocatorBase&& other) noexcept;
-	virtual ~PoolAllocatorBase() noexcept;
+	~PoolAllocatorBase() noexcept;
 
 	void* Allocate(size_t size) noexcept override final;
 	void Deallocate(void* ptr, size_t size) noexcept override final;

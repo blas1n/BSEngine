@@ -10,7 +10,7 @@ protected:
 	StackAllocatorBase(size_t size) noexcept;
 	StackAllocatorBase(const StackAllocatorBase& other) noexcept;
 	StackAllocatorBase(StackAllocatorBase&& other) noexcept;
-	virtual ~StackAllocatorBase() noexcept;
+	~StackAllocatorBase() noexcept;
 
 	void* Allocate(size_t size) noexcept override final;
 	void Deallocate(void* ptr, size_t size) noexcept override final;

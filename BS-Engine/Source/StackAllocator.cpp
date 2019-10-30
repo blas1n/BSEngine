@@ -3,11 +3,12 @@
 
 /// @todo Link memory manager
 StackAllocatorBase::StackAllocatorBase(size_t size) noexcept
-	: memoryManager(nullptr),
+	: memoryManager(new MemoryManager{ }),
 	cur(nullptr),
 	start(nullptr),
 	maxNum(size)
 {
+	memoryManager->Init();
 	cur = start = static_cast<uint8*>(memoryManager->Allocate(maxNum));
 }
 

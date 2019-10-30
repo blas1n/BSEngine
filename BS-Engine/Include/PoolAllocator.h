@@ -9,7 +9,7 @@ protected:
 	PoolAllocatorBase(size_t size) noexcept;
 	PoolAllocatorBase(const PoolAllocatorBase& other) noexcept;
 	PoolAllocatorBase(PoolAllocatorBase&& other) noexcept;
-	~PoolAllocatorBase() noexcept;
+	virtual ~PoolAllocatorBase() noexcept;
 
 	void* Allocate(size_t size) noexcept;
 	void Deallocate(void* ptr, size_t size) noexcept;
@@ -38,7 +38,7 @@ public:
 	inline PoolAllocator(const size_t count) noexcept
 		: Super(count * sizeof(T)) {}
 
-	inline ~PoolAllocator() noexcept {}
+	inline ~PoolAllocator() noexcept = default;
 
 	inline PoolAllocator(const PoolAllocator& other) noexcept
 		: Super(other) {}

@@ -13,7 +13,7 @@ inline void Mark(uint8* const marker, const size_t index) noexcept
 
 inline void Unmark(uint8* const marker, const size_t index) noexcept
 {
-	marker[index / 8] &= !(1 << (index % 8));
+	marker[index / 8] &= ~(1 << (index % 8));
 }
 
 MarkerMemory::MarkerMemory(uint8* const inMemory, uint8* const inMarker,
@@ -55,7 +55,7 @@ void* MarkerMemory::Alloc(const size_t n) noexcept
 
 void MarkerMemory::Dealloc(void* const ptr, const size_t n) noexcept
 {
-	check(ptr >= memory && ptr < memory + n);
+	check(ptr >= memory && ptr < memory + maxNum);
 
 	curNum -= n;
 	const size_t startIdx = static_cast<uint8*>(ptr) - memory;

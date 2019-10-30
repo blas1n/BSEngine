@@ -5,7 +5,7 @@
 bool HeapMemory::Init(const size_t size) noexcept
 {
 	const auto markerSize = static_cast<size_t>(
-		Math::Ceil(static_cast<float>(size) * 0.25f));
+		Math::Ceil(static_cast<float>(size) * 0.125f));
 
 	auto* const memory = static_cast<uint8*>(std::malloc(size + markerSize + sizeof(MarkerMemory)));
 	if (memory == nullptr) return false;

@@ -34,14 +34,11 @@ private:
  * @brief Allocator with fixed order of allocation and deallocation
 */
 template <class T>
-class BS_API StackAllocator final : protected StackAllocatorBase, public IAllocator<T>
+class BS_API StackAllocator final : public StackAllocatorBase, public IAllocator<T>
 {
 	using Super = StackAllocatorBase;
 
 public:
-	template <class U>
-	struct rebind { using other = StackAllocator<U>; };
-
 	inline StackAllocator(const size_t count) noexcept
 		: Super(count * sizeof(T)) {}
 

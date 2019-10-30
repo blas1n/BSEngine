@@ -1,79 +1,79 @@
 #pragma once
 
-#include "BaseAllocator.h"
-#include <limits>
+#include "IAllocator.h"
+#include "Type.h"
+
+class BS_API StackAllocatorBase abstract
+{
+protected:
+	StackAllocatorBase() noexcept = default;
+	StackAllocatorBase(size_t size) noexcept;
+	StackAllocatorBase(const StackAllocatorBase& other) noexcept;
+	StackAllocatorBase(StackAllocatorBase&& other) noexcept;
+	virtual ~StackAllocatorBase() noexcept;
+
+	void* Allocate(size_t size) noexcept;
+	void Deallocate(void* ptr, size_t size) noexcept;
+	void Clear() noexcept;
+
+	inline size_t GetMaxSize() const noexcept
+	{
+		return maxNum;
+	}
+
+private:
+	class MemoryManager* memoryManager;
+
+	uint8* cur;
+	uint8* start;
+
+	size_t maxNum;
+};
 
 /**
  * @brief Allocator with fixed order of allocation and deallocation
 */
 template <class T>
-class BS_API StackAllocator final : public BaseAllocator<T>
+class BS_API StackAllocator final : protected StackAllocatorBase, public IAllocator<T>
 {
+	using Super = StackAllocatorBase;
+
 public:
-	StackAllocator(size_t count) noexcept;
-	~StackAllocator() noexcept;
+	template <class U>
+	struct rebind { using other = StackAllocator<U>; };
 
-	StackAllocator(const StackAllocator& other) noexcept;
-	StackAllocator(StackAllocator&& other) noexcept;
+	inline StackAllocator(const size_t count) noexcept
+		: Super(count * sizeof(T)) {}
 
-	T* allocate(size_t n) noexcept override;
-	void deallocate(T* ptr, size_t n) noexcept override;
-	void clear() noexcept override;
+	inline ~StackAllocator() noexcept = default;
 
-private:
-	T* cur;
-	T* start;
+	inline StackAllocator(const StackAllocator& other) noexcept
+		: Super(other) {}
+
+	inline StackAllocator(StackAllocator&& other) noexcept
+		: Super(std::move(other)) {}
+
+	template <class U>
+	StackAllocator(const StackAllocator<U>& other) noexcept
+		: Super() {}
+
+	T* allocate(size_t n) noexcept override
+	{
+		return static_cast<T*>(Super::Allocate(n * sizeof(T)));
+	}
+
+	void deallocate(T* ptr, size_t n) noexcept override
+	{
+		Super::Deallocate(static_cast<void*>(ptr), n * sizeof(T));
+	}
+
+	void clear() noexcept override
+	{
+		Super::Clear();
+	}
+
+	inline size_t max_size() const noexcept override
+	{
+		return Super::GetMaxSize() / sizeof(T);
+	}
 };
-
-template <class T>
-StackAllocator<T>::StackAllocator(size_t count) noexcept
-	: BaseAllocator<T>(count),
-	cur(nullptr),
-	start(nullptr)
-{
-	cur = start = static_cast<T*>(
-		GetMemoryManager()->Allocate(count * sizeof(T)));
-}
-
-template <class T>
-StackAllocator<T>::~StackAllocator() noexcept
-{
-	GetMemoryManager()->Deallocate(start, max_size() * sizeof(T));
-}
-
-template <class T>
-StackAllocator<T>::StackAllocator(const StackAllocator<T>& other)
-	: StackAllocator(other.max_size()) {}
-
-template <class T>
-StackAllocator<T>::StackAllocator(StackAllocator&& other)
-	: BaseAllocator<T>(std::move(other)),
-	cur(std::move(other.cur)),
-	start(std::move(other.start)) {}
-
-template <class T>
-T* StackAllocator<T>::allocate(size_t n) noexcept
-{
-	const auto nextCur = cur + n;
-
-	if (nextCur > start + max_size())
-		return nullptr;
-
-	std::memset(cur, 0, n * sizeof(T));
-	const auto* ret = cur;
-	cur = nextCur;
-	return ret;
-}
-
-template <class T>
-void StackAllocator<T>::deallocate(T* ptr, size_t n) noexcept
-{
-	check(cur - n == ptr);
-	cur = ptr;
-}
-
-template <class T>
-void StackAllocator<T>::clear() noexcept
-{
-	cur = start;
-}

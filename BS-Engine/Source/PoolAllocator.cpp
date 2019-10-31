@@ -4,35 +4,34 @@
 #include "MarkerMemory.h"
 #include <memory>
 
-PoolAllocatorBase::PoolAllocatorBase() noexcept
-	: memoryManager(nullptr), markerMemory(nullptr) {}
-
 /// @todo Link memory manager
-PoolAllocatorBase::PoolAllocatorBase(const size_t size) noexcept
-	: memoryManager(new MemoryManager{ }),
-	markerMemory(nullptr)
+PoolAllocatorBase::PoolAllocatorBase(const size_t size, bool isSingleFrame /*= false*/) noexcept
+	: memoryManager(nullptr),
+	markerMemory(nullptr),
+	isSingleFrameAlloc(isSingleFrame)
 {
-	memoryManager->Init();
 	Init(size);
 }
 
 PoolAllocatorBase::PoolAllocatorBase(const PoolAllocatorBase& other) noexcept
 	: memoryManager(other.memoryManager),
-	markerMemory(nullptr)
+	markerMemory(nullptr),
+	isSingleFrameAlloc(other.isSingleFrameAlloc)
 {
 	Init(other.GetMaxSize());
 }
 
 PoolAllocatorBase::PoolAllocatorBase(PoolAllocatorBase&& other) noexcept
 	: memoryManager(std::move(other.memoryManager)),
-	markerMemory(std::move(other.markerMemory)) {}
+	markerMemory(std::move(other.markerMemory)),
+	isSingleFrameAlloc(std::move(other.isSingleFrameAlloc)) {}
 
 PoolAllocatorBase::~PoolAllocatorBase() noexcept
 {
 	auto* const mem = markerMemory->GetMemory();
 	const auto memSize = markerMemory->GetMemorySize();
 	const auto markSize = markerMemory->GetMarkerSize();
-	memoryManager->Deallocate(mem, memSize + markSize);
+	memoryManager->Deallocate(this, mem, memSize + markSize);
 }
 
 void* PoolAllocatorBase::Allocate(const size_t size) noexcept
@@ -62,7 +61,7 @@ void PoolAllocatorBase::Init(const size_t size) noexcept
 	const auto markerSize = static_cast<size_t>(
 		Math::Ceil(static_cast<float>(size) * 0.125f));
 
-	auto* ptr = memoryManager->Allocate(size + markerSize + sizeof(MarkerMemory));
+	auto* ptr = memoryManager->Allocate(this, size + markerSize + sizeof(MarkerMemory));
 	if (ptr == nullptr) return;
 
 	auto* const memory = static_cast<uint8*>(ptr);

@@ -14,4 +14,5 @@ INTERFACE_BEGIN(AllocatorBase)
 	INTERFACE_DEF(void, Clear)
 
 	INTERFACE_CONST_DEF(size_t, GetMaxSize)
+	INTERFACE_CONST_DEF(bool, IsSingleFrame)
 INTERFACE_END

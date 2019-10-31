@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Core.h"
 #include "IManager.h"
-#include <vector>
+#include "IAllocatorBase.h"
+#include "Array.h"
 
-class BS_API MemoryManager : public IManager
+class BS_API MemoryManager final : public IManager
 {
 public:
 	MemoryManager() noexcept;
@@ -13,9 +13,10 @@ public:
 	void Update(float deltaTime) noexcept override;
 	void Release() noexcept override;
 
-	void* Allocate(size_t n) noexcept;
-	void Deallocate(void* ptr, size_t n) noexcept;
+	void* Allocate(IAllocatorBase* alloc, size_t n) noexcept;
+	void Deallocate(IAllocatorBase* alloc, void* ptr, size_t n) noexcept;
 
 private:
 	class HeapMemory* memory;
+	Array<IAllocatorBase*>* singleFrameAllocators;
 };

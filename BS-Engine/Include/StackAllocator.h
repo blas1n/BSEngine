@@ -6,8 +6,7 @@
 class BS_API StackAllocatorBase abstract : public IAllocatorBase
 {
 protected:
-	StackAllocatorBase() noexcept;
-	StackAllocatorBase(size_t size) noexcept;
+	StackAllocatorBase(size_t size, bool isSingleFrame = false) noexcept;
 	StackAllocatorBase(const StackAllocatorBase& other) noexcept;
 	StackAllocatorBase(StackAllocatorBase&& other) noexcept;
 	~StackAllocatorBase() noexcept;
@@ -21,6 +20,11 @@ protected:
 		return maxNum;
 	}
 
+	inline bool IsSingleFrame() const noexcept override final
+	{
+		return isSingleFrameAlloc;
+	}
+
 private:
 	class MemoryManager* memoryManager;
 
@@ -28,6 +32,7 @@ private:
 	uint8* start;
 
 	size_t maxNum;
+	bool isSingleFrameAlloc;
 };
 
 /**

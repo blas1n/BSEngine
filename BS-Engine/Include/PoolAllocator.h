@@ -5,8 +5,7 @@
 class BS_API PoolAllocatorBase abstract : public IAllocatorBase
 {
 protected:
-	PoolAllocatorBase() noexcept;
-	PoolAllocatorBase(size_t size) noexcept;
+	PoolAllocatorBase(size_t size, bool isSingleFrame = false) noexcept;
 	PoolAllocatorBase(const PoolAllocatorBase& other) noexcept;
 	PoolAllocatorBase(PoolAllocatorBase&& other) noexcept;
 	~PoolAllocatorBase() noexcept;
@@ -16,12 +15,18 @@ protected:
 	void Clear() noexcept override final;
 
 	size_t GetMaxSize() const noexcept override final;
+	
+	inline bool IsSingleFrame() const noexcept override final
+	{
+		return isSingleFrameAlloc;
+	}
 
 private:
 	void Init(size_t size) noexcept;
 
 	class MemoryManager* memoryManager;
 	class MarkerMemory* markerMemory;
+	bool isSingleFrameAlloc;
 };
 
 /**

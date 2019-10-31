@@ -1,38 +1,37 @@
 #include "StackAllocator.h"
 #include "MemoryManager.h"
 
-StackAllocatorBase::StackAllocatorBase() noexcept
-	: memoryManager(nullptr), cur(nullptr), start(nullptr), maxNum(0) {}
-
 /// @todo Link memory manager
-StackAllocatorBase::StackAllocatorBase(size_t size) noexcept
-	: memoryManager(new MemoryManager{ }),
+StackAllocatorBase::StackAllocatorBase(size_t size, bool isSingleFrame /*= false*/) noexcept
+	: memoryManager(nullptr),
 	cur(nullptr),
 	start(nullptr),
-	maxNum(size)
+	maxNum(size),
+	isSingleFrameAlloc(isSingleFrame)
 {
-	memoryManager->Init();
-	cur = start = static_cast<uint8*>(memoryManager->Allocate(maxNum));
+	cur = start = static_cast<uint8*>(memoryManager->Allocate(this, maxNum));
 }
 
 StackAllocatorBase::StackAllocatorBase(const StackAllocatorBase& other) noexcept
 	: memoryManager(other.memoryManager),
 	cur(nullptr),
 	start(nullptr),
-	maxNum(other.maxNum)
+	maxNum(other.maxNum),
+	isSingleFrameAlloc(other.isSingleFrameAlloc)
 {
-	cur = start = static_cast<uint8*>(memoryManager->Allocate(maxNum));
+	cur = start = static_cast<uint8*>(memoryManager->Allocate(this, maxNum));
 }
 
 StackAllocatorBase::StackAllocatorBase(StackAllocatorBase&& other) noexcept
 	: memoryManager(std::move(other.memoryManager)),
 	cur(std::move(other.cur)),
 	start(std::move(other.start)),
-	maxNum(std::move(other.maxNum)) {}
+	maxNum(std::move(other.maxNum)),
+	isSingleFrameAlloc(std::move(other.isSingleFrameAlloc)) {}
 
 StackAllocatorBase::~StackAllocatorBase() noexcept
 {
-	memoryManager->Deallocate(start, maxNum);
+	memoryManager->Deallocate(this, start, maxNum);
 }
 
 void* StackAllocatorBase::Allocate(size_t size) noexcept

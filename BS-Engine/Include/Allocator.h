@@ -39,11 +39,11 @@ public:
 
 	inline T* allocate(const size_t n = 1) noexcept
 	{
-		return GetMemoryManager()->Allocate(n * sizeof(T));
+		return static_cast<T*>(GetMemoryManager()->Allocate(n * sizeof(T)));
 	}
 
 	inline void deallocate(T* ptr, const size_t n = 1) noexcept
 	{
-		return GetMemoryManager()->Deallocate(ptr, n * sizeof(T));
+		return GetMemoryManager()->Deallocate(static_cast<void*>(ptr), n * sizeof(T));
 	}
 };

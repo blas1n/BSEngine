@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-#include "PoolAllocator.h"
+#include "Allocator.h"
 
-template <class T, template<class>class Alloc = PoolAllocator>
+template <class T, template<class>class Alloc = Allocator>
 using Array = std::vector<T, Alloc<T>>;

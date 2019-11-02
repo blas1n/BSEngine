@@ -2,10 +2,10 @@
 
 #include <set>
 #include <unordered_set>
-#include "PoolAllocator.h"
+#include "Allocator.h"
 
-template <class T, template<class>class Alloc = PoolAllocator>
+template <class T, template<class>class Alloc = Allocator>
 using TreeSet = std::set<T, Alloc<T>>;
 
-template <class T, template<class>class Alloc = PoolAllocator>
+template <class T, template<class>class Alloc = Allocator>
 using HashSet = std::unordered_set<T, Alloc<T>>;

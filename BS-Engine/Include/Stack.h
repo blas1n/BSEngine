@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stack>
-#include "PoolAllocator.h"
+#include "Allocator.h"
 
-template <class T, template<class>class Alloc = PoolAllocator>
+template <class T, template<class>class Alloc = Allocator>
 using Stack = std::stack<T, std::deque<T, Alloc<T>>>;

@@ -1,9 +1,10 @@
 #pragma once
 
 #include "Interface.h"
+#include "Type.h"
 
 /// @see This is good architecture?
-enum class EManager
+enum class EManager : uint8
 {
 	ManagerManager,
 	MemoryManager,

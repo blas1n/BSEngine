@@ -16,6 +16,8 @@ public:
 	void* Allocate(size_t n) noexcept;
 	void Deallocate(void* ptr, size_t n) noexcept;
 
+	constexpr static EManager GetHash() noexcept { return EManager::MemoryManager; }
+
 private:
 	class HeapMemory* memory;
 };

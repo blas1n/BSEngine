@@ -4,8 +4,17 @@
 #include <forward_list>
 #include "Allocator.h"
 
-template <class T, template<class>class Alloc = Allocator>
-using List = std::list<T, Alloc<T>>;
+/**
+ * @brief Templated doubly linked list.
+ * @todo Direct implementation.
+*/
+template <class T>
+using List = std::list<T, Allocator<T>>;
 
-template <class T, template<class>class Alloc = Allocator>
-using ForwardList = std::forward_list<T, Alloc<T>>;
+
+/**
+ * @brief Templated singly linked list.
+ * @todo Direct implementation.
+*/
+template <class T>
+using ForwardList = std::forward_list<T, Allocator<T>>;

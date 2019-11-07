@@ -19,7 +19,7 @@ static MemoryManager* GetMemoryManager() noexcept
 }
 
 /**
- * @brief Allocator with fixed allocation size
+ * @brief Custom allocator using pull memory
 */
 template <class T>
 class BS_API Allocator final {
@@ -37,11 +37,26 @@ public:
 	template <class U>
 	inline Allocator(const Allocator<U>& other) noexcept {}
 
+	/**
+	 * @brief Allocate memory.
+	 * @param n Number of objects to be allocated
+	 * @return Allocated object pointer.
+	 * @retval nullptr Can not allocate.
+	 * @remark It just allocates memory but does not call the constructor.
+	*/
 	inline T* allocate(const size_t n = 1) noexcept
 	{
 		return static_cast<T*>(GetMemoryManager()->Allocate(n * sizeof(T)));
 	}
 
+	/**
+	 * @brief Deallocate memory.
+	 * @param ptr Pointer to be deallocated
+	 * @param n Number of objects to be deallocated
+	 * @return Allocated object pointer.
+	 * @retval nullptr Can not allocate.
+	 * @remark It just allocates memory but does not call the constructor.
+	*/
 	inline void deallocate(T* ptr, const size_t n = 1) noexcept
 	{
 		return GetMemoryManager()->Deallocate(static_cast<void*>(ptr), n * sizeof(T));

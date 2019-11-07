@@ -7,15 +7,12 @@ MemoryManager::MemoryManager() noexcept
 
 bool MemoryManager::Init() noexcept
 {
-	memory = new HeapMemory{ };
-	if (!memory->Init(MEMORY_SIZE))
-		return false;
+	memory = new HeapMemory{ MEMORY_SIZE };
 	return true;
 }
 
 void MemoryManager::Release() noexcept
 {
-	memory->Release();
 	delete memory;
 }
 

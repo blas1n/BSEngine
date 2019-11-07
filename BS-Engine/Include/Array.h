@@ -3,5 +3,9 @@
 #include <vector>
 #include "Allocator.h"
 
-template <class T, template<class>class Alloc = Allocator>
-using Array = std::vector<T, Alloc<T>>;
+/**
+ * @brief Templated dynamic array.
+ * @todo Direct implementation.
+*/
+template <class T>
+using Array = std::vector<T, Allocator<T>>;

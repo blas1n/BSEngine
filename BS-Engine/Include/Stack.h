@@ -1,7 +1,12 @@
 #pragma once
 
 #include <stack>
+#include "Deque.h"
 #include "Allocator.h"
 
-template <class T, template<class>class Alloc = Allocator>
-using Stack = std::stack<T, std::deque<T, Alloc<T>>>;
+/**
+ * @brief Templated stack.
+ * @todo Direct implementation.
+*/
+template <class T>
+using Stack = std::stack<T, Deque<T>>;

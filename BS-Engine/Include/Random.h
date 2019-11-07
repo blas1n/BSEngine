@@ -3,7 +3,8 @@
 #include <random>
 #include "Core.h"
 
-class BS_API Random
+// This class is not an abstract class, but with the abstract keyword to prevent instantiation.
+class BS_API Random abstract
 {
 public:
 	static inline void Init() noexcept

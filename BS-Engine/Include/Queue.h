@@ -1,10 +1,20 @@
 #pragma once
 
 #include <queue>
-#include "Allocator.h"
+#include "Deque.h"
+#include "Array.h"
 
-template <class T, template<class>class Alloc = Allocator>
-using Queue = std::queue<T, std::deque<T, Alloc<T>>>;
+/**
+ * @brief Templated queue.
+ * @todo Direct implementation.
+*/
+template <class T>
+using Queue = std::queue<T, Deque<T>>;
 
-template <class T, template<class>class Alloc = Allocator>
-using PriorityQueue = std::priority_queue<T, std::vector<T, Alloc<T>>>;
+/**
+ * @brief Templated priority queue.
+ * @todo Direct implementation.
+ * @warning Value type supports less or <, or requires custom comparator.
+*/
+template <class T, template<class>class Comp = std::less>
+using PriorityQueue = std::priority_queue<T, Array<T>, Comp<T>>;

@@ -6,8 +6,8 @@
 class BS_API HeapMemory final
 {
 public:
-	bool Init(size_t size) noexcept;
-	void Release() noexcept;
+	HeapMemory(size_t size) noexcept;
+	~HeapMemory() noexcept;
 
 	void* Malloc(size_t n) noexcept;
 	void Free(void* ptr, size_t n) noexcept;

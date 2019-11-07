@@ -17,25 +17,24 @@ inline void Unmark(uint8* const marker, const size_t index) noexcept
 	marker[index / 8] &= ~(1 << (index % 8));
 }
 
-bool HeapMemory::Init(const size_t size) noexcept
+HeapMemory::HeapMemory(const size_t size) noexcept
 {
-	if (size == 0) return false;
+	check(size != 0);
 
 	maxNum = size;
 	markerSize = static_cast<size_t>(
 		Math::Ceil(static_cast<float>(maxNum) * 0.125f));
 
 	memory = static_cast<uint8*>(std::malloc(maxNum + markerSize));
-	if (memory == nullptr) return false;
+	check(memory != nullptr);
 
 	marker = memory + maxNum;
 	std::memset(memory, 0, maxNum + markerSize);
-	return true;
 }
 
-void HeapMemory::Release() noexcept
+HeapMemory::~HeapMemory() noexcept
 {
-	if (memory) std::free(memory);
+	std::free(memory);
 }
 
 void* HeapMemory::Malloc(const size_t n) noexcept

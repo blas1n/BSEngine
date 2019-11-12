@@ -1,9 +1,9 @@
 #pragma once
 
 #include "IManager.h"
-#include <vector>
+#include "Array.h"
+#include "Queue.h"
 #include <future>
-#include <queue>
 #include <mutex>
 
 class ThreadManager : public IManager {
@@ -19,8 +19,8 @@ private:
 	void ThreadWork();
 
 private:
-	std::vector<std::thread> threads;
-	std::queue<std::function<void()>> tasks;
+	Array<std::thread> threads;
+	Queue<std::function<void()>> tasks;
 	std::condition_variable cv;
 	std::mutex taskMutex;
 	bool isEnd;

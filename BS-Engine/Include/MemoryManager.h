@@ -20,9 +20,6 @@ public:
 	/// @brief Allocate memory for use by the game engine.
 	bool Init() noexcept override;
 
-	/// @brief It does nothing now, but exists for scalability.
-	void Update(float deltaTime) noexcept override {}
-
 	/// @brief Free the allocated memory.
 	void Release() noexcept override;
 

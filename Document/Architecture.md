@@ -8,21 +8,15 @@
 
 ### Library
 
-This layer contains math, graphics, physics, input, etc. API. It wrap external API and make basic API. It is platform-independent.
+This layer contains math, graphics, physics, input, etc. It wrap or contain external API and make basic API. It is platform-independent. It must guarantee to stateless. And it is reusable  
 
 ### Managers
 
-This layer contains rendering manager, input manager, physics manager, etc. manager. Manager has method, updating myself and handling request of the object.  
-As will be described later, it works another thread. So it has a job descriptor queue, which will process the contents of it.
+This layer contains rendering, input, physics, etc. Manager has method, initializing and releasing myself and handling request of the object. It must guarantee to unique.  
 
 ### System
 
 This layer contains a system that is a singleton object. Take responsibility for initializing, updating, releasing the scene and managers. Objects accesses manager through this. It also manages the beginning and end of the game.
-
-### Descriptor
-
-When an object makes a request to the manager, it stores the request in a job queue for later handling. Descriptor is stored in this job queue. In other words, the object communicates with the manager by creating and sending a descriptor.  
-The reason for using this approach is manager runs on the other threads and batch-processes requests from other objects.
 
 ### Scene
 

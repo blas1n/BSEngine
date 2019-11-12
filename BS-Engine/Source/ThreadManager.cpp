@@ -9,7 +9,7 @@ bool ThreadManager::Init() noexcept
 	threads.reserve(threadNum);
 
 	while (threadNum--)
-		threads.emplace_back([this]() { this->ThreadWork(); });
+		threads.emplace_back([this]() { ThreadWork(); });
 
 	return true;
 }

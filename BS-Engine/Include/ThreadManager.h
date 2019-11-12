@@ -9,7 +9,6 @@
 class ThreadManager : public IManager {
 public:
 	bool Init() noexcept override;
-	void Update(float deltaTime) noexcept override {}
 	void Release() noexcept override;
 
 	template <class Fn, class... Args>

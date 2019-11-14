@@ -1,0 +1,26 @@
+language: cpp
+
+before_script:
+  - mkdir build
+  - cd build
+  - cmake ..
+
+script:
+  - make
+
+compiler:
+  - gcc
+
+addons:
+  apt:
+    sources:
+	  - ubuntu-toolchian-r-test
+	package:
+	  - libglu1-mesa-dev
+	  - libogg-dev
+	  - libopenal-dev
+	  - lib32z1-dev
+	  - libgtk2-dev
+
+sudo: required
+dist: bionic

@@ -52,6 +52,7 @@ set_target_properties (engine PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+if (WIN32)
 foreach(FILE ${ENGINE_SRC}) 
     get_filename_component(FILE_EXT "${FILE}" EXT)
 
@@ -63,3 +64,4 @@ foreach(FILE ${ENGINE_SRC})
 
     source_group("${GROUP}" FILES "${FILE}")
 endforeach()
+endif()

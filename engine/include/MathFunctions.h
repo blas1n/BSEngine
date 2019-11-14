@@ -14,7 +14,7 @@ namespace Math
 	constexpr float PI = 3.1415926535f;
 	constexpr float MACHINE_EPSILON = std::numeric_limits<float>::epsilon();
 
-	// uint 8~32, int 8~32, float,double
+	// uint 8~32, int 8~32, float, double
 	template <class T>
 	using IsArithmetic = std::enable_if_t<std::is_arithmetic_v<T>, T>;
 
@@ -31,7 +31,7 @@ namespace Math
 		return radians * 180.0f / PI;
 	}
 
-	template <class T, class = IsArithmetic<T>>
+	template <class T, typename = IsArithmetic<T>>
 	inline T Abs(const T & x)
 	{
 		constexpr static auto zero = static_cast<T>(0);

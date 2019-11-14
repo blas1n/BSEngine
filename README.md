@@ -1,4 +1,4 @@
-# BS-Engine
+# BS_Engine
 
 It is my own game engine project.
 

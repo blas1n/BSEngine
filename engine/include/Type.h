@@ -10,4 +10,4 @@ using int16 = signed short;
 using int32 = signed int;
 using int64 = signed long long;
 
-using size_t = unsigned int;
+using size_type = unsigned long;

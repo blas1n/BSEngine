@@ -2,7 +2,7 @@
 
 ## Architecture (Simple)
 
-![Architecture](/Image/Architecture.png)
+![Architecture](./Image/Architecture.png)
 
 ## Architecture (Detail)
 

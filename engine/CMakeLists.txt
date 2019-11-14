@@ -53,7 +53,7 @@ set_target_properties (engine PROPERTIES
 )
 
 foreach(FILE ${ENGINE_SRC}) 
-    get_filename_component(FILE_EXT "${FILE}" LAST_EXT)
+    get_filename_component(FILE_EXT "${FILE}" EXT)
 
     if ("${FILE_EXT}" MATCHES ".cpp")
        set(GROUP src)

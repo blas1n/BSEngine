@@ -45,3 +45,21 @@ set(ENGINE_SRC
 include_directories (include)
 
 add_executable (engine ${ENGINE_SRC})
+
+set_target_properties (engine PROPERTIES
+	OUTPUT_NAME engine
+	CXX_STANDARD 17
+    CXX_EXTENSIONS OFF
+)
+
+foreach(FILE ${ENGINE_SRC}) 
+    get_filename_component(FILE_EXT "${FILE}" LAST_EXT)
+
+    if ("${FILE_EXT}" MATCHES ".cpp")
+       set(GROUP src)
+    elseif("${FILE_EXT}" MATCHES ".h")
+       set(GROUP include)
+    endif()
+
+    source_group("${GROUP}" FILES "${FILE}")
+endforeach()

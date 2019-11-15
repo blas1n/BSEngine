@@ -2,6 +2,8 @@
 
 int main()
 {
+	if (int a = 0; a == 0) return 0;
+
 	System sys;
 
 	if (sys.Initialize())

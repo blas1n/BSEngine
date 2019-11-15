@@ -16,12 +16,12 @@ void MemoryManager::Release() noexcept
 	delete memory;
 }
 
-void* MemoryManager::Allocate(const size_type n) noexcept
+void* MemoryManager::Allocate(const size_t n) noexcept
 {
 	return memory->Malloc(n);
 }
 
-void MemoryManager::Deallocate(void* const ptr, const size_type n) noexcept
+void MemoryManager::Deallocate(void* const ptr, const size_t n) noexcept
 {
 	memory->Free(ptr, n);
 }

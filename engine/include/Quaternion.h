@@ -53,7 +53,7 @@ private:
 };
 
 inline constexpr Quaternion::Quaternion() noexcept
-	: vec(Identity.vec) {}
+	: vec(0.0f, 0.0f, 0.0f, 1.0f) {}
 
 inline Quaternion::Quaternion(float x, float y, float z, float w) noexcept
 	: vec(x, y, z, w) {}

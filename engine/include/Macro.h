@@ -14,8 +14,4 @@ using tchar = char;
 
 #define static_check(expr) { static_assert(expr); }
 
-#if _DEBUG
 #define check(expr) { assert(expr); }
-#else
-#define check(expr) { if (!(expr)) { return; } }
-#endif

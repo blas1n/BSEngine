@@ -4,7 +4,7 @@ matrix:
   include:
   - os: linux
     dist: bionic
-	compiler: gcc
+    compiler: gcc
     sudo: required
     script:
       - sh scripts/traivs_build.sh

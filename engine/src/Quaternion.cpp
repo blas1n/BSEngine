@@ -2,11 +2,6 @@
 #include "MathFunctions.h"
 #include "Vector3.h"
 
-const Quaternion Quaternion::Identity
-{
-	0.0f, 0.0f, 0.0f, 1.0f
-};
-
 Quaternion::Quaternion(const Vector3& axis, const float angle) noexcept
 	: vec()
 {

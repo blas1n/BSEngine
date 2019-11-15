@@ -139,6 +139,7 @@ inline Matrix3x3& Matrix3x3::operator+=(const Matrix3x3& other) noexcept
 	rows[0] += other[0];
 	rows[1] += other[1];
 	rows[2] += other[2];
+	return *this;
 }
 
 inline Matrix3x3& Matrix3x3::operator-=(const Matrix3x3& other) noexcept
@@ -146,6 +147,7 @@ inline Matrix3x3& Matrix3x3::operator-=(const Matrix3x3& other) noexcept
 	rows[0] -= other[0];
 	rows[1] -= other[1];
 	rows[2] -= other[2];
+	return *this;
 }
 
 inline Matrix3x3& Matrix3x3::operator*=(float scaler) noexcept

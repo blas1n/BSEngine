@@ -150,6 +150,7 @@ inline Matrix4x4& Matrix4x4::operator+=(const Matrix4x4& other) noexcept
 	rows[1] += other[1];
 	rows[2] += other[2];
 	rows[3] += other[3];
+	return *this;
 }
 
 inline Matrix4x4& Matrix4x4::operator-=(const Matrix4x4& other) noexcept
@@ -158,6 +159,7 @@ inline Matrix4x4& Matrix4x4::operator-=(const Matrix4x4& other) noexcept
 	rows[1] -= other[1];
 	rows[2] -= other[2];
 	rows[3] -= other[3];
+	return *this;
 }
 
 inline Matrix4x4& Matrix4x4::operator*=(float scaler) noexcept
@@ -166,6 +168,7 @@ inline Matrix4x4& Matrix4x4::operator*=(float scaler) noexcept
 	rows[1] *= scaler;
 	rows[2] *= scaler;
 	rows[3] *= scaler;
+	return *this;
 }
 
 inline Matrix4x4& Matrix4x4::operator/=(float scaler) noexcept
@@ -174,6 +177,7 @@ inline Matrix4x4& Matrix4x4::operator/=(float scaler) noexcept
 	rows[1] /= scaler;
 	rows[2] /= scaler;
 	rows[3] /= scaler;
+	return *this;
 }
 
 inline Matrix4x4& Matrix4x4::operator*=(const Matrix4x4& other) noexcept

@@ -7,10 +7,10 @@ matrix:
     compiler: gcc
     sudo: required
     script:
-      - sh scripts/traivs_build.sh
+      - sh scripts/travis_build.sh
 
   - os: osx
     osx_image: xcode9
     compiler: clang
     script:
-      - sh script/travis_build.sh
+      - sh scripts/travis_build.sh

@@ -1,6 +1,7 @@
 #include "HeapMemory.h"
 #include "MathFunctions.h"
 #include <cstring> // To use memset
+#include <cstdlib> // To use malloc / free
 
 inline bool IsAllocated(const uint8* const marker, const size_t index) noexcept
 {

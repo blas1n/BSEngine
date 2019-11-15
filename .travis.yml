@@ -7,7 +7,7 @@ matrix:
 	compiler: gcc
     sudo: required
     script:
-	  - sh scripts/traivs_build.sh
+      - sh scripts/traivs_build.sh
 
   - os: osx
     osx_image: xcode9

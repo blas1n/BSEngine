@@ -42,9 +42,15 @@ set(ENGINE_SRC
 	src/Vector4.cpp
 )
 
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+find_package (Threads)
+endif ()
+
 include_directories (include)
 
 add_executable (engine ${ENGINE_SRC})
+
+target_link_libraries (engine ${CMAKE_THREAD_LIBS_INIT})
 
 set_target_properties (engine PROPERTIES
 	OUTPUT_NAME engine

@@ -3,7 +3,7 @@
 #include <random>
 #include "Core.h"
 
-/// @brief Random factory with 'Mersenne Twister'
+/// @brief Random factory with 'Mersenne Twister'.
 class BS_API Random
 {
 public:

@@ -2,7 +2,7 @@
 
 #include "Core.h"
 
-/// @todo Use SIMD register
+/// @todo Use SIMD register.
 class BS_API Vector4 {
 public:
 	static const Vector4 Zero;

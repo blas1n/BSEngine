@@ -5,7 +5,7 @@
 
 class Vector3;
 
-/// @todo Use SIMD register
+/// @todo Use SIMD register.
 class BS_API Quaternion
 {
 public:

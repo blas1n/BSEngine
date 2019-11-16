@@ -3,7 +3,7 @@
 #include "Interface.h"
 #include "Type.h"
 
-/// @brief Interface defined for all managers to work with a consistent interface
+/// @brief Interface defined for all managers to work with a consistent interface.
 INTERFACE_BEGIN(Manager)
 	/// @brief Initialize manager.
 	INTERFACE_DEF(bool, Init)

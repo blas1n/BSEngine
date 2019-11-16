@@ -3,8 +3,8 @@
 #include "MemoryManager.h"
 
 /*
- * @brief Temp memory manager getter
- * @todo Change memory manager linker with system layer
+ * @brief Temp memory manager getter.
+ * @todo Change memory manager linker with system layer.
 */
 static MemoryManager* GetMemoryManager() noexcept
 {
@@ -42,7 +42,7 @@ public:
 
 	/**
 	 * @brief Allocate memory.
-	 * @param n Number of objects to be allocated
+	 * @param n Number of objects to be allocated.
 	 * @return Allocated object pointer.
 	 * @retval nullptr Can not allocate.
 	 * @remark It just allocates memory but does not call the constructor.
@@ -54,8 +54,8 @@ public:
 
 	/**
 	 * @brief Deallocate memory.
-	 * @param ptr Pointer to be deallocated
-	 * @param n Number of objects to be deallocated
+	 * @param ptr Pointer to be deallocated.
+	 * @param n Number of objects to be deallocated.
 	 * @return Allocated object pointer.
 	 * @retval nullptr Can not allocate.
 	 * @remark It just allocates memory but does not call the constructor.

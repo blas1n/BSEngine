@@ -8,7 +8,7 @@ class Vector2;
 class Vector3;
 class Vector4;
 
-/// @todo Add more functions using SIMD
+/// @todo Add more functions using SIMD.
 namespace Math
 {
 	constexpr float PI = 3.1415926535f;

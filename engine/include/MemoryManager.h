@@ -4,7 +4,7 @@
 
 /**
  * @brief Manager that manages all the memory used by the game engine.
- * @todo Build garbage collector.
+ * @todo Build garbage collector. And convert memory sizing to data driven.
 */
 class BS_API MemoryManager final : public IManager
 {

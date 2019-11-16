@@ -19,10 +19,13 @@ static MemoryManager* GetMemoryManager() noexcept
 }
 
 /**
- * @brief Custom allocator using pull memory
+ * @brief Custom allocator using pull memory.
+ * @detail I cannot add 'final' keyword.
+ * See https://stackoverflow.com/questions/55310209/can-a-c-allocator-be-final
+ * @todo Add 'final' keyword after make custom container.
 */
 template <class T>
-class BS_API Allocator final {
+class BS_API Allocator {
 public:
 	using value_type = T;
 	using size_type = std::size_t;

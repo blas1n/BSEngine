@@ -1,16 +1,16 @@
 #pragma once
 
-#include "IManager.h"
+#include "Macro.h"
 #include "Array.h"
 #include "Queue.h"
 #include <functional>
 #include <future>
 #include <mutex>
 
-class ThreadManager : public IManager {
+class ThreadManager {
 public:
-	bool Init() noexcept override;
-	void Release() noexcept override;
+	bool Init() noexcept;
+	void Release() noexcept;
 
 	template <class Fn, class... Args>
 	std::future<std::invoke_result_t<Fn, Args...>> AddTask(

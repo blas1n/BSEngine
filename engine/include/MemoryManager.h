@@ -41,3 +41,20 @@ public:
 private:
 	class HeapMemory* memory;
 };
+
+class BS_API MemoryManagerAccesser
+{
+protected:
+	inline static MemoryManager* GetMemoryManager() noexcept
+	{
+		return manager;
+	}
+
+private:
+	inline static void SetMemoryManager(MemoryManager* inManager) noexcept
+	{
+		manager = inManager;
+	}
+
+	static MemoryManager* manager;
+};

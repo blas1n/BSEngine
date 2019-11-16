@@ -26,6 +26,7 @@ set(ENGINE_SRC
 	include/Vector3.h
 	include/Vector4.h
 
+	src/Allocator.cpp
 	src/HeapMemory.cpp
 	src/main.cpp
 	src/MathFunctions.cpp

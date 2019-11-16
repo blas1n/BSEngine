@@ -25,3 +25,5 @@ void MemoryManager::Deallocate(void* const ptr, const size_t n) noexcept
 {
 	memory->Free(ptr, n);
 }
+
+MemoryManager* MemoryManagerAccesser::manager = nullptr;

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "Macro.h"
+
 /**
  * @brief A system that is a singleton object in the system layer.
  * @see README
 */
-class System
+class BS_API System
 {
 public:
 	/// @brief Initializes everything necessary to run the game engine.
@@ -15,4 +17,8 @@ public:
 
 	/// @brief Clean up everything created by the game engine.
 	void Release() noexcept;
+
+private:
+	class MemoryManager* memoryManager;
+	class ThreadManager* threadManager;
 };

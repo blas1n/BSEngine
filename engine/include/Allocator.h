@@ -1,31 +1,25 @@
 #pragma once
 
 #include "MemoryManager.h"
+#include "Macro.h"
+#include "Type.h"
 
-/*
- * @brief Temp memory manager getter.
- * @todo Change memory manager linker with system layer.
-*/
-static MemoryManager* GetMemoryManager() noexcept
+class BS_API AllocatorImpl : private MemoryManagerAccesser
 {
-	static MemoryManager memoryManager;
-	static bool isInit = false;
-	if (!isInit)
-	{
-		memoryManager.Init();
-		isInit = true;
-	}
-	return &memoryManager;
-}
+protected:
+	void* Alloc(const size_t n) noexcept;
+	void Dealloc(void* ptr, const size_t n) noexcept;
+};
 
 /**
- * @brief Custom allocator using pull memory.
+ * @brief Templated custom allocator.
  * @detail I cannot add 'final' keyword.
  * See https://stackoverflow.com/questions/55310209/can-a-c-allocator-be-final
  * @todo Add 'final' keyword after make custom container.
 */
 template <class T>
-class BS_API Allocator {
+class BS_API Allocator : private AllocatorImpl
+{
 public:
 	using value_type = T;
 	using size_type = std::size_t;
@@ -49,7 +43,7 @@ public:
 	*/
 	inline T* allocate(const size_t n = 1) noexcept
 	{
-		return static_cast<T*>(GetMemoryManager()->Allocate(n * sizeof(T)));
+		return static_cast<T*>(Alloc(n * sizeof(T)));
 	}
 
 	/**
@@ -62,6 +56,6 @@ public:
 	*/
 	inline void deallocate(T* ptr, const size_t n = 1) noexcept
 	{
-		return GetMemoryManager()->Deallocate(static_cast<void*>(ptr), n * sizeof(T));
+		Dealloc(static_cast<void*>(ptr), n * sizeof(T));
 	}
 };

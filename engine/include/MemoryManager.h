@@ -1,12 +1,12 @@
 #pragma once
 
-#include "IManager.h"
+#include "Macro.h"
 
 /**
  * @brief Manager that manages all the memory used by the game engine.
  * @todo Build garbage collector. And convert memory sizing to data driven.
 */
-class BS_API MemoryManager final : public IManager
+class BS_API MemoryManager final
 {
 public:
 	/**
@@ -18,10 +18,10 @@ public:
 	MemoryManager() noexcept;
 
 	/// @brief Allocate memory for use by the game engine.
-	bool Init() noexcept override;
+	bool Init() noexcept;
 
 	/// @brief Free the allocated memory.
-	void Release() noexcept override;
+	void Release() noexcept;
 
 	/**
 	 * @brief Allocate memory.

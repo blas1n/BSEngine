@@ -6,7 +6,6 @@ set(ENGINE_SRC
 	include/Core.h
 	include/Deque.h
 	include/HeapMemory.h
-	include/IManager.h
 	include/Interface.h
 	include/List.h
 	include/Macro.h

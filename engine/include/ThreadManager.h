@@ -3,6 +3,7 @@
 #include "IManager.h"
 #include "Array.h"
 #include "Queue.h"
+#include <functional>
 #include <future>
 #include <mutex>
 

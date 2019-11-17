@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Macro.h"
+#include "ManagerMacro.h"
 #include "Type.h"
 
 namespace BE
@@ -45,21 +45,5 @@ namespace BE
 		class HeapMemory* memory;
 	};
 
-	class BS_API MemoryManagerAccesser
-	{
-	protected:
-		inline static MemoryManager* GetMemoryManager() noexcept
-		{
-			check(manager != nullptr);
-			return manager;
-		}
-
-	private:
-		inline static void SetMemoryManager(MemoryManager* inManager) noexcept
-		{
-			manager = inManager;
-		}
-
-		static MemoryManager* manager;
-	};
+	CREATE_MANAGER_ACCESSER(MemoryManager)
 }

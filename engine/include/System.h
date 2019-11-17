@@ -21,7 +21,6 @@ namespace BE
 		void Release() noexcept;
 
 	private:
-		class MemoryManager* memoryManager;
 		class ThreadManager* threadManager;
 	};
 }

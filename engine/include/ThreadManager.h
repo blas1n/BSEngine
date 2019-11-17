@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Macro.h"
+#include "ManagerMacro.h"
 #include "Array.h"
 #include "Queue.h"
 #include <functional>
@@ -12,6 +12,8 @@ namespace BE
 	class ThreadManager
 	{
 	public:
+		ThreadManager() noexcept;
+
 		bool Init() noexcept;
 		void Release() noexcept;
 
@@ -44,4 +46,6 @@ namespace BE
 		cv.notify_one();
 		return task->get_future();
 	}
+
+	CREATE_MANAGER_ACCESSER(ThreadManager)
 }

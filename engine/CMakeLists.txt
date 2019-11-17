@@ -14,6 +14,7 @@ set(ENGINE_SRC
 	include/Matrix3x3.h
 	include/Matrix4x4.h
 	include/MemoryManager.h
+	include/NewDelete.h
 	include/Quaternion.h
 	include/Queue.h
 	include/Random.h
@@ -33,6 +34,7 @@ set(ENGINE_SRC
 	src/Matrix3x3.cpp
 	src/Matrix4x4.cpp
 	src/MemoryManager.cpp
+	src/NewDelete.cpp
 	src/Quaternion.cpp
 	src/Random.cpp
 	src/System.cpp

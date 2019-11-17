@@ -2,28 +2,31 @@
 #include "HeapMemory.h"
 #include <algorithm>
 
-MemoryManager::MemoryManager() noexcept
-	: memory(nullptr) {}
-
-bool MemoryManager::Init() noexcept
+namespace BE
 {
-	memory = new HeapMemory{ MEMORY_SIZE };
-	return true;
-}
+	MemoryManager::MemoryManager() noexcept
+		: memory(nullptr) {}
 
-void MemoryManager::Release() noexcept
-{
-	delete memory;
-}
+	bool MemoryManager::Init() noexcept
+	{
+		memory = ::new HeapMemory{ MEMORY_SIZE };
+		return true;
+	}
 
-void* MemoryManager::Allocate(const size_t n) noexcept
-{
-	return memory->Malloc(n);
-}
+	void MemoryManager::Release() noexcept
+	{
+		delete memory;
+	}
 
-void MemoryManager::Deallocate(void* const ptr, const size_t n) noexcept
-{
-	memory->Free(ptr, n);
-}
+	void* MemoryManager::Allocate(const size_t n) noexcept
+	{
+		return memory->Malloc(n);
+	}
 
-MemoryManager* MemoryManagerAccesser::manager = nullptr;
+	void MemoryManager::Deallocate(void* const ptr, const size_t n) noexcept
+	{
+		memory->Free(ptr, n);
+	}
+
+	MemoryManager* MemoryManagerAccesser::manager = nullptr;
+}

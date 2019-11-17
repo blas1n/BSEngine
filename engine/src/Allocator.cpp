@@ -1,12 +1,15 @@
 #include "Allocator.h"
 #include "MemoryManager.h"
 
-void* AllocatorImpl::Alloc(const size_t n) noexcept
+namespace BE
 {
-	return MemoryManagerAccesser::GetMemoryManager()->Allocate(n);
-}
+	void* AllocatorImpl::Alloc(const size_t n) noexcept
+	{
+		return MemoryManagerAccesser::GetMemoryManager()->Allocate(n);
+	}
 
-void AllocatorImpl::Dealloc(void* ptr, const size_t n) noexcept
-{
-	MemoryManagerAccesser::GetMemoryManager()->Deallocate(ptr, n);
+	void AllocatorImpl::Dealloc(void* ptr, const size_t n) noexcept
+	{
+		MemoryManagerAccesser::GetMemoryManager()->Deallocate(ptr, n);
+	}
 }

@@ -2,7 +2,7 @@
 
 int main()
 {
-	System sys;
+	BE::System sys;
 
 	if (sys.Initialize())
 		sys.RunLoop();

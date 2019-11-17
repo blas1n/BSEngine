@@ -3,6 +3,7 @@
 #include "MemoryManager.h"
 #include "Macro.h"
 #include "Type.h"
+#include <type_traits>
 
 class BS_API AllocatorImpl : private MemoryManagerAccesser
 {
@@ -22,7 +23,7 @@ class BS_API Allocator : private AllocatorImpl
 {
 public:
 	using value_type = T;
-	using size_type = std::size_t;
+	using size_type = size_t;
 	using difference_type = std::ptrdiff_t;
 	using propagate_on_container_move_assignment = std::true_type;
 	using is_always_equal = std::true_type;

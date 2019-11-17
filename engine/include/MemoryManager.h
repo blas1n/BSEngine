@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Macro.h"
+#include "Type.h"
 
 /**
  * @brief Manager that manages all the memory used by the game engine.

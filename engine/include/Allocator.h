@@ -5,7 +5,7 @@
 #include "Type.h"
 #include <type_traits>
 
-class BS_API AllocatorImpl : private MemoryManagerAccesser
+class BS_API AllocatorImpl : public MemoryManagerAccesser
 {
 protected:
 	void* Alloc(const size_t n) noexcept;

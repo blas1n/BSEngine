@@ -4,13 +4,25 @@
 
 namespace BE
 {
-	bool System::Initialize() noexcept {
-		memoryManager =
-			static_cast<MemoryManager*>(malloc(sizeof(MemoryManager)));
+	static MemoryManager memoryManager;
 
+	bool System::Initialize() noexcept {
+		memoryManager.Init();
+		MemoryManagerAccesser::Set(&memoryManager);
+		
+		Allocator<uint8> allocator;
+		auto* const manager = static_cast<void*>(
+				allocator.allocate(sizeof(ThreadManager)));
+
+		// Allocate memory and call constructor each manager.
 #pragma push_macro("new")
 #undef new
-		memoryManager = new(memoryManager)MemoryManager();
+		threadManager = new(manager)ThreadManager();
+#pragma pop_macro("new")
+
+		// Init and set accesser each manager.
+		threadManager->Init();
+		ThreadManagerAccesser::Set(threadManager);
 
 		return true;
 	}
@@ -20,6 +32,9 @@ namespace BE
 	}
 
 	void System::Release() noexcept {
+		// Release each manager.
+		threadManager->Release();
 
+		memoryManager.Release();
 	}
 }

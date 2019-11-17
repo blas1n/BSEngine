@@ -2,6 +2,11 @@
 
 namespace BE
 {
+	ThreadManager* ThreadManagerAccesser::manager = nullptr;
+
+	ThreadManager::ThreadManager() noexcept
+		: threads(), tasks(), cv(), taskMutex(), isEnd(false) {}
+
 	bool ThreadManager::Init() noexcept
 	{
 		auto threadNum = std::thread::hardware_concurrency();

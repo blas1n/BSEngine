@@ -48,6 +48,7 @@ class BS_API MemoryManagerAccesser
 protected:
 	inline static MemoryManager* GetMemoryManager() noexcept
 	{
+		check(manager != nullptr);
 		return manager;
 	}
 

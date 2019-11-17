@@ -7,8 +7,6 @@ int main()
 	if (sys.Initialize())
 		sys.RunLoop();
 	
-	/// @todo If init return false, log
-	
 	sys.Release();
 	return 0;
 }

@@ -3,120 +3,126 @@
 #include "Vector4.h"
 #include <utility>
 
-class Vector3;
-
-/// @todo Use SIMD register.
-class BS_API Quaternion
+namespace BE
 {
-public:
-	const static Quaternion Identity;
+	namespace Math
+	{
+		class Vector3;
 
-	constexpr Quaternion() noexcept;
-	explicit Quaternion(float x, float y, float z, float w) noexcept;
-	explicit Quaternion(Vector4 v) noexcept;
-	explicit Quaternion(const Vector3& axis, float angle) noexcept;
-	explicit Quaternion(const Vector3& euler) noexcept;
-	
-	Quaternion(const Quaternion& other) noexcept = default;
-	Quaternion(Quaternion&& other) noexcept = default;
-	
-	Quaternion& operator=(const Quaternion& other) noexcept = default;
-	Quaternion& operator=(Quaternion&& other) noexcept = default;
+		/// @todo Use SIMD register.
+		class BS_API Quaternion
+		{
+		public:
+			const static Quaternion Identity;
 
-	~Quaternion() noexcept = default;
+			constexpr Quaternion() noexcept;
+			explicit Quaternion(float x, float y, float z, float w) noexcept;
+			explicit Quaternion(Vector4 v) noexcept;
+			explicit Quaternion(const Vector3& axis, float angle) noexcept;
+			explicit Quaternion(const Vector3& euler) noexcept;
 
-	void Set(float x, float y, float z, float w) noexcept;
-	void Set(const Vector4& v) noexcept;
-	void Set(Vector4&& v) noexcept;
+			Quaternion(const Quaternion& other) noexcept = default;
+			Quaternion(Quaternion&& other) noexcept = default;
 
-	Vector3 ToEuler() const noexcept;
+			Quaternion& operator=(const Quaternion& other) noexcept = default;
+			Quaternion& operator=(Quaternion&& other) noexcept = default;
 
-	void Inversed() noexcept;
-	static Quaternion Inverse(const Quaternion& rotation) noexcept;
+			~Quaternion() noexcept = default;
 
-	static float Dot(const Quaternion& lhs, const Quaternion& rhs) noexcept;
+			void Set(float x, float y, float z, float w) noexcept;
+			void Set(const Vector4& v) noexcept;
+			void Set(Vector4&& v) noexcept;
 
-	static Quaternion Lerp(const Quaternion& a, const Quaternion& b, float f) noexcept;
-	static Quaternion Slerp(const Quaternion& a, const Quaternion& b, float f) noexcept;
+			Vector3 ToEuler() const noexcept;
 
-	Quaternion operator*=(const Quaternion& other) noexcept;
-	friend Quaternion operator*(const Quaternion& lhs, const Quaternion& rhs) noexcept;
+			void Inversed() noexcept;
+			static Quaternion Inverse(const Quaternion& rotation) noexcept;
 
-	friend bool operator==(const Quaternion& lhs, const Quaternion& rhs) noexcept;
-	friend bool operator!=(const Quaternion& lhs, const Quaternion& rhs) noexcept;
+			static float Dot(const Quaternion& lhs, const Quaternion& rhs) noexcept;
 
-	float& operator[](uint8 index) noexcept;
-	const float& operator[](uint8 index) const noexcept;
+			static Quaternion Lerp(const Quaternion& a, const Quaternion& b, float f) noexcept;
+			static Quaternion Slerp(const Quaternion& a, const Quaternion& b, float f) noexcept;
 
-private:
-	Vector4 vec;
-};
+			Quaternion operator*=(const Quaternion& other) noexcept;
+			friend Quaternion operator*(const Quaternion& lhs, const Quaternion& rhs) noexcept;
 
-inline constexpr Quaternion::Quaternion() noexcept
-	: vec(0.0f, 0.0f, 0.0f, 1.0f) {}
+			friend bool operator==(const Quaternion& lhs, const Quaternion& rhs) noexcept;
+			friend bool operator!=(const Quaternion& lhs, const Quaternion& rhs) noexcept;
 
-inline Quaternion::Quaternion(float x, float y, float z, float w) noexcept
-	: vec(x, y, z, w) {}
+			float& operator[](uint8 index) noexcept;
+			const float& operator[](uint8 index) const noexcept;
 
-inline Quaternion::Quaternion(Vector4 v) noexcept
-	: vec(v) {}
+		private:
+			Vector4 vec;
+		};
 
-inline void Quaternion::Set(float x, float y, float z, float w) noexcept
-{
-	vec.Set(x, y, z, w);
-}
+		inline constexpr Quaternion::Quaternion() noexcept
+			: vec(0.0f, 0.0f, 0.0f, 1.0f) {}
 
-inline void Quaternion::Set(const Vector4& v) noexcept
-{
-	vec = v;
-}
+		inline Quaternion::Quaternion(float x, float y, float z, float w) noexcept
+			: vec(x, y, z, w) {}
 
-inline void Quaternion::Set(Vector4&& v) noexcept
-{
-	vec = std::move(v);
-}
+		inline Quaternion::Quaternion(Vector4 v) noexcept
+			: vec(v) {}
 
-inline void Quaternion::Inversed() noexcept
-{
-	constexpr static Vector4 InverseVec{ -1.0f, -1.0f, -1.0f, 1.0f };
-	vec *= InverseVec;
-}
+		inline void Quaternion::Set(float x, float y, float z, float w) noexcept
+		{
+			vec.Set(x, y, z, w);
+		}
 
-inline Quaternion Quaternion::Inverse(const Quaternion& rotation) noexcept
-{
-	auto ret = rotation;
-	ret.Inversed();
-	return ret;
-}
+		inline void Quaternion::Set(const Vector4& v) noexcept
+		{
+			vec = v;
+		}
 
-inline float Quaternion::Dot(const Quaternion& lhs, const Quaternion& rhs) noexcept
-{
-	return Vector4::Dot(lhs.vec, rhs.vec);
-} 
+		inline void Quaternion::Set(Vector4&& v) noexcept
+		{
+			vec = std::move(v);
+		}
 
-inline Quaternion Quaternion::operator*=(const Quaternion& other) noexcept
-{
-	*this = *this * other;
-	return *this;
-}
+		inline void Quaternion::Inversed() noexcept
+		{
+			constexpr static Vector4 InverseVec{ -1.0f, -1.0f, -1.0f, 1.0f };
+			vec *= InverseVec;
+		}
 
-inline bool operator==(const Quaternion& lhs, const Quaternion& rhs) noexcept
-{
-	return (lhs.vec.x == rhs.vec.x && lhs.vec.y == rhs.vec.y &&
-		lhs.vec.z == rhs.vec.z && lhs.vec.w == rhs.vec.w);
-}
+		inline Quaternion Quaternion::Inverse(const Quaternion& rotation) noexcept
+		{
+			auto ret = rotation;
+			ret.Inversed();
+			return ret;
+		}
 
-inline bool operator!=(const Quaternion& lhs, const Quaternion& rhs) noexcept
-{
-	return !(lhs == rhs);
-}
+		inline float Quaternion::Dot(const Quaternion& lhs, const Quaternion& rhs) noexcept
+		{
+			return Vector4::Dot(lhs.vec, rhs.vec);
+		}
 
-inline float& Quaternion::operator[](uint8 index) noexcept
-{
-	return vec[index];
-}
+		inline Quaternion Quaternion::operator*=(const Quaternion& other) noexcept
+		{
+			*this = *this * other;
+			return *this;
+		}
 
-inline const float& Quaternion::operator[](uint8 index) const noexcept
-{
-	return vec[index];
+		inline bool operator==(const Quaternion& lhs, const Quaternion& rhs) noexcept
+		{
+			return (lhs.vec.x == rhs.vec.x && lhs.vec.y == rhs.vec.y &&
+				lhs.vec.z == rhs.vec.z && lhs.vec.w == rhs.vec.w);
+		}
+
+		inline bool operator!=(const Quaternion& lhs, const Quaternion& rhs) noexcept
+		{
+			return !(lhs == rhs);
+		}
+
+		inline float& Quaternion::operator[](uint8 index) noexcept
+		{
+			return vec[index];
+		}
+
+		inline const float& Quaternion::operator[](uint8 index) const noexcept
+		{
+			return vec[index];
+		}
+	}
 }

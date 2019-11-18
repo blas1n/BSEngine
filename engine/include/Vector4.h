@@ -25,8 +25,8 @@ namespace BE::Math
 
 		void Set(float inX, float inY, float inZ, float inW) noexcept;
 
-		float& operator[](uint8 index) noexcept;
-		const float& operator[](uint8 index) const noexcept;
+		float& operator[](Uint8 index) noexcept;
+		const float& operator[](Uint8 index) const noexcept;
 
 		Vector4 operator+() const noexcept;
 		Vector4 operator-() const noexcept;
@@ -79,13 +79,13 @@ namespace BE::Math
 		w = inW;
 	}
 
-	inline float& Vector4::operator[](uint8 index) noexcept
+	inline float& Vector4::operator[](Uint8 index) noexcept
 	{
 		check(index < 5);
 		return (&x)[index];
 	}
 
-	inline const float& Vector4::operator[](uint8 index) const noexcept
+	inline const float& Vector4::operator[](Uint8 index) const noexcept
 	{
 		check(index < 5);
 		return (&x)[index];

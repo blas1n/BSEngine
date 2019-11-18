@@ -54,8 +54,8 @@ namespace BE::Math
 		Matrix4x4 operator+() const noexcept;
 		Matrix4x4 operator-() const noexcept;
 
-		Vector4& operator[](uint8 row) noexcept;
-		const Vector4& operator[](uint8 row) const noexcept;
+		Vector4& operator[](Uint8 row) noexcept;
+		const Vector4& operator[](Uint8 row) const noexcept;
 
 		static Matrix4x4 FromTranslation(float x, float y, float z) noexcept;
 		static Matrix4x4 FromTranslation(const Vector3& translation) noexcept;
@@ -133,8 +133,8 @@ namespace BE::Math
 
 	inline bool Matrix4x4::operator==(const Matrix4x4& other) const noexcept
 	{
-		for (uint8 row = 0; row < 4; ++row)
-			for (uint8 column = 0; column < 4; ++column)
+		for (Uint8 row = 0; row < 4; ++row)
+			for (Uint8 column = 0; column < 4; ++column)
 				if (rows[row][column] != other.rows[row][column])
 					return false;
 
@@ -253,12 +253,12 @@ namespace BE::Math
 		return *this * -1.0f;
 	}
 
-	inline Vector4& Matrix4x4::operator[](uint8 row) noexcept
+	inline Vector4& Matrix4x4::operator[](Uint8 row) noexcept
 	{
 		return rows[row];
 	}
 
-	inline const Vector4& Matrix4x4::operator[](uint8 row) const noexcept
+	inline const Vector4& Matrix4x4::operator[](Uint8 row) const noexcept
 	{
 		return rows[row];
 	}

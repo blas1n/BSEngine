@@ -10,7 +10,7 @@ namespace BE
 		memoryManager.Init();
 		MemoryManagerAccesser::Set(&memoryManager);
 		
-		Allocator<uint8> allocator;
+		Allocator<Uint8> allocator;
 		auto* const manager = static_cast<void*>(
 				allocator.allocate(sizeof(ThreadManager)));
 
@@ -25,7 +25,7 @@ namespace BE
 		ThreadManagerAccesser::Set(threadManager);
 	}
 
-	int32 System::RunLoop() noexcept {
+	Int32 System::RunLoop() noexcept {
 		return 0;
 	}
 

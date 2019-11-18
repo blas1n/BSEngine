@@ -4,10 +4,10 @@
 
 using namespace BE;
 
-/*extern */int32 __argc;
+/*extern */Int32 __argc;
 /*extern */char** __argv;
 
-int32 main(int32 argc, char** argv)
+Int32 main(Int32 argc, char** argv)
 {
 	__argc = argc;
 	__argv = argv;

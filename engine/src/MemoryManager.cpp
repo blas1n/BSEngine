@@ -7,10 +7,9 @@ namespace BE
 	MemoryManager::MemoryManager() noexcept
 		: memory(nullptr) {}
 
-	bool MemoryManager::Init() noexcept
+	void MemoryManager::Init() noexcept
 	{
 		memory = ::new HeapMemory{ MEMORY_SIZE };
-		return true;
 	}
 
 	void MemoryManager::Release() noexcept

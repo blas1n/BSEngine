@@ -28,7 +28,8 @@ set(ENGINE_SRC
 
 	src/Allocator.cpp
 	src/HeapMemory.cpp
-	src/main.cpp
+	src/Main_Linux.cpp
+	src/Main_Windows.cpp
 	src/MathFunctions.cpp
 	src/Matrix3x3.cpp
 	src/Matrix4x4.cpp
@@ -48,7 +49,11 @@ endif ()
 
 include_directories (include)
 
+if (WIN32)
+add_executable (engine WIN32 ${ENGINE_SRC})
+else ()
 add_executable (engine ${ENGINE_SRC})
+endif()
 
 target_link_libraries (engine ${CMAKE_THREAD_LIBS_INIT})
 

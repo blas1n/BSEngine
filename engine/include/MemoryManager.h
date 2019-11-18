@@ -21,7 +21,7 @@ namespace BE
 		MemoryManager() noexcept;
 
 		/// @brief Allocate memory for use by the game engine.
-		bool Init() noexcept;
+		void Init() noexcept;
 
 		/// @brief Free the allocated memory.
 		void Release() noexcept;

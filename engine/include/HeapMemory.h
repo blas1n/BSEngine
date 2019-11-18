@@ -28,8 +28,8 @@ namespace BE
 		void Free(void* ptr, size_t n) noexcept;
 
 	private:
-		uint8* memory;
-		uint8* marker;
+		Uint8* memory;
+		Uint8* marker;
 
 		size_t curNum;
 		size_t maxNum;

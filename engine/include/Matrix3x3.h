@@ -53,8 +53,8 @@ namespace BE::Math
 		Matrix3x3 operator+() const noexcept;
 		Matrix3x3 operator-() const noexcept;
 
-		Vector3& operator[](uint8 row) noexcept;
-		const Vector3& operator[](uint8 row) const noexcept;
+		Vector3& operator[](Uint8 row) noexcept;
+		const Vector3& operator[](Uint8 row) const noexcept;
 
 		static Matrix3x3 FromTranslation(float x, float y) noexcept;
 		static Matrix3x3 FromTranslation(const Vector2& translation) noexcept;
@@ -123,8 +123,8 @@ namespace BE::Math
 
 	inline bool Matrix3x3::operator==(const Matrix3x3& other) const noexcept
 	{
-		for (uint8 row = 0; row < 3; ++row)
-			for (uint8 column = 0; column < 3; ++column)
+		for (Uint8 row = 0; row < 3; ++row)
+			for (Uint8 column = 0; column < 3; ++column)
 				if (rows[row][column] != other.rows[row][column])
 					return false;
 
@@ -234,12 +234,12 @@ namespace BE::Math
 		return *this * -1.0f;
 	}
 
-	inline Vector3& Matrix3x3::operator[](uint8 row) noexcept
+	inline Vector3& Matrix3x3::operator[](Uint8 row) noexcept
 	{
 		return rows[row];
 	}
 
-	inline const Vector3& Matrix3x3::operator[](uint8 row) const noexcept
+	inline const Vector3& Matrix3x3::operator[](Uint8 row) const noexcept
 	{
 		return rows[row];
 	}

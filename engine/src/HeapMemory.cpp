@@ -5,17 +5,17 @@
 
 namespace BE
 {
-	inline bool IsAllocated(const uint8* const marker, const size_t index) noexcept
+	inline bool IsAllocated(const Uint8* const marker, const size_t index) noexcept
 	{
 		return (marker[index / 8] & (1 << (index % 8))) > 0;
 	}
 
-	inline void Mark(uint8* const marker, const size_t index) noexcept
+	inline void Mark(Uint8* const marker, const size_t index) noexcept
 	{
 		marker[index / 8] |= 1 << (index % 8);
 	}
 
-	inline void Unmark(uint8* const marker, const size_t index) noexcept
+	inline void Unmark(Uint8* const marker, const size_t index) noexcept
 	{
 		marker[index / 8] &= ~(1 << (index % 8));
 	}
@@ -28,7 +28,7 @@ namespace BE
 		markerSize = static_cast<size_t>(
 			Math::Ceil(static_cast<float>(maxNum) * 0.125f));
 
-		memory = static_cast<uint8*>(std::malloc(maxNum + markerSize));
+		memory = static_cast<Uint8*>(std::malloc(maxNum + markerSize));
 		check(memory != nullptr);
 
 		marker = memory + maxNum;
@@ -71,7 +71,7 @@ namespace BE
 		check(ptr >= memory && ptr < memory + maxNum);
 
 		curNum -= n;
-		const size_t startIdx = static_cast<uint8*>(ptr) - memory;
+		const size_t startIdx = static_cast<Uint8*>(ptr) - memory;
 		for (auto i = startIdx; i < n + startIdx; ++i)
 			Unmark(marker, i);
 	}

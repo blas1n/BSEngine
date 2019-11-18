@@ -16,7 +16,7 @@ namespace BE
 		void Initialize() noexcept;
 
 		/// @brief To constantly call to update the scene with the manager.
-		int32 RunLoop() noexcept;
+		Int32 RunLoop() noexcept;
 
 		/// @brief Clean up everything created by the game engine.
 		void Release() noexcept;

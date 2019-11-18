@@ -4,13 +4,15 @@
 
 namespace BE
 {
-	using uint8 = unsigned char;
-	using uint16 = unsigned short;
-	using uint32 = unsigned int;
-	using uint64 = unsigned long long;
+	using Uint8 = unsigned char;
+	using Uint16 = unsigned short;
+	using Uint32 = unsigned int;
+	using Uint64 = unsigned long long;
 
-	using int8 = signed int;
-	using int16 = signed short;
-	using int32 = signed int;
-	using int64 = signed long long;
+	using Int8 = signed int;
+	using Int16 = signed short;
+	using Int32 = signed int;
+	using Int64 = signed long long;
+
+	using Char = char16_t;
 }

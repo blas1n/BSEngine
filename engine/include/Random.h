@@ -17,7 +17,7 @@ namespace BE::Math
 		}
 
 		/// @brief Set seed.
-		static inline void Seed(uint32 seed) noexcept
+		static inline void Seed(Uint32 seed) noexcept
 		{
 			generator.seed(seed);
 		}

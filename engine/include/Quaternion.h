@@ -47,8 +47,8 @@ namespace BE::Math
 		friend bool operator==(const Quaternion& lhs, const Quaternion& rhs) noexcept;
 		friend bool operator!=(const Quaternion& lhs, const Quaternion& rhs) noexcept;
 
-		float& operator[](uint8 index) noexcept;
-		const float& operator[](uint8 index) const noexcept;
+		float& operator[](Uint8 index) noexcept;
+		const float& operator[](Uint8 index) const noexcept;
 
 	private:
 		Vector4 vec;
@@ -113,12 +113,12 @@ namespace BE::Math
 		return !(lhs == rhs);
 	}
 
-	inline float& Quaternion::operator[](uint8 index) noexcept
+	inline float& Quaternion::operator[](Uint8 index) noexcept
 	{
 		return vec[index];
 	}
 
-	inline const float& Quaternion::operator[](uint8 index) const noexcept
+	inline const float& Quaternion::operator[](Uint8 index) const noexcept
 	{
 		return vec[index];
 	}

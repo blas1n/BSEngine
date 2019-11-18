@@ -7,18 +7,16 @@ namespace BE
 	ThreadManager::ThreadManager() noexcept
 		: threads(), tasks(), cv(), taskMutex(), isEnd(false) {}
 
-	bool ThreadManager::Init() noexcept
+	void ThreadManager::Init() noexcept
 	{
 		auto threadNum = std::thread::hardware_concurrency();
-		if (threadNum == 0) return false;
+		check(threadNum != 0);
 
 		threadNum = threadNum * 2 + 1;
 		threads.reserve(threadNum);
 
 		while (threadNum--)
 			threads.emplace_back([this]() { ThreadWork(); });
-
-		return true;
 	}
 
 	void ThreadManager::Release() noexcept

@@ -6,7 +6,7 @@ namespace BE
 {
 	static MemoryManager memoryManager;
 
-	bool System::Initialize() noexcept {
+	void System::Initialize() noexcept {
 		memoryManager.Init();
 		MemoryManagerAccesser::Set(&memoryManager);
 		
@@ -23,12 +23,10 @@ namespace BE
 		// Init and set accesser each manager.
 		threadManager->Init();
 		ThreadManagerAccesser::Set(threadManager);
-
-		return true;
 	}
 
-	void System::RunLoop() noexcept {
-
+	int32 System::RunLoop() noexcept {
+		return 0;
 	}
 
 	void System::Release() noexcept {

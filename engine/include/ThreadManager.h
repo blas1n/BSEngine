@@ -14,7 +14,7 @@ namespace BE
 	public:
 		ThreadManager() noexcept;
 
-		bool Init() noexcept;
+		void Init() noexcept;
 		void Release() noexcept;
 
 		template <class Fn, class... Args>

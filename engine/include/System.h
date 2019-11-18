@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Macro.h"
+#include "Type.h"
 
 namespace BE
 {
@@ -12,10 +13,10 @@ namespace BE
 	{
 	public:
 		/// @brief Initializes everything necessary to run the game engine.
-		bool Initialize() noexcept;
+		void Initialize() noexcept;
 
 		/// @brief To constantly call to update the scene with the manager.
-		void RunLoop() noexcept;
+		int32 RunLoop() noexcept;
 
 		/// @brief Clean up everything created by the game engine.
 		void Release() noexcept;

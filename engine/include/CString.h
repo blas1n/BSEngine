@@ -34,9 +34,10 @@ namespace BE
 		return ::wcsxfrm(dest, src, count);
 	}
 
-	inline size_t Strlen(Char* str)
+	template <size_t N>
+	inline size_t Strlen(Char str[N])
 	{
-		return ::wcslen(str);
+		return ::wcsnlen_s(str, N);
 	}
 
 	inline Int32 Strcmp(const Char* lhs, const Char* rhs)

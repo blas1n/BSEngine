@@ -7,6 +7,7 @@ set(ENGINE_SRC
 	include/Deque.h
 	include/HeapMemory.h
 	include/Interface.h
+	include/Iterator.h
 	include/List.h
 	include/Macro.h
 	include/Map.h

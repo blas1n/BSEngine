@@ -6,7 +6,7 @@
 
 #define check(expr) { assert(expr); }
 
-#define TEXT_PASTE(x) u ## x
+#define TEXT_PASTE(x) L ## x
 
 #undef TEXT
 #define TEXT(x) TEXT_PASTE(x)

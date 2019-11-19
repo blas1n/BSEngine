@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <wchar.h>
 
 namespace BE
 {
@@ -14,5 +15,5 @@ namespace BE
 	using Int32 = signed int;
 	using Int64 = signed long long;
 
-	using Char = char16_t;
+	using Char = wchar_t;
 }

@@ -1,8 +1,7 @@
 #pragma once
 
 #include "MemoryManager.h"
-#include "Macro.h"
-#include "Type.h"
+#include "Core.h"
 #include <type_traits>
 
 namespace BE

@@ -1,4 +1,5 @@
 #pragma once
 
-#include "Interface.h"
+#include "Exception.h"
+#include "Macro.h"
 #include "Type.h"

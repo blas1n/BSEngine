@@ -7,6 +7,7 @@
 #include "ManagerMacro.h"
 #include "ResourceMemory.h"
 #include "Type.h"
+#include <initializer_list>
 
 namespace BE
 {

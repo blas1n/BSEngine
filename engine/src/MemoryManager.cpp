@@ -1,6 +1,5 @@
 #include "MemoryManager.h"
 #include <cstdlib>
-#include <initializer_list>
 
 namespace BE
 {

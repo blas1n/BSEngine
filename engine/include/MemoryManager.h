@@ -1,6 +1,11 @@
 #pragma once
 
+#include "ComponentMemory.h"
+#include "HeapMemory.h"
+#include "ManagerMemory.h"
+#include "OneFrameMemory.h"
 #include "ManagerMacro.h"
+#include "ResourceMemory.h"
 #include "Type.h"
 
 namespace BE
@@ -12,37 +17,33 @@ namespace BE
 	class BS_API MemoryManager final
 	{
 	public:
-		/**
-		 * @brief Maximum amount of memory the game engine will use.
-		 * @warning The game terminates when the amount of memory allocation becomes larger.
-		*/
-		constexpr static size_t MEMORY_SIZE = 30000;
-
-		MemoryManager() noexcept;
+		constexpr MemoryManager() noexcept;
 
 		/// @brief Allocate memory for use by the game engine.
-		void Init() noexcept;
+		void Init(std::initializer_list<size_t> memorySizes) noexcept;
+
+		/// @brief Initialize one-frame memory.
+		inline void Update() noexcept
+		{
+			oneFrameMemory.Clear();
+		}
 
 		/// @brief Free the allocated memory.
 		void Release() noexcept;
 
-		/**
-		 * @brief Allocate memory.
-		 * @param n Size to be allocated.
-		 * @return Allocated pointer.
-		 * @retval nullptr Can not allocate.
-		*/
-		void* Allocate(size_t n) noexcept;
-
-		/**
-		 * @brief Deallocate memory.
-		 * @param ptr Pointer to be deallocated.
-		 * @param n Size to be deallocated.
-		*/
-		void Deallocate(void* ptr, size_t n) noexcept;
+		constexpr inline ManagerMemory&   GetManagerMemory()   noexcept { return managerMemory; }
+		constexpr inline ComponentMemory& GetComponentMemory() noexcept { return componentMemory; }
+		constexpr inline ResourceMemory&  GetResourceMemory()  noexcept { return resourceMemory; }
+		constexpr inline OneFrameMemory&  GetOneFrameMemory()  noexcept { return oneFrameMemory; }
+		constexpr inline HeapMemory&      GetHeapMemory()      noexcept { return heapMemory; }
 
 	private:
-		class HeapMemory* memory;
+		ManagerMemory managerMemory;
+		ComponentMemory componentMemory;
+		ResourceMemory resourceMemory;
+		OneFrameMemory oneFrameMemory;
+		HeapMemory heapMemory;
+		void* memory;
 	};
 
 	CREATE_MANAGER_ACCESSER(MemoryManager)

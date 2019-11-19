@@ -4,10 +4,10 @@
 
 namespace BE
 {
-	class BS_API HeapMemory final
+	class BS_API ResourceMemory final
 	{
 	public:
-		constexpr HeapMemory() noexcept {}
+		constexpr ResourceMemory() noexcept {}
 
 		void Init(void* const inMemory, const size_t inSize) noexcept {}
 

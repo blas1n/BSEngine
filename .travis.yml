@@ -14,3 +14,6 @@ matrix:
     compiler: clang
     script:
       - sh scripts/travis_build.sh
+
+notifications:
+  email: false

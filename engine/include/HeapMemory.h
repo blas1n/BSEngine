@@ -9,16 +9,16 @@ namespace BE
 	public:
 		constexpr HeapMemory() noexcept;
 
-		void Init(void* const inMemory, const size_t inSize) noexcept;
+		void Init(size_t inSize) noexcept;
 
 		void Release() noexcept;
 
-		void* Allocate(const size_t size);
+		void* Allocate(size_t size);
 
-		void Deallocate(void* const ptr, const size_t size);
+		void Deallocate(void* ptr, size_t size);
 
 	private:
-		Uint8* memory;
+		Uint8* curMemory;
 		Uint8* marker;
 
 		size_t curNum;

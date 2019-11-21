@@ -21,24 +21,25 @@ inline void Unmark(BE::Uint8* const marker, const size_t index) noexcept
 namespace BE
 {
 	constexpr HeapMemory::HeapMemory() noexcept
-		: memory(nullptr),
-		marker(nullptr),
-		curNum(0),
-		maxNum(0) {}
+		: curMemory{ nullptr },
+		marker{ nullptr },
+		curNum{ 0 },
+		maxNum{ 0 } {}
 
-	void HeapMemory::Init(void* const inMemory, const size_t inSize) noexcept
+	void HeapMemory::Init(const size_t size) noexcept
 	{
-		memory = static_cast<Uint8*>(inMemory);
-		maxNum = inSize;
+		const auto markerSize = size / 8 + 1;
+		auto ptr = std::malloc(size + markerSize);
+		check(ptr != nullptr);
 
-		size_t markerSize = inSize / 8 + 1;
-		marker = static_cast<Uint8*>(malloc(markerSize));
+		curMemory = static_cast<Uint8*>(ptr);
+		marker = curMemory + size;
+		maxNum = size;
 	}
 
 	void HeapMemory::Release() noexcept
 	{
-		if (marker)
-			free(marker);
+		std::free(curMemory);
 	}
 
 	void* HeapMemory::Allocate(const size_t size)
@@ -60,8 +61,8 @@ namespace BE
 				Mark(marker, idx);
 
 			curNum += size;
-			std::memset(memory + startIdx, 0, size);
-			return memory + startIdx;
+			std::memset(curMemory + startIdx, 0, size);
+			return curMemory + startIdx;
 		}
 
 		return nullptr;
@@ -69,10 +70,10 @@ namespace BE
 
 	void HeapMemory::Deallocate(void* const ptr, const size_t size)
 	{
-		check(ptr >= memory && ptr < memory + maxNum);
+		check(ptr >= curMemory && ptr < curMemory + maxNum);
 
 		curNum -= size;
-		const size_t startIdx = static_cast<Uint8*>(ptr) - memory;
+		const size_t startIdx = static_cast<Uint8*>(ptr) - curMemory;
 		for (auto i = startIdx; i < size + startIdx; ++i)
 			Unmark(marker, i);
 	}

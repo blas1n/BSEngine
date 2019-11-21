@@ -1,32 +1,39 @@
 #pragma once
 
 #include "Core.h"
+#include <cstdlib>
 
 namespace BE
 {
 	class BS_API ManagerMemory final {
 	public:
 		constexpr ManagerMemory() noexcept
-			: memory(nullptr), maxSize(0) {}
+			: startMemory{ nullptr },
+			curMemory{ nullptr },
+			maxSize{ 0 } {}
 
-		inline void Init(void* const inMemory, const size_t inSize) noexcept
+		inline void Init(const size_t inSize) noexcept
 		{
-			memory = static_cast<Uint8*>(inMemory);
+			startMemory = curMemory = static_cast<Uint8*>(std::malloc(inSize));
 			maxSize = inSize;
+		}
+
+		inline void Release() noexcept
+		{
+			std::free(startMemory);
 		}
 
 		template <class ManagerType>
 		ManagerType* Allocate() noexcept
 		{
-			check(memory + sizeof(ManagerType) > memory + maxSize);
-
-			auto tmp{ memory };
-			memory += sizeof(ManagerType);
+			auto tmp{ curMemory };
+			curMemory += sizeof(ManagerType);
 			return tmp;
 		}
 
 	private:
-		Uint8* memory;
+		Uint8* startMemory;
+		Uint8* curMemory;
 		size_t maxSize;
 	};
 }

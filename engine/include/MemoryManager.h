@@ -1,12 +1,12 @@
 #pragma once
 
+#include "Core.h"
 #include "ComponentMemory.h"
 #include "HeapMemory.h"
 #include "ManagerMemory.h"
 #include "OneFrameMemory.h"
 #include "ManagerMacro.h"
 #include "ResourceMemory.h"
-#include "Type.h"
 #include <initializer_list>
 
 namespace BE

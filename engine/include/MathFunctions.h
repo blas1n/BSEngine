@@ -34,14 +34,14 @@ namespace BE::Math
 	template <class T, typename = IsArithmetic<T>>
 	constexpr inline T Abs(const T& x)
 	{
-		constexpr static auto zero = static_cast<T>(0);
+		constexpr auto zero = static_cast<T>(0);
 		return x > zero ? x : -x;
 	}
 
 	template <class T, class = IsArithmetic<T>>
 	constexpr inline int Sign(const T& x)
 	{
-		constexpr static auto zero = static_cast<T>(0);
+		constexpr auto zero = static_cast<T>(0);
 		return x > zero ? 1 : x < zero ? -1 : 0;
 	}
 

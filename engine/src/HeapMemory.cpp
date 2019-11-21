@@ -1,48 +1,44 @@
 #include "HeapMemory.h"
 #include "MathFunctions.h"
-#include <cstring> // To use memset
-#include <cstdlib> // To use malloc / free
+#include <cstdlib>
+#include <cstring>
+
+inline bool IsAllocated(const BE::Uint8* const marker, const size_t index) noexcept
+{
+	return (marker[index / 8] & (1 << (index % 8))) > 0;
+}
+
+inline void Mark(BE::Uint8* const marker, const size_t index) noexcept
+{
+	marker[index / 8] |= 1 << (index % 8);
+}
+
+inline void Unmark(BE::Uint8* const marker, const size_t index) noexcept
+{
+	marker[index / 8] &= ~(1 << (index % 8));
+}
 
 namespace BE
 {
-	inline bool IsAllocated(const Uint8* const marker, const size_t index) noexcept
+	void HeapMemory::Init(const size_t size) noexcept
 	{
-		return (marker[index / 8] & (1 << (index % 8))) > 0;
-	}
+		const auto markerSize = size / 8 + 1;
+		auto ptr = std::malloc(size + markerSize);
+		check(ptr != nullptr);
 
-	inline void Mark(Uint8* const marker, const size_t index) noexcept
-	{
-		marker[index / 8] |= 1 << (index % 8);
-	}
-
-	inline void Unmark(Uint8* const marker, const size_t index) noexcept
-	{
-		marker[index / 8] &= ~(1 << (index % 8));
-	}
-
-	HeapMemory::HeapMemory(const size_t size) noexcept
-	{
-		check(size != 0);
-
+		curMemory = static_cast<Uint8*>(ptr);
+		marker = curMemory + size;
 		maxNum = size;
-		markerSize = static_cast<size_t>(
-			Math::Ceil(static_cast<float>(maxNum) * 0.125f));
-
-		memory = static_cast<Uint8*>(std::malloc(maxNum + markerSize));
-		check(memory != nullptr);
-
-		marker = memory + maxNum;
-		std::memset(memory, 0, maxNum + markerSize);
 	}
 
-	HeapMemory::~HeapMemory() noexcept
+	void HeapMemory::Release() noexcept
 	{
-		std::free(memory);
+		std::free(curMemory);
 	}
 
-	void* HeapMemory::Malloc(const size_t n) noexcept
+	void* HeapMemory::Allocate(const size_t size)
 	{
-		if (n == 0 || maxNum - curNum < n)
+		if (size == 0 || maxNum - curNum < size)
 			return nullptr;
 
 		for (size_t i = 0, clearSectionNum = 0; i < maxNum; ++i) {
@@ -52,27 +48,27 @@ namespace BE
 				continue;
 			}
 
-			if (++clearSectionNum < n) continue;
+			if (++clearSectionNum < size) continue;
 
-			const auto startIdx = i - n + 1;
+			const auto startIdx = i - size + 1;
 			for (auto idx = startIdx; idx <= i; ++idx)
 				Mark(marker, idx);
 
-			curNum += n;
-			std::memset(memory + startIdx, 0, n);
-			return memory + startIdx;
+			curNum += size;
+			std::memset(curMemory + startIdx, 0, size);
+			return curMemory + startIdx;
 		}
 
 		return nullptr;
 	}
 
-	void HeapMemory::Free(void* const ptr, const size_t n) noexcept
+	void HeapMemory::Deallocate(void* const ptr, const size_t size)
 	{
-		check(ptr >= memory && ptr < memory + maxNum);
+		check(ptr >= curMemory && ptr < curMemory + maxNum);
 
-		curNum -= n;
-		const size_t startIdx = static_cast<Uint8*>(ptr) - memory;
-		for (auto i = startIdx; i < n + startIdx; ++i)
+		curNum -= size;
+		const size_t startIdx = static_cast<Uint8*>(ptr) - curMemory;
+		for (auto i = startIdx; i < size + startIdx; ++i)
 			Unmark(marker, i);
 	}
 }

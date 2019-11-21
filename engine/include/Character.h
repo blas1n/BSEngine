@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Type.h"
-#include "Macro.h"
+#include "Core.h"
 #include <wctype.h>
 
 namespace BE
@@ -25,7 +24,7 @@ namespace BE
 	inline Char ToUpper(Char ch) { return ::towupper(ch); }
 	inline Char ToLower(Char ch) { return ::towlower(ch); }
 	
-	inline Int32 ConvertCharDigitToInt(Char ch)
+	constexpr inline Int32 ConvertCharDigitToInt(Char ch)
 	{
 		return static_cast<Int32>(ch) - static_cast<Int32>('0');
 	}

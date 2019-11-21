@@ -1,13 +1,12 @@
 #pragma once
 
-#include "Macro.h"
-#include "Type.h"
+#include "Core.h"
 #include <vector>
 
 namespace BE
 {
 	template <class ContainerType>
-	class BS_API RandomAccessIterator
+	class BS_API RandomAccessIterator final
 	{
 	public:
 		RandomAccessIterator(ContainerType& inContainer, size_t inIdx = 0)

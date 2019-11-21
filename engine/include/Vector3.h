@@ -21,20 +21,20 @@ namespace BE::Math
 		constexpr Vector3(float inX, float inY, float inZ) noexcept;
 		Vector3(float* elems) noexcept;
 
-		void Set(float inX, float inY, float inZ) noexcept;
+		constexpr void Set(float inX, float inY, float inZ) noexcept;
 
-		float& operator[](Uint8 index) noexcept;
-		const float& operator[](Uint8 index) const noexcept;
+		constexpr float& operator[](Uint8 index) noexcept;
+		constexpr const float& operator[](Uint8 index) const noexcept;
 
-		Vector3 operator+() const noexcept;
-		Vector3 operator-() const noexcept;
+		constexpr Vector3 operator+() const noexcept;
+		constexpr Vector3 operator-() const noexcept;
 
-		Vector3& operator+=(const Vector3& other) noexcept;
-		Vector3& operator-=(const Vector3& other) noexcept;
-		Vector3& operator*=(const Vector3& other) noexcept;
-		Vector3& operator*=(const float scalar) noexcept;
-		Vector3& operator/=(const Vector3& other) noexcept;
-		Vector3& operator/=(const float scalar) noexcept;
+		constexpr Vector3& operator+=(const Vector3& other) noexcept;
+		constexpr Vector3& operator-=(const Vector3& other) noexcept;
+		constexpr Vector3& operator*=(const Vector3& other) noexcept;
+		constexpr Vector3& operator*=(const float scalar) noexcept;
+		constexpr Vector3& operator/=(const Vector3& other) noexcept;
+		constexpr Vector3& operator/=(const float scalar) noexcept;
 
 		float LengthSquared() const noexcept;
 		float Length() const noexcept;
@@ -50,14 +50,13 @@ namespace BE::Math
 		static Vector3 Transform(const Vector3& vec, const class Matrix4x4& mat, float w = 1.0f) noexcept;
 		static Vector3 TransformWithPerspDiv(const Vector3& vec, const class Matrix4x4& mat, float w = 1.0f) noexcept;
 
-		// freinds
-		friend Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept;
-		friend Vector3 operator-(const Vector3& lhs, const Vector3& rhs) noexcept;
-		friend Vector3 operator*(const Vector3& lhs, const Vector3& rhs) noexcept;
-		friend Vector3 operator*(const Vector3& vec, const float scalar) noexcept;
-		friend Vector3 operator*(const float scalar, const Vector3& vec) noexcept;
-		friend Vector3 operator/(const Vector3& lhs, const Vector3& rhs) noexcept;
-		friend Vector3 operator/(const Vector3& vec, const float scalar) noexcept;
+		friend constexpr Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept;
+		friend constexpr Vector3 operator-(const Vector3& lhs, const Vector3& rhs) noexcept;
+		friend constexpr Vector3 operator*(const Vector3& lhs, const Vector3& rhs) noexcept;
+		friend constexpr Vector3 operator*(const Vector3& vec, const float scalar) noexcept;
+		friend constexpr Vector3 operator*(const float scalar, const Vector3& vec) noexcept;
+		friend constexpr Vector3 operator/(const Vector3& lhs, const Vector3& rhs) noexcept;
+		friend constexpr Vector3 operator/(const Vector3& vec, const float scalar) noexcept;
 
 		/// @warning Do not use it as an operator for the underlying API.
 		explicit operator const float* () const noexcept
@@ -75,36 +74,36 @@ namespace BE::Math
 	inline Vector3::Vector3(float* elems) noexcept
 		: x(elems[0]), y(elems[1]), z(elems[2]) {}
 
-	inline void Vector3::Set(float inX, float inY, float inZ) noexcept
+	constexpr inline void Vector3::Set(float inX, float inY, float inZ) noexcept
 	{
 		x = inX;
 		y = inY;
 		z = inZ;
 	}
 
-	inline float& Vector3::operator[](Uint8 index) noexcept
+	constexpr inline float& Vector3::operator[](Uint8 index) noexcept
 	{
 		check(index < 4);
 		return (&x)[index];
 	}
 
-	inline const float& Vector3::operator[](Uint8 index) const noexcept
+	constexpr inline const float& Vector3::operator[](Uint8 index) const noexcept
 	{
 		check(index < 4);
 		return (&x)[index];
 	}
 
-	inline Vector3 Vector3::operator+() const noexcept
+	constexpr inline Vector3 Vector3::operator+() const noexcept
 	{
 		return *this;
 	}
 
-	inline Vector3 Vector3::operator-() const noexcept
+	constexpr inline Vector3 Vector3::operator-() const noexcept
 	{
 		return *this * -1.0f;
 	}
 
-	inline Vector3& Vector3::operator+=(const Vector3& other) noexcept
+	constexpr inline Vector3& Vector3::operator+=(const Vector3& other) noexcept
 	{
 		x += other.x;
 		y += other.y;
@@ -112,7 +111,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector3& Vector3::operator-=(const Vector3& other) noexcept
+	constexpr inline Vector3& Vector3::operator-=(const Vector3& other) noexcept
 	{
 		x -= other.x;
 		y -= other.y;
@@ -120,7 +119,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector3& Vector3::operator*=(const Vector3& other) noexcept
+	constexpr inline Vector3& Vector3::operator*=(const Vector3& other) noexcept
 	{
 		x *= other.x;
 		y *= other.y;
@@ -128,7 +127,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector3& Vector3::operator*=(const float scalar) noexcept
+	constexpr inline Vector3& Vector3::operator*=(const float scalar) noexcept
 	{
 		x *= scalar;
 		y *= scalar;
@@ -136,7 +135,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector3& Vector3::operator/=(const Vector3& other) noexcept
+	constexpr inline Vector3& Vector3::operator/=(const Vector3& other) noexcept
 	{
 		x /= other.x;
 		y /= other.y;
@@ -144,7 +143,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector3& Vector3::operator/=(const float scalar) noexcept
+	constexpr inline Vector3& Vector3::operator/=(const float scalar) noexcept
 	{
 		x /= scalar;
 		y /= scalar;
@@ -181,37 +180,37 @@ namespace BE::Math
 		return v - 2.0f * Vector3::Dot(v, n) * n;
 	}
 
-	inline Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept
+	constexpr inline Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept
 	{
 		return Vector3{ lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z };
 	}
 
-	inline Vector3 operator-(const Vector3& lhs, const Vector3& rhs) noexcept
+	constexpr inline Vector3 operator-(const Vector3& lhs, const Vector3& rhs) noexcept
 	{
 		return Vector3{ lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z };
 	}
 
-	inline Vector3 operator*(const Vector3& lhs, const Vector3& rhs) noexcept
+	constexpr inline Vector3 operator*(const Vector3& lhs, const Vector3& rhs) noexcept
 	{
 		return Vector3{ lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z };
 	}
 
-	inline Vector3 operator*(const Vector3& vec, const float scalar) noexcept
+	constexpr inline Vector3 operator*(const Vector3& vec, const float scalar) noexcept
 	{
 		return Vector3{ vec.x * scalar, vec.y * scalar, vec.z * scalar };
 	}
 
-	inline Vector3 operator*(const float scalar, const Vector3& vec) noexcept
+	constexpr inline Vector3 operator*(const float scalar, const Vector3& vec) noexcept
 	{
 		return Vector3{ vec.x * scalar, vec.y * scalar, vec.z * scalar };
 	}
 
-	inline Vector3 operator/(const Vector3& lhs, const Vector3& rhs) noexcept
+	constexpr inline Vector3 operator/(const Vector3& lhs, const Vector3& rhs) noexcept
 	{
 		return Vector3{ lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z };
 	}
 
-	inline Vector3 operator/(const Vector3& vec, const float scalar) noexcept
+	constexpr inline Vector3 operator/(const Vector3& vec, const float scalar) noexcept
 	{
 		return Vector3{ vec.x / scalar, vec.y / scalar, vec.z / scalar };
 	}

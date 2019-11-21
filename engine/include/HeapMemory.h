@@ -7,8 +7,6 @@ namespace BE
 	class BS_API HeapMemory final
 	{
 	public:
-		constexpr HeapMemory() noexcept;
-
 		void Init(size_t inSize) noexcept;
 
 		void Release() noexcept;

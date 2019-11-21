@@ -14,8 +14,8 @@ namespace BE::Math
 		const static Quaternion Identity;
 
 		constexpr Quaternion() noexcept;
-		explicit Quaternion(float x, float y, float z, float w) noexcept;
-		explicit Quaternion(Vector4 v) noexcept;
+		constexpr explicit Quaternion(float x, float y, float z, float w) noexcept;
+		constexpr explicit Quaternion(const Vector4& v) noexcept;
 		explicit Quaternion(const Vector3& axis, float angle) noexcept;
 		explicit Quaternion(const Vector3& euler) noexcept;
 
@@ -27,9 +27,9 @@ namespace BE::Math
 
 		~Quaternion() noexcept = default;
 
-		void Set(float x, float y, float z, float w) noexcept;
-		void Set(const Vector4& v) noexcept;
-		void Set(Vector4&& v) noexcept;
+		constexpr void Set(float x, float y, float z, float w) noexcept;
+		constexpr void Set(const Vector4& v) noexcept;
+		constexpr void Set(Vector4&& v) noexcept;
 
 		Vector3 ToEuler() const noexcept;
 
@@ -57,23 +57,23 @@ namespace BE::Math
 	inline constexpr Quaternion::Quaternion() noexcept
 		: vec(0.0f, 0.0f, 0.0f, 1.0f) {}
 
-	inline Quaternion::Quaternion(float x, float y, float z, float w) noexcept
+	constexpr inline Quaternion::Quaternion(float x, float y, float z, float w) noexcept
 		: vec(x, y, z, w) {}
 
-	inline Quaternion::Quaternion(Vector4 v) noexcept
+	constexpr inline Quaternion::Quaternion(const Vector4& v) noexcept
 		: vec(v) {}
 
-	inline void Quaternion::Set(float x, float y, float z, float w) noexcept
+	constexpr inline void Quaternion::Set(float x, float y, float z, float w) noexcept
 	{
 		vec.Set(x, y, z, w);
 	}
 
-	inline void Quaternion::Set(const Vector4& v) noexcept
+	constexpr inline void Quaternion::Set(const Vector4& v) noexcept
 	{
 		vec = v;
 	}
 
-	inline void Quaternion::Set(Vector4&& v) noexcept
+	constexpr inline void Quaternion::Set(Vector4&& v) noexcept
 	{
 		vec = std::move(v);
 	}

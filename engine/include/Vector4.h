@@ -23,20 +23,20 @@ namespace BE::Math
 		constexpr Vector4(float inX, float inY, float inZ, float inW) noexcept;
 		Vector4(float* elems) noexcept;
 
-		void Set(float inX, float inY, float inZ, float inW) noexcept;
+		constexpr void Set(float inX, float inY, float inZ, float inW) noexcept;
 
-		float& operator[](Uint8 index) noexcept;
-		const float& operator[](Uint8 index) const noexcept;
+		constexpr float& operator[](Uint8 index) noexcept;
+		constexpr const float& operator[](Uint8 index) const noexcept;
 
-		Vector4 operator+() const noexcept;
-		Vector4 operator-() const noexcept;
+		constexpr Vector4 operator+() const noexcept;
+		constexpr Vector4 operator-() const noexcept;
 
-		Vector4& operator+=(const Vector4& other) noexcept;
-		Vector4& operator-=(const Vector4& other) noexcept;
-		Vector4& operator*=(const Vector4& other) noexcept;
-		Vector4& operator*=(const float scalar) noexcept;
-		Vector4& operator/=(const Vector4& other) noexcept;
-		Vector4& operator/=(const float scalar) noexcept;
+		constexpr Vector4& operator+=(const Vector4& other) noexcept;
+		constexpr Vector4& operator-=(const Vector4& other) noexcept;
+		constexpr Vector4& operator*=(const Vector4& other) noexcept;
+		constexpr Vector4& operator*=(const float scalar) noexcept;
+		constexpr Vector4& operator/=(const Vector4& other) noexcept;
+		constexpr Vector4& operator/=(const float scalar) noexcept;
 
 		float LengthSquared() const noexcept;
 		float Length() const noexcept;
@@ -47,13 +47,13 @@ namespace BE::Math
 		static float Dot(const Vector4& lhs, const Vector4& rhs) noexcept;
 
 		// freinds
-		friend Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept;
-		friend Vector4 operator-(const Vector4& lhs, const Vector4& rhs) noexcept;
-		friend Vector4 operator*(const Vector4& lhs, const Vector4& rhs) noexcept;
-		friend Vector4 operator*(const Vector4& vec, const float scalar) noexcept;
-		friend Vector4 operator*(const float scalar, const Vector4& vec) noexcept;
-		friend Vector4 operator/(const Vector4& lhs, const Vector4& rhs) noexcept;
-		friend Vector4 operator/(const Vector4& vec, const float scalar) noexcept;
+		friend constexpr Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept;
+		friend constexpr Vector4 operator-(const Vector4& lhs, const Vector4& rhs) noexcept;
+		friend constexpr Vector4 operator*(const Vector4& lhs, const Vector4& rhs) noexcept;
+		friend constexpr Vector4 operator*(const Vector4& vec, const float scalar) noexcept;
+		friend constexpr Vector4 operator*(const float scalar, const Vector4& vec) noexcept;
+		friend constexpr Vector4 operator/(const Vector4& lhs, const Vector4& rhs) noexcept;
+		friend constexpr Vector4 operator/(const Vector4& vec, const float scalar) noexcept;
 
 		/// @warning Do not use it as an operator for the underlying API.
 		explicit operator const float* () const noexcept
@@ -71,7 +71,7 @@ namespace BE::Math
 	inline Vector4::Vector4(float* elems) noexcept
 		: x(elems[0]), y(elems[1]), z(elems[2]), w(elems[3]) {}
 
-	inline void Vector4::Set(const float inX, const float inY, const float inZ, const float inW) noexcept
+	constexpr inline void Vector4::Set(const float inX, const float inY, const float inZ, const float inW) noexcept
 	{
 		x = inX;
 		y = inY;
@@ -79,29 +79,29 @@ namespace BE::Math
 		w = inW;
 	}
 
-	inline float& Vector4::operator[](Uint8 index) noexcept
+	constexpr inline float& Vector4::operator[](Uint8 index) noexcept
 	{
 		check(index < 5);
 		return (&x)[index];
 	}
 
-	inline const float& Vector4::operator[](Uint8 index) const noexcept
+	constexpr inline const float& Vector4::operator[](Uint8 index) const noexcept
 	{
 		check(index < 5);
 		return (&x)[index];
 	}
 
-	inline Vector4 Vector4::operator+() const noexcept
+	constexpr inline Vector4 Vector4::operator+() const noexcept
 	{
 		return *this;
 	}
 
-	inline Vector4 Vector4::operator-() const noexcept
+	constexpr inline Vector4 Vector4::operator-() const noexcept
 	{
 		return *this * -1.0f;
 	}
 
-	inline Vector4& Vector4::operator+=(const Vector4& other) noexcept
+	constexpr inline Vector4& Vector4::operator+=(const Vector4& other) noexcept
 	{
 		x += other.x;
 		y += other.y;
@@ -110,7 +110,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector4& Vector4::operator-=(const Vector4& other) noexcept
+	constexpr inline Vector4& Vector4::operator-=(const Vector4& other) noexcept
 	{
 		x -= other.x;
 		y -= other.y;
@@ -119,7 +119,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector4& Vector4::operator*=(const Vector4& other) noexcept
+	constexpr inline Vector4& Vector4::operator*=(const Vector4& other) noexcept
 	{
 		x *= other.x;
 		y *= other.y;
@@ -128,7 +128,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector4& Vector4::operator*=(const float scalar) noexcept
+	constexpr inline Vector4& Vector4::operator*=(const float scalar) noexcept
 	{
 		x *= scalar;
 		y *= scalar;
@@ -137,7 +137,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector4& Vector4::operator/=(const Vector4& other) noexcept
+	constexpr inline Vector4& Vector4::operator/=(const Vector4& other) noexcept
 	{
 		x /= other.x;
 		y /= other.y;
@@ -146,7 +146,7 @@ namespace BE::Math
 		return *this;
 	}
 
-	inline Vector4& Vector4::operator/=(const float scalar) noexcept
+	constexpr inline Vector4& Vector4::operator/=(const float scalar) noexcept
 	{
 		x /= scalar;
 		y /= scalar;
@@ -170,37 +170,37 @@ namespace BE::Math
 		return (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z) + (lhs.w * rhs.w);
 	}
 
-	inline Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept
+	constexpr inline Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
 		return Vector4{ lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w };
 	}
 
-	inline Vector4 operator-(const Vector4& lhs, const Vector4& rhs) noexcept
+	constexpr inline Vector4 operator-(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
 		return Vector4{ lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w };
 	}
 
-	inline Vector4 operator*(const Vector4& lhs, const Vector4& rhs) noexcept
+	constexpr inline Vector4 operator*(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
 		return Vector4{ lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w };
 	}
 
-	inline Vector4 operator*(const Vector4& vec, const float scalar) noexcept
+	constexpr inline Vector4 operator*(const Vector4& vec, const float scalar) noexcept
 	{
 		return Vector4{ vec.x * scalar, vec.y * scalar, vec.z * scalar, vec.w * scalar };
 	}
 
-	inline Vector4 operator*(const float scalar, const Vector4& vec) noexcept
+	constexpr inline Vector4 operator*(const float scalar, const Vector4& vec) noexcept
 	{
 		return Vector4{ vec.x * scalar, vec.y * scalar, vec.z * scalar, vec.w * scalar };
 	}
 
-	inline Vector4 operator/(const Vector4& lhs, const Vector4& rhs) noexcept
+	constexpr inline Vector4 operator/(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
 		return Vector4{ lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z, lhs.w / rhs.w };
 	}
 
-	inline Vector4 operator/(const Vector4& vec, const float scalar) noexcept
+	constexpr inline Vector4 operator/(const Vector4& vec, const float scalar) noexcept
 	{
 		return Vector4{ vec.x / scalar, vec.y / scalar, vec.z / scalar, vec.w / scalar };
 	}

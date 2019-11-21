@@ -1,30 +1,25 @@
 #include "MemoryManager.h"
-#include "HeapMemory.h"
-#include <algorithm>
+#include <cstdlib>
 
 namespace BE
 {
-	MemoryManager::MemoryManager() noexcept
-		: memory(nullptr) {}
-
-	void MemoryManager::Init() noexcept
+	void MemoryManager::Init(std::initializer_list<size_t> memorySizes) noexcept
 	{
-		memory = ::new HeapMemory{ MEMORY_SIZE };
+		check(memorySizes.size() == 5);
+
+		auto sizes{ memorySizes.begin() };
+
+		managerMemory.Init  (sizes[0]);
+		componentMemory.Init(sizes[1]);
+		resourceMemory.Init (sizes[2]);
+		oneFrameMemory.Init (sizes[3]);
+		heapMemory.Init     (sizes[4]);
 	}
 
 	void MemoryManager::Release() noexcept
 	{
-		delete memory;
-	}
-
-	void* MemoryManager::Allocate(const size_t n) noexcept
-	{
-		return memory->Malloc(n);
-	}
-
-	void MemoryManager::Deallocate(void* const ptr, const size_t n) noexcept
-	{
-		memory->Free(ptr, n);
+		heapMemory.Release();
+		free(curMemory);
 	}
 
 	MemoryManager* MemoryManagerAccesser::manager = nullptr;

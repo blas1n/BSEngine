@@ -1,7 +1,7 @@
 #pragma once
 
-#include <random>
 #include "Core.h"
+#include <random>
 
 namespace BE::Math
 {

@@ -1,26 +1,30 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
 set(ENGINE_SRC
-	include/Allocator.h
-	include/Array.h
+	include/Character.h
+	include/ComponentAllocator.h
+	include/ComponentMemory.h
 	include/Core.h
-	include/Deque.h
+	include/CString.h
+	include/Exception.h
 	include/HeapMemory.h
+	include/HeapAllocator.h
 	include/Interface.h
 	include/Iterator.h
-	include/List.h
 	include/Macro.h
-	include/Map.h
+	include/ManagerAllocator.h
+	include/ManagerMacro.h
+	include/ManagerMemory.h
 	include/MathFunctions.h
 	include/Matrix3x3.h
 	include/Matrix4x4.h
 	include/MemoryManager.h
+	include/OneFrameAllocator.h
+	include/OneFrameMemory.h
 	include/Quaternion.h
-	include/Queue.h
 	include/Random.h
-	include/Set.h
-	include/Stack.h
-	include/Str.h
+	include/ResourceAllocator.h
+	include/ResourceMemory.h
 	include/System.h
 	include/ThreadManager.h
 	include/Type.h
@@ -28,7 +32,6 @@ set(ENGINE_SRC
 	include/Vector3.h
 	include/Vector4.h
 
-	src/Allocator.cpp
 	src/HeapMemory.cpp
 	src/Main_Linux.cpp
 	src/Main_Windows.cpp

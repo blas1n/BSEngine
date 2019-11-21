@@ -1,8 +1,8 @@
 #pragma once
 
 #include "ManagerMacro.h"
-#include "Array.h"
-#include "Queue.h"
+#include <vector>
+#include <queue>
 #include <functional>
 #include <future>
 #include <mutex>
@@ -25,8 +25,8 @@ namespace BE
 		void ThreadWork();
 
 	private:
-		Array<std::thread> threads;
-		Queue<std::function<void()>> tasks;
+		std::vector<std::thread> threads;
+		std::queue<std::function<void()>> tasks;
 		std::condition_variable cv;
 		std::mutex taskMutex;
 		bool isEnd;

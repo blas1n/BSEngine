@@ -1,0 +1,19 @@
+#pragma once
+
+#include "MemoryManager.h"
+
+namespace BE
+{
+	class BS_API ManagerAllocator final : public MemoryManagerAccesser
+	{
+	private:
+		template <class ManagerType>
+		inline void* Allocate() noexcept
+		{
+			return MemoryManagerAccesser::Get()
+				->GetManagerMemory().Allocate<ManagerType>();
+		}
+
+		friend class System;
+	};
+}

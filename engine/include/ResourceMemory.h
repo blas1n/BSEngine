@@ -7,8 +7,6 @@ namespace BE
 	class BS_API ResourceMemory final
 	{
 	public:
-		constexpr ResourceMemory() noexcept {}
-
 		void Init(const size_t inSize) noexcept {}
 
 		void Release() noexcept {}

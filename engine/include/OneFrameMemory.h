@@ -7,12 +7,6 @@ namespace BE
 {
 	class BS_API OneFrameMemory final {
 	public:
-		constexpr OneFrameMemory() noexcept
-			: startMemory{ nullptr, nullptr },
-			curMemory{ nullptr, nullptr },
-			maxSize{ 0 },
-			idx{ 0 } {}
-
 		inline void Init(const size_t inSize) noexcept
 		{
 			auto ptr = std::malloc(inSize * 2);

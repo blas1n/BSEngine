@@ -18,15 +18,13 @@ namespace BE
 	class BS_API MemoryManager final
 	{
 	public:
-		constexpr MemoryManager() noexcept;
-
 		/// @brief Allocate memory for use by the game engine.
 		void Init(std::initializer_list<size_t> memorySizes) noexcept;
 
 		/// @brief Initialize one-frame memory.
 		inline void Update() noexcept
 		{
-			oneFrameMemory.Clear();
+			oneFrameMemory.Update();
 		}
 
 		/// @brief Free the allocated memory.
@@ -44,7 +42,7 @@ namespace BE
 		ResourceMemory resourceMemory;
 		OneFrameMemory oneFrameMemory;
 		HeapMemory heapMemory;
-		void* memory;
+		void* curMemory;
 	};
 
 	CREATE_MANAGER_ACCESSER(MemoryManager)

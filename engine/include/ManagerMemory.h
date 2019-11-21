@@ -7,11 +7,6 @@ namespace BE
 {
 	class BS_API ManagerMemory final {
 	public:
-		constexpr ManagerMemory() noexcept
-			: startMemory{ nullptr },
-			curMemory{ nullptr },
-			maxSize{ 0 } {}
-
 		inline void Init(const size_t inSize) noexcept
 		{
 			startMemory = curMemory = static_cast<Uint8*>(std::malloc(inSize));
@@ -28,7 +23,7 @@ namespace BE
 		{
 			auto tmp{ curMemory };
 			curMemory += sizeof(ManagerType);
-			return tmp;
+			return reinterpret_cast<ManagerType*>(tmp);
 		}
 
 	private:

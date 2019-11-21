@@ -20,12 +20,6 @@ inline void Unmark(BE::Uint8* const marker, const size_t index) noexcept
 
 namespace BE
 {
-	constexpr HeapMemory::HeapMemory() noexcept
-		: curMemory{ nullptr },
-		marker{ nullptr },
-		curNum{ 0 },
-		maxNum{ 0 } {}
-
 	void HeapMemory::Init(const size_t size) noexcept
 	{
 		const auto markerSize = size / 8 + 1;

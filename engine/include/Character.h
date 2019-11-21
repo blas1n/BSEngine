@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Type.h"
-#include "Macro.h"
+#include "Core.h"
 #include <wctype.h>
 
 namespace BE

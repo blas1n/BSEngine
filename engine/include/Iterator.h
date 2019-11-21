@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Macro.h"
-#include "Type.h"
+#include "Core.h"
 #include <vector>
 
 namespace BE

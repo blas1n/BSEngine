@@ -37,6 +37,7 @@ set(ENGINE_SRC
 	include/Vector4.h
 
 	src/Allocator.cpp
+	src/HeapMemory.cpp
 	src/Main_Linux.cpp
 	src/Main_Windows.cpp
 	src/MathFunctions.cpp

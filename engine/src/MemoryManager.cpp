@@ -33,6 +33,7 @@ namespace BE
 
 	void MemoryManager::Release() noexcept
 	{
+		heapMemory.Release();
 		free(memory);
 	}
 

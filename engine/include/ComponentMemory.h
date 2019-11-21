@@ -9,7 +9,9 @@ namespace BE
 	public:
 		constexpr ComponentMemory() noexcept {}
 
-		void Init(void* const inMemory, const size_t inSize) noexcept {}
+		void Init(const size_t inSize) noexcept {}
+		
+		void Release() noexcept {}
 
 		template <class ComponentType>
 		ComponentMemory* Allocate() { return nullptr; }

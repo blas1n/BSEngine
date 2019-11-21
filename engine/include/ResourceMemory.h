@@ -9,7 +9,9 @@ namespace BE
 	public:
 		constexpr ResourceMemory() noexcept {}
 
-		void Init(void* const inMemory, const size_t inSize) noexcept {}
+		void Init(const size_t inSize) noexcept {}
+
+		void Release() noexcept {}
 
 		void* Allocate(const size_t size) { return nullptr; }
 

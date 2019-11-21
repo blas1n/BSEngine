@@ -1,40 +1,52 @@
 #pragma once
 
 #include "Core.h"
+#include <cstdlib>
 
 namespace BE
 {
 	class BS_API OneFrameMemory final {
 	public:
 		constexpr OneFrameMemory() noexcept
-			: curMemory(nullptr),
-			startMemory(nullptr),
-			maxSize(0) {}
+			: startMemory{ nullptr, nullptr },
+			curMemory{ nullptr, nullptr },
+			maxSize{ 0 },
+			idx{ 0 } {}
 
-		inline void Init(void* const inMemory, const size_t inSize) noexcept
+		inline void Init(const size_t inSize) noexcept
 		{
-			curMemory = startMemory = static_cast<Uint8*>(inMemory);
+			auto ptr = std::malloc(inSize * 2);
+
+			startMemory[0] = curMemory[0] = static_cast<Uint8*>(ptr);
+			startMemory[1] = curMemory[1] = static_cast<Uint8*>(ptr) + inSize;
 			maxSize = inSize;
+		}
+
+		inline void Update() noexcept
+		{
+			idx = (idx + 1) % 2;
+			curMemory[idx] = startMemory[idx];
+		}
+
+		inline void Release() noexcept
+		{
+			std::free(startMemory);
 		}
 
 		void* Allocate(const size_t size)
 		{
-			if (curMemory + size > curMemory + maxSize)
+			if (curMemory[idx] + size > startMemory[idx] + maxSize)
 				throw Exception(TEXT("Can not allocate one frame memory!"));
 
-			auto tmp{ curMemory };
-			curMemory += size;
-			return tmp;
-		}
-
-		inline void Clear() noexcept
-		{
-			curMemory = startMemory;
+			auto tmp{ curMemory[idx] };
+			curMemory[idx] += size;
+			return static_cast<void*>(tmp);
 		}
 
 	private:
-		Uint8* curMemory;
-		Uint8* startMemory;
+		Uint8* startMemory[2];
+		Uint8* curMemory[2];
 		size_t maxSize;
+		size_t idx;
 	};
 }

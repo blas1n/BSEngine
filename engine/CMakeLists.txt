@@ -19,6 +19,7 @@ set(ENGINE_SRC
 	include/Matrix3x3.h
 	include/Matrix4x4.h
 	include/MemoryManager.h
+	include/MemoryManagerAccesser.h
 	include/OneFrameAllocator.h
 	include/OneFrameMemory.h
 	include/Quaternion.h
@@ -27,6 +28,7 @@ set(ENGINE_SRC
 	include/ResourceMemory.h
 	include/System.h
 	include/ThreadManager.h
+	include/ThreadManagerAccesser.h
 	include/Type.h
 	include/Vector2.h
 	include/Vector3.h
@@ -39,10 +41,12 @@ set(ENGINE_SRC
 	src/Matrix3x3.cpp
 	src/Matrix4x4.cpp
 	src/MemoryManager.cpp
+	src/MemoryManagerAccesser.cpp
 	src/Quaternion.cpp
 	src/Random.cpp
 	src/System.cpp
 	src/ThreadManager.cpp
+	src/ThreadManagerAccesser.cpp
 	src/Vector2.cpp
 	src/Vector3.cpp
 	src/Vector4.cpp

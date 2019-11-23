@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MemoryManager.h"
+#include "MemoryManagerAccesser.h"
 
 namespace BE
 {

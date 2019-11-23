@@ -5,7 +5,6 @@
 #include "HeapMemory.h"
 #include "ManagerMemory.h"
 #include "OneFrameMemory.h"
-#include "ManagerMacro.h"
 #include "ResourceMemory.h"
 #include <initializer_list>
 
@@ -44,6 +43,4 @@ namespace BE
 		HeapMemory heapMemory;
 		void* curMemory;
 	};
-
-	CREATE_MANAGER_ACCESSER(MemoryManager)
 }

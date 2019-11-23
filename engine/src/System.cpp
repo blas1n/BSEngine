@@ -2,6 +2,7 @@
 #include "MemoryManager.h"
 #include "ThreadManager.h"
 #include "ManagerAllocator.h"
+#include "ThreadManagerAccesser.h"
 
 // Temp variable, (Use config file)
 constexpr size_t MANAGER_SIZE = sizeof(BE::ThreadManager);

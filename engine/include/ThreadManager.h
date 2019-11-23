@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ManagerMacro.h"
+#include "Macro.h"
 #include <vector>
 #include <queue>
 #include <functional>
@@ -46,6 +46,4 @@ namespace BE
 		cv.notify_one();
 		return task->get_future();
 	}
-
-	CREATE_MANAGER_ACCESSER(ThreadManager)
 }

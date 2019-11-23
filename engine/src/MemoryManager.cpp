@@ -21,6 +21,4 @@ namespace BE
 		heapMemory.Release();
 		free(curMemory);
 	}
-
-	MemoryManager* MemoryManagerAccesser::manager = nullptr;
 }

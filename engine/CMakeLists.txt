@@ -1,6 +1,7 @@
-﻿cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required (VERSION 3.8)
 
 set(ENGINE_SRC
+	include/AccesserGenerator.h
 	include/Character.h
 	include/ComponentAllocator.h
 	include/ComponentMemory.h
@@ -13,7 +14,6 @@ set(ENGINE_SRC
 	include/Iterator.h
 	include/Macro.h
 	include/ManagerAllocator.h
-	include/ManagerMacro.h
 	include/ManagerMemory.h
 	include/MathFunctions.h
 	include/Matrix3x3.h

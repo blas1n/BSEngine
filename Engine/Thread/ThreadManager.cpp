@@ -10,7 +10,6 @@ namespace BE
 		auto threadNum = std::thread::hardware_concurrency();
 		check(threadNum != 0);
 
-		threadNum = threadNum * 2 + 1;
 		threads.reserve(threadNum);
 
 		while (threadNum--)

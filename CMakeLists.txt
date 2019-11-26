@@ -11,4 +11,8 @@ set (CMAKE_CXX_EXTENSIONS OFF)
 
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+find_package (Threads)
+endif ()
+
 add_subdirectory (Engine)

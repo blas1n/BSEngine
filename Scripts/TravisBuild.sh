@@ -1,4 +1,4 @@
 #!/usr/bin/env
-mkdir build && cd build
+mkdir Build && cd Build
 cmake ..
 make

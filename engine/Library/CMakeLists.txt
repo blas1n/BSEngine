@@ -1,3 +1,5 @@
+set_project ()
+
 # Files
 set(SRC_EXCEPTION
 	Exception.h
@@ -34,7 +36,7 @@ set(SRC
 )
 
 # Target
-add_library (Library STATIC
+add_library (${PROJECT_ID} STATIC
 	${SRC_EXCEPTION}
 	${SRC_MATH}
 	${SRC_STRING}

@@ -1,3 +1,5 @@
+set_project ()
+
 # Files
 set(SRC_MANAGER
 	MemoryManager.cpp
@@ -24,7 +26,7 @@ set(SRC_ALLOCATOR
 )
 
 # Target
-add_library (Memory STATIC
+add_library (${PROJECT_ID} STATIC
 	${SRC_MANAGER}
 	${SRC_MEMORY}
 	${SRC_ALLOCATOR}
@@ -36,7 +38,4 @@ source_group ("Memory" FILES ${SRC_MEMORY})
 source_group ("Allocator" FILES ${SRC_ALLOCATOR})
 
 # Dependencies
-target_link_libraries (Memory
-	GameBase
-	Library
-)
+set_public_dependencies (GameBase)

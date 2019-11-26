@@ -1,3 +1,5 @@
+set_project ()
+
 # Files
 set(SRC_System
 	System.cpp
@@ -9,7 +11,7 @@ set(SRC_Accesser
 )
 
 # Target
-add_library (GameBase STATIC
+add_library (${PROJECT_ID} STATIC
 	${SRC_System}
 	${SRC_Accesser}
 )
@@ -19,6 +21,5 @@ source_group ("System" FILES ${SRC_System})
 source_group ("Accesser" FILES ${SRC_Accesser})
 
 # Dependencies
-target_link_libraries (GameBase
-	Library
-)
+set_public_dependencies (Library)
+set_private_dependencies (Memory Thread)

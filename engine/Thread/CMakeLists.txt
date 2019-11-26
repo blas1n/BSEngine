@@ -1,3 +1,5 @@
+set_project ()
+
 # Files
 set(SRC_MANAGER
 	ThreadManager.cpp
@@ -7,7 +9,7 @@ set(SRC_MANAGER
 )
 
 # Target
-add_library (Thread STATIC
+add_library (${PROJECT_ID} STATIC
 	${SRC_MANAGER}
 )
 
@@ -15,14 +17,10 @@ add_library (Thread STATIC
 source_group ("Manager" FILES ${SRC_MANAGER})
 
 # Dependencies
-target_link_libraries (Thread
-	GameBase
-	Library
-)
+set_public_dependencies (GameBase)
 
 # Package
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 find_package (Threads)
+target_link_libraries (${PROJECT_ID} ${CMAKE_THREAD_LIBS_INIT})
 endif ()
-
-target_link_libraries (Thread ${CMAKE_THREAD_LIBS_INIT})

@@ -3,6 +3,7 @@
 project (BS_Engine VERSION 0.0.1 LANGUAGES CXX)
 
 include (Cmake/Platform.cmake)
+include (Cmake/Util.cmake)
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)

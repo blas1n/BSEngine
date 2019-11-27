@@ -16,10 +16,10 @@ add_library (${PROJECT_ID} STATIC
 	${SRC_Accesser}
 )
 
-# Filters
-source_group ("System" FILES ${SRC_System})
-source_group ("Accesser" FILES ${SRC_Accesser})
-
 # Dependencies
 set_public_dependencies (Library)
 set_private_dependencies (Memory Thread)
+
+# Filters
+source_group ("System" FILES ${SRC_System})
+source_group ("Accesser" FILES ${SRC_Accesser})

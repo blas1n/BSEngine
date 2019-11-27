@@ -32,10 +32,10 @@ add_library (${PROJECT_ID} STATIC
 	${SRC_ALLOCATOR}
 )
 
+# Dependencies
+set_public_dependencies (GameBase)
+
 # Filters
 source_group ("Manager" FILES ${SRC_MANAGER})
 source_group ("Memory" FILES ${SRC_MEMORY})
 source_group ("Allocator" FILES ${SRC_ALLOCATOR})
-
-# Dependencies
-set_public_dependencies (GameBase)

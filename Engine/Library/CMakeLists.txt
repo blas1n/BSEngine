@@ -36,6 +36,14 @@ set(SRC
 	Type.h
 )
 
+# Package
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+	find_package (Threads)
+endif ()
+
+set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+
 # Target
 add_library (${PROJECT_ID} STATIC
 	${SRC_EXCEPTION}
@@ -43,6 +51,14 @@ add_library (${PROJECT_ID} STATIC
 	${SRC_STRING}
 	${SRC}
 )
+
+# Dependencies
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+	target_link_libraries (${PROJECT_ID} ${CMAKE_THREAD_LIBS_INIT})
+endif ()
+
+target_link_libraries (${PROJECT_ID} Eigen3::Eigen)
+
 
 # Filters
 source_group ("Container" FILES ${SRC_CONTAINER})

@@ -2,6 +2,7 @@ set_project ()
 
 # Files
 set(SRC_EXCEPTION
+	Exception.cpp
 	Exception.h
 )
 

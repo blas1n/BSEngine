@@ -8,15 +8,26 @@ namespace BE
 	class BS_API Exception
 	{
 	public:
-		constexpr Exception(const Char* inMessage)
-			: message{ inMessage } {}
+		constexpr Exception() noexcept
+			: message{ TEXT("") }, needFree{ false } {}
 
-		constexpr const Char* GetMessage() const noexcept
-		{
-			return message;
-		}
+		Exception(Char* inMessage) noexcept;
+		Exception(Char* inMessage, int) noexcept;
+
+		Exception(const Exception& other) noexcept;
+		Exception(Exception&& other) noexcept;
+
+		Exception& operator=(const Exception& other) noexcept;
+		Exception& operator=(Exception&& other) noexcept;
+
+		virtual ~Exception();
+
+		constexpr const Char* GetMessage() const noexcept { return message; }
 
 	private:
-		const Char* message;
+		void DeepCopy(Char* inMessage);
+
+		Char* message;
+		bool needFree;
 	};
 }

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Type.h>
 #include <wctype.h>
+#include "Type.h"
 
 namespace BE
 {
@@ -34,10 +34,10 @@ namespace BE
 		return ::wcsxfrm(dest, src, count);
 	}
 
-	template <size_t N>
-	inline size_t Strlen(Char str[N])
+	/// @todo Use safe function
+	inline size_t Strlen(const Char* str)
 	{
-		return ::wcsnlen_s(str, N);
+		return ::wcslen(str);
 	}
 
 	inline Int32 Strcmp(const Char* lhs, const Char* rhs)

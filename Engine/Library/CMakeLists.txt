@@ -41,7 +41,6 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	find_package (Threads)
 endif ()
 
-set (EIGEN3_INCLUDE_DIR )
 # Target
 add_library (${PROJECT_ID} STATIC
 	${SRC_EXCEPTION}

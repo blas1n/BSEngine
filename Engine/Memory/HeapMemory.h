@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core.h"
+#include <mutex>
 
 namespace BE
 {
@@ -8,11 +9,9 @@ namespace BE
 	{
 	public:
 		void Init(size_t inSize);
-
 		void Release() noexcept;
 
 		void* Allocate(size_t size);
-
 		void Deallocate(void* ptr, size_t size);
 
 	private:
@@ -21,5 +20,7 @@ namespace BE
 
 		size_t curNum;
 		size_t maxNum;
+
+		std::mutex mutex;
 	};
 }

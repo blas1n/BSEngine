@@ -50,16 +50,6 @@ namespace BE
 		return wcsncmp(lhs, rhs, count);
 	}
 
-	inline Int32 Stricmp(const Char* lhs, const Char* rhs)
-	{
-		return wcsicmp(lhs, rhs);
-	}
-
-	inline Int32 Strnicmp(const Char* lhs, const Char* rhs, size_t count)
-	{
-		return wcsnicmp(lhs, rhs, count);
-	}
-
 	inline const Char* Strstr(const Char* str, const Char* subStr)
 	{
 		return wcsstr(str, subStr);
@@ -77,7 +67,7 @@ namespace BE
 
 	inline Char* Strtok(Char* str, const Char* delim, Char** ptr)
 	{
-		return wcstok(str, delim, ptr);
+		return wcstok_s(str, delim, ptr);
 	}
 
 	inline Int32 StrToInt(const Char* start, Char** end, Int32 radix = 10)

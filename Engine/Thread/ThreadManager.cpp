@@ -5,10 +5,17 @@ namespace BE
 	ThreadManager::ThreadManager() noexcept
 		: threads(), tasks(), cv(), taskMutex(), isEnd(false) {}
 
-	void ThreadManager::Init() noexcept
+	void ThreadManager::Init()
 	{
 		auto threadNum = std::thread::hardware_concurrency();
-		check(threadNum != 0);
+		if (threadNum == 0)
+		{
+			throw SystemException
+			{
+				TEXT("Hardware Concurrency is 0"),
+				Exception::MessageType::Shallow
+			};
+		}
 
 		threads.reserve(threadNum);
 
@@ -25,7 +32,7 @@ namespace BE
 			t.join();
 	}
 
-	void ThreadManager::ThreadWork()
+	void ThreadManager::ThreadWork() noexcept
 	{
 		while (true)
 		{

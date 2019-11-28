@@ -54,7 +54,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	target_link_libraries (${PROJECT_ID} ${CMAKE_THREAD_LIBS_INIT})
 endif ()
 
-target_include_directories(${PROJECT_ID} PRIVATE ${CMAKE_SOURCE_DIR}/External/Eigen3)
+target_include_directories(${PROJECT_ID} PUBLIC ${CMAKE_SOURCE_DIR}/External/Eigen3)
 
 # Filters
 source_group ("Container" FILES ${SRC_CONTAINER})

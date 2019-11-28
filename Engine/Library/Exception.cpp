@@ -5,22 +5,16 @@
 
 namespace BE
 {
-	Exception::Exception(Char* inMessage) noexcept
-		: message{ inMessage }, needFree{ true } {}
-
-	Exception::Exception(Char* inMessage, int) noexcept
-		: message{ nullptr }, needFree{ false }
+	Exception::Exception(Char* inMessage, MessageType type /*= MessageType::Deep*/) noexcept
+		: message{ nullptr }, needFree{ type == MessageType::Deep }
 	{
-		DeepCopy(inMessage);
+		Init(inMessage);
 	}
 
 	Exception::Exception(const Exception& other) noexcept
 		: message{ nullptr }, needFree{ other.needFree }
 	{
-		if (needFree)
-			DeepCopy(other.message);
-		else
-			message = other.message;
+		Init(other.message);
 	}
 
 	Exception::Exception(Exception&& other) noexcept
@@ -32,11 +26,8 @@ namespace BE
 
 	Exception& Exception::operator=(const Exception& other) noexcept
 	{
-		if (needFree = other.needFree)
-			DeepCopy(other.message);
-		else
-			message = other.message;
-
+		needFree = other.needFree;
+		Init(other.message);
 		return *this;
 	}
 
@@ -54,8 +45,14 @@ namespace BE
 			std::free(static_cast<void*>(message));
 	}
 
-	void Exception::DeepCopy(Char* inMessage)
+	void Exception::Init(Char* inMessage)
 	{
+		if (!needFree)
+		{
+			message = inMessage;
+			return;
+		}
+		
 		const auto len = Strlen(inMessage);
 		message = static_cast<Char*>(std::malloc((len + 1) * sizeof(Char)));
 		Strcpy(message, 1, inMessage);

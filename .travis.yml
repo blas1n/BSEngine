@@ -7,13 +7,13 @@ matrix:
     compiler: gcc
     sudo: required
     script:
-      - sh Scripts/TravisBuild.sh
+      - sh Scripts/Build.sh
 
   - os: osx
     osx_image: xcode11
     compiler: clang
     script:
-      - sh Scripts/TravisBuild.sh
+      - sh Scripts/Build.sh
 
 notifications:
   email: false

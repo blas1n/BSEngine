@@ -41,8 +41,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	find_package (Threads)
 endif ()
 
-find_package(Eigen3 3.3 REQUIRED)
-
+set (EIGEN3_INCLUDE_DIR )
 # Target
 add_library (${PROJECT_ID} STATIC
 	${SRC_EXCEPTION}
@@ -56,8 +55,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	target_link_libraries (${PROJECT_ID} ${CMAKE_THREAD_LIBS_INIT})
 endif ()
 
-target_link_libraries (${PROJECT_ID} Eigen3::Eigen)
-target_include_directories(${PROJECT_ID} PRIVATE ${EIGEN3_INCLUDE_DIR})
+target_include_directories(${PROJECT_ID} PRIVATE ${CMAKE_SOURCE_DIR}/External/Eigen3)
 
 # Filters
 source_group ("Container" FILES ${SRC_CONTAINER})

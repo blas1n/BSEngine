@@ -13,6 +13,7 @@ set(SRC_MEMORY
 	HeapMemory.cpp
 	HeapMemory.h
 	ManagerMemory.h
+	OneFrameMemory.cpp
 	OneFrameMemory.h
 	ResourceMemory.h
 )

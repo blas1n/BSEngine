@@ -46,8 +46,11 @@ namespace BE
 
 	void* HeapMemory::Allocate(const size_t size)
 	{
-		if (size == 0 || maxNum - curNum < size)
-			return nullptr;
+		if (size == 0) throw InvalidArgumentException{ };
+
+		std::lock_guard<std::mutex> lock{ mutex };
+
+		if (maxNum - curNum < size) throw OutOfMemoryException{ };
 
 		for (size_t i = 0, clearSectionNum = 0; i < maxNum; ++i) {
 			if (IsAllocated(marker, i))
@@ -74,6 +77,8 @@ namespace BE
 	{
 		if (ptr >= curMemory && ptr < curMemory + maxNum)
 			throw InvalidArgumentException{ };
+
+		std::lock_guard<std::mutex> lock{ mutex };
 
 		curNum -= size;
 		const size_t startIdx = static_cast<Uint8*>(ptr) - curMemory;

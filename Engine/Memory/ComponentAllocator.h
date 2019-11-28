@@ -9,14 +9,14 @@ namespace BE
 	{
 	public:
 		template <class ComponentType>
-		inline void* Allocate() noexcept
+		inline void* Allocate()
 		{
 			return MemoryManagerAccesser::Get()
 				->GetComponentMemory().Allocate<ComponentType>();
 		}
 
 		template <class ComponentType>
-		inline void Deallocate(ComponentType* const ptr) noexcept
+		inline void Deallocate(ComponentType* const ptr)
 		{
 			return MemoryManagerAccesser::Get()
 				->GetComponentMemory().Deallocate(ptr);

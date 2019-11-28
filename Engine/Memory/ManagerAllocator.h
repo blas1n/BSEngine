@@ -9,7 +9,7 @@ namespace BE
 	{
 	private:
 		template <class ManagerType>
-		inline void* Allocate() noexcept
+		inline void* Allocate()
 		{
 			return MemoryManagerAccesser::Get()
 				->GetManagerMemory().Allocate<ManagerType>();

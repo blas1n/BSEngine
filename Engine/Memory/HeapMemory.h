@@ -7,7 +7,7 @@ namespace BE
 	class BS_API HeapMemory final
 	{
 	public:
-		void Init(size_t inSize) noexcept;
+		void Init(size_t inSize);
 
 		void Release() noexcept;
 

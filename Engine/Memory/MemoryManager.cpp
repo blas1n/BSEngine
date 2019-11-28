@@ -3,7 +3,7 @@
 
 namespace BE
 {
-	void MemoryManager::Init(std::initializer_list<size_t> memorySizes) noexcept
+	void MemoryManager::Init(std::initializer_list<size_t> memorySizes)
 	{
 		check(memorySizes.size() == 5);
 

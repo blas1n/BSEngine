@@ -20,11 +20,19 @@ inline void Unmark(BE::Uint8* const marker, const size_t index) noexcept
 
 namespace BE
 {
-	void HeapMemory::Init(const size_t size) noexcept
+	void HeapMemory::Init(const size_t size)
 	{
 		const auto markerSize = size / 8 + 1;
 		auto ptr = std::malloc(size + markerSize);
-		check(ptr != nullptr);
+		
+		if (ptr == nullptr)
+		{
+			throw BadAllocException
+			{
+				TEXT("Memory required for heap memory cannot be allocated."),
+				Exception::MessageType::Shallow
+			};
+		}
 
 		curMemory = static_cast<Uint8*>(ptr);
 		marker = curMemory + size;
@@ -64,7 +72,8 @@ namespace BE
 
 	void HeapMemory::Deallocate(void* const ptr, const size_t size)
 	{
-		check(ptr >= curMemory && ptr < curMemory + maxNum);
+		if (ptr >= curMemory && ptr < curMemory + maxNum)
+			throw InvalidArgumentException{ };
 
 		curNum -= size;
 		const size_t startIdx = static_cast<Uint8*>(ptr) - curMemory;

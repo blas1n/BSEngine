@@ -8,11 +8,16 @@ namespace BE
 	class BS_API Exception
 	{
 	public:
+		enum class BS_API MessageType : Uint8
+		{
+			Shallow,
+			Deep
+		};
+
 		constexpr Exception() noexcept
 			: message{ TEXT("") }, needFree{ false } {}
 
-		Exception(Char* inMessage) noexcept;
-		Exception(Char* inMessage, int) noexcept;
+		Exception(Char* inMessage, MessageType type = MessageType::Deep) noexcept;
 
 		Exception(const Exception& other) noexcept;
 		Exception(Exception&& other) noexcept;
@@ -25,7 +30,7 @@ namespace BE
 		constexpr const Char* GetMessage() const noexcept { return message; }
 
 	private:
-		void DeepCopy(Char* inMessage);
+		void Init(Char* inMessage);
 
 		Char* message;
 		bool needFree;
@@ -49,7 +54,7 @@ namespace BE
 		using LogicException::LogicException;
 
 		InvalidArgumentException()
-			: LogicException{ TEXT("An invalid argument was passed."), 0 } {}
+			: LogicException{ TEXT("An invalid argument was passed."), MessageType::Shallow } {}
 	};
 
 	class OutOfRangeException : public LogicException {
@@ -57,7 +62,23 @@ namespace BE
 		using LogicException::LogicException;
 
 		OutOfRangeException()
-			: LogicException{ TEXT("Array out of range."), 0 } {}
+			: LogicException{ TEXT("Array out of range."), MessageType::Shallow } {}
+	};
+
+	class OutOfMemoryException : public LogicException {
+	public:
+		using LogicException::LogicException;
+
+		OutOfMemoryException()
+			: LogicException{ TEXT("Insufficient memory."), MessageType::Shallow } {}
+	};
+
+	class BadAllocException : public RuntimeException {
+	public:
+		using RuntimeException::RuntimeException;
+
+		BadAllocException()
+			: RuntimeException{ TEXT("Can not allocate memory."), MessageType::Shallow } {}
 	};
 
 	class BadCastException : public RuntimeException {
@@ -65,7 +86,15 @@ namespace BE
 		using RuntimeException::RuntimeException;
 
 		BadCastException()
-			: RuntimeException{ TEXT("Incorrect type casting."), 0 } {}
+			: RuntimeException{ TEXT("Incorrect type casting."), MessageType::Shallow } {}
+	};
+
+	class SystemException : public RuntimeException {
+	public:
+		using RuntimeException::RuntimeException;
+
+		SystemException()
+			: RuntimeException{ TEXT("System internal error."), MessageType::Shallow } {}
 	};
 
 	class FileNotFoundException : public RuntimeException {
@@ -73,6 +102,6 @@ namespace BE
 		using RuntimeException::RuntimeException;
 
 		FileNotFoundException()
-			: RuntimeException{ TEXT("The requested file could not be found."), 0 } {}
+			: RuntimeException{ TEXT("The requested file could not be found."), MessageType::Shallow } {}
 	};
 }

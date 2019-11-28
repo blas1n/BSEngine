@@ -8,7 +8,7 @@ namespace BE
 	class BS_API OneFrameAllocator final : public MemoryManagerAccesser
 	{
 	public:
-		inline void* Allocate(const size_t n) noexcept
+		inline void* Allocate(const size_t n)
 		{
 			return MemoryManagerAccesser::Get()->GetOneFrameMemory().Allocate(n);
 		}

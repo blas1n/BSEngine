@@ -7,10 +7,19 @@ namespace BE
 {
 	class BS_API ManagerMemory final {
 	public:
-		inline void Init(const size_t inSize) noexcept
+		inline void Init(const size_t inSize)
 		{
 			startMemory = curMemory = static_cast<Uint8*>(std::malloc(inSize));
-			maxSize = inSize;
+			if (startMemory == nullptr)
+			{
+				throw BadAllocException
+				{
+					TEXT("Memory required for manager memory cannot be allocated."),
+					Exception::MessageType::Shallow
+				};
+			}
+
+			size = inSize;
 		}
 
 		inline void Release() noexcept
@@ -19,8 +28,11 @@ namespace BE
 		}
 
 		template <class ManagerType>
-		ManagerType* Allocate() noexcept
+		ManagerType* Allocate()
 		{
+			if (curMemory + size > startMemory + size)
+				throw OutOfMemoryException{ };
+
 			auto tmp{ curMemory };
 			curMemory += sizeof(ManagerType);
 			return reinterpret_cast<ManagerType*>(tmp);
@@ -29,6 +41,6 @@ namespace BE
 	private:
 		Uint8* startMemory;
 		Uint8* curMemory;
-		size_t maxSize;
+		size_t size;
 	};
 }

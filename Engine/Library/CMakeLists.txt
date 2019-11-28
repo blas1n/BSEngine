@@ -57,7 +57,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 endif ()
 
 target_link_libraries (${PROJECT_ID} Eigen3::Eigen)
-include_directories(${EIGEN3_INCLUDE_DIR})
+target_include_directories(${PROJECT_ID} PRIVATE ${EIGEN3_INCLUDE_DIR})
 
 # Filters
 source_group ("Container" FILES ${SRC_CONTAINER})

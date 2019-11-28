@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.8)
 
 project (BS_Engine VERSION 0.0.1 LANGUAGES CXX)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/Cmake)
+set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/Cmake)
 
 include (Platform)
 include (Util)

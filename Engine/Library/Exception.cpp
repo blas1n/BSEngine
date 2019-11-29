@@ -5,7 +5,7 @@
 
 namespace BE
 {
-	Exception::Exception(Char* inMessage, MessageType type /*= MessageType::Deep*/) noexcept
+	Exception::Exception(const Char* inMessage, MessageType type /*= MessageType::Deep*/) noexcept
 		: message{ nullptr }, needFree{ type == MessageType::Deep }
 	{
 		Init(inMessage);
@@ -42,10 +42,10 @@ namespace BE
 	Exception::~Exception()
 	{
 		if (needFree)
-			std::free(static_cast<void*>(message));
+			std::free(static_cast<void*>(const_cast<Char*>(message)));
 	}
 
-	void Exception::Init(Char* inMessage)
+	void Exception::Init(const Char* inMessage)
 	{
 		if (!needFree)
 		{
@@ -54,7 +54,7 @@ namespace BE
 		}
 		
 		const auto len = Strlen(inMessage);
-		message = static_cast<Char*>(std::malloc((len + 1) * sizeof(Char)));
-		Strcpy(message, 1, inMessage);
+		message = static_cast<const Char*>(std::malloc((len + 1) * sizeof(Char)));
+		Strcpy(const_cast<Char*>(message), 1, inMessage);
 	}
 }

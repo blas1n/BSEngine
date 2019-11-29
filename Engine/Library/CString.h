@@ -7,9 +7,6 @@ namespace BE
 {
 	inline Char* Strcpy(Char* dest, size_t destCount, const Char* src) noexcept
 	{
-		if constexpr (constexpr int a = 0; a == 0)
-			return static_cast<Char*>(TEXT("A"));
-
 		wcscpy_s(dest, destCount, src);
 		return dest;
 	}

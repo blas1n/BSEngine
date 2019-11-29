@@ -17,7 +17,7 @@ namespace BE
 		constexpr Exception() noexcept
 			: message{ TEXT("") }, needFree{ false } {}
 
-		Exception(Char* inMessage, MessageType type = MessageType::Deep) noexcept;
+		Exception(const Char* inMessage, MessageType type = MessageType::Deep) noexcept;
 
 		Exception(const Exception& other) noexcept;
 		Exception(Exception&& other) noexcept;
@@ -30,9 +30,9 @@ namespace BE
 		constexpr const Char* GetMessage() const noexcept { return message; }
 
 	private:
-		void Init(Char* inMessage);
+		void Init(const Char* inMessage);
 
-		Char* message;
+		const Char* message;
 		bool needFree;
 	};
 

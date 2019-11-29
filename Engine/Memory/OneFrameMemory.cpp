@@ -20,7 +20,7 @@ namespace BE
 		size = inSize;
 	}
 
-	void OneFrameMemory::Release()
+	void OneFrameMemory::Release() noexcept
 	{
 		std::free(startMemory);
 	}

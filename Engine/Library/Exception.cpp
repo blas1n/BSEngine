@@ -55,6 +55,6 @@ namespace BE
 		
 		const auto len = Strlen(inMessage);
 		message = static_cast<const Char*>(std::malloc((len + 1) * sizeof(Char)));
-		Strcpy(const_cast<Char*>(message), 1, inMessage);
+		Strcpy(const_cast<Char*>(message), inMessage, len);
 	}
 }

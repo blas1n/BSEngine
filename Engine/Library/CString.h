@@ -1,92 +1,92 @@
 #pragma once
 
-#include <wchar.h>
+#include <cwchar>
 #include "Type.h"
 
 namespace BE
 {
-	inline Char* Strcpy(Char* dest, size_t destCount, const Char* src) noexcept
+	inline Char* Strcpy(Char* dest, const Char* src, const size_t count) noexcept
 	{
-		wcscpy_s(dest, destCount, src);
-		return dest;
+		return std::wcsncpy(dest, src, count);
 	}
 
-	inline Char* Strncpy(Char* dest, size_t destCount, const Char* src, size_t srcCount) noexcept
+	inline Char* Strcat(Char* dest, const Char* src, const size_t count) noexcept
 	{
-		wcsncpy_s(dest, destCount, src, srcCount);
-		return dest;
+		return std::wcsncat(dest, src, count);
 	}
 
-	inline Char* Strcat(Char* dest, size_t destCount, const Char* src) noexcept
+	inline size_t Strxfrm(Char* dest, const Char* src, const size_t count) noexcept
 	{
-		wcscat_s(dest, destCount, src);
-		return dest;
+		return std::wcsxfrm(dest, src, count);
 	}
 
-	inline Char* Strncat(Char* dest, size_t destCount, const Char* src, size_t srcCount) noexcept
-	{
-		wcsncat_s(dest, destCount, src, srcCount);
-		return dest;
-	}
-
-	inline size_t Strxfrm(Char* dest, const Char* src, size_t count) noexcept
-	{
-		return wcsxfrm(dest, src, count);
-	}
-
-	/// @todo Use safe function
 	inline size_t Strlen(const Char* str) noexcept
 	{
-		return wcslen(str);
+		return std::wcslen(str);
 	}
 
-	inline Int32 Strcmp(const Char* lhs, const Char* rhs) noexcept
+	inline Int32 Strcmp(const Char* lhs, const Char* rhs, const size_t count) noexcept
 	{
-		return wcscmp(lhs, rhs);
+		return std::wcsncmp(lhs, rhs, count);
 	}
 
-	inline Int32 Strncmp(const Char* lhs, const Char* rhs, size_t count) noexcept
+	inline Char* Strstr(Char* str, const Char* subStr) noexcept
 	{
-		return wcsncmp(lhs, rhs, count);
+		return std::wcsstr(str, subStr);
 	}
 
 	inline const Char* Strstr(const Char* str, const Char* subStr) noexcept
 	{
-		return wcsstr(str, subStr);
+		return std::wcsstr(str, subStr);
 	}
 
-	inline const Char* Strchr(const Char* str, Char ch) noexcept
+	inline Char* Strchr(Char* str, const Char ch) noexcept
 	{
-		return wcschr(str, ch);
+		return std::wcschr(str, ch);
 	}
 
-	inline const Char* Strrchr(const Char* str, Char ch) noexcept
+	inline const Char* Strchr(const Char* str, const Char ch) noexcept
 	{
-		return wcsrchr(str, ch);
+		return std::wcschr(str, ch);
+	}
+
+	inline Char* Strrchr(Char* str, const Char ch) noexcept
+	{
+		return std::wcsrchr(str, ch);
+	}
+
+	inline const Char* Strrchr(const Char* str, const Char ch) noexcept
+	{
+		return std::wcsrchr(str, ch);
 	}
 
 	inline Char* Strtok(Char* str, const Char* delim, Char** ptr) noexcept
 	{
-		return wcstok_s(str, delim, ptr);
+		return std::wcstok(str, delim, ptr);
 	}
 
 	inline Int32 StrToInt(const Char* start, Char** end, Int32 radix = 10) noexcept
 	{
-		return wcstol(start, end, radix);
+		return std::wcstol(start, end, radix);
 	}
 
 	inline Int64 StrToInt64(const Char* start, Char** end, Int32 radix = 10) noexcept
 	{
-		return wcstoll(start, end, radix);
+		return std::wcstoll(start, end, radix);
 	}
 
 	inline Uint32 StrToUint(const Char* start, Char** end, Int32 radix = 10) noexcept
 	{
-		return wcstoul(start, end, radix);
+		return std::wcstoul(start, end, radix);
 	}
 
 	inline Uint64 StrToUint64(const Char* start, Char** end, Int32 radix = 10) noexcept
 	{
-		return wcstoull(start, end, radix);
+		return std::wcstoull(start, end, radix);
+	}
+
+	inline float StrToFloat(const Char* str, Char** strEnd) noexcept
+	{
+		return std::wcstof(str, strEnd);
 	}
 }

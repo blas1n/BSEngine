@@ -9,19 +9,13 @@ set(SRC_EXCEPTION
 set(SRC_MATH
 	MathFunctions.cpp
 	MathFunctions.h
-	Matrix3x3.cpp
 	Matrix3x3.h
-	Matrix4x4.cpp
 	Matrix4x4.h
-	Quaternion.cpp
 	Quaternion.h
 	Random.cpp
 	Random.h
-	Vector2.cpp
 	Vector2.h
-	Vector3.cpp
 	Vector3.h
-	Vector4.cpp
 	Vector4.h
 )
 

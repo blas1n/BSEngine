@@ -53,7 +53,7 @@ add_library (${PROJECT_ID} STATIC
 
 # Dependencies
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-	target_link_libraries (${PROJECT_ID} ${CMAKE_THREAD_LIBS_INIT})
+	target_link_libraries (${PROJECT_ID} PUBLIC ${CMAKE_THREAD_LIBS_INIT})
 endif ()
 
 target_link_libraries(${PROJECT_ID} PUBLIC Eigen3::Eigen)

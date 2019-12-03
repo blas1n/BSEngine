@@ -111,33 +111,39 @@ namespace BE::Math
 		Eigen::Matrix4f mat;
 	};
 
-	inline Matrix4x4 operator+(Matrix4x4 lhs, const Matrix4x4& rhs) noexcept
+	inline Matrix4x4 operator+(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
 	{
-		return lhs += rhs;
+		auto ret = lhs;
+		return ret += rhs;
 	}
 
-	inline Matrix4x4 operator-(Matrix4x4 lhs, const Matrix4x4& rhs) noexcept
+	inline Matrix4x4 operator-(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
 	{
-		return lhs -= rhs;
+		auto ret = lhs;
+		return ret -= rhs;
 	}
 
-	inline Matrix4x4 operator*(Matrix4x4 mat, const float scaler) noexcept
+	inline Matrix4x4 operator*(const Matrix4x4& mat, const float scaler) noexcept
 	{
-		return mat *= scaler;
+		auto ret = mat;
+		return ret *= scaler;
 	}
 
-	inline Matrix4x4 operator*(const float scaler, Matrix4x4 mat) noexcept
+	inline Matrix4x4 operator*(const float scaler, const Matrix4x4& mat) noexcept
 	{
-		return mat *= scaler;
+		auto ret = mat;
+		return ret *= scaler;
 	}
 
-	inline Matrix4x4 operator/(Matrix4x4 mat, const float scaler) noexcept
+	inline Matrix4x4 operator/(const Matrix4x4& mat, float scaler) noexcept
 	{
-		return mat /= scaler;
+		auto ret = mat;
+		return ret /= scaler;
 	}
 
-	inline Matrix4x4 operator*(Matrix4x4 lhs, const Matrix4x4& rhs) noexcept
+	inline Matrix4x4 operator*(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
 	{
-		return lhs *= rhs;
+		auto ret = lhs;
+		return ret *= rhs;
 	}
 }

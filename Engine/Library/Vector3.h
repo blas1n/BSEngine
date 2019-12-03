@@ -11,15 +11,15 @@ namespace BE::Math
 		Vector3() noexcept
 			: vec{ } {}
 
-		explicit Vector3(const float inX, const float inY) noexcept
-			: vec{ inX, inY } {}
+		explicit Vector3(const float x, const float y, const float z) noexcept
+			: vec{ x, y, z } {}
 
 		explicit Vector3(const float elems[3]) noexcept
 			: vec{ elems } {}
 
-		inline void Set(const float inX, const float inY) noexcept
+		inline void Set(const float x, const float y, const float z) noexcept
 		{
-			vec << inX, inY;
+			vec << x, y, z;
 		}
 
 		inline float& operator[](const Uint8 index) noexcept
@@ -31,6 +31,8 @@ namespace BE::Math
 		{
 			return vec[index];
 		}
+
+		inline Vector3 operator-() const noexcept;
 
 		inline Vector3& operator+=(const Vector3& other) noexcept
 		{
@@ -70,24 +72,14 @@ namespace BE::Math
 			return *this;
 		}
 
-		inline Vector3 operator+() const noexcept
-		{
-			return *this;
-		}
-
-		inline Vector3 operator-() const noexcept
-		{
-			return *this * -1.0f;
-		}
-
 		inline float LengthSquared() const noexcept
 		{
-			vec.squaredNorm();
+			return vec.squaredNorm();
 		}
 
 		inline float Length() const noexcept
 		{
-			vec.norm();
+			return vec.norm();
 		}
 
 		inline void Normalize() noexcept
@@ -114,10 +106,7 @@ namespace BE::Math
 			return ret;
 		}
 
-		static inline Vector3 Reflect(const Vector3& v, const Vector3& n) noexcept
-		{
-			return v - 2.0f * Vector3::Dot(v, n) * n;
-		}
+		static inline Vector3 Reflect(const Vector3& v, const Vector3& n) noexcept;
 
 	private:
 		Eigen::Vector3f vec;
@@ -163,5 +152,15 @@ namespace BE::Math
 	{
 		auto ret = vec;
 		return ret /= scalar;
+	}
+
+	inline Vector3 Vector3::operator-() const noexcept
+	{
+		return *this * -1.0f;
+	}
+
+	inline Vector3 Vector3::Reflect(const Vector3& v, const Vector3& n) noexcept
+	{
+		return v - 2.0f * Vector3::Dot(v, n) * n;
 	}
 }

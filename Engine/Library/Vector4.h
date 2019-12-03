@@ -126,37 +126,37 @@ namespace BE::Math
 		Eigen::Vector4f vec;
 	};
 
-	Vector4 operator+(Vector4 lhs, const Vector4& rhs) noexcept
+	inline Vector4 operator+(Vector4 lhs, const Vector4& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector4 operator-(Vector4 lhs, const Vector4& rhs) noexcept
+	inline Vector4 operator-(Vector4 lhs, const Vector4& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector4 operator*(Vector4 lhs, const Vector4& rhs) noexcept
+	inline Vector4 operator*(Vector4 lhs, const Vector4& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector4 operator*(Vector4 vec, const float scalar) noexcept
+	inline Vector4 operator*(Vector4 vec, const float scalar) noexcept
 	{
 		return vec *= scalar;
 	}
 
-	Vector4 operator*(const float scalar, Vector4 vec) noexcept
+	inline Vector4 operator*(const float scalar, Vector4 vec) noexcept
 	{
 		return vec *= scalar;
 	}
 
-	Vector4 operator/(Vector4 lhs, const Vector4& rhs) noexcept
+	inline Vector4 operator/(Vector4 lhs, const Vector4& rhs) noexcept
 	{
 		return lhs /= rhs;
 	}
 
-	Vector4 operator/(Vector4 vec, const float scalar) noexcept
+	inline Vector4 operator/(Vector4 vec, const float scalar) noexcept
 	{
 		return vec /= scalar;
 	}

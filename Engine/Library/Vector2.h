@@ -115,37 +115,37 @@ namespace BE::Math
 		Eigen::Vector2f vec;
 	};
 
-	Vector2 operator+(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator+(Vector2 lhs, const Vector2& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector2 operator-(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator-(Vector2 lhs, const Vector2& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector2 operator*(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator*(Vector2 lhs, const Vector2& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector2 operator*(Vector2 vec, const float scalar) noexcept
+	inline Vector2 operator*(Vector2 vec, const float scalar) noexcept
 	{
 		return vec *= scalar;
 	}
 
-	Vector2 operator*(const float scalar, Vector2 vec) noexcept
+	inline Vector2 operator*(const float scalar, Vector2 vec) noexcept
 	{
 		return vec *= scalar;
 	}
 
-	Vector2 operator/(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator/(Vector2 lhs, const Vector2& rhs) noexcept
 	{
 		return lhs /= rhs;
 	}
 
-	Vector2 operator/(Vector2 vec, const float scalar) noexcept
+	inline Vector2 operator/(Vector2 vec, const float scalar) noexcept
 	{
 		return vec /= scalar;
 	}

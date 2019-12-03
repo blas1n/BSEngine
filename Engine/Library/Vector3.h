@@ -123,37 +123,37 @@ namespace BE::Math
 		Eigen::Vector3f vec;
 	};
 
-	Vector3 operator+(Vector3 lhs, const Vector3& rhs) noexcept
+	inline Vector3 operator+(Vector3 lhs, const Vector3& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector3 operator-(Vector3 lhs, const Vector3& rhs) noexcept
+	inline Vector3 operator-(Vector3 lhs, const Vector3& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector3 operator*(Vector3 lhs, const Vector3& rhs) noexcept
+	inline Vector3 operator*(Vector3 lhs, const Vector3& rhs) noexcept
 	{
 		return lhs += rhs;
 	}
 
-	Vector3 operator*(Vector3 vec, const float scalar) noexcept
+	inline Vector3 operator*(Vector3 vec, const float scalar) noexcept
 	{
 		return vec *= scalar;
 	}
 
-	Vector3 operator*(const float scalar, Vector3 vec) noexcept
+	inline Vector3 operator*(const float scalar, Vector3 vec) noexcept
 	{
 		return vec *= scalar;
 	}
 
-	Vector3 operator/(Vector3 lhs, const Vector3& rhs) noexcept
+	inline Vector3 operator/(Vector3 lhs, const Vector3& rhs) noexcept
 	{
 		return lhs /= rhs;
 	}
 
-	Vector3 operator/(Vector3 vec, const float scalar) noexcept
+	inline Vector3 operator/(Vector3 vec, const float scalar) noexcept
 	{
 		return vec /= scalar;
 	}

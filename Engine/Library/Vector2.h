@@ -31,16 +31,6 @@ namespace BE::Math
 			return vec[index];
 		}
 
-		inline Vector2 operator+() const noexcept
-		{
-			return *this;
-		}
-
-		inline Vector2 operator-() const noexcept
-		{
-			return *this * -1.0f;
-		}
-
 		inline Vector2& operator+=(const Vector2& other) noexcept
 		{
 			vec += other.vec;
@@ -79,6 +69,16 @@ namespace BE::Math
 			return *this;
 		}
 
+		inline Vector2 operator+() const noexcept
+		{
+			return *this;
+		}
+
+		inline Vector2 operator-() const noexcept
+		{
+			return *this * -1.0f;
+		}
+
 		inline float LengthSquared() const noexcept
 		{
 			vec.squaredNorm();
@@ -115,38 +115,45 @@ namespace BE::Math
 		Eigen::Vector2f vec;
 	};
 
-	inline Vector2 operator+(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		return lhs += rhs;
+		auto ret = lhs;
+		return ret += rhs;
 	}
 
-	inline Vector2 operator-(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator-(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		return lhs += rhs;
+		auto ret = lhs;
+		return ret += rhs;
 	}
 
-	inline Vector2 operator*(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator*(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		return lhs += rhs;
+		auto ret = lhs;
+		return ret += rhs;
 	}
 
-	inline Vector2 operator*(Vector2 vec, const float scalar) noexcept
+	inline Vector2 operator*(const Vector2& vec, const float scalar) noexcept
 	{
-		return vec *= scalar;
+		auto ret = vec;
+		return ret *= scalar;
 	}
 
-	inline Vector2 operator*(const float scalar, Vector2 vec) noexcept
+	inline Vector2 operator*(const float scalar, const Vector2& vec) noexcept
 	{
-		return vec *= scalar;
+		auto ret = vec;
+		return ret *= scalar;
 	}
 
-	inline Vector2 operator/(Vector2 lhs, const Vector2& rhs) noexcept
+	inline Vector2 operator/(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		return lhs /= rhs;
+		auto ret = lhs;
+		return ret /= rhs;
 	}
 
-	inline Vector2 operator/(Vector2 vec, const float scalar) noexcept
+	inline Vector2 operator/(const Vector2& vec, const float scalar) noexcept
 	{
-		return vec /= scalar;
+		auto ret = vec;
+		return ret /= scalar;
 	}
 }

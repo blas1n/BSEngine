@@ -69,42 +69,6 @@ namespace BE::Math
 			return *this;
 		}
 
-		friend inline Matrix3x3 operator+(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
-		{
-			auto ret = lhs;
-			return ret += rhs;
-		}
-
-		friend inline Matrix3x3 operator-(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
-		{
-			auto ret = lhs;
-			return ret -= rhs;
-		}
-
-		friend inline Matrix3x3 operator*(const Matrix3x3& mat, const float scaler) noexcept
-		{
-			auto ret = mat;
-			return ret *= scaler;
-		}
-
-		friend inline Matrix3x3 operator*(const float scaler, const Matrix3x3& mat) noexcept
-		{
-			auto ret = mat;
-			return ret *= scaler;
-		}
-
-		friend inline Matrix3x3 operator/(const Matrix3x3& mat, float scaler) noexcept
-		{
-			auto ret = mat;
-			return ret /= scaler;
-		}
-
-		friend inline Matrix3x3 operator*(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept
-		{
-			auto ret = lhs;
-			return ret *= rhs;
-		}
-
 		inline float* operator[](const Uint8 row) noexcept
 		{
 			return &mat(row, 0);
@@ -142,4 +106,34 @@ namespace BE::Math
 	private:
 		Eigen::Matrix3f mat;
 	};
+
+	inline Matrix3x3 operator+(Matrix3x3 lhs, const Matrix3x3& rhs) noexcept
+	{
+		return lhs += rhs;
+	}
+
+	inline Matrix3x3 operator-(Matrix3x3 lhs, const Matrix3x3& rhs) noexcept
+	{
+		return lhs -= rhs;
+	}
+
+	inline Matrix3x3 operator*(Matrix3x3 mat, const float scaler) noexcept
+	{
+		return mat *= scaler;
+	}
+
+	inline Matrix3x3 operator*(const float scaler, Matrix3x3 mat) noexcept
+	{
+		return mat *= scaler;
+	}
+
+	inline Matrix3x3 operator/(Matrix3x3 mat, float scaler) noexcept
+	{
+		return mat /= scaler;
+	}
+
+	inline Matrix3x3 operator*(Matrix3x3 lhs, const Matrix3x3& rhs) noexcept
+	{
+		return lhs *= rhs;
+	}
 }

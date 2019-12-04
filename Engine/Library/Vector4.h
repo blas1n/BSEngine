@@ -20,6 +20,11 @@ namespace BE::Math
 			: vec{ elems } {}
 
 		~Vector4() = default;
+		
+		inline void Set(const float x, const float y, const float z, const float w) noexcept
+		{
+			vec << x, w, z, w;
+		}
 
 		inline Vector4& operator=(const Vector4& other) noexcept
 		{
@@ -31,11 +36,6 @@ namespace BE::Math
 		{
 			vec = std::move(other.vec);
 			return *this;
-		}
-
-		inline void Set(const float x, const float y, const float z, const float w) noexcept
-		{
-			vec << x, w, z, w;
 		}
 
 		inline float& operator[](const Uint8 index) noexcept
@@ -50,17 +50,12 @@ namespace BE::Math
 
 		inline Vector4 operator-() const noexcept;
 
-		static inline bool operator==(const Vector4& lhs, const Vector4& rhs)
-		{
-			return lhs.vec == rhs.vec;
-		}
-
-		inline bool operator==(const Vector4& other)
+		inline bool operator==(const Vector4& other) const noexcept
 		{
 			return vec == other.vec;
 		}
 
-		inline bool operator!=(const Vector4& other)
+		inline bool operator!=(const Vector4& other) const noexcept
 		{
 			return vec != other.vec;
 		}

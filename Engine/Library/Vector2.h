@@ -22,6 +22,11 @@ namespace BE::Math
 
 		~Vector2() = default;
 
+		inline void Set(const float x, const float y) noexcept
+		{
+			vec << x, y;
+		}
+
 		inline Vector2& operator=(const Vector2& other) noexcept
 		{
 			vec = other.vec;
@@ -32,11 +37,6 @@ namespace BE::Math
 		{
 			vec = std::move(other.vec);
 			return *this;
-		}
-
-		inline void Set(const float x, const float y) noexcept
-		{
-			vec << x, y;
 		}
 
 		inline float& operator[](const Uint8 index) noexcept
@@ -51,12 +51,12 @@ namespace BE::Math
 
 		inline Vector2 operator-() const noexcept;
 
-		inline bool operator==(const Vector2& other)
+		inline bool operator==(const Vector2& other) const noexcept
 		{
 			return vec == other.vec;
 		}
 
-		inline bool operator!=(const Vector2& other)
+		inline bool operator!=(const Vector2& other) const noexcept
 		{
 			return vec != other.vec;
 		}

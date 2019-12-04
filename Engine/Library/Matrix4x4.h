@@ -14,11 +14,6 @@ namespace BE::Math
 		Matrix4x4(const Matrix4x4& other) noexcept : mat{ other.mat } {}
 		Matrix4x4(Matrix4x4&& other) noexcept : mat{ std::move(other.mat) } {}
 
-		Matrix4x4& operator=(const Matrix4x4& other) noexcept { mat = other.mat; }
-		Matrix4x4& operator=(Matrix4x4&& other) noexcept { mat = std::move(other.mat); }
-
-		~Matrix4x4() = default;
-
 		explicit Matrix4x4(const float* elems) noexcept
 			: mat{ elems } {}
 
@@ -32,6 +27,20 @@ namespace BE::Math
 				r1c0, r1c1, r1c2, r1c3,
 				r2c0, r2c1, r2c2, r2c3,
 				r3c0, r3c1, r3c2, r3c3;
+		}
+
+		~Matrix4x4() = default;
+
+		Matrix4x4& operator=(const Matrix4x4& other) noexcept
+		{
+			mat = other.mat;
+			return *this;
+		}
+
+		Matrix4x4& operator=(Matrix4x4&& other) noexcept
+		{
+			mat = std::move(other.mat);
+			return *this;
 		}
 
 		inline bool operator==(const Matrix4x4& other) const noexcept

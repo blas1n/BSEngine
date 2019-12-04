@@ -17,7 +17,7 @@ matrix:
 
   - os: windows
     script:
-      - Scripts/Build.bat
+      - .\Scripts\Build.bat
 
 notifications:
   email: false

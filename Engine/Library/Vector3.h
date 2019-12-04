@@ -148,13 +148,13 @@ namespace BE::Math
 	inline Vector3 operator-(const Vector3& lhs, const Vector3& rhs) noexcept
 	{
 		auto ret = lhs;
-		return ret += rhs;
+		return ret -= rhs;
 	}
 
 	inline Vector3 operator*(const Vector3& lhs, const Vector3& rhs) noexcept
 	{
 		auto ret = lhs;
-		return ret += rhs;
+		return ret *= rhs;
 	}
 
 	inline Vector3 operator*(const Vector3& vec, const float scalar) noexcept

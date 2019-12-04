@@ -2,6 +2,7 @@
 
 #include "Core.h"
 #include <Eigen/Dense>
+#include <utility>
 
 namespace BE::Math
 {
@@ -102,6 +103,10 @@ namespace BE::Math
 		{
 			mat = mat.inverse();
 		}
+
+		static Matrix3x3 FromScale(const class Vector2& scale);
+		static Matrix3x3 FromPosition(const Vector2& pos);
+		static Matrix3x3 FromRotation(float angle);
 
 	private:
 		Eigen::Matrix3f mat;

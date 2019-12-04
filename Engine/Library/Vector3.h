@@ -144,6 +144,41 @@ namespace BE::Math
 
 		static inline Vector3 Reflect(const Vector3& v, const Vector3& n) noexcept;
 
+		static inline Vector3 Zero() noexcept
+		{
+			Vector3 ret;
+			ret.vec = Eigen::Vector3f::UnitX();
+			return ret;
+		}
+
+		static inline Vector3 One() noexcept
+		{
+			Vector3 ret;
+			ret.vec = Eigen::Vector3f::Ones();
+			return ret;
+		}
+
+		static inline Vector3 UnitX() noexcept
+		{
+			Vector3 ret;
+			ret.vec = Eigen::Vector3f::UnitX();
+			return ret;
+		}
+
+		static inline Vector3 UnitY() noexcept
+		{
+			Vector3 ret;
+			ret.vec = Eigen::Vector3f::UnitY();
+			return ret;
+		}
+
+		static inline Vector3 UnitZ() noexcept
+		{
+			Vector3 ret;
+			ret.vec = Eigen::Vector3f::UnitZ();
+			return ret;
+		}
+
 	private:
 		Eigen::Vector3f vec;
 	};

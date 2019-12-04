@@ -134,6 +134,34 @@ namespace BE::Math
 
 		static inline Vector2 Reflect(const Vector2& v, const Vector2& n) noexcept;
 
+		static inline Vector2 Zero() noexcept
+		{
+			Vector2 ret;
+			ret.vec = Eigen::Vector2f::UnitX();
+			return ret;
+		}
+
+		static inline Vector2 One() noexcept
+		{
+			Vector2 ret;
+			ret.vec = Eigen::Vector2f::Ones();
+			return ret;
+		}
+
+		static inline Vector2 UnitX() noexcept
+		{
+			Vector2 ret;
+			ret.vec = Eigen::Vector2f::UnitX();
+			return ret;
+		}
+
+		static inline Vector2 UnitY() noexcept
+		{
+			Vector2 ret;
+			ret.vec = Eigen::Vector2f::UnitY();
+			return ret;
+		}
+
 	private:
 		Eigen::Vector2f vec;
 	};

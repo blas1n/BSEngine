@@ -150,6 +150,48 @@ namespace BE::Math
 
 		static inline Vector4 Reflect(const Vector4& v, const Vector4& n) noexcept;
 
+		static inline Vector4 Zero() noexcept
+		{
+			Vector4 ret;
+			ret.vec = Eigen::Vector4f::UnitX();
+			return ret;
+		}
+
+		static inline Vector4 One() noexcept
+		{
+			Vector4 ret;
+			ret.vec = Eigen::Vector4f::Ones();
+			return ret;
+		}
+
+		static inline Vector4 UnitX() noexcept
+		{
+			Vector4 ret;
+			ret.vec = Eigen::Vector4f::UnitX();
+			return ret;
+		}
+
+		static inline Vector4 UnitY() noexcept
+		{
+			Vector4 ret;
+			ret.vec = Eigen::Vector4f::UnitY();
+			return ret;
+		}
+
+		static inline Vector4 UnitZ() noexcept
+		{
+			Vector4 ret;
+			ret.vec = Eigen::Vector4f::UnitZ();
+			return ret;
+		}
+
+		static inline Vector4 UnitW() noexcept
+		{
+			Vector4 ret;
+			ret.vec = Eigen::Vector4f::UnitW();
+			return ret;
+		}
+		
 	private:
 		Eigen::Vector4f vec;
 	};

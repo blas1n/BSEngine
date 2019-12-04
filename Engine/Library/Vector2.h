@@ -33,14 +33,14 @@ namespace BE::Math
 
 		inline Vector2 operator-() const noexcept;
 
-		static inline bool operator==(const Vector2& lhs, const Vector2& rhs)
+		inline bool operator==(const Vector2& other)
 		{
-			return lhs.vec == rhs.vec;
+			return vec == other.vec;
 		}
 
-		static inline bool operator!=(const Vector2& lhs, const Vector2& rhs)
+		inline bool operator!=(const Vector2& other)
 		{
-			return lhs.vec != rhs.vec;
+			return vec != other.vec;
 		}
 
 		inline Vector2& operator+=(const Vector2& other) noexcept

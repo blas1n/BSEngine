@@ -38,15 +38,14 @@ namespace BE::Math
 			return lhs.vec == rhs.vec;
 		}
 
-		static inline bool operator!=(const Vector4& lhs, const Vector4& rhs)
+		inline bool operator==(const Vector4& other)
 		{
-			return lhs.vec != rhs.vec;
+			return vec == other.vec;
 		}
 
-		inline Vector4& operator+=(const Vector4& other) noexcept
+		inline bool operator!=(const Vector4& other)
 		{
-			vec += other.vec;
-			return *this;
+			return vec != other.vec;
 		}
 
 		inline Vector4& operator-=(const Vector4& other) noexcept

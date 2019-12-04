@@ -17,7 +17,6 @@ matrix:
 
   - os: windows
     script:
-      - dir ./
       - ./Scripts/Build.bat
 
 notifications:

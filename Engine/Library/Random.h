@@ -6,7 +6,7 @@
 namespace BE::Math
 {
 	/// @brief Random factory with 'Mersenne Twister'.
-	class BS_API Random
+	class BS_API Random final
 	{
 	public:
 		/// @brief Random class initialization.

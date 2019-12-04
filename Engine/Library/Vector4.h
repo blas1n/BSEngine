@@ -5,7 +5,7 @@
 
 namespace BE::Math
 {
-	class BS_API Vector4
+	class BS_API Vector4 final
 	{
 	public:
 		Vector4() noexcept : vec{ } {}

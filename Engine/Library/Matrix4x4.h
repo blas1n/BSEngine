@@ -6,7 +6,7 @@
 
 namespace BE::Math
 {
-	class BS_API Matrix4x4
+	class BS_API Matrix4x4 final
 	{
 	public:
 		Matrix4x4() noexcept : mat{ } {}

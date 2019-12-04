@@ -27,6 +27,12 @@ namespace BE::Math
 			vec << x, y;
 		}
 
+		inline float& x() noexcept { return (*this)[0]; }
+		inline float x() const noexcept { return (*this)[0]; }
+
+		inline float& y() noexcept { return (*this)[1]; }
+		inline float y() const noexcept { return (*this)[1]; }
+
 		inline Vector2& operator=(const Vector2& other) noexcept
 		{
 			vec = other.vec;
@@ -44,7 +50,7 @@ namespace BE::Math
 			return vec[index];
 		}
 
-		inline const float& operator[](const Uint8 index) const noexcept
+		inline float operator[](const Uint8 index) const noexcept
 		{
 			return vec[index];
 		}

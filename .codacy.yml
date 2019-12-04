@@ -1,0 +1,6 @@
+# codacy configuration file
+
+---
+
+exclude_paths:
+  - 'External'

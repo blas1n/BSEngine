@@ -2,6 +2,7 @@
 
 #include "Core.h"
 #include <Eigen/Dense>
+#include <utility>
 
 namespace BE::Math
 {
@@ -106,6 +107,10 @@ namespace BE::Math
 		{
 			mat = mat.inverse();
 		}
+
+		static Matrix4x4 FromScale(const class Vector3& scale);
+		static Matrix4x4 FromPosition(const Vector3& pos);
+		static Matrix4x4 FromRotation(const class Rotator& angle);
 
 	private:
 		Eigen::Matrix4f mat;

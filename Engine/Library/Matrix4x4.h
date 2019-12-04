@@ -121,6 +121,27 @@ namespace BE::Math
 		static Matrix4x4 FromPosition(const Vector3& pos);
 		static Matrix4x4 FromRotation(const class Rotator& angle);
 
+		static inline Matrix4x4 Zero() noexcept
+		{
+			Matrix4x4 ret;
+			ret.mat = Eigen::Matrix4f::Zero();
+			return ret;
+		}
+
+		static inline Matrix4x4 One() noexcept
+		{
+			Matrix4x4 ret;
+			ret.mat = Eigen::Matrix4f::Ones();
+			return ret;
+		}
+
+		static inline Matrix4x4 Identity() noexcept
+		{
+			Matrix4x4 ret;
+			ret.mat = Eigen::Matrix4f::Identity();
+			return ret;
+		}
+
 	private:
 		Eigen::Matrix4f mat;
 	};

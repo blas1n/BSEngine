@@ -117,6 +117,27 @@ namespace BE::Math
 		static Matrix3x3 FromPosition(const Vector2& pos);
 		static Matrix3x3 FromRotation(float angle);
 
+		static inline Matrix3x3 Zero() noexcept
+		{
+			Matrix3x3 ret;
+			ret.mat = Eigen::Matrix3f::Zero();
+			return ret;
+		}
+
+		static inline Matrix3x3 One() noexcept
+		{
+			Matrix3x3 ret;
+			ret.mat = Eigen::Matrix3f::Ones();
+			return ret;
+		}
+
+		static inline Matrix3x3 Identity() noexcept
+		{
+			Matrix3x3 ret;
+			ret.mat = Eigen::Matrix3f::Identity();
+			return ret;
+		}
+
 	private:
 		Eigen::Matrix3f mat;
 	};

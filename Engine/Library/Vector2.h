@@ -2,6 +2,7 @@
 
 #include "Core.h"
 #include <Eigen/Dense>
+#include <utility>
 
 namespace BE::Math
 {
@@ -10,11 +11,28 @@ namespace BE::Math
 	public:
 		Vector2() noexcept : vec{ } {}
 		
+		Vector2(const Vector2& other) noexcept : vec{ other.vec } {}
+		Vector2(Vector2&& other) noexcept : vec{ std::move(other.vec) } {}
+
 		explicit Vector2(const float x, const float y) noexcept
 			: vec{ x, y } {}
 
 		explicit Vector2(const float elems[2]) noexcept
 			: vec{ elems } {}
+
+		~Vector2() = default;
+
+		inline Vector2& operator=(const Vector2& other) noexcept
+		{
+			vec = other.vec;
+			return *this;
+		}
+
+		inline Vector2& operator=(Vector2&& other) noexcept
+		{
+			vec = std::move(other.vec);
+			return *this;
+		}
 
 		inline void Set(const float x, const float y) noexcept
 		{

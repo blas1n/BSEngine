@@ -2,20 +2,37 @@
 
 #include "Core.h"
 #include <Eigen/Dense>
+#include <utility>
 
 namespace BE::Math
 {
 	class BS_API Vector3 final
 	{
 	public:
-		Vector3() noexcept
-			: vec{ } {}
+		Vector3() noexcept : vec{ } {}
+
+		Vector3(const Vector3& other) noexcept : vec{ other.vec } {}
+		Vector3(Vector3&& other) noexcept : vec{ std::move(other.vec) } {}
 
 		explicit Vector3(const float x, const float y, const float z) noexcept
 			: vec{ x, y, z } {}
 
 		explicit Vector3(const float elems[3]) noexcept
 			: vec{ elems } {}
+
+		~Vector3() = default;
+
+		inline Vector3& operator=(const Vector3& other) noexcept
+		{
+			vec = other.vec;
+			return *this;
+		}
+
+		inline Vector3& operator=(Vector3&& other) noexcept
+		{
+			vec = std::move(other.vec);
+			return *this;
+		}
 
 		inline void Set(const float x, const float y, const float z) noexcept
 		{

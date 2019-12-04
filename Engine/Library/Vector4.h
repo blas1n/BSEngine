@@ -10,11 +10,28 @@ namespace BE::Math
 	public:
 		Vector4() noexcept : vec{ } {}
 
+		Vector4(const Vector4& other) noexcept : vec{ other.vec } {}
+		Vector4(Vector4&& other) noexcept : vec{ std::move(other.vec) } {}
+
 		explicit Vector4(const float x, const float y, const float z, const float w) noexcept
 			: vec{ x, y, z, w } {}
 
 		explicit Vector4(const float elems[4]) noexcept
 			: vec{ elems } {}
+
+		~Vector4() = default;
+
+		inline Vector4& operator=(const Vector4& other) noexcept
+		{
+			vec = other.vec;
+			return *this;
+		}
+
+		inline Vector4& operator=(Vector4&& other) noexcept
+		{
+			vec = std::move(other.vec);
+			return *this;
+		}
 
 		inline void Set(const float x, const float y, const float z, const float w) noexcept
 		{
@@ -46,6 +63,12 @@ namespace BE::Math
 		inline bool operator!=(const Vector4& other)
 		{
 			return vec != other.vec;
+		}
+
+		inline Vector4& operator+=(const Vector4& other) noexcept
+		{
+			vec += other.vec;
+			return *this;
 		}
 
 		inline Vector4& operator-=(const Vector4& other) noexcept

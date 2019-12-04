@@ -14,11 +14,6 @@ namespace BE::Math
 		Matrix3x3(const Matrix3x3& other) noexcept : mat{ other.mat } {}
 		Matrix3x3(Matrix3x3&& other) noexcept : mat{ std::move(other.mat) } {}
 
-		Matrix3x3& operator=(const Matrix3x3& other) noexcept { mat = other.mat; }
-		Matrix3x3& operator=(Matrix3x3&& other) noexcept { mat = std::move(other.mat); }
-
-		~Matrix3x3() = default;
-
 		explicit Matrix3x3(const float* elems) noexcept
 			: mat{ elems } {}
 
@@ -28,6 +23,20 @@ namespace BE::Math
 			: mat{ }
 		{
 			mat << r0c0, r0c1, r0c2, r1c0, r1c1, r1c2, r2c0, r2c1, r2c2;
+		}
+
+		~Matrix3x3() = default;
+
+		inline Matrix3x3& operator=(const Matrix3x3& other) noexcept
+		{
+			mat = other.mat;
+			return *this;
+		}
+
+		inline Matrix3x3& operator=(Matrix3x3&& other) noexcept
+		{
+			mat = std::move(other.mat);
+			return *this;
 		}
 
 		inline bool operator==(const Matrix3x3& other) const noexcept

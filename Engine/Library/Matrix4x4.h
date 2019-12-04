@@ -18,7 +18,7 @@ namespace BE::Math
 
 		~Matrix4x4() = default;
 
-		explicit Matrix4x4(const float elems[4][4]) noexcept
+		explicit Matrix4x4(const float* elems) noexcept
 			: mat{ elems } {}
 
 		explicit Matrix4x4(float r0c0, float r0c1, float r0c2, float r0c3,

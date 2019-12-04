@@ -17,8 +17,8 @@ matrix:
 
   - os: windows
     script:
-      - dir .\
-      - .\Scripts\Build.bat
+      - dir ./
+      - ./Scripts/Build.bat
 
 notifications:
   email: false

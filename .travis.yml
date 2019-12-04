@@ -15,5 +15,9 @@ matrix:
     script:
       - sh Scripts/Build.sh
 
+  - os: windows
+    script:
+      - Scripts/Build.bat
+
 notifications:
   email: false

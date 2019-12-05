@@ -6,6 +6,9 @@
 
 namespace BE::Math
 {
+	class Vector3;
+	class Vector4;
+
 	class BS_API Vector2 final
 	{
 	public:
@@ -161,6 +164,9 @@ namespace BE::Math
 			ret.vec = Eigen::Vector2f::UnitY();
 			return ret;
 		}
+
+		explicit operator Vector3() const noexcept;
+		explicit operator Vector4() const noexcept;
 
 	private:
 		Eigen::Vector2f vec;

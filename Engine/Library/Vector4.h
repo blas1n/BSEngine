@@ -139,6 +139,9 @@ namespace BE::Math
 			return ret;
 		}
 
+		inline float* Data() noexcept { return vec.data(); }
+		inline const float* Data() const noexcept { return vec.data(); }
+
 		static inline float Dot(const Vector4& lhs, const Vector4& rhs) noexcept
 		{
 			return lhs.vec.dot(rhs.vec);
@@ -204,44 +207,37 @@ namespace BE::Math
 
 	inline Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret += rhs;
+		return Vector4{ lhs } += rhs;
 	}
 
 	inline Vector4 operator-(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret -= rhs;
+		return Vector4{ lhs } -= rhs;
 	}
 
 	inline Vector4 operator*(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret *= rhs;
+		return Vector4{ lhs } *= rhs;
 	}
 
 	inline Vector4 operator*(const Vector4& vec, const float scalar) noexcept
 	{
-		auto ret = vec;
-		return ret *= scalar;
+		return Vector4{ vec } *= scalar;
 	}
 
 	inline Vector4 operator*(const float scalar, const Vector4& vec) noexcept
 	{
-		auto ret = vec;
-		return ret *= scalar;
+		return Vector4{ vec } *= scalar;
 	}
 
 	inline Vector4 operator/(const Vector4& lhs, const Vector4& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret /= rhs;
+		return Vector4{ lhs } /= rhs;
 	}
 
 	inline Vector4 operator/(const Vector4& vec, const float scalar) noexcept
 	{
-		auto ret = vec;
-		return ret /= scalar;
+		return Vector4{ vec } /= scalar;
 	}
 
 	inline Vector4 Vector4::operator-() const noexcept

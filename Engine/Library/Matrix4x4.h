@@ -117,6 +117,9 @@ namespace BE::Math
 			mat = mat.inverse();
 		}
 
+		inline float* Data() noexcept { return mat.data(); }
+		inline const float* Data() const noexcept { return mat.data(); }
+
 		static Matrix4x4 FromScale(const class Vector3& scale);
 		static Matrix4x4 FromPosition(const Vector3& pos);
 		static Matrix4x4 FromRotation(const class Rotator& angle);

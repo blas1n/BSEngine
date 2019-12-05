@@ -130,6 +130,9 @@ namespace BE::Math
 			return ret;
 		}
 
+		inline float* Data() noexcept { return vec.data(); }
+		inline const float* Data() const noexcept { return vec.data(); }
+
 		static inline float Dot(const Vector2& lhs, const Vector2& rhs) noexcept
 		{
 			return lhs.vec.dot(rhs.vec);
@@ -174,44 +177,37 @@ namespace BE::Math
 
 	inline Vector2 operator+(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret += rhs;
+		return Vector2{ lhs } += rhs;
 	}
 
 	inline Vector2 operator-(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret -= rhs;
+		return Vector2{ lhs } -= rhs;
 	}
 
 	inline Vector2 operator*(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret *= rhs;
+		return Vector2{ lhs } *= rhs;
 	}
 
 	inline Vector2 operator*(const Vector2& vec, const float scalar) noexcept
 	{
-		auto ret = vec;
-		return ret *= scalar;
+		return Vector2{ vec } *= scalar;
 	}
 
 	inline Vector2 operator*(const float scalar, const Vector2& vec) noexcept
 	{
-		auto ret = vec;
-		return ret *= scalar;
+		return Vector2{ vec } *= scalar;
 	}
 
 	inline Vector2 operator/(const Vector2& lhs, const Vector2& rhs) noexcept
 	{
-		auto ret = lhs;
-		return ret /= rhs;
+		return Vector2{ lhs } /= rhs;
 	}
 
 	inline Vector2 operator/(const Vector2& vec, const float scalar) noexcept
 	{
-		auto ret = vec;
-		return ret /= scalar;
+		return Vector2{ vec } /= scalar;
 	}
 
 	inline Vector2 Vector2::operator-() const noexcept

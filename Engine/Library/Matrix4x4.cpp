@@ -7,7 +7,8 @@ namespace BE::Math
 	Matrix4x4 Matrix4x4::FromScale(const Vector3& scale)
 	{
 		Matrix4x4 ret;
-		ret.mat = Eigen::Scaling(scale[0], scale[1], scale[2]).toDenseMatrix();
+		ret.mat.block(0, 0, 3, 3) =
+			Eigen::Scaling(scale[0], scale[1], scale[2]).toDenseMatrix();
 		return ret;
 	}
 

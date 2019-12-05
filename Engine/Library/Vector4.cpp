@@ -4,12 +4,12 @@
 
 namespace BE::Math
 {
-	explicit Vector4::operator Vector2() const noexcept
+	Vector4::operator Vector2() const noexcept
 	{
 		return Vector2{ x(), y() };
 	}
 
-	explicit Vector4::operator Vector3() const noexcept
+	Vector4::operator Vector3() const noexcept
 	{
 		return Vector3{ x(), y(), z() };
 	}

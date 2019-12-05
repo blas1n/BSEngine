@@ -4,13 +4,13 @@
 
 namespace BE::Math
 {
-	explicit Vector2::operator Vector3() const noexcept
+	Vector2::operator Vector3() const noexcept
 	{
-		return Vector2{ x(), y(), 0.0f };
+		return Vector3{ x(), y(), 0.0f };
 	}
 
-	explicit Vector2::operator Vector4() const noexcept
+	Vector2::operator Vector4() const noexcept
 	{
-		return Vector4{ x(), y(), z(), 0.0f, 0.0f };
+		return Vector4{ x(), y(), 0.0f, 0.0f };
 	}
 }

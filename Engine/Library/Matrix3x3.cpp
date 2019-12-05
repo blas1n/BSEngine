@@ -6,7 +6,8 @@ namespace BE::Math
 	Matrix3x3 Matrix3x3::FromScale(const Vector2& scale)
 	{
 		Matrix3x3 ret;
-		ret.mat = Eigen::Scaling(scale[0], scale[1]).toDenseMatrix();
+		ret.mat.block(0, 0, 2, 2) =
+			Eigen::Scaling(scale[0], scale[1]).toDenseMatrix();
 		return ret;
 	}
 

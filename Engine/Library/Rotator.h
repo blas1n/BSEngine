@@ -25,14 +25,21 @@ namespace BE::Math
 		Rotator(const float x, const float y, const float z) noexcept
 			: Rotator{ Vector3{ x, y, z } } {}
 
-		Rotator(const class Matrix4x4& mat);
-		Rotator(const class Quaternion& quat);
-
 		~Rotator() = default;
 
 		inline void Set(const float x, const float y, const float z) noexcept
 		{
 			euler.Set(x, y, z);
+		}
+
+		inline void Set(const Vector3& inEuler) noexcept
+		{
+			euler = inEuler;
+		}
+
+		inline void Set(Vector3&& inEuler) noexcept
+		{
+			euler = std::move(inEuler);
 		}
 
 		inline float& roll() noexcept { return (*this)[0]; }

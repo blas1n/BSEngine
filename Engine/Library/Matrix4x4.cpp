@@ -21,10 +21,8 @@ namespace BE::Math
 		return ret;
 	}
 
-
-	/// @todo Implement this after build rotator.
 	Matrix4x4 Matrix4x4::FromRotation(const Rotator& angle)
 	{
-		return Matrix4x4{ };
+		return angle.ToMatrix();
 	}
 }

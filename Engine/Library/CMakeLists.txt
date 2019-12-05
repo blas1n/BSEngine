@@ -13,6 +13,7 @@ set(SRC_MATH
 	Matrix3x3.h
 	Matrix4x4.cpp
 	Matrix4x4.h
+	Quaternion.cpp
 	Quaternion.h
 	Random.cpp
 	Random.h

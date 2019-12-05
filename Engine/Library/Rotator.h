@@ -25,6 +25,9 @@ namespace BE::Math
 		Rotator(const float x, const float y, const float z) noexcept
 			: Rotator{ Vector3{ x, y, z } } {}
 
+		Rotator(const float elems[3]) noexcept
+			: Rotator{ Vector3{ elems } } {}
+
 		~Rotator() = default;
 
 		inline void Set(const float x, const float y, const float z) noexcept
@@ -94,6 +97,9 @@ namespace BE::Math
 		Rotator& operator*=(float scale) noexcept;
 		Rotator& operator/=(float scale) noexcept;
 
+		class Matrix4x4 ToMatrix() const noexcept;
+		class Quaternion ToQuaternion() const noexcept;
+
 		static inline Rotator Zero() noexcept
 		{
 			Rotator ret;
@@ -101,15 +107,14 @@ namespace BE::Math
 			return ret;
 		}
 
-		class Matrix4x4 ToMatrix() const noexcept;
-		class Quaternion ToQuaternion() const noexcept;
-
 		explicit operator Vector3() const noexcept
 		{
 			return euler;
 		}
 
 	private:
+		Eigen::Quaternionf GetQuaternion() const noexcept;
+
 		Vector3 euler;
 	};
 

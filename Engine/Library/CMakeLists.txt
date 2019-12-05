@@ -16,6 +16,8 @@ set(SRC_MATH
 	Quaternion.h
 	Random.cpp
 	Random.h
+	Rotator.cpp
+	Rotator.h
 	Vector2.cpp
 	Vector2.h
 	Vector3.cpp

@@ -113,6 +113,9 @@ namespace BE::Math
 			mat = mat.inverse();
 		}
 
+		inline float* Data() noexcept { return mat.data(); }
+		inline const float* Data() const noexcept { return mat.data(); }
+
 		static Matrix3x3 FromScale(const class Vector2& scale);
 		static Matrix3x3 FromPosition(const Vector2& pos);
 		static Matrix3x3 FromRotation(float angle);

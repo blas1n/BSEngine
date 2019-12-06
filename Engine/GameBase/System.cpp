@@ -5,11 +5,11 @@
 #include "ThreadManagerAccesser.h"
 
 // Temp variable, (Use config file)
-constexpr size_t MANAGER_SIZE = sizeof(BE::ThreadManager);
-constexpr size_t COMPONENT_SIZE = 1000;
-constexpr size_t RESOURCE_SIZE = 1000;
-constexpr size_t ONE_FRAME_SIZE = 1000;
-constexpr size_t HEAP_SIZE = 10000;
+constexpr BE::SizeType MANAGER_SIZE = sizeof(BE::ThreadManager);
+constexpr BE::SizeType COMPONENT_SIZE = 1000;
+constexpr BE::SizeType RESOURCE_SIZE = 1000;
+constexpr BE::SizeType ONE_FRAME_SIZE = 1000;
+constexpr BE::SizeType HEAP_SIZE = 10000;
 
 namespace BE
 {

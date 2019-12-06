@@ -7,12 +7,12 @@ namespace BE
 	class BS_API ResourceMemory final
 	{
 	public:
-		void Init(const size_t inSize) {}
+		void Init(const SizeType inSize) {}
 
 		void Release() noexcept {}
 
-		void* Allocate(const size_t size) { return nullptr; }
+		void* Allocate(const SizeType size) { return nullptr; }
 
-		void Deallocate(void* const ptr, const size_t size) {}
+		void Deallocate(void* const ptr, const SizeType size) {}
 	};
 }

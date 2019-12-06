@@ -7,7 +7,7 @@ namespace BE
 	class BS_API ComponentMemory final
 	{
 	public:
-		void Init(const size_t inSize) {}
+		void Init(const SizeType inSize) {}
 		
 		void Release() noexcept {}
 

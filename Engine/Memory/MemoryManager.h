@@ -18,7 +18,7 @@ namespace BE
 	{
 	public:
 		/// @brief Allocate memory for use by the game engine.
-		void Init(std::initializer_list<size_t> memorySizes);
+		void Init(std::initializer_list<SizeType> memorySizes);
 
 		/// @brief Initialize one-frame memory.
 		inline void Update() noexcept

@@ -3,7 +3,7 @@
 
 namespace BE
 {
-	void OneFrameMemory::Init(const size_t inSize)
+	void OneFrameMemory::Init(const SizeType inSize)
 	{
 		auto ptr = std::malloc(inSize * 2);
 		if (ptr == nullptr)
@@ -25,7 +25,7 @@ namespace BE
 		std::free(startMemory);
 	}
 
-	void* OneFrameMemory::Allocate(const size_t size)
+	void* OneFrameMemory::Allocate(const SizeType size)
 	{
 		if (size == 0) throw InvalidArgumentException{ };
 

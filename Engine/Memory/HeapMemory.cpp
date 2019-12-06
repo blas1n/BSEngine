@@ -3,24 +3,24 @@
 #include <cstdlib>
 #include <cstring>
 
-inline bool IsAllocated(const BE::Uint8* const marker, const size_t index) noexcept
+inline bool IsAllocated(const BE::Uint8* const marker, const BE::SizeType index) noexcept
 {
 	return (marker[index / 8] & (1 << (index % 8))) > 0;
 }
 
-inline void Mark(BE::Uint8* const marker, const size_t index) noexcept
+inline void Mark(BE::Uint8* const marker, const BE::SizeType index) noexcept
 {
 	marker[index / 8] |= 1 << (index % 8);
 }
 
-inline void Unmark(BE::Uint8* const marker, const size_t index) noexcept
+inline void Unmark(BE::Uint8* const marker, const BE::SizeType index) noexcept
 {
 	marker[index / 8] &= ~(1 << (index % 8));
 }
 
 namespace BE
 {
-	void HeapMemory::Init(const size_t size)
+	void HeapMemory::Init(const SizeType size)
 	{
 		const auto markerSize = size / 8 + 1;
 		auto ptr = std::malloc(size + markerSize);
@@ -44,7 +44,7 @@ namespace BE
 		std::free(curMemory);
 	}
 
-	void* HeapMemory::Allocate(const size_t size)
+	void* HeapMemory::Allocate(const SizeType size)
 	{
 		if (size == 0) throw InvalidArgumentException{ };
 
@@ -52,7 +52,7 @@ namespace BE
 
 		if (maxNum - curNum < size) throw OutOfMemoryException{ };
 
-		for (size_t i = 0, clearSectionNum = 0; i < maxNum; ++i) {
+		for (SizeType i = 0, clearSectionNum = 0; i < maxNum; ++i) {
 			if (IsAllocated(marker, i))
 			{
 				clearSectionNum = 0;
@@ -73,7 +73,7 @@ namespace BE
 		return nullptr;
 	}
 
-	void HeapMemory::Deallocate(void* const ptr, const size_t size)
+	void HeapMemory::Deallocate(void* const ptr, const SizeType size)
 	{
 		if (ptr >= curMemory && ptr < curMemory + maxNum)
 			throw InvalidArgumentException{ };
@@ -81,7 +81,7 @@ namespace BE
 		std::lock_guard<std::mutex> lock{ mutex };
 
 		curNum -= size;
-		const size_t startIdx = static_cast<Uint8*>(ptr) - curMemory;
+		const SizeType startIdx = static_cast<Uint8*>(ptr) - curMemory;
 		for (auto i = startIdx; i < size + startIdx; ++i)
 			Unmark(marker, i);
 	}

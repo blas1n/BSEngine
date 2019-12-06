@@ -7,7 +7,7 @@ namespace BE
 {
 	class BS_API ManagerMemory final {
 	public:
-		inline void Init(const size_t inSize)
+		inline void Init(const SizeType inSize)
 		{
 			startMemory = curMemory = static_cast<Uint8*>(std::malloc(inSize));
 			if (startMemory == nullptr)
@@ -41,6 +41,6 @@ namespace BE
 	private:
 		Uint8* startMemory;
 		Uint8* curMemory;
-		size_t size;
+		SizeType size;
 	};
 }

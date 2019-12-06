@@ -16,4 +16,6 @@ namespace BE
 	using Int64 = signed long long;
 
 	using Char = wchar_t;
+
+	using SizeType = std::size_t;
 }

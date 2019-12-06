@@ -5,27 +5,27 @@
 
 namespace BE
 {
-	inline Char* Strcpy(Char* dest, const Char* src, const size_t count) noexcept
+	inline Char* Strcpy(Char* dest, const Char* src, const SizeType count) noexcept
 	{
 		return std::wcsncpy(dest, src, count);
 	}
 
-	inline Char* Strcat(Char* dest, const Char* src, const size_t count) noexcept
+	inline Char* Strcat(Char* dest, const Char* src, const SizeType count) noexcept
 	{
 		return std::wcsncat(dest, src, count);
 	}
 
-	inline size_t Strxfrm(Char* dest, const Char* src, const size_t count) noexcept
+	inline SizeType Strxfrm(Char* dest, const Char* src, const SizeType count) noexcept
 	{
 		return std::wcsxfrm(dest, src, count);
 	}
 
-	inline size_t Strlen(const Char* str) noexcept
+	inline SizeType Strlen(const Char* str) noexcept
 	{
 		return std::wcslen(str);
 	}
 
-	inline Int32 Strcmp(const Char* lhs, const Char* rhs, const size_t count) noexcept
+	inline Int32 Strcmp(const Char* lhs, const Char* rhs, const SizeType count) noexcept
 	{
 		return std::wcsncmp(lhs, rhs, count);
 	}

@@ -7,7 +7,7 @@ namespace BE
 {
 	class BS_API OneFrameMemory final {
 	public:
-		void Init(size_t inSize);
+		void Init(SizeType inSize);
 		void Release() noexcept;
 
 		inline void Update() noexcept
@@ -16,13 +16,13 @@ namespace BE
 			curMemory[idx] = startMemory[idx];
 		}
 
-		void* Allocate(size_t size);
+		void* Allocate(SizeType size);
 
 	private:
 		Uint8* startMemory[2];
 		Uint8* curMemory[2];
-		size_t size;
-		size_t idx;
+		SizeType size;
+		SizeType idx;
 		std::mutex mutex;
 	};
 }

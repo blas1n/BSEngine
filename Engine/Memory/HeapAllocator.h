@@ -16,13 +16,13 @@ namespace BE
 		template <class U>
 		HeapAllocator(const HeapAllocator<U>& other) noexcept {}
 
-		inline T* Allocate(const size_t n = 1)
+		inline T* Allocate(const SizeType n = 1)
 		{
 			return static_cast<T*>(MemoryManagerAccesser::Get()
 				->GetHeapMemory().Allocate(n));
 		}
 
-		inline void Deallocate(T* const ptr, const size_t n = 1)
+		inline void Deallocate(T* const ptr, const SizeType n = 1)
 		{
 			MemoryManagerAccesser::Get()->GetHeapMemory().
 				Deallocate(static_cast<void*>(ptr), n);

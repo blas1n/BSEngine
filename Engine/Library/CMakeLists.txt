@@ -1,6 +1,11 @@
 set_project ()
 
 # Files
+set(SRC_CONTAINER
+	Array.cpp
+	Array.h
+)
+
 set(SRC_EXCEPTION
 	Exception.cpp
 	Exception.h
@@ -47,6 +52,7 @@ find_package(Eigen3 REQUIRED)
 
 # Target
 add_library (${PROJECT_ID} STATIC
+	${SRC_CONTAINER}
 	${SRC_EXCEPTION}
 	${SRC_MATH}
 	${SRC_STRING}

@@ -13,13 +13,13 @@ namespace BE
 
 	public:
 		using ElementType = T;
-		using Allocator = InAllocator;
+		using AllocatorType = InAllocator;
 
-		using Iterator = ContainerType::iterator;
-		using ConstIterator = ContainerType::const_iterator;
+		using Iterator = typename ContainerType::iterator;
+		using ConstIterator = typename ContainerType::const_iterator;
 
-		using ReverseIterator = ContainerType::reverse_iterator;
-		using ConstReverseIterator = ContainerType::const_reverse_iterator;
+		using ReverseIterator = typename ContainerType::reverse_iterator;
+		using ConstReverseIterator = typename ContainerType::const_reverse_iterator;
 
 		Array() noexcept = default;
 		Array(const Array& other) = default;
@@ -69,8 +69,8 @@ namespace BE
 		void Insert(std::initializer_list<T> elems, ConstIterator pos);
 		void Insert(T* ptr, SizeType count, ConstIterator pos);
 
-		template <class Iterator>
-		void Array<T, InAllocator>::Insert(Iterator begin, Iterator end, ConstIterator pos);
+		template <class IteratorType>
+		void Insert(IteratorType begin, IteratorType end, ConstIterator pos);
 
 		inline void Add(const T& item) { Insert(item, End()); }
 		inline void Add(T&& item) { Insert(item, End()); }
@@ -91,12 +91,13 @@ namespace BE
 		inline Iterator Emplace(Args&&... args)
 		{
 			arr.emplace_back(std::forward<Args>(args)...);
+			return --End();
 		}
 
 		template <class... Args>
 		inline Iterator EmplaceAt(ConstIterator pos, Args&&... args)
 		{
-			arr.emplace(pos, std::forward<Args>(args)...);
+			return arr.emplace(pos, std::forward<Args>(args)...);
 		}
 
 		void Remove(const T& item);
@@ -137,13 +138,38 @@ namespace BE
 
 		inline void Clear() noexcept { arr.clear(); }
 
-		//inline Iterator begin() noexcept { return arr.begin(); }
-		//inline ConstIterator begin() const noexcept { return arr.begin(); }
+		inline Iterator begin() noexcept { return arr.begin(); }
+		inline ConstIterator begin() const noexcept { return arr.begin(); }
 
-		//inline Iterator end() noexcept { return arr.end(); }
-		//inline ConstIterator end() const noexcept { return arr.end(); }
+		inline Iterator end() noexcept { return arr.end(); }
+		inline ConstIterator end() const noexcept { return arr.end(); }
 
 	private:
 		ContainerType arr;
 	};
+
+	template <class T, class InAllocator>
+	template <class OtherElement>
+	Array<T, InAllocator>::Array(const Array<OtherElement, InAllocator>& other)
+	{
+		Reserve(other.GetSize());
+		for (auto& elem : other)
+			Emplace(elem);
+	}
+
+	template <class T, class InAllocator>
+	template <class OtherElement>
+	Array<T, InAllocator>::Array(Array<OtherElement, InAllocator>&& other)
+	{
+		Reserve(other.GetSize());
+		for (auto&& elem : std::move(other))
+			Emplace(std::move(elem));
+	}
+
+	template <class T, class InAllocator>
+	template <class IteratorType>
+	void Array<T, InAllocator>::Insert(IteratorType begin, IteratorType end, ConstIterator pos)
+	{
+		arr.insert(pos, begin, end);
+	}
 }

@@ -83,16 +83,6 @@ namespace BE::Math
 			return (this->*FUNC[index])();
 		}
 
-		inline bool operator==(const Quaternion& other) noexcept
-		{
-			return NearEqual(Dot(*this, other), 1.0f);
-		}
-
-		inline bool operator!=(const Quaternion& other) noexcept
-		{
-			return !(*this == other);
-		}
-
 		inline Quaternion& operator*=(const Quaternion& other) noexcept
 		{
 			quat *= other.quat;
@@ -158,6 +148,16 @@ namespace BE::Math
 	private:
 		Eigen::Quaternionf quat;
 	};
+
+	inline bool operator==(const Quaternion& lhs, const Quaternion& rhs) noexcept
+	{
+		return NearEqual(Quaternion::Dot(lhs, rhs), 1.0f);
+	}
+
+	inline bool operator!=(const Quaternion& lhs, const Quaternion& rhs) noexcept
+	{
+		return !(lhs == rhs);
+	}
 
 	inline Quaternion operator*(const Quaternion& lhs, const Quaternion& rhs) noexcept
 	{

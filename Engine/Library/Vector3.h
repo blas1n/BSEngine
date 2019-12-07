@@ -25,6 +25,8 @@ namespace BE::Math
 
 		~Vector3() = default;
 
+		friend bool operator==(const Vector3& lhs, const Vector3& rhs) noexcept;
+
 		inline void Set(const float x, const float y, const float z) noexcept
 		{
 			vec << x, y, z;
@@ -62,16 +64,6 @@ namespace BE::Math
 		}
 
 		inline Vector3 operator-() const noexcept;
-
-		inline bool operator==(const Vector3& other) const noexcept
-		{
-			return vec == other.vec;
-		}
-
-		inline bool operator!=(const Vector3& other) const noexcept
-		{
-			return vec != other.vec;
-		}
 
 		inline Vector3& operator+=(const Vector3& other) noexcept
 		{
@@ -191,6 +183,16 @@ namespace BE::Math
 	private:
 		Eigen::Vector3f vec;
 	};
+
+	inline bool operator==(const Vector3& lhs, const Vector3& rhs) noexcept
+	{
+		return lhs.vec == rhs.vec;
+	}
+
+	inline bool operator!=(const Vector3& lhs, const Vector3& rhs) noexcept
+	{
+		return !(lhs == rhs);
+	}
 
 	inline Vector3 operator+(const Vector3& lhs, const Vector3& rhs) noexcept
 	{

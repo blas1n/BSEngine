@@ -23,6 +23,8 @@ namespace BE::Math
 			: vec{ elems } {}
 
 		~Vector4() = default;
+
+		friend bool operator==(const Vector4& lhs, const Vector4& rhs) noexcept;
 		
 		inline void Set(const float x, const float y, const float z, const float w) noexcept
 		{
@@ -64,16 +66,6 @@ namespace BE::Math
 		}
 
 		inline Vector4 operator-() const noexcept;
-
-		inline bool operator==(const Vector4& other) const noexcept
-		{
-			return vec == other.vec;
-		}
-
-		inline bool operator!=(const Vector4& other) const noexcept
-		{
-			return vec != other.vec;
-		}
 
 		inline Vector4& operator+=(const Vector4& other) noexcept
 		{
@@ -204,6 +196,16 @@ namespace BE::Math
 	private:
 		Eigen::Vector4f vec;
 	};
+
+	inline bool operator==(const Vector4& lhs, const Vector4& rhs) noexcept
+	{
+		return lhs.vec == rhs.vec;
+	}
+
+	inline bool operator!=(const Vector4& lhs, const Vector4& rhs) noexcept
+	{
+		return !(lhs == rhs);
+	}
 
 	inline Vector4 operator+(const Vector4& lhs, const Vector4& rhs) noexcept
 	{

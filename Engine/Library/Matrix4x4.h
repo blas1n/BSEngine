@@ -31,6 +31,8 @@ namespace BE::Math
 
 		~Matrix4x4() = default;
 
+		friend bool operator==(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept;
+
 		Matrix4x4& operator=(const Matrix4x4& other) noexcept
 		{
 			mat = other.mat;
@@ -41,16 +43,6 @@ namespace BE::Math
 		{
 			mat = std::move(other.mat);
 			return *this;
-		}
-
-		inline bool operator==(const Matrix4x4& other) const noexcept
-		{
-			return mat == other.mat;
-		}
-
-		inline bool operator!=(const Matrix4x4& other) const noexcept
-		{
-			return mat != other.mat;
 		}
 
 		inline Matrix4x4& operator+=(const Matrix4x4& other) noexcept
@@ -148,6 +140,16 @@ namespace BE::Math
 	private:
 		Eigen::Matrix4f mat;
 	};
+
+	inline bool operator==(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
+	{
+		return lhs.mat == rhs.mat;
+	}
+
+	inline bool operator!=(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
+	{
+		return !(lhs == rhs);
+	}
 
 	inline Matrix4x4 operator+(const Matrix4x4& lhs, const Matrix4x4& rhs) noexcept
 	{

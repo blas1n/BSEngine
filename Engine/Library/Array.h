@@ -149,6 +149,18 @@ namespace BE
 	};
 
 	template <class T, class InAllocator>
+	bool operator==(const Array<T, InAllocator>& lhs, const Array<T, InAllocator>& rhs)
+	{
+		return &lhs == &rhs;
+	}
+
+	template <class T, class InAllocator>
+	bool operator!=(const Array<T, InAllocator>& lhs, const Array<T, InAllocator>& rhs)
+	{
+		return !(lhs == rhs);
+	}
+
+	template <class T, class InAllocator>
 	template <class OtherElement>
 	Array<T, InAllocator>::Array(const Array<OtherElement, InAllocator>& other)
 	{

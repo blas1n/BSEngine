@@ -30,6 +30,8 @@ namespace BE::Math
 
 		~Rotator() = default;
 
+		friend bool operator==(const Rotator& lhs, const Rotator& rhs) noexcept;
+
 		inline void Set(const float x, const float y, const float z) noexcept
 		{
 			euler.Set(x, y, z);
@@ -54,6 +56,7 @@ namespace BE::Math
 		inline float& yaw() noexcept { return (*this)[2]; }
 		inline float yaw() const noexcept { return (*this)[2]; }
 
+
 		inline Rotator& operator=(const Rotator& other) noexcept
 		{
 			euler = other.euler;
@@ -74,16 +77,6 @@ namespace BE::Math
 		inline float operator[](const Uint8 index) const noexcept
 		{
 			return euler[index];
-		}
-
-		inline bool operator!=(const Rotator& other) const noexcept
-		{
-			return euler != other.euler;
-		}
-
-		inline bool operator==(const Rotator& other) const noexcept
-		{
-			return euler == other.euler;
 		}
 
 		inline bool operator-() noexcept { euler *= -1.0f; }
@@ -117,6 +110,16 @@ namespace BE::Math
 
 		Vector3 euler;
 	};
+
+	inline bool operator==(const Rotator& lhs, const Rotator& rhs) noexcept
+	{
+		return lhs.euler == rhs.euler;
+	}
+
+	inline bool operator!=(const Rotator& lhs, const Rotator& rhs) noexcept
+	{
+		return !(lhs == rhs);
+	}
 
 	inline Rotator operator+(const Rotator& lhs, const Rotator& rhs) noexcept
 	{

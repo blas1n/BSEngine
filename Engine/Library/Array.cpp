@@ -27,7 +27,8 @@ namespace BE
 
 		Reserve(GetSize() + other.GetSize());
 		Append(pos, GetSize());
-		std::move(other.Begin(), other.End(), std::inserter(container, pos));
+		std::move(other.container.begin(),
+			other.container.cend(), std::inserter(container, container.begin() + pos));
 		other.Clear();
 	}
 

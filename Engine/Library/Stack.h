@@ -66,7 +66,7 @@ namespace BE
 			container.emplace(std::forward<Args>(args)...);
 		}
 
-		void Pop()
+		inline void Pop()
 		{
 			container.pop();
 		}

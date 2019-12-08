@@ -30,8 +30,6 @@ namespace BE::Math
 
 		~Rotator() = default;
 
-		friend bool operator==(const Rotator& lhs, const Rotator& rhs) noexcept;
-
 		inline void Set(const float x, const float y, const float z) noexcept
 		{
 			euler.Set(x, y, z);
@@ -106,6 +104,8 @@ namespace BE::Math
 		}
 
 	private:
+		friend bool operator==(const Rotator& lhs, const Rotator& rhs) noexcept;
+
 		Eigen::Quaternionf GetQuaternion() const noexcept;
 
 		Vector3 euler;

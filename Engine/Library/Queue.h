@@ -30,36 +30,6 @@ namespace BE
 			return *this;
 		}
 
-		inline T& Front()
-		{
-			return container.front();
-		}
-
-		inline const T& Front() const
-		{
-			return container.front();
-		}
-
-		inline T& Back()
-		{
-			return container.back();
-		}
-
-		inline const T& Back() const
-		{
-			return container.back();
-		}
-
-		inline bool IsEmpty() const noexcept
-		{
-			return container.empty();
-		}
-
-		inline SizeType GetSize() const noexcept
-		{
-			return container.size();
-		}
-
 		inline void Enqueue(const T& value)
 		{
 			container.push(value);
@@ -81,7 +51,53 @@ namespace BE
 			container.pop();
 		}
 
+		inline T& Front()
+		{
+			return container.front();
+		}
+
+		inline const T& Front() const
+		{
+			return container.front();
+		}
+
+		inline T& Back()
+		{
+			return container.back();
+		}
+
+		inline const T& Back() const
+		{
+			return container.back();
+		}
+
+		inline SizeType GetSize() const noexcept
+		{
+			return container.size();
+		}
+
+		inline bool IsEmpty() const noexcept
+		{
+			return container.empty();
+		}
+
+		inline void Clear() noexcept { while (IsEmpty()) Dequeue(); }
+
 	private:
+		friend bool operator==(const Queue& lhs, const Queue& rhs) noexcept;
+
 		std::queue<T> container;
 	};
+
+	template <class T>
+	bool operator==(const Queue<T>& lhs, const Queue<T>& rhs)
+	{
+		return lhs.container == rhs.container;
+	}
+
+	template <class T>
+	bool operator!=(const Queue<T>& lhs, const Queue<T>& rhs)
+	{
+		return !(lhs == rhs);
+	}
 }

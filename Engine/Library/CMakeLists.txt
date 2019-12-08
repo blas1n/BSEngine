@@ -5,6 +5,7 @@ set(SRC_CONTAINER
 	Array.cpp
 	Array.h
 	Stack.h
+	Queue.h
 )
 
 set(SRC_EXCEPTION

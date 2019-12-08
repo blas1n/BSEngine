@@ -27,8 +27,6 @@ namespace BE::Math
 
 		~Matrix3x3() = default;
 
-		friend bool operator==(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept;
-
 		inline Matrix3x3& operator=(const Matrix3x3& other) noexcept
 		{
 			mat = other.mat;
@@ -134,6 +132,8 @@ namespace BE::Math
 		}
 
 	private:
+		friend bool operator==(const Matrix3x3& lhs, const Matrix3x3& rhs) noexcept;
+
 		Eigen::Matrix3f mat;
 	};
 

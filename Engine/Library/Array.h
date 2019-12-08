@@ -25,8 +25,8 @@ namespace BE
 		Array(const Array& other) = default;
 		Array(Array&& other) noexcept = default;
 
-		Array(const T* ptr, SizeType count) : arr(ptr, count) {}
-		Array(std::initializer_list<T> elems) : arr(elems) {}
+		Array(const T* ptr, SizeType count) : container(ptr, count) {}
+		Array(std::initializer_list<T> elems) : container(elems) {}
 		
 		template <class OtherElement>
 		explicit Array(const Array<OtherElement, InAllocator>& other);
@@ -38,27 +38,27 @@ namespace BE
 
 		inline Array& operator=(const Array& other)
 		{
-			arr = other.arr;
+			container = other.container;
 			return *this;
 		}
 
 		inline Array& operator=(Array&& other) noexcept
 		{
-			arr = std::move(other.arr);
+			container = std::move(other.container);
 			return *this;
 		}
 
 		inline Array& operator=(std::initializer_list<T> elems)
 		{
-			arr = elems;
+			container = elems;
 			return *this;
 		}
 
-		inline bool operator==(const Array& other) const noexcept { return arr == other.arr; }
-		inline bool operator!=(const Array& other) const noexcept { return arr != other.arr; }
+		inline bool operator==(const Array& other) const noexcept { return container == other.container; }
+		inline bool operator!=(const Array& other) const noexcept { return container != other.container; }
 
-		inline T& operator[](SizeType index) { return arr.at(index); }
-		inline const T& operator[](SizeType index) const { return arr.at(index); }
+		inline T& operator[](SizeType index) { return container.at(index); }
+		inline const T& operator[](SizeType index) const { return container.at(index); }
 
 		void Insert(const Array& other, ConstIterator pos);
 		void Insert(Array&& other, ConstIterator pos);
@@ -90,14 +90,14 @@ namespace BE
 		template <class... Args>
 		inline Iterator Emplace(Args&&... args)
 		{
-			arr.emplace_back(std::forward<Args>(args)...);
+			container.emplace_back(std::forward<Args>(args)...);
 			return --End();
 		}
 
 		template <class... Args>
 		inline Iterator EmplaceAt(ConstIterator pos, Args&&... args)
 		{
-			return arr.emplace(pos, std::forward<Args>(args)...);
+			return container.emplace(pos, std::forward<Args>(args)...);
 		}
 
 		void Remove(const T& item);
@@ -110,48 +110,50 @@ namespace BE
 		template <class Predicate>
 		SizeType RemoveByPredicate(Predicate&& pred) noexcept;
 
-		inline void Resize(SizeType size, const T& value = T()) { arr.resize(size, value); }
-		inline void Reserve(SizeType size) { arr.reserve(size); }
+		inline void Resize(SizeType size, const T& value = T()) { container.resize(size, value); }
+		inline void Reserve(SizeType size) { container.reserve(size); }
 
-		inline Iterator Begin() noexcept { return arr.begin(); }
-		inline ConstIterator Begin() const noexcept { return arr.begin(); }
-		inline ConstIterator CBegin() const noexcept { return arr.cbegin(); }
+		inline Iterator Begin() noexcept { return container.begin(); }
+		inline ConstIterator Begin() const noexcept { return container.begin(); }
+		inline ConstIterator CBegin() const noexcept { return container.cbegin(); }
 
-		inline Iterator End() noexcept { return arr.end(); }
-		inline ConstIterator End() const noexcept { return arr.end(); }
-		inline ConstIterator CEnd() const noexcept { return arr.cend(); }
+		inline Iterator End() noexcept { return container.end(); }
+		inline ConstIterator End() const noexcept { return container.end(); }
+		inline ConstIterator CEnd() const noexcept { return container.cend(); }
 
-		inline ReverseIterator RBegin() noexcept { return arr.rbegin(); }
-		inline ConstReverseIterator RBegin() const noexcept { return arr.rbegin(); }
-		inline ConstReverseIterator CRBegin() const noexcept { return arr.crbegin(); }
+		inline ReverseIterator RBegin() noexcept { return container.rbegin(); }
+		inline ConstReverseIterator RBegin() const noexcept { return container.rbegin(); }
+		inline ConstReverseIterator CRBegin() const noexcept { return container.crbegin(); }
 
-		inline ReverseIterator REnd() noexcept { return arr.rend(); }
-		inline ConstReverseIterator REnd() const noexcept { return arr.rend(); }
-		inline ConstReverseIterator CREnd() const noexcept { return arr.crend(); }
+		inline ReverseIterator REnd() noexcept { return container.rend(); }
+		inline ConstReverseIterator REnd() const noexcept { return container.rend(); }
+		inline ConstReverseIterator CREnd() const noexcept { return container.crend(); }
 
-		inline bool IsEmpty() const noexcept { return arr.empty(); }
+		inline bool IsEmpty() const noexcept { return container.empty(); }
 		
-		inline SizeType GetSize() const noexcept { return arr.size(); }
-		inline SizeType GetCapacity() const noexcept { return arr.capacity(); }
+		inline SizeType GetSize() const noexcept { return container.size(); }
+		inline SizeType GetCapacity() const noexcept { return container.capacity(); }
 
-		inline void Shrink() noexcept { arr.shrink_to_fit(); }
+		inline void Shrink() noexcept { container.shrink_to_fit(); }
 
-		inline void Clear() noexcept { arr.clear(); }
+		inline void Clear() noexcept { container.clear(); }
 
-		inline Iterator begin() noexcept { return arr.begin(); }
-		inline ConstIterator begin() const noexcept { return arr.begin(); }
+		inline Iterator begin() noexcept { return container.begin(); }
+		inline ConstIterator begin() const noexcept { return container.begin(); }
 
-		inline Iterator end() noexcept { return arr.end(); }
-		inline ConstIterator end() const noexcept { return arr.end(); }
+		inline Iterator end() noexcept { return container.end(); }
+		inline ConstIterator end() const noexcept { return container.end(); }
 
 	private:
-		ContainerType arr;
+		friend bool operator==(const Array& lhs, const Array& rhs) noexcept;
+
+		ContainerType container;
 	};
 
 	template <class T, class InAllocator>
 	bool operator==(const Array<T, InAllocator>& lhs, const Array<T, InAllocator>& rhs)
 	{
-		return &lhs == &rhs;
+		return lhs.container == rhs.container;
 	}
 
 	template <class T, class InAllocator>
@@ -182,6 +184,6 @@ namespace BE
 	template <class IteratorType>
 	void Array<T, InAllocator>::Insert(IteratorType begin, IteratorType end, ConstIterator pos)
 	{
-		arr.insert(pos, begin, end);
+		container.insert(pos, begin, end);
 	}
 }

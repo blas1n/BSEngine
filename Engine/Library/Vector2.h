@@ -25,8 +25,6 @@ namespace BE::Math
 
 		~Vector2() = default;
 
-		friend bool operator==(const Vector2& lhs, const Vector2& rhs) noexcept;
-
 		inline void Set(const float x, const float y) noexcept
 		{
 			vec << x, y;
@@ -164,6 +162,8 @@ namespace BE::Math
 		explicit operator Vector4() const noexcept;
 
 	private:
+		friend bool operator==(const Vector2& lhs, const Vector2& rhs) noexcept;
+		
 		Eigen::Vector2f vec;
 	};
 

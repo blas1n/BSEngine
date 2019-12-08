@@ -30,26 +30,6 @@ namespace BE
 			return *this;
 		}
 
-		inline T& Peek()
-		{
-			return container.top();
-		}
-
-		inline const T& Peek() const
-		{
-			return container.top();
-		}
-
-		inline bool IsEmpty() const noexcept
-		{
-			return container.empty();
-		}
-
-		inline SizeType GetSize() const noexcept
-		{
-			return container.size();
-		}
-
 		inline void Push(const T& value)
 		{
 			container.push(value);
@@ -71,7 +51,43 @@ namespace BE
 			container.pop();
 		}
 
+		inline T& Peek()
+		{
+			return container.top();
+		}
+
+		inline const T& Peek() const
+		{
+			return container.top();
+		}
+
+		inline SizeType GetSize() const noexcept
+		{
+			return container.size();
+		}
+
+		inline bool IsEmpty() const noexcept
+		{
+			return container.empty();
+		}
+
+		inline void Clear() noexcept { while (IsEmpty()) Pop(); }
+
 	private:
+		friend bool operator==(const Stack& lhs, const Stack& rhs) noexcept;
+
 		std::stack<T> container;
 	};
+
+	template <class T>
+	bool operator==(const Stack<T>& lhs, const Stack<T>& rhs)
+	{
+		return lhs.container == rhs.container;
+	}
+
+	template <class T>
+	bool operator!=(const Stack<T>& lhs, const Stack<T>& rhs)
+	{
+		return !(lhs == rhs);
+	}
 }

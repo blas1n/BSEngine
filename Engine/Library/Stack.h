@@ -5,11 +5,12 @@
 
 namespace BE
 {
-	template <class T, class InAllocator>
+	template <class T, template <class> class Allocator>
 	class BS_API Stack final
 	{
 	public:
 		using ElementType = T;
+		using AllocatorType = Allocator<T>;
 
 		Stack() noexcept : container{ } { }
 
@@ -76,17 +77,17 @@ namespace BE
 	private:
 		friend bool operator==(const Stack& lhs, const Stack& rhs) noexcept;
 
-		std::stack<T> container;
+		std::stack<T, std::deque<T, Allocator<T>>> container;
 	};
 
-	template <class T>
-	bool operator==(const Stack<T>& lhs, const Stack<T>& rhs)
+	template <class T, template <class> class Allocator>
+	bool operator==(const Stack<T, Allocator>& lhs, const Stack<T, Allocator>& rhs)
 	{
 		return lhs.container == rhs.container;
 	}
 
-	template <class T>
-	bool operator!=(const Stack<T>& lhs, const Stack<T>& rhs)
+	template <class T, template <class> class Allocator>
+	bool operator!=(const Stack<T, Allocator>& lhs, const Stack<T, Allocator>& rhs)
 	{
 		return !(lhs == rhs);
 	}

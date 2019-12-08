@@ -5,11 +5,12 @@
 
 namespace BE
 {
-	template <class T, class InAllocator>
+	template <class T, template <class> class Allocator>
 	class BS_API Queue final
 	{
 	public:
 		using ElementType = T;
+		using AllocatorType = Allocator<T>;
 
 		Queue() noexcept : container{ } { }
 
@@ -86,17 +87,17 @@ namespace BE
 	private:
 		friend bool operator==(const Queue& lhs, const Queue& rhs) noexcept;
 
-		std::queue<T> container;
+		std::queue<T, std::deque<T, Allocator<T>>> container;
 	};
 
-	template <class T>
-	bool operator==(const Queue<T>& lhs, const Queue<T>& rhs)
+	template <class T, template <class> class Allocator>
+	bool operator==(const Queue<T, Allocator>& lhs, const Queue<T>& rhs)
 	{
 		return lhs.container == rhs.container;
 	}
 
-	template <class T>
-	bool operator!=(const Queue<T>& lhs, const Queue<T>& rhs)
+	template <class T, template <class> class Allocator>
+	bool operator!=(const Queue<T, Allocator>& lhs, const Queue<T>& rhs)
 	{
 		return !(lhs == rhs);
 	}

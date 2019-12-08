@@ -4,6 +4,7 @@ set_project ()
 set(SRC_CONTAINER
 	Array.cpp
 	Array.h
+	Stack.h
 )
 
 set(SRC_EXCEPTION

@@ -2,8 +2,10 @@ set_project ()
 
 # Files
 set(SRC_CONTAINER
-	Array.cpp
+	ArrayImpl.h
 	Array.h
+	Set.h
+	SetImpl.h
 	Stack.h
 	Queue.h
 )
@@ -34,6 +36,12 @@ set(SRC_MATH
 	Vector4.h
 )
 
+set(SRC_MISC
+	Macro.h
+	Type.h
+	Hash.h
+)
+
 set(SRC_STRING
 	Character.h
 	CString.h
@@ -41,8 +49,6 @@ set(SRC_STRING
 
 set(SRC
 	Core.h
-	Macro.h
-	Type.h
 )
 
 # Package
@@ -57,6 +63,7 @@ add_library (${PROJECT_ID} STATIC
 	${SRC_CONTAINER}
 	${SRC_EXCEPTION}
 	${SRC_MATH}
+	${SRC_MISC}
 	${SRC_STRING}
 	${SRC}
 )
@@ -72,5 +79,6 @@ target_link_libraries(${PROJECT_ID} PUBLIC Eigen3::Eigen)
 source_group ("Container" FILES ${SRC_CONTAINER})
 source_group ("Exception" FILES ${SRC_EXCEPTION})
 source_group ("Math" FILES ${SRC_MATH})
+source_group ("Misc" FILES ${SRC_MISC})
 source_group ("String" FILES ${SRC_STRING})
 source_group ("" FILES ${SRC})

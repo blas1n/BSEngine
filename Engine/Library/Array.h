@@ -2,7 +2,6 @@
 
 #include "Core.h"
 #include <vector>
-#include <algorithm>
 
 namespace BE
 {
@@ -11,6 +10,8 @@ namespace BE
 	{
 	private:
 		using ContainerType = std::vector<T, Allocator<T>>;
+		using Iterator = ContainerType::iterator;
+		using ConstIterator = ContainerType::const_iterator;
 
 	public:
 		using ElementType = T;
@@ -23,6 +24,11 @@ namespace BE
 		Array(const T* ptr, SizeType count) : container(ptr, count) {}
 		Array(std::initializer_list<T> elems) : container(elems) {}
 		
+		explicit Array(SizeType count) : container(count) {}
+
+		explicit Array(SizeType count, const T& value)
+			: container(count, value) {}
+
 		template <class OtherElement, template <class> class OtherAllocator>
 		explicit Array(const Array<OtherElement, OtherAllocator>& other);
 
@@ -59,7 +65,7 @@ namespace BE
 		void Insert(T&& item, SizeType pos);
 
 		void Insert(std::initializer_list<T> elems, SizeType pos);
-		void Insert(T* ptr, SizeType count, SizeType pos);
+		void Insert(const T* ptr, SizeType count, SizeType pos);
 
 		inline void Add(const T& item) { Insert(item, GetSize()); }
 		inline void Add(T&& item) { Insert(item, GetSize()); }
@@ -140,208 +146,17 @@ namespace BE
 		inline void Clear() noexcept { container.clear(); }
 
 		// Don't use! Only range based for for the function.
-		inline typename ContainerType::iterator begin() noexcept { return container.begin(); }
-		inline typename ContainerType::const_iterator begin() const noexcept { return container.begin(); }
+		inline Iterator begin() noexcept { return container.begin(); }
+		inline ConstIterator begin() const noexcept { return container.begin(); }
 
-		inline typename ContainerType::iterator end() noexcept { return container.end(); }
-		inline typename ContainerType::const_iterator end() const noexcept { return container.end(); }
+		inline Iterator end() noexcept { return container.end(); }
+		inline ConstIterator end() const noexcept { return container.end(); }
 
 	private:
 		friend bool operator==(const Array& lhs, const Array& rhs) noexcept;
 
 		ContainerType container;
 	};
-
-	template <class T, template <class> class Allocator>
-	bool operator==(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
-	{
-		return lhs.container == rhs.container;
-	}
-
-	template <class T, template <class> class Allocator>
-	bool operator!=(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
-	{
-		return !(lhs == rhs);
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class OtherElement, template <class> class OtherAllocator>
-	Array<T, Allocator>::Array(const Array<OtherElement, OtherAllocator>& other)
-	{
-		Reserve(other.GetSize());
-		for (auto& elem : other)
-			Emplace(elem);
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class OtherElement, template <class> class OtherAllocator>
-	Array<T, Allocator>::Array(Array<OtherElement, OtherAllocator>&& other)
-	{
-		Reserve(other.GetSize());
-		for (auto&& elem : std::move(other))
-			Emplace(std::move(elem));
-	}
-
-	template <class T, template <class> class Allocator>
-	bool Array<T, Allocator>::Find(const T& value, SizeType& index) const noexcept
-	{
-		index = Find(value);
-		return index == GetSize() + 1;
-	}
-
-	template <class T, template <class> class Allocator>
-	SizeType Array<T, Allocator>::Find(const T& value) const noexcept
-	{
-		const auto begin = container.cbegin();
-		const auto end = container.cend();
-		return std::find(begin, end, value) - begin;
-	}
-
-	template <class T, template <class> class Allocator>
-	bool Array<T, Allocator>::FindLast(const T& value, SizeType& index) const noexcept
-	{
-		index = FindLast(value);
-		return index == GetSize() + 1;
-	}
-
-	template <class T, template <class> class Allocator>
-	SizeType Array<T, Allocator>::FindLast(const T& value) const noexcept
-	{
-		const auto begin = container.crbegin();
-		const auto end = container.crend();
-		return std::find(begin, end, value) - begin;
-	}
-
-	template <class T, template <class> class Allocator>
-	Array<T&, Allocator> Array<T, Allocator>::FindAll(const T& value) noexcept
-	{
-		Array<T, Allocator> ret;
-
-		const auto iter = container.begin();
-		const auto end = container.end();
-
-		while (true)
-		{
-			iter = std::find(iter, end, value);
-
-			if (iter != end)
-				ret.Add(*iter);
-			else
-				break;
-		}
-
-		return ret;
-	}
-
-	template <class T, template <class> class Allocator>
-	Array<const T&, Allocator> Array<T, Allocator>::FindAll(const T& value) const noexcept
-	{
-		Array<T, Allocator> ret;
-
-		const auto iter = container.begin();
-		const auto end = container.end();
-
-		while (true)
-		{
-			iter = std::find(iter, end, value);
-
-			if (iter != end)
-				ret.Add(*iter);
-			else
-				break;
-		}
-
-		return ret;
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	bool Array<T, Allocator>::Find(Pred&& pred, SizeType& index) const noexcept
-	{
-		index = Find(std::forward<Pred>(pred));
-		return index == GetSize() + 1;
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	SizeType Array<T, Allocator>::Find(Pred&& pred) const noexcept
-	{
-		const auto begin = container.cbegin();
-		const auto end = container.cend();
-		return std::find_if(begin, end, pred) - begin;
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	bool Array<T, Allocator>::FindLast(Pred&& pred, SizeType& index) const noexcept
-	{
-		index = FindLast(std::forward<Pred>(pred));
-		return index == GetSize() + 1;
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	SizeType Array<T, Allocator>::FindLast(Pred&& pred) const noexcept
-	{
-		const auto begin = container.crbegin();
-		const auto end = container.crend();
-		return std::find_if(begin, end, pred) - begin;
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	Array<T&, Allocator> Array<T, Allocator>::FindAll(Pred&& pred) noexcept
-	{
-		Array<T, Allocator> ret;
-
-		const auto iter = container.begin();
-		const auto end = container.end();
-
-		while (true)
-		{
-			iter = std::find(iter, end, pred);
-
-			if (iter != end)
-				ret.Add(*iter);
-			else
-				break;
-		}
-
-		return ret;
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	Array<const T&, Allocator> Array<T, Allocator>::FindAll(Pred&& pred) const noexcept
-	{
-		Array<T, Allocator> ret;
-
-		const auto iter = container.begin();
-		const auto end = container.end();
-
-		while (true)
-		{
-			iter = std::find_if(iter, end, pred);
-
-			if (iter != end)
-				ret.Add(*iter);
-			else
-				break;
-		}
-
-		return ret;
-	}
-
-	template <class T, template <class> class Allocator>
-	void Array<T, Allocator>::Sort() noexcept
-	{
-		std::sort(begin(), end());
-	}
-
-	template <class T, template <class> class Allocator>
-	template <class Pred>
-	void Array<T, Allocator>::Sort(Pred&& pred) noexcept
-	{
-		std::sort(begin(), end(), std::forward<Pred>(pred));
-	}
 }
+
+#include "ArrayImpl.h"

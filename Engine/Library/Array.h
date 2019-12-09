@@ -6,11 +6,11 @@
 
 namespace BE
 {
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	class BS_API Array final
 	{
 	private:
-		using ContainerType = std::vector<T, Allocator>;
+		using ContainerType = std::vector<T, Allocator<T>>;
 
 	public:
 		using ElementType = T;
@@ -23,11 +23,11 @@ namespace BE
 		Array(const T* ptr, SizeType count) : container(ptr, count) {}
 		Array(std::initializer_list<T> elems) : container(elems) {}
 		
-		template <class OtherElement>
-		explicit Array(const Array<OtherElement, Allocator>& other);
+		template <class OtherElement, template <class> class OtherAllocator>
+		explicit Array(const Array<OtherElement, OtherAllocator>& other);
 
-		template <class OtherElement>
-		explicit Array(Array<OtherElement, Allocator>&& other);
+		template <class OtherElement, template <class> class OtherAllocator>
+		explicit Array(Array<OtherElement, OtherAllocator>&& other);
 
 		~Array() = default;
 
@@ -122,6 +122,11 @@ namespace BE
 		template <class Pred>
 		Array<const T&, Allocator> FindAll(Pred&& pred) const noexcept;
 
+		void Sort() noexcept;
+
+		template <class Pred>
+		void Sort(Pred&& pred) noexcept;
+
 		inline void Resize(SizeType size, const T& value = T()) { container.resize(size, value); }
 		inline void Reserve(SizeType size) { container.reserve(size); }
 
@@ -147,44 +152,44 @@ namespace BE
 		ContainerType container;
 	};
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	bool operator==(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
 	{
 		return lhs.container == rhs.container;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	bool operator!=(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
 	{
 		return !(lhs == rhs);
 	}
 
-	template <class T, class Allocator>
-	template <class OtherElement>
-	Array<T, Allocator>::Array(const Array<OtherElement, Allocator>& other)
+	template <class T, template <class> class Allocator>
+	template <class OtherElement, template <class> class OtherAllocator>
+	Array<T, Allocator>::Array(const Array<OtherElement, OtherAllocator>& other)
 	{
 		Reserve(other.GetSize());
 		for (auto& elem : other)
 			Emplace(elem);
 	}
 
-	template <class T, class Allocator>
-	template <class OtherElement>
-	Array<T, Allocator>::Array(Array<OtherElement, Allocator>&& other)
+	template <class T, template <class> class Allocator>
+	template <class OtherElement, template <class> class OtherAllocator>
+	Array<T, Allocator>::Array(Array<OtherElement, OtherAllocator>&& other)
 	{
 		Reserve(other.GetSize());
 		for (auto&& elem : std::move(other))
 			Emplace(std::move(elem));
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	bool Array<T, Allocator>::Find(const T& value, SizeType& index) const noexcept
 	{
 		index = Find(value);
 		return index == GetSize() + 1;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	SizeType Array<T, Allocator>::Find(const T& value) const noexcept
 	{
 		const auto begin = container.cbegin();
@@ -192,14 +197,14 @@ namespace BE
 		return std::find(begin, end, value) - begin;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	bool Array<T, Allocator>::FindLast(const T& value, SizeType& index) const noexcept
 	{
 		index = FindLast(value);
 		return index == GetSize() + 1;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	SizeType Array<T, Allocator>::FindLast(const T& value) const noexcept
 	{
 		const auto begin = container.crbegin();
@@ -207,7 +212,7 @@ namespace BE
 		return std::find(begin, end, value) - begin;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	Array<T&, Allocator> Array<T, Allocator>::FindAll(const T& value) noexcept
 	{
 		Array<T, Allocator> ret;
@@ -228,7 +233,7 @@ namespace BE
 		return ret;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	Array<const T&, Allocator> Array<T, Allocator>::FindAll(const T& value) const noexcept
 	{
 		Array<T, Allocator> ret;
@@ -249,7 +254,7 @@ namespace BE
 		return ret;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	template <class Pred>
 	bool Array<T, Allocator>::Find(Pred&& pred, SizeType& index) const noexcept
 	{
@@ -257,7 +262,7 @@ namespace BE
 		return index == GetSize() + 1;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	template <class Pred>
 	SizeType Array<T, Allocator>::Find(Pred&& pred) const noexcept
 	{
@@ -266,7 +271,7 @@ namespace BE
 		return std::find_if(begin, end, pred) - begin;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	template <class Pred>
 	bool Array<T, Allocator>::FindLast(Pred&& pred, SizeType& index) const noexcept
 	{
@@ -274,7 +279,7 @@ namespace BE
 		return index == GetSize() + 1;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	template <class Pred>
 	SizeType Array<T, Allocator>::FindLast(Pred&& pred) const noexcept
 	{
@@ -283,7 +288,7 @@ namespace BE
 		return std::find_if(begin, end, pred) - begin;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	template <class Pred>
 	Array<T&, Allocator> Array<T, Allocator>::FindAll(Pred&& pred) noexcept
 	{
@@ -305,7 +310,7 @@ namespace BE
 		return ret;
 	}
 
-	template <class T, class Allocator>
+	template <class T, template <class> class Allocator>
 	template <class Pred>
 	Array<const T&, Allocator> Array<T, Allocator>::FindAll(Pred&& pred) const noexcept
 	{
@@ -325,5 +330,18 @@ namespace BE
 		}
 
 		return ret;
+	}
+
+	template <class T, template <class> class Allocator>
+	void Array<T, Allocator>::Sort() noexcept
+	{
+		std::sort(begin(), end());
+	}
+
+	template <class T, template <class> class Allocator>
+	template <class Pred>
+	void Array<T, Allocator>::Sort(Pred&& pred) noexcept
+	{
+		std::sort(begin(), end(), std::forward<Pred>(pred));
 	}
 }

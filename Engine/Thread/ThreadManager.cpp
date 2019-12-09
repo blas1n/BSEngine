@@ -40,7 +40,7 @@ namespace BE
 			cv.wait(lock, [this]() { return !tasks.empty() || isEnd; });
 			if (isEnd && tasks.empty()) return;
 
-			auto task = std::move(tasks.front());
+			auto&& task = std::move(tasks.front());
 			tasks.pop();
 			lock.unlock();
 			task();

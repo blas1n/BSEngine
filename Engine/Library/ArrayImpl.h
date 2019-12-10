@@ -8,18 +8,6 @@
 namespace BE
 {
 	template <class T, template <class> class Allocator>
-	bool operator==(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
-	{
-		return lhs.container == rhs.container;
-	}
-
-	template <class T, template <class> class Allocator>
-	bool operator!=(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
-	{
-		return !(lhs == rhs);
-	}
-
-	template <class T, template <class> class Allocator>
 	template <template <class> class OtherAllocator>
 	Array<T, Allocator>::Array(const Array<T, OtherAllocator>& other)
 		: container(other.begin(), other.end) {}

@@ -146,6 +146,11 @@ namespace BE
 
 		inline void Clear() noexcept { container.clear(); }
 
+		constexpr void Swap(Array& other) noexcept(noexcept(container.swap(other.container)))
+		{
+			container.swap(other.container);
+		}
+
 		// Don't use! Only range based for for the function.
 		inline Iterator begin() noexcept { return container.begin(); }
 		inline ConstIterator begin() const noexcept { return container.begin(); }
@@ -158,6 +163,24 @@ namespace BE
 
 		ContainerType container;
 	};
+
+	template <class T, template <class> class Allocator>
+	bool operator==(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
+	{
+		return lhs.container == rhs.container;
+	}
+
+	template <class T, template <class> class Allocator>
+	bool operator!=(const Array<T, Allocator>& lhs, const Array<T, Allocator>& rhs)
+	{
+		return !(lhs == rhs);
+	}
+
+	template <class T, template <class> class Allocator>
+	constexpr void Swap(Array<T, Allocator>& lhs, Array<T, Allocator>& rhs) noexcept(noexcept(lhs.Swap(rhs)))
+	{
+		lhs.Swap(rhs);
+	}
 }
 
 #include "ArrayImpl.h"

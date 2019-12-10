@@ -26,30 +26,30 @@ namespace BE
 		template <class... UTypes>
 		Tuple(Tuple<UTypes...>&& other) : tuple{ std::move(other.tuple) } {}
 
-		inline constexpr Tuple& operator=(const Tuple& other)
+		constexpr Tuple& operator=(const Tuple& other)
 		{
 			tuple = other.tuple;
 		}
 
-		inline constexpr Tuple& operator=(Tuple&& other)
+		constexpr Tuple& operator=(Tuple&& other)
 			noexcept(noexcept(tuple = std::move(other.tuple)))
 		{
 			tuple = std::move(other.tuple);
 		}
 
 		template <class... UTypes>
-		inline constexpr Tuple& operator=(const Tuple<UTypes...>& other)
+		constexpr Tuple& operator=(const Tuple<UTypes...>& other)
 		{
 			tuple = other.tuple;
 		}
 
 		template <class... UTypes>
-		inline constexpr Tuple& operator=(Tuple<UTypes...>&& other)
+		constexpr Tuple& operator=(Tuple<UTypes...>&& other)
 		{
 			tuple = std::move(other.tuple);
 		}
 		
-		inline constexpr void Swap(Tuple& other) noexcept(noexcept(tuple.swap(other.tuple)))
+		constexpr void Swap(Tuple& other) noexcept(noexcept(tuple.swap(other.tuple)))
 		{
 			tuple.swap(other.tuple);
 		}
@@ -135,110 +135,110 @@ namespace BE
 	}
 
 	template <class... Types>
-	inline constexpr Tuple<std::decay_t<Types>...> MakeTuple(Types&&... args)
+	constexpr Tuple<std::decay_t<Types>...> MakeTuple(Types&&... args)
 	{
 		return std::make_tuple(std::forward<Types>(args)...);
 	}
 
 	template <class... Types>
-	inline constexpr decltype(auto) Tie(Types&... args) noexcept
+	constexpr decltype(auto) Tie(Types&... args) noexcept
 	{
 		return std::tie(std::forward<Types>(args)...);
 	}
 
 	template <class... Tuples>
-	inline constexpr auto ConcatTuple(Tuples&&... args)
+	constexpr auto ConcatTuple(Tuples&&... args)
 		-> Internal::MyTupleType<decltype(std::tuple_cat(std::forward<Tuples>(args)...))>
 	{
 		return std::tuple_cat(std::forward<Tuples>(args)...);
 	}
 
 	template <SizeType I, class... Types>
-	inline constexpr auto get(Tuple<Types...>& t) noexcept
+	constexpr auto get(Tuple<Types...>& t) noexcept
 	{
 		return std::get<I>(t);
 	}
 
 	template <SizeType I, class... Types>
-	inline constexpr auto get(Tuple<Types...>&& t) noexcept
+	constexpr auto get(Tuple<Types...>&& t) noexcept
 	{
 		return std::get<I>(t);
 	}
 
 	template <SizeType I, class... Types>
-	inline constexpr auto get(const Tuple<Types...>& t) noexcept
+	constexpr auto get(const Tuple<Types...>& t) noexcept
 	{
 		return std::get<I>(t);
 	}
 
 	template <SizeType I, class... Types>
-	inline constexpr auto get(const Tuple<Types...>&& t) noexcept
+	constexpr auto get(const Tuple<Types...>&& t) noexcept
 	{
 		return std::get<I>(t);
 	}
 
 	template <class T, class... Types>
-	inline constexpr auto get(Tuple<Types...>& t) noexcept
+	constexpr auto get(Tuple<Types...>& t) noexcept
 	{
 		return std::get<T>(t);
 	}
 
 	template <class T, class... Types>
-	inline constexpr auto get(Tuple<Types...>&& t) noexcept
+	constexpr auto get(Tuple<Types...>&& t) noexcept
 	{
 		return std::get<T>(t);
 	}
 
 	template <class T, class... Types>
-	inline constexpr auto get(const Tuple<Types...>& t) noexcept
+	constexpr auto get(const Tuple<Types...>& t) noexcept
 	{
 		return std::get<T>(t);
 	}
 
 	template <class T, class... Types>
-	inline constexpr auto get(const Tuple<Types...>&& t) noexcept
+	constexpr auto get(const Tuple<Types...>&& t) noexcept
 	{
 		return std::get<T>(t);
 	}
 
 	template <class... TTypes, class... UTypes>
-	inline constexpr bool operator==(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
+	constexpr bool operator==(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
 	{
 		return lhs.tuple == rhs.tuple;
 	}
 
 	template <class... TTypes, class... UTypes>
-	inline constexpr bool operator!=(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
+	constexpr bool operator!=(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
 	{
 		return lhs.tuple == rhs.tuple;
 	}
 
 	template <class... TTypes, class... UTypes>
-	inline constexpr bool operator<(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
+	constexpr bool operator<(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
 	{
 		return lhs.tuple < rhs.tuple;
 	}
 
 	template <class... TTypes, class... UTypes>
-	inline constexpr bool operator<=(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
+	constexpr bool operator<=(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
 	{
 		return lhs.tuple <= rhs.tuple;
 	}
 
 	template <class... TTypes, class... UTypes>
-	inline constexpr bool operator>(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
+	constexpr bool operator>(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
 	{
 		return lhs.tuple > rhs.tuple;
 	}
 
 	template <class... TTypes, class... UTypes>
-	inline constexpr bool operator>=(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
+	constexpr bool operator>=(const Tuple<TTypes...>& lhs, const Tuple<UTypes...>& rhs)
 	{
 		return lhs.tuple >= rhs.tuple;
 	}
 
 	template <class... Types>
-	inline constexpr void Swap(Tuple<Types...>& lhs, Tuple<Types...>& rhs) noexcept(noexcept(lhs.Swap(rhs)))
+	constexpr void Swap(Tuple<Types...>& lhs, Tuple<Types...>& rhs) noexcept(noexcept(lhs.Swap(rhs)))
 	{
 		lhs.Swap(rhs);
 	}

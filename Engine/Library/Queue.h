@@ -84,6 +84,11 @@ namespace BE
 
 		inline void Clear() noexcept { while (IsEmpty()) Dequeue(); }
 
+		constexpr void Swap(Queue& other) noexcept(noexcept(container.swap(other.container)))
+		{
+			container.swap(other.container);
+		}
+
 	private:
 		friend bool operator==(const Queue& lhs, const Queue& rhs) noexcept;
 
@@ -100,5 +105,11 @@ namespace BE
 	bool operator!=(const Queue<T, Allocator>& lhs, const Queue<T>& rhs)
 	{
 		return !(lhs == rhs);
+	}
+
+	template <class T, template <class> class Allocator>
+	constexpr void Swap(Queue<T, Allocator>& lhs, Queue<T, Allocator>& rhs) noexcept(noexcept(lhs.Swap(rhs)))
+	{
+		lhs.Swap(rhs);
 	}
 }

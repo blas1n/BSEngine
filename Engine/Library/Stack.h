@@ -74,6 +74,11 @@ namespace BE
 
 		inline void Clear() noexcept { while (IsEmpty()) Pop(); }
 
+		constexpr void Swap(Stack& other) noexcept(noexcept(container.swap(other.container)))
+		{
+			container.swap(other.container);
+		}
+
 	private:
 		friend bool operator==(const Stack& lhs, const Stack& rhs) noexcept;
 
@@ -90,5 +95,11 @@ namespace BE
 	bool operator!=(const Stack<T, Allocator>& lhs, const Stack<T, Allocator>& rhs)
 	{
 		return !(lhs == rhs);
+	}
+
+	template <class T, template <class> class Allocator>
+	constexpr void Swap(Stack<T, Allocator>& lhs, Stack<T, Allocator>& rhs) noexcept(noexcept(lhs.Swap(rhs)))
+	{
+		lhs.Swap(rhs);
 	}
 }

@@ -21,10 +21,10 @@ namespace BE
 		using AllocatorType = Allocator<T>;
 
 		Set() noexcept = default;
-		
+
 		Set(const Set& other) = default;
 		Set(Set&& other) noexcept = default;
-		
+
 		Set(std::initializer_list<T> elems) : container(elems) {}
 
 		template <template <class> class ArrayAllocator>
@@ -76,6 +76,11 @@ namespace BE
 		inline SizeType GetSize() const noexcept { return container.size(); }
 		inline SizeType GetMaxSize() const noexcept { return container.max_size(); }
 
+		constexpr void Swap(Set& other) noexcept(noexcept(container.swap(other.container)))
+		{
+			container.swap(other.container);
+		}
+
 		// Don't use! Only range based for for the function.
 		inline Iterator begin() noexcept { return container.begin(); }
 		inline ConstIterator begin() const noexcept { return container.begin(); }
@@ -87,6 +92,24 @@ namespace BE
 		friend bool operator==(const Set& lhs, const Set& rhs) noexcept;
 
 		ContainerType container;
+	};
+
+	template <class T, template <class> class Allocator>
+	bool operator==(const Set<T, Allocator>& lhs, const Set<T, Allocator>& rhs)
+	{
+		return lhs.container == rhs.container;
+	}
+
+	template <class T, template <class> class Allocator>
+	bool operator!=(const Set<T, Allocator>& lhs, const Set<T, Allocator>& rhs)
+	{
+		return !(lhs == rhs);
+	}
+
+	template <class T, template <class> class Allocator>
+	constexpr void Swap(Set<T, Allocator>& lhs, Set<T, Allocator>& rhs) noexcept(noexcept(lhs.Swap(rhs)))
+	{
+		lhs.Swap(rhs);
 	}
 }
 

@@ -6,18 +6,6 @@
 namespace BE
 {
 	template <class T, template <class> class Allocator>
-	bool operator==(const Set<T, Allocator>& lhs, const Set<T, Allocator>& rhs)
-	{
-		return lhs.container == rhs.container;
-	}
-
-	template <class T, template <class> class Allocator>
-	bool operator!=(const Set<T, Allocator>& lhs, const Set<T, Allocator>& rhs)
-	{
-		return !(lhs == rhs);
-	}
-
-	template <class T, template <class> class Allocator>
 	template <template <class> class ArrayAllocator>
 	Set<T, Allocator>::Set(const Array<T, ArrayAllocator>& arr)
 		: container(arr.begin(), arr.end()) {}

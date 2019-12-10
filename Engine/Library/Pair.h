@@ -82,7 +82,7 @@ namespace BE
 	struct TupleSize<Pair<T1, T2>> : public IntegralConstant<SizeType, 2> {};
 
 	template <class T1, class T2>
-	inline constexpr Pair<T1, T2> MakePair(T1&& t, T2&& u)
+	constexpr Pair<T1, T2> MakePair(T1&& t, T2&& u)
 	{
 		return Pair<T1, T2>(std::forward<T1>(t), std::forward<T2>(u));
 	}
@@ -133,7 +133,7 @@ namespace BE
 	}
 
 	template <SizeType I, class T1, class T2>
-	inline constexpr decltype(auto)& get(Pair<T1, T2>& p) noexcept
+	constexpr decltype(auto)& get(Pair<T1, T2>& p) noexcept
 	{
 		if constexpr (I == 0) return p.first;
 		if (I == 1) return p.second;
@@ -141,7 +141,7 @@ namespace BE
 	}
 
 	template <SizeType I, class T1, class T2>
-	inline constexpr decltype(auto) && get(Pair<T1, T2>&& p) noexcept
+	constexpr decltype(auto) && get(Pair<T1, T2>&& p) noexcept
 	{
 		if constexpr (I == 0) return std::move(p.first);
 		if (I == 1) return std::move(p.second);
@@ -149,7 +149,7 @@ namespace BE
 	}
 
 	template <SizeType I, class T1, class T2>
-	inline constexpr const decltype(auto)& get(const Pair<T1, T2>& p) noexcept
+	constexpr const decltype(auto)& get(const Pair<T1, T2>& p) noexcept
 	{
 		if constexpr (I == 0) return p.first;
 		if (I == 1) return p.second;
@@ -157,7 +157,7 @@ namespace BE
 	}
 
 	template <SizeType I, class T1, class T2>
-	inline constexpr const decltype(auto) && get(const Pair<T1, T2>&& p) noexcept
+	constexpr const decltype(auto) && get(const Pair<T1, T2>&& p) noexcept
 	{
 		if constexpr (I == 0) return std::move(p.first);
 		if (I == 1) return std::move(p.second);
@@ -165,49 +165,49 @@ namespace BE
 	}
 
 	template <class T1, class T2>
-	inline constexpr decltype(auto)& get(Pair<T1, T2>& p) noexcept
+	constexpr decltype(auto)& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.first;
 	}
 
 	template <class T2, class T1>
-	inline constexpr decltype(auto)& get(Pair<T1, T2>& p) noexcept
+	constexpr decltype(auto)& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.second;
 	}
 
 	template <class T1, class T2>
-	inline constexpr decltype(auto)&& get(Pair<T1, T2>& p) noexcept
+	constexpr decltype(auto)&& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.first;
 	}
 
 	template <class T2, class T1>
-	inline constexpr decltype(auto)&& get(Pair<T1, T2>& p) noexcept
+	constexpr decltype(auto)&& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.second;
 	}
 
 	template <class T1, class T2>
-	inline constexpr const decltype(auto)& get(Pair<T1, T2>& p) noexcept
+	constexpr const decltype(auto)& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.first;
 	}
 
 	template <class T2, class T1>
-	inline constexpr const decltype(auto)& get(Pair<T1, T2>& p) noexcept
+	constexpr const decltype(auto)& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.second;
 	}
 
 	template <class T1, class T2>
-	inline constexpr const decltype(auto)&& get(Pair<T1, T2>& p) noexcept
+	constexpr const decltype(auto)&& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.first;
 	}
 
 	template <class T2, class T1>
-	inline constexpr const decltype(auto)&& get(Pair<T1, T2>& p) noexcept
+	constexpr const decltype(auto)&& get(Pair<T1, T2>& p) noexcept
 	{
 		return p.second;
 	}

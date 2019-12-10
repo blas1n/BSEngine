@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core.h"
+#include "Templates.h"
 #include <tuple>
 #include <utility>
 
@@ -75,10 +76,62 @@ namespace BE
 		std::tuple<Types...> tuple;
 	};
 
-	template <class... Types>
-	constexpr decltype(auto) ConvTupleType(std::tuple<Types...> tuple)
+	template <SizeType I, class T>
+	struct TupleElement;
+
+	template <SizeType I, class T>
+	using TupleElementType = typename TupleElement<I, T>::Type;
+
+	template <SizeType I, class Head, class... Tail>
+	struct TupleElement<I, Tuple<Head, Tail...>>
+		: TupleElement<I - 1, Tuple<Tail...>> { };
+
+	template <class Head, class... Tail>
+	struct TupleElement<0, Tuple<Head, Tail...>>
 	{
-		return std::declval<Tuple<Types...>>();
+		using Type = Head;
+	};
+
+	template <SizeType I, class T>
+	struct TupleElement<I, const T>
+	{
+		using Type = std::add_const_t<TupleElementType<I, T>>;
+	};
+
+	template <SizeType I, class T>
+	struct TupleElement<I, volatile T>
+	{
+		using Type = std::add_volatile_t<TupleElementType<I, T>>;
+	};
+
+	template <SizeType I, class T>
+	struct TupleElement<I, const volatile T>
+	{
+		using Type = std::add_cv_t<TupleElementType<I, T>>;
+	};
+
+	template <class T>
+	struct TupleSize : public IntegralConstant<SizeType, std::tuple_size_v<T>> {};
+
+	template <class... Types>
+	struct TupleSize<Tuple<Types...>> : public IntegralConstant<SizeType, sizeof...(Types)> {};
+
+	template <class T>
+	constexpr SizeType TupleSizeValue = TupleSize<T>::Value;
+
+	namespace Internal
+	{
+		template <class T>
+		struct MyTuple;
+
+		template <class T>
+		using MyTupleType = typename MyTuple<T>::Type;
+
+		template <class... Types>
+		struct MyTuple<std::tuple<Types...>>
+		{
+			using Type = Tuple<Types...>;
+		};		
 	}
 
 	template <class... Types>
@@ -95,7 +148,7 @@ namespace BE
 
 	template <class... Tuples>
 	inline constexpr auto ConcatTuple(Tuples&&... args)
-		-> decltype(ConvTupleType(std::tuple_cat(std::forward<Tuples>(args)...)))
+		-> Internal::MyTupleType<decltype(std::tuple_cat(std::forward<Tuples>(args)...))>
 	{
 		return std::tuple_cat(std::forward<Tuples>(args)...);
 	}

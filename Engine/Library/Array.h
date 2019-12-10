@@ -8,15 +8,16 @@ namespace BE
 	template <class T, template <class> class Allocator>
 	class BS_API Array final
 	{
+	public:
+		using ElementType = T;
+		using AllocatorType = Allocator<T>;
+
 	private:
 		using ContainerType = std::vector<T, Allocator<T>>;
 		using Iterator = ContainerType::iterator;
 		using ConstIterator = ContainerType::const_iterator;
 
 	public:
-		using ElementType = T;
-		using AllocatorType = Allocator<T>;
-
 		Array() noexcept = default;
 		Array(const Array& other) = default;
 		Array(Array&& other) noexcept = default;
@@ -29,11 +30,11 @@ namespace BE
 		explicit Array(SizeType count, const T& value)
 			: container(count, value) {}
 
-		template <class OtherElement, template <class> class OtherAllocator>
-		explicit Array(const Array<OtherElement, OtherAllocator>& other);
+		template <template <class> class OtherAllocator>
+		explicit Array(const Array<T, OtherAllocator>& other);
 
-		template <class OtherElement, template <class> class OtherAllocator>
-		explicit Array(Array<OtherElement, OtherAllocator>&& other);
+		template <template <class> class OtherAllocator>
+		explicit Array(Array<T, OtherAllocator>&& other);
 
 		~Array() = default;
 

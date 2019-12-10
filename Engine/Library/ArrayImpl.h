@@ -20,22 +20,14 @@ namespace BE
 	}
 
 	template <class T, template <class> class Allocator>
-	template <class OtherElement, template <class> class OtherAllocator>
-	Array<T, Allocator>::Array(const Array<OtherElement, OtherAllocator>& other)
-	{
-		Reserve(other.GetSize());
-		for (const auto& elem : other)
-			Emplace(elem);
-	}
+	template <template <class> class OtherAllocator>
+	Array<T, Allocator>::Array(const Array<T, OtherAllocator>& other)
+		: container(other.begin(), other.end) {}
 
 	template <class T, template <class> class Allocator>
-	template <class OtherElement, template <class> class OtherAllocator>
-	Array<T, Allocator>::Array(Array<OtherElement, OtherAllocator>&& other)
-	{
-		Reserve(other.GetSize());
-		for (auto&& elem : std::move(other))
-			Emplace(std::move(elem));
-	}
+	template <template <class> class OtherAllocator>
+	Array<T, Allocator>::Array(Array<T, OtherAllocator>&& other)
+		: container(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end)) {}
 
 	template <class T, template <class> class Allocator>
 	void Array<T, Allocator>::Insert(const Array<T, Allocator>& other, const SizeType pos)

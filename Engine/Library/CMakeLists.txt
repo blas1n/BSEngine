@@ -43,6 +43,7 @@ set(SRC_MISC
 	Hash.h
 	Macro.h
 	Swap.h
+	Templates.h
 	Type.h
 )
 

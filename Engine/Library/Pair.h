@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core.h"
+#include "Tuple.h"
 #include <type_traits>
 #include <utility>
 
@@ -64,6 +65,21 @@ namespace BE
 			Swap(second, other.second);
 		}
 	};
+
+	template <class T1, class T2>
+	struct TupleElement<0, Pair<T1, T2>>
+	{
+		using Type = T1;
+	};
+
+	template <class T1, class T2>
+	struct TupleElement<1, Pair<T1, T2>>
+	{
+		using Type = T2;
+	};
+
+	template <class T1, class T2>
+	struct TupleSize<Pair<T1, T2>> : public IntegralConstant<SizeType, 2> {};
 
 	template <class T1, class T2>
 	inline constexpr Pair<T1, T2> MakePair(T1&& t, T2&& u)

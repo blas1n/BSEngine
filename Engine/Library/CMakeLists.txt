@@ -4,10 +4,12 @@ set_project ()
 set(SRC_CONTAINER
 	ArrayImpl.h
 	Array.h
+	Pair.h
+	Queue.h
 	Set.h
 	SetImpl.h
 	Stack.h
-	Queue.h
+	Tuple.h
 )
 
 set(SRC_EXCEPTION
@@ -42,7 +44,6 @@ set(SRC_MISC
 	Macro.h
 	Swap.h
 	Type.h
-	Hash.h
 )
 
 set(SRC_STRING

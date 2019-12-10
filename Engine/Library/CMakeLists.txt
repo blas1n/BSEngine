@@ -37,7 +37,10 @@ set(SRC_MATH
 )
 
 set(SRC_MISC
+	Comparison.h
+	Hash.h
 	Macro.h
+	Swap.h
 	Type.h
 	Hash.h
 )

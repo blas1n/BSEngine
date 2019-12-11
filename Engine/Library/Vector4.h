@@ -14,7 +14,7 @@ namespace BE::Math
 		Vector4() noexcept : vec{ } {}
 
 		Vector4(const Vector4& other) noexcept : vec{ other.vec } {}
-		Vector4(Vector4&& other) noexcept : vec{ std::move(other.vec) } {}
+		Vector4(Vector4&& other) noexcept : vec{ Move(other.vec) } {}
 
 		explicit Vector4(const float x, const float y, const float z, const float w) noexcept
 			: vec{ x, y, z, w } {}
@@ -49,7 +49,7 @@ namespace BE::Math
 
 		inline Vector4& operator=(Vector4&& other) noexcept
 		{
-			vec = std::move(other.vec);
+			vec = Move(other.vec);
 			return *this;
 		}
 

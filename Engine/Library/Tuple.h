@@ -16,6 +16,7 @@ namespace BE
 		Tuple(Tuple&& other) = default;
 
 		constexpr Tuple(const Types&... args) : tuple{ args... } {}
+		constexpr Tuple(Types&&... args) : tuple{ std::move(args)... } {}
 
 		template <class... UTypes>
 		Tuple(UTypes&&... args) : tuple{ std::forward<UTypes>(args)... } {}

@@ -14,13 +14,13 @@ namespace BE::Math
 			: euler{ inEuler } {}
 
 		Rotator(Vector3&& inEuler) noexcept
-			: euler{ std::move(inEuler) } {}
+			: euler{ Move(inEuler) } {}
 
 		Rotator(const Rotator& other) noexcept
 			: Rotator{ other.euler } {}
 
 		Rotator(Rotator&& other) noexcept
-			: Rotator{ std::move(other.euler) } {}
+			: Rotator{ Move(other.euler) } {}
 
 		Rotator(const float x, const float y, const float z) noexcept
 			: Rotator{ Vector3{ x, y, z } } {}
@@ -42,7 +42,7 @@ namespace BE::Math
 
 		inline void Set(Vector3&& inEuler) noexcept
 		{
-			euler = std::move(inEuler);
+			euler = Move(inEuler);
 		}
 
 		inline float& roll() noexcept { return (*this)[0]; }
@@ -63,7 +63,7 @@ namespace BE::Math
 
 		inline Rotator& operator=(Rotator&& other) noexcept
 		{
-			euler = std::move(other.euler);
+			euler = Move(other.euler);
 			return *this;
 		}
 

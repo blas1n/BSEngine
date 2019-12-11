@@ -18,7 +18,7 @@ namespace BE::Math
 			: quat{ other.quat } {}
 
 		Quaternion(Quaternion&& other) noexcept
-			: quat{ std::move(other.quat) } {}
+			: quat{ Move(other.quat) } {}
 
 		explicit Quaternion(float x, float y, float z, float w) noexcept;
 		explicit Quaternion(const float elems[4]) noexcept;
@@ -51,7 +51,7 @@ namespace BE::Math
 
 		inline Quaternion& operator=(Quaternion&& other) noexcept
 		{
-			quat = std::move(other.quat);
+			quat = Move(other.quat);
 			return *this;
 		}
 

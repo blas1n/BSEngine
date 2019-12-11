@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <utility>
 #include "CString.h"
+#include "Utility.h"
 
 namespace BE
 {
@@ -18,8 +19,8 @@ namespace BE
 	}
 
 	Exception::Exception(Exception&& other) noexcept
-		: message{ std::move(other.message) },
-		needFree{ std::move(other.needFree) }
+		: message{ Move(other.message) },
+		needFree{ Move(other.needFree) }
 	{
 		other.needFree = false;
 	}
@@ -33,8 +34,8 @@ namespace BE
 
 	Exception& Exception::operator=(Exception&& other) noexcept
 	{
-		message = std::move(other.message);
-		needFree = std::move(other.needFree);
+		message = Move(other.message);
+		needFree = Move(other.needFree);
 		other.needFree = false;
 		return *this;
 	}

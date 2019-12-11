@@ -37,7 +37,7 @@ namespace BE
 	{
 		auto task = std::make_shared<
 			std::packaged_task<std::invoke_result_t<Fn, Args...>()>>(
-				std::bind(std::forward<Fn>(fn), std::forward<Args>(args)...)
+				std::bind(Forward<Fn>(fn), Forward<Args>(args)...)
 				);
 
 		taskMutex.lock();

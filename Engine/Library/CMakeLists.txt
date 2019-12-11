@@ -45,6 +45,7 @@ set(SRC_MISC
 	Swap.h
 	Templates.h
 	Type.h
+	Utility.h
 )
 
 set(SRC_STRING

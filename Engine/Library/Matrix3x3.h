@@ -12,7 +12,7 @@ namespace BE::Math
 		Matrix3x3() noexcept : mat{ } {}
 
 		Matrix3x3(const Matrix3x3& other) noexcept : mat{ other.mat } {}
-		Matrix3x3(Matrix3x3&& other) noexcept : mat{ std::move(other.mat) } {}
+		Matrix3x3(Matrix3x3&& other) noexcept : mat{ Move(other.mat) } {}
 
 		explicit Matrix3x3(const float* elems) noexcept
 			: mat{ elems } {}
@@ -35,7 +35,7 @@ namespace BE::Math
 
 		inline Matrix3x3& operator=(Matrix3x3&& other) noexcept
 		{
-			mat = std::move(other.mat);
+			mat = Move(other.mat);
 			return *this;
 		}
 

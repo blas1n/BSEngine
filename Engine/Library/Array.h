@@ -46,7 +46,7 @@ namespace BE
 
 		inline Array& operator=(Array&& other) noexcept
 		{
-			container = std::move(other.container);
+			container = Move(other.container);
 			return *this;
 		}
 
@@ -78,18 +78,18 @@ namespace BE
 		inline void Append(const T* ptr, SizeType count) { Insert(ptr, count, GetSize()); }
 
 		inline void Append(const Array& other) { Insert(other, GetSize()); }
-		inline void Append(Array&& other) { Insert(std::move(other), GetSize()); }
+		inline void Append(Array&& other) { Insert(Move(other), GetSize()); }
 	
 		template <class... Args>
 		inline void Emplace(Args&&... args)
 		{
-			container.emplace_back(std::forward<Args>(args)...);
+			container.emplace_back(Forward<Args>(args)...);
 		}
 
 		template <class... Args>
 		inline void EmplaceAt(SizeType pos, Args&&... args)
 		{
-			container.emplace(container.cbegin() + pos, std::forward<Args>(args)...);
+			container.emplace(container.cbegin() + pos, Forward<Args>(args)...);
 		}
 
 		void Remove(const T& item);

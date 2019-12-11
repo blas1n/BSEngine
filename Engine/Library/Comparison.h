@@ -22,7 +22,7 @@ namespace BE \
 		constexpr bool operator()(const T&& lhs, const U&& rhs) const \
 			noexcept(noexcept(std::forward<T>(lhs) oper std::forward<U>(rhs))) \
 		{ \
-			return std::forward<T>(lhs) oper std::forward<U>(rhs); \
+			return Forward<T>(lhs) oper Forward<U>(rhs); \
 		} \
 	}; \
 }

@@ -12,7 +12,7 @@ namespace BE::Math
 		Matrix4x4() noexcept : mat{ } {}
 
 		Matrix4x4(const Matrix4x4& other) noexcept : mat{ other.mat } {}
-		Matrix4x4(Matrix4x4&& other) noexcept : mat{ std::move(other.mat) } {}
+		Matrix4x4(Matrix4x4&& other) noexcept : mat{ Move(other.mat) } {}
 
 		explicit Matrix4x4(const float* elems) noexcept
 			: mat{ elems } {}
@@ -39,7 +39,7 @@ namespace BE::Math
 
 		Matrix4x4& operator=(Matrix4x4&& other) noexcept
 		{
-			mat = std::move(other.mat);
+			mat = Move(other.mat);
 			return *this;
 		}
 

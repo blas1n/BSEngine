@@ -32,14 +32,14 @@ namespace BE
 	{
 		if (IsEmpty())
 		{
-			container = std::move(other.container);
+			container = Move(other.container);
 			return;
 		}
 
 
 		Reserve(GetSize() + other.GetSize());
 		Append(pos, GetSize());
-		std::move(other.container.begin(),
+		Move(other.container.begin(),
 			other.container.cend(), std::inserter(container, container.begin() + pos));
 		other.Clear();
 	}
@@ -53,7 +53,7 @@ namespace BE
 	template <class T, template <class> class Allocator>
 	void Array<T, Allocator>::Insert(T&& item, const SizeType pos)
 	{
-		container.insert(container.cbegin() + pos, std::move(item));
+		container.insert(container.cbegin() + pos, Move(item));
 	}
 
 	template <class T, template <class> class Allocator>
@@ -85,7 +85,7 @@ namespace BE
 		const auto end = container.cend();
 
 		if (std::find(begin + , end, item) == end)
-			Add(std::move(item));
+			Add(Move(item));
 	}
 
 	template <class T, template <class> class Allocator>

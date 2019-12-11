@@ -26,7 +26,13 @@ namespace BE
 		constexpr Pair(const T1& x, const T2& y)
 			: first(x), second(y) {}
 
-		constexpr Pair(const T1&& x, const T2&& y)
+		constexpr Pair(const T1& x, T2&& y)
+			: first(x), second(std::move(y)) {}
+
+		constexpr Pair(T1&& x, const T2& y)
+			: first(std::move(x)), second(y) {}
+
+		constexpr Pair(T1&& x, T2&& y)
 			: first(std::move(x)), second(std::move(y)) {}
 
 		template <class U1, class U2>
@@ -63,6 +69,11 @@ namespace BE
 		{
 			Swap(first, other.first);
 			Swap(second, other.second);
+		}
+
+		operator std::pair<T1, T2>() const noexcept
+		{
+			return std::pair<T1, T2>{ first, second };
 		}
 	};
 

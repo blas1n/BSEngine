@@ -1,6 +1,14 @@
 set_project ()
 
 # Files
+set (SRC_ALLOCATOR
+	ComponentAllocator.h
+	HeapAllocator.h
+	ManagerAllocator.h
+	OneFrameAllocator.h
+	ResourceAllocator.h
+)
+
 set (SRC_MANAGER
 	MemoryManager.cpp
 	MemoryManager.h
@@ -18,25 +26,17 @@ set (SRC_MEMORY
 	ResourceMemory.h
 )
 
-set (SRC_ALLOCATOR
-	ComponentAllocator.h
-	HeapAllocator.h
-	ManagerAllocator.h
-	OneFrameAllocator.h
-	ResourceAllocator.h
-)
-
 # Target
 add_library (${PROJECT_ID} STATIC
+	${SRC_ALLOCATOR}
 	${SRC_MANAGER}
 	${SRC_MEMORY}
-	${SRC_ALLOCATOR}
 )
 
 # Dependencies
 set_public_dependencies (GameBase)
 
 # Filters
+source_group ("Allocator" FILES ${SRC_ALLOCATOR})
 source_group ("Manager" FILES ${SRC_MANAGER})
 source_group ("Memory" FILES ${SRC_MEMORY})
-source_group ("Allocator" FILES ${SRC_ALLOCATOR})

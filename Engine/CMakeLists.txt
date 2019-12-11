@@ -1,4 +1,6 @@
+add_subdirectory (Container)
+add_subdirectory (CoreLibrary)
 add_subdirectory (GameBase)
-add_subdirectory (Library)
+add_subdirectory (Math)
 add_subdirectory (Memory)
 add_subdirectory (Thread)

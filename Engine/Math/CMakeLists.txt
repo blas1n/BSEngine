@@ -46,6 +46,8 @@ add_library (${PROJECT_ID} STATIC
 # Dependencies
 target_link_libraries (${PROJECT_ID} PUBLIC Eigen3::Eigen)
 
+set_public_dependencies (CoreLibrary)
+
 # Filters
 source_group ("Function" FILES ${SRC_FUNCTION})
 source_group ("Matrix" FILES ${SRC_MATRIX})

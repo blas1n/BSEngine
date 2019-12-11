@@ -34,7 +34,7 @@ add_library (${PROJECT_ID} STATIC
 )
 
 # Dependencies
-set_public_dependencies (GameBase)
+set_public_dependencies (GameBase Math)
 
 # Filters
 source_group ("Allocator" FILES ${SRC_ALLOCATOR})

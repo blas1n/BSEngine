@@ -18,7 +18,7 @@ add_library (${PROJECT_ID} STATIC
 
 # Dependencies
 set_public_dependencies (CoreLibrary)
-set_private_dependencies (Memory, Thread)
+set_private_dependencies (Memory Thread)
 
 # Filters
 source_group ("System" FILES ${SRC_System})

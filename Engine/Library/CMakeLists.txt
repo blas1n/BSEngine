@@ -4,6 +4,7 @@ set_project ()
 set(SRC_CONTAINER
 	ArrayImpl.h
 	Array.h
+	Map.h
 	Pair.h
 	Queue.h
 	Set.h

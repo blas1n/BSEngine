@@ -1,5 +1,10 @@
 set_project ()
 
+# Package
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+	find_package (Threads)
+endif ()
+
 # Files
 set(SRC_MANAGER
 	ThreadManager.cpp
@@ -14,6 +19,10 @@ add_library (${PROJECT_ID} STATIC
 )
 
 # Dependencies
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+	target_link_libraries (${PROJECT_ID} PUBLIC ${CMAKE_THREAD_LIBS_INIT})
+endif ()
+
 set_public_dependencies (GameBase)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")

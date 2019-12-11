@@ -1,14 +1,14 @@
 set_project ()
 
 # Files
-set(SRC_MANAGER
+set (SRC_MANAGER
 	MemoryManager.cpp
 	MemoryManager.h
 	MemoryManagerAccesser.cpp
 	MemoryManagerAccesser.h
 )
 
-set(SRC_MEMORY
+set (SRC_MEMORY
 	ComponentMemory.h
 	HeapMemory.cpp
 	HeapMemory.h
@@ -18,7 +18,7 @@ set(SRC_MEMORY
 	ResourceMemory.h
 )
 
-set(SRC_ALLOCATOR
+set (SRC_ALLOCATOR
 	ComponentAllocator.h
 	HeapAllocator.h
 	ManagerAllocator.h

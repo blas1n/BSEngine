@@ -1,12 +1,12 @@
 set_project ()
 
 # Files
-set(SRC_System
+set (SRC_System
 	System.cpp
 	System.h
 )
 
-set(SRC_Accesser
+set (SRC_Accesser
 	AccesserGenerator.h
 )
 
@@ -17,8 +17,8 @@ add_library (${PROJECT_ID} STATIC
 )
 
 # Dependencies
-set_public_dependencies (Library)
-set_private_dependencies (Memory)
+set_public_dependencies (CoreLibrary)
+set_private_dependencies (Memory, Thread)
 
 # Filters
 source_group ("System" FILES ${SRC_System})

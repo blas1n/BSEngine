@@ -1,7 +1,10 @@
-#!/usr/bin/env
+#!/bin/sh
+
+set -e
+cd ..
 
 if [ -d build ]; then
-	rm build
+	rm -rf build
 fi
 
 mkdir build && cd build

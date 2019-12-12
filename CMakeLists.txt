@@ -3,9 +3,11 @@ cmake_minimum_required (VERSION 3.8)
 project (BS_Engine VERSION 0.0.1 LANGUAGES CXX)
 
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/Cmake)
+set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/Cmake/Module)
 set (CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${CMAKE_SOURCE_DIR}/External)
 
 include (Platform)
+include (Package)
 include (Util)
 
 set (CMAKE_CXX_STANDARD 17)

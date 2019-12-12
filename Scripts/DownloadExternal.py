@@ -7,10 +7,9 @@ try:
 except ImportError:
     os.system("pip install requests")
 
-def make_dir(name):
-    print(os.getcwd())
-    dir = os.path.join(os.path.dirname(os.getcwd()), 'External')
-    return os.path.join(dir, name)
+def make_abs_dir(name):
+    abs_dir = os.path.join(os.path.dirname(os.getcwd()), 'External')
+    return os.path.join(abs_dir, name)
 
 def download(url, dir):
     path, name = os.path.split(dir)
@@ -29,7 +28,7 @@ def download(url, dir):
     print(f'{name} download complete.')
 
 if __name__ == '__main__':
-    with open(make_dir('ExternalPath'), 'rt') as file:
+    with open(make_abs_dir('ExternalPath'), 'rt') as file:
         for path in file.readlines():
-            abs_dir = make_dir(os.path.basename(path))
+            abs_dir = make_abs_dir(os.path.basename(path))
             download(path, abs_dir)

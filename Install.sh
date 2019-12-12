@@ -1,4 +1,4 @@
-#!/usr/bin/env
+#!/bin/sh
 
 python Scripts/DownloadExternal.py
 sh Scripts/Build.sh

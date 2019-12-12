@@ -1,4 +1,8 @@
-#!/usr/bin/env
+#!/bin/sh
 
-python Scripts/DownloadExternal.py
-sh Scripts/Build.sh
+set -e
+
+cd Scripts
+python3 DownloadExternal.py
+cd ../Scripts
+sh Build.sh

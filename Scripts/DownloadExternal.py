@@ -9,6 +9,7 @@ except ImportError:
     os.system("pip install "+ request)
 
 def make_dir(name):
+    print(os.getcwd())
     dir = os.path.join(os.path.dirname(os.getcwd()), 'External')
     return os.path.join(dir, name)
 

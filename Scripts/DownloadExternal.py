@@ -1,12 +1,11 @@
 # DownloadExternal.py
 import tarfile
-import sys
 import os
 
 try:
     from requests import get
 except ImportError:
-    os.system("pip install "+ request)
+    os.system("pip install requests")
 
 def make_dir(name):
     print(os.getcwd())
@@ -32,5 +31,5 @@ def download(url, dir):
 if __name__ == '__main__':
     with open(make_dir('ExternalPath'), 'rt') as file:
         for path in file.readlines():
-            dir = make_dir(os.path.basename(path))
-            download(path, dir)
+            abs_dir = make_dir(os.path.basename(path))
+            download(path, abs_dir)

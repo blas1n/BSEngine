@@ -433,3 +433,7 @@ MigrationBackup/
 # Custom build, temp folder
 [Bb]uild/
 [Ii]nstall/
+
+# External library, use script
+External/
+!External/ExternalPath

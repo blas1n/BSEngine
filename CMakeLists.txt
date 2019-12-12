@@ -2,13 +2,16 @@ cmake_minimum_required (VERSION 3.8)
 
 project (BS_Engine VERSION 0.0.1 LANGUAGES CXX)
 
+# Set application to GUI type for Win32 and MacOS
+if (WIN32)
+  set (GUI_TYPE WIN32)
+elseif (APPLE)
+  set(GUI_TYPE MACOSX_BUNDLE)
+endif ()
+
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMake)
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMake/Module)
 list (APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/External)
-
-foreach (PATH ${CMAKE_MODULE_PATH})
-    message (${PATH})
-endforeach()
 
 include (Platform)
 include (Package)

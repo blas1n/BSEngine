@@ -18,9 +18,7 @@ matrix:
   - os: windows
     script:
       - choco install python
-      - $env:ChocolateyInstall = Convert-Path "$((Get-Command choco).Path)\..\.."
-      - Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-      - refresh env
+      - refreshenv
       - choco install pip
       - ./Install.bat
 

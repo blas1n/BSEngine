@@ -17,9 +17,7 @@ matrix:
 
   - os: windows
     script:
-      - choco install python
-      - refreshenv
-      - choco install pip
+      - choco install python pip -y
       - ./Install.bat
 
 notifications:

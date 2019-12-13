@@ -1,11 +1,7 @@
 # DownloadExternal.py
+from requests import get
 import tarfile
 import os
-
-try:
-    from requests import get
-except ImportError:
-    os.system("pip install requests")
 
 def make_abs_dir(name):
     abs_dir = os.path.join(os.path.dirname(os.getcwd()), 'External')

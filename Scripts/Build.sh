@@ -1,6 +1,5 @@
 #!/bin/sh
 
-set -e
 cd ..
 
 if [ -d build ]; then
@@ -8,6 +7,6 @@ if [ -d build ]; then
 fi
 
 mkdir build && cd build
-cmake ..
-make
+cmake .. || exit /b %errorlevel%
+make || exit /b %errorlevel%
 cd ..

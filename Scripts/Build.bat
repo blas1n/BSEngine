@@ -13,6 +13,5 @@ cd ..
 
 :error
 cd ..
-echo Failed install with error #%errorlevel%
-pause
+echo Failed build with error #%errorlevel%
 exit /b %errorlevel%

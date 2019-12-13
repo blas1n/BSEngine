@@ -8,12 +8,6 @@ for /f "delims=" %%i in (requirement.txt) do (
 )
 
 cd Scripts
-py DownloadExternal.py || goto :error
-Build.bat || goto :error
+py DownloadExternal.py
+Build.bat
 cd ..
-goto :EOF
-
-:error
-cd ..
-echo Failed install with error #%errorlevel%
-exit /b %errorlevel%

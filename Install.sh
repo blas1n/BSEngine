@@ -2,11 +2,13 @@
 
 set -e
 
-while read package
+RESULT=$(pip freeze)
+
+while read PACKAGE
 do
-    if [[ ! "$(pip freeze)" =~ "$(package)" ]]; then
-        echo "Now install $(package)"
-        pip install $(package)
+    if [[ ! "$RESULT" =~ "$PACKAGE" ]]; then
+        echo Now install "$PACKAGE"
+        pip install "$PACKAGE"
     fi
 done < requirement.txt
 

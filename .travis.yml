@@ -18,8 +18,7 @@ matrix:
   - os: windows
     before_install:
       - choco install python -y
-    before_script:
-      - choco install pip -y
+      - py -m pip install -U pip
     script:
       - ./Install.bat
 

@@ -32,6 +32,12 @@ def download(name, url):
    
     print(f'{name} download complete.')
 
+def init_cmake():
+    cmake_path = Path.cwd().parent / 'CMake' / 'Package.cmake'
+
+    if os.path.isfile(file):
+        os.remove(file)
+
 if __name__ == '__main__':
     init_folder()
     threads = []
@@ -42,6 +48,6 @@ if __name__ == '__main__':
         thread = Thread(target=download, args=(name, url))
         thread.start()
         threads.append(thread)
-    
+
     for thread in threads:
         thread.join()

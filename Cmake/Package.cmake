@@ -1,3 +1,6 @@
+list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMake/Module)
+list (APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/External)
+
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	find_package (Threads REQUIRED)
 endif ()

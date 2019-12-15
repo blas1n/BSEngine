@@ -9,13 +9,9 @@ elseif (APPLE)
   set(GUI_TYPE MACOSX_BUNDLE)
 endif ()
 
-list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMake)
-list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMake/Module)
-list (APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/External)
-
-include (Platform)
-include (Package)
-include (Util)
+include (CMake/Platform.cmake)
+include (CMake/Package.cmake)
+include (CMake/Util.cmake)
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -1,30 +1,47 @@
 # DownloadExternal.py
+from threading import Thread
+from pathlib import Path
 from requests import get
 import tarfile
+import shutil
 import os
 
-def make_abs_dir(name):
-    abs_dir = os.path.join(os.path.dirname(os.getcwd()), 'External')
-    return os.path.join(abs_dir, name)
+def make_abs_path(*names):
+    ret = Path.cwd().parent / 'External'
+    for name in names:
+        ret /= name
+    return ret
 
-def download(url, file_dir):
-    path, name = os.path.split(file_dir)
-    name = os.path.splitext(os.path.splitext(name)[0])[0]
+def init_folder():
+    if os.path.exists(make_abs_path()):
+        shutil.rmtree(make_abs_path())
+    os.mkdir(make_abs_path())
 
-    print(f'Downloading {name}...')
-    with open(file_dir, "wb") as file:
-        response = get(url)
-        file.write(response.content)
+def download(name, url):
+    print(f'Start downloading {name}...')
+    path = make_abs_path(Path(url).name)
+    path.write_bytes(get(url).content)
 
     print(f'Extracting {name}...')
-    with tarfile.open(file_dir) as file:
-        file.extractall(path)
+    with tarfile.open(path) as file:
+        file.extractall(make_abs_path())
 
-    os.remove(file_dir)
+    path.unlink()
+    folder_path = Path(str(path)[:-7])
+    folder_path.rename(make_abs_path(name))
+   
     print(f'{name} download complete.')
 
 if __name__ == '__main__':
-    with open(make_abs_dir('ExternalPath'), 'rt') as file:
-        for path in file.readlines():
-            abs_dir = make_abs_dir(os.path.basename(path))
-            download(path, abs_dir)
+    init_folder()
+    threads = []
+    
+    external_path = Path.cwd().parent / 'ExternalPath.txt'
+    for line in external_path.read_text().splitlines():
+        name, url = line.split(': ')
+        thread = Thread(target=download, args=(name, url))
+        thread.start()
+        threads.append(thread)
+    
+    for thread in threads:
+        thread.join()

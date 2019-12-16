@@ -2,7 +2,7 @@
 
 set -e
 
-RESULT=$(pip freeze)
+RESULT=$(pip3 freeze)
 
 while read PACKAGE
 do
@@ -10,9 +10,9 @@ do
         echo Now install "$PACKAGE"
         pip install "$PACKAGE"
     fi
-done < Requirement.txt
+done < Config/Requirement.txt
 
 cd Scripts
-bpm install all
-cd ../Scripts
+sh bpm.sh install all
 sh Build.sh
+cd ..

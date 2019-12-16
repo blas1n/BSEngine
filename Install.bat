@@ -1,6 +1,6 @@
 @echo off
 
-for /f "delims=" %%i in (Requirement.txt) do (
+for /f "delims=" %%i in (Config/Requirement.txt) do (
     if "x!pip freeze:%%i=!"=="x%pip freeze%"  (
         echo Now install %%i
         py -m pip install %%i

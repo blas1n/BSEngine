@@ -10,7 +10,7 @@ do
         echo Now install "$PACKAGE"
         pip install "$PACKAGE"
     fi
-done < requirement.txt
+done < Requirement.txt
 
 cd Scripts
 python3 DownloadExternal.py

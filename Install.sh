@@ -13,6 +13,6 @@ do
 done < Requirement.txt
 
 cd Scripts
-python3 DownloadExternal.py
+bpm install all
 cd ../Scripts
 sh Build.sh

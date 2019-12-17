@@ -1,7 +1,8 @@
+list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/Cmake/Modules)
 list (APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/External)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	find_package (Threads REQUIRED)
 endif ()
 
-add_subdirectory (External\\Eigen3)
+find_package (Eigen3 REQUIRED)

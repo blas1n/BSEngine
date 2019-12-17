@@ -18,73 +18,40 @@ def make_abs_path(*names):
         ret /= name
     return ret
 
-def init_folder():
-    if os.path.exists(make_abs_path()):
-        shutil.rmtree(make_abs_path())
-    os.mkdir(make_abs_path())
+def find_lines(name, contents, is_comment):
+    nums = []
+    for num, line in enumerate(contents):
+        if name in line and (line[0] == '#') == is_comment:
+            nums.append(num)
+    return nums
 
-def init_cmake():
-    cmake_path = Path.cwd().parent / 'CMake' / 'Package.cmake'
+def set_cmake(name, action, is_comment):
+    contents = get_cmake_path().read_text().splitlines()
+    lines = find_lines(name, contents, is_comment)
 
-    if cmake_path.exists():
-        cmake_path.unlink()
-    cmake_path.touch()
+    for line in lines:
+        contents[line] = action(contents[line])
 
-    cmake_in_path = Path.cwd().parent / 'CMake' / 'Package.cmake.in'
-    cmake_path.write_text(cmake_in_path.read_text())
-
-def add_package(name, url):
-    print(f'Start downloading {name}.')
-    path = make_abs_path(Path(url).name)
-    path.write_bytes(get(url).content)
-
-    print(f'Extracting {name}.')
-    with tarfile.open(path) as file:
-        file.extractall(make_abs_path())
-
-    path.unlink()
-    folder_path = Path(str(path)[:-7])
-    folder_path.rename(make_abs_path(name))
-
-def del_package(name):
-    path = make_abs_path(name)
-    shutil.rmtree(path)
+    get_cmake_path().write_text("\n".join(contents))
 
 def add_cmake(name):
-    path = make_abs_path(name, 'CMakeLists.txt')
-    command = ''
-    
-    if path.exists():
-        command = 'add_subdirectory'
-    else:
-        path = path.parent
-        for file in list(path.glob('**/*.cmake')):
-            if path == f'Find{name}.cmake' or path == f'Find{name}.cmake':
-                command = 'find_package'
-                path = file
-                break
-
-    with get_cmake_path().open('a') as file:
-        file.write(f'{command} ({path})\n')
-
-def find_line(name, contents):
-    contents = get_cmake_path().read_text().splitlines()
-    for num, line in enumerate(contents):
-        if name in line:
-            return num
-    raise ValueError
+    set_cmake(name, lambda content: content[2:], True)
 
 def del_cmake(name):
-    contents = get_cmake_path().read_text().splitlines()
-    try:
-        line = find_line(name, contents)
-        del contents[line:line + 1]
-    except ValueError:
-        print(f'{name} not found in cmake')
+    set_cmake(name, lambda content: '# ' + content, False)
 
-    with get_cmake_path().open() as file:
-        for content in contents:
-            file.write(content + '\n')
+def init_folder():
+    path = make_abs_path()
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir()
+
+def init_cmake():
+    del_cmake('find_package')
+
+def init():
+    init_folder()
+    init_cmake()
 
 def get_config():
     config = {}
@@ -97,10 +64,6 @@ def set_config(config):
     with get_config_path().open('wt') as file:
         for pair in config.items():
             file.write(f'{pair[0]}={pair[1]}')
-
-def init():
-    init_folder()
-    init_cmake()
 
 def register(name, url):
     config = get_config()
@@ -123,12 +86,37 @@ def print_search(name):
     else:
         print(f'{name} is not installed.')
 
+def add_package(name, url):
+    print(f'Start downloading {name}.')
+    path = make_abs_path(Path(url).name)
+    path.write_bytes(get(url).content)
+
+    print(f'Extracting {name}.')
+    with tarfile.open(path) as file:
+        file.extractall(make_abs_path())
+
+    path.unlink()
+    folder_path = Path(str(path)[:-7])
+    folder_path.rename(make_abs_path(name))
+
+def del_package(name):
+    path = make_abs_path(name)
+    shutil.rmtree(path, ignore_errors=True)
+
+def install_single(name):
+    if not search(name):
+        add_package(name, get_config()[name])
+        add_cmake(name)
+        print(f'{name} has been added successfully.')
+    else:
+        print(f'{name} already installed.')
+
 def install_all():
     init()
     threads = []
 
     for name in get_config().keys():
-        thread = Thread(target=install, args=(name))
+        thread = Thread(target=install_single, args=[name])
         thread.start()
         threads.append(thread)
 
@@ -138,14 +126,8 @@ def install_all():
 def install(name):
     if (name == 'all'):
         install_all()
-        return
-
-    if not search(name):
-        add_package(name, get_config()[name])
-        add_cmake(name)
-        print(f'{name} has been added successfully.')
     else:
-        print(f'{name} already installed.')
+        install_single(name)
 
 def uninstall(name):
     if search(name):

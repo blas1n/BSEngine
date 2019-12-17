@@ -437,6 +437,3 @@ MigrationBackup/
 # External library, use script
 External/
 !External/ExternalPath
-
-# Auto generated package.cmake
-Cmake/Package.cmake

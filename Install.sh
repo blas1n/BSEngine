@@ -8,7 +8,7 @@ while read PACKAGE
 do
     if [[ ! "$RESULT" =~ "$PACKAGE" ]]; then
         echo Now install "$PACKAGE"
-        pip install "$PACKAGE"
+        pip3 install "$PACKAGE"
     fi
 done < Config/Requirement.txt
 

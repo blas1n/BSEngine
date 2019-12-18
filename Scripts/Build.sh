@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e
+
 cd ..
 
 if [ -d build ]; then

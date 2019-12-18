@@ -9,6 +9,6 @@ if [ -d build ]; then
 fi
 
 mkdir build && cd build
-cmake .. || exit /b %errorlevel%
-make || exit /b %errorlevel%
+cmake ..
+make
 cd ..

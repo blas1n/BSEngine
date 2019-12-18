@@ -2,7 +2,7 @@
 
 set -e
 
-sudo python3 get-pip.py
+curl 'https://bootstrap.pypa.io/get-pip.py' > get-pip.py && sudo python get-pip.py
 pip3 install -r Config/Requirement.txt
 
 cd Scripts

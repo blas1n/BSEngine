@@ -2,8 +2,8 @@
 
 set -e
 
-python3 -m pip --version
-python3 -m pip install -r Config/Requirement.txt
+sudo python3 get-pip.py
+pip3 install -r Config/Requirement.txt
 
 cd Scripts
 sh bpm.sh install all

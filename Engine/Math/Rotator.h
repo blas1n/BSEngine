@@ -77,7 +77,7 @@ namespace BE::Math
 			return euler[index];
 		}
 
-		inline bool operator-() noexcept { euler *= -1.0f; }
+		Rotator operator-() noexcept;
 
 		Rotator& operator+=(const Rotator& other) noexcept;
 		Rotator& operator-=(const Rotator& other) noexcept;
@@ -156,4 +156,6 @@ namespace BE::Math
 		Rotator ret = rot;
 		return ret /= scale;
 	}
+
+	inline Rotator Rotator::operator-() noexcept { return *this * -1.0f; }
 }

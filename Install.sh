@@ -2,6 +2,7 @@
 
 set -e
 
+python3 -m pip --version
 python3 -m pip install -r Config/Requirement.txt
 
 cd Scripts

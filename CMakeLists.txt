@@ -9,9 +9,9 @@ elseif (APPLE)
   set(GUI_TYPE MACOSX_BUNDLE)
 endif ()
 
-include (CMake/Platform.cmake)
-include (CMake/Package.cmake)
-include (CMake/Util.cmake)
+include (${CMAKE_SOURCE_DIR}/CMake/Platform.cmake)
+include (${CMAKE_SOURCE_DIR}/CMake/Package.cmake)
+include (${CMAKE_SOURCE_DIR}/CMake/Util.cmake)
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)

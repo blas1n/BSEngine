@@ -10,7 +10,7 @@ def get_config_path():
     return Path.cwd().parent / 'Config' / 'ExternalPath.ini'
 
 def get_cmake_path():
-    return Path.cwd().parent / 'Cmake' / 'Package.cmake'
+    return Path.cwd().parent / 'CMake' / 'Package.cmake'
 
 def make_abs_path(*names):
     ret = Path.cwd().parent / 'External'

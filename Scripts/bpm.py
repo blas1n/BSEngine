@@ -52,6 +52,7 @@ def init_cmake():
 def init():
     init_folder()
     init_cmake()
+    print('Successfully initialized')
 
 def get_config():
     config = {}

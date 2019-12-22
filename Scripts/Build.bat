@@ -7,6 +7,7 @@ if exist build (
 )
 
 mkdir build && cd build
+print hello
 cmake .. || goto :error
 make || goto :error
 cd ../Scripts

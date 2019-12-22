@@ -8,10 +8,10 @@ if exist build (
 
 mkdir build && cd build
 cmake .. || goto :error
-make run || goto :error
-cd ..
+make || goto :error
+cd ../Scripts
 
 :error
-cd ..
+cd ../Scripts
 echo Failed build with error #%errorlevel%
 exit /b %errorlevel%

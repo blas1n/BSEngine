@@ -20,7 +20,7 @@ def make_abs_path(*names):
 
 def find_lines(name, contents, is_comment):
     nums = []
-    for num, line in enumerate(contents):
+    for num, line in enumerate(contents[8:]):
         if name in line and (line[0] == '#') == is_comment:
             nums.append(num)
     return nums
@@ -81,7 +81,7 @@ def search(name):
     return make_abs_path(name).exists()
 
 def print_search(name):
-    if (search(name)):
+    if search(name):
         print(f'{name} already installed.')
     else:
         print(f'{name} is not installed.')
@@ -112,7 +112,6 @@ def install_single(name):
         print(f'{name} already installed.')
 
 def install_all():
-    init()
     threads = []
 
     for name in get_config().keys():

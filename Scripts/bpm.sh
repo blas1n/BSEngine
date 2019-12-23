@@ -3,7 +3,7 @@
 set -e
 
 if [ "$1" = "init" ]; then
-    python3 -c "import bpm;bpm.init('$2')"
+    python3 -c "import bpm;bpm.init()"
 fi
 if [ "$1" = "register" ]; then
     python3 -c "import bpm;bpm.register('$2', '$3')"

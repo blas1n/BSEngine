@@ -2,21 +2,20 @@
 
 set -e
 
-if [ "$1" = "init" ]; then
-    python3 -c "import bpm;bpm.init()"
-fi
-if [ "$1" = "register" ]; then
-    python3 -c "import bpm;bpm.register('$2', '$3')"
-fi
-if [ "$1" = "unregister" ]; then
-    python3 -c "import bpm;bpm.unregister('$2')"
-fi
-if [ "$1" = "install" ]; then
-    python3 -c "import bpm;bpm.install('$2')"
-fi
-if [ "$1" = "uninstall" ]; then
-    python3 -c "import bpm;bpm.uninstall('$2')"
-fi
-if [ "$1" = "search" ]; then
-    python3 -c "import bpm;bpm.print_search('$2')"
-fi
+case "$1" in
+	"init")
+		python3 -c "import bpm;bpm.init()";;
+	"register")
+		python3 -c "import bpm;bpm.register('$2', '$3')";;
+	"unregister")
+		python3 -c "import bpm;bpm.unregister('$2')";;
+	"install")
+		python3 -c "import bpm;bpm.install('$2')";;
+	"uninstall")
+		python3 -c "import bpm;bpm.uninstall('$2')";;
+	"search")
+		python3 -c "import bpm;bpm.print_search('$2')";;
+	*)
+		echo "Unknown command."
+		exit 1;;
+esac

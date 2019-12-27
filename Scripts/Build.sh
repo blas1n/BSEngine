@@ -9,6 +9,18 @@ if [ -d build ]; then
 fi
 
 mkdir build && cd build
-cmake ..
-make
+
+case "$1" in
+	"Debug")
+		cmake .. -DCMAKE_BUILD_TYPE=Debug;;
+	"Normal")
+		cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo;;
+	"Release"|"")
+		cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel;;
+	*)
+		echo "Unknown build type."
+		exit 1;;
+esac
+
+cmake --build .
 cd ../Scripts

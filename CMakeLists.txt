@@ -9,13 +9,14 @@ elseif (APPLE)
   set(GUI_TYPE MACOSX_BUNDLE)
 endif ()
 
-include (CMake/Platform.cmake)
-include (CMake/Package.cmake)
-include (CMake/Util.cmake)
-
+set (CMAKE_TOOLCHAIN_FILE $ENV{PKG_PATH})
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
 set (CMAKE_CXX_EXTENSIONS OFF)
+
+include (CMake/Platform.cmake)
+include (CMake/Package.cmake)
+include (CMake/Util.cmake)
 
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 

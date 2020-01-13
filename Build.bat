@@ -1,7 +1,5 @@
 @echo off
 
-cd ..
-
 if exist build (
   rmdir /s /q build
 )
@@ -22,4 +20,3 @@ if "%1%" == "Debug" (
 )
 
 cmake --build .
-cd ../Scripts

@@ -7,20 +7,20 @@ matrix:
     compiler: gcc
     sudo: required
     script:
-      - sh Install.sh
+      - sh Install_Linux.sh
       - sh Build.sh
 
   - os: osx
     osx_image: xcode11
     compiler: clang
     script:
-      - sh Install.sh
+      - sh Install_Mac.sh
       - sh Build.sh
 
   - os: windows
     script:
-      - ./Install.bat
-      - ./Build.bat
+      - Install_Windows.bat
+      - Build.bat
 
 notifications:
   email: false

@@ -4,7 +4,9 @@
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/4db8f194e3bc4a36a55ae80232565745)](https://www.codacy.com/manual/blAs1N/BS_Engine?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=blAs1N/BS_Engine&amp;utm_campaign=Badge_Grade)
 
 It is my own game engine project.  
+The project started on October 21, 2019.  
 This project uses external libraries Eigen3, SDL2.  
+
 The project has been suspended for a short time since January 15, 2020.  
 Because learning is not enough, I will study more and challenge again.  
 But it was never completely stopped.  

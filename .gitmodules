@@ -1,0 +1,3 @@
+[submodule "Source/ThirdParty/BSMath"]
+	path = Source/ThirdParty/BSMath
+	url = https://github.com/blAs1N/BSMath

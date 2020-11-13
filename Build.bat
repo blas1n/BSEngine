@@ -8,12 +8,12 @@ mkdir build && cd build
 
 if "%1%" == "Debug" (
 	cmake .. -DCMAKE_BUILD_TYPE=Debug
-) else if "%1%" == "Normal" (
-	cmake .. -DCMAKE_BUILD_TYPE=Normal
-) else if "%1%" == "Release" (
+) else if "%1%" == "Develop" (
+	cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
+) else if "%1%" == "Shipping" (
 	cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
 ) else if "%1" == "" (
-	cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
+	cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ) else (
 	echo "Unknown build type."
 	exit /b 1

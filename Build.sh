@@ -11,9 +11,9 @@ mkdir build && cd build
 case "$1" in
 	"Debug")
 		cmake .. -DCMAKE_BUILD_TYPE=Debug;;
-	"Normal")
+	"Develop"|"")
 		cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo;;
-	"Release"|"")
+	"Shipping")
 		cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel;;
 	*)
 		echo "Unknown build type."

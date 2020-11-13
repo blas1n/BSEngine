@@ -1,24 +1,29 @@
 cmake_minimum_required (VERSION 3.8)
 
-project (BS_Engine VERSION 0.0.1 LANGUAGES CXX)
-
-# Set application to GUI type for Win32 and MacOS
-if (WIN32)
-  set (GUI_TYPE WIN32)
-elseif (APPLE)
-  set(GUI_TYPE MACOSX_BUNDLE)
-endif ()
+project (BS_Engine
+	VERSION 0.1.0
+	LANGUAGES CXX
+	DESCRIPTION "Game Engine made by blAs1N"
+	HOMEPAGE_URL "https://github.com/blAs1N/BS_Engine"
+)
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
 set (CMAKE_CXX_EXTENSIONS OFF)
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cmake)
+include (CMake/Platform.cmake)
+include (CMake/Package.cmake)
+include (CMake/Util.cmake)
 
-include (Platform)
-include (Package)
-include (Util)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
 
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
-add_subdirectory (Engine)
+add_subdirectory (Source)
+
+if (${PLATFORM_WINDOWS})
+	install(DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.dll")
+else ()
+	install(DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.so")
+endif ()

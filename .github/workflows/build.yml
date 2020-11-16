@@ -15,15 +15,5 @@ jobs:
   build_windows:
     runs-on: windows-latest
     steps:
-    - name: Install vcpkg
-      uses: lukka/run-vcpkg@v5
-      with:
-        setupOnly: true
-    - name: Set vcpkg
-      run: $VCPKG_ROOT/vcpkg @$vcpkgResponseFile
-      shell: bash
-    - name: Install Thirdparties
-      run: $VCPKG_ROOT/vcpkg install assimp:x64-windows glad:x64-windows glew:x64-windows glfw3:x64-windows opengl:x64-windows sdl2:x64-windows soil2:x64-windows 
-      shell: bash
-    - name: Build
-      run: Build.bat
+    - uses: actions/checkout@v2
+    - run: Build.bat

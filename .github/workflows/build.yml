@@ -15,26 +15,15 @@ jobs:
   build_windows:
     runs-on: windows-latest
     steps:
-    - uses: lukka/get-cmake@latest
-    - name: Restore from cache and run vcpkg
+    - name: Install vcpkg
       uses: lukka/run-vcpkg@v5
       with:
-        # Response file stored in source control, it provides the list of ports and triplet(s).
-        vcpkgArguments: '@${{ env.vcpkgResponseFile }}'
-        # Location of the vcpkg as submodule of the repository.
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        # Since the cache must be invalidated when content of the response file changes, let's
-        # compute its hash and append this to the computed cache's key.
-        appendedCacheKey: ${{ hashFiles(env.vcpkgResponseFile) }}
-    - name: 'Build with CMake and Ninja'
-      uses: lukka/run-cmake@v3
-      with:
-        cmakeListsOrSettingsJson: CMakeListsTxtAdvanced
-        cmakeListsTxtPath: '${{ github.workspace }}/cmakesettings.json/CMakeLists.txt'
-        useVcpkgToolchainFile: true
-        buildDirectory: '${{ runner.workspace }}/b/ninja'
-        cmakeAppendedArgs: '-GNinja Multi-Config'  
+        setupOnly: true
+    - name: Set vcpkg
+      run: $VCPKG_ROOT/vcpkg @$vcpkgResponseFile
+      shell: bash
     - name: Install Thirdparties
-      run: vcpkg install assimp:x64-windows glad:x64-windows glew:x64-windows glfw3:x64-windows opengl:x64-windows sdl2:x64-windows soil2:x64-windows 
+      run: $VCPKG_ROOT/vcpkg install assimp:x64-windows glad:x64-windows glew:x64-windows glfw3:x64-windows opengl:x64-windows sdl2:x64-windows soil2:x64-windows 
+      shell: bash
     - name: Build
       run: Build.bat

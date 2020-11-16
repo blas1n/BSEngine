@@ -1,0 +1,23 @@
+name: BSEngine Test
+
+on:
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - '**/README.md'
+  pull_request:
+    branches: [ master ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: lukka/run-vcpkg@v5.0
+    - name: Install Thirdparties
+      run: vcpkg install assimp:x64-windows glad:x64-windows glew:x64-windows glfw3:x64-windows opengl:x64-windows sdl2:x64-windows soil2:x64-windows 
+    - name: Build
+      run: Build.bat

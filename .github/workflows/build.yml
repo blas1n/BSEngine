@@ -1,0 +1,21 @@
+name: BSEngine Test
+
+on:
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - '**/README.md'
+  pull_request:
+    branches: [ master ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      shell: cmd
+      run: Build.bat

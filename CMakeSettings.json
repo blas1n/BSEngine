@@ -1,11 +1,11 @@
 ﻿{
   "configurations": [
     {
-      "name": "Debug",
+      "name": "Win64-Debug",
       "generator": "Ninja",
       "configurationType": "Debug",
-      "buildRoot": "${projectDir}\\build\\${name}",
-      "installRoot": "${projectDir}\\install\\${name}",
+      "buildRoot": "${projectDir}\\Binaries\\${name}",
+      "installRoot": "${projectDir}\\Install\\${name}",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
@@ -13,11 +13,11 @@
       "variables": []
     },
     {
-      "name": "Release",
+      "name": "Win64-Development",
       "generator": "Ninja",
       "configurationType": "RelWithDebInfo",
-      "buildRoot": "${projectDir}\\build\\${name}",
-      "installRoot": "${projectDir}\\install\\${name}",
+      "buildRoot": "${projectDir}\\Binaries\\${name}",
+      "installRoot": "${projectDir}\\Install\\${name}",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
@@ -25,11 +25,11 @@
       "variables": []
     },
     {
-      "name": "Shipping",
+      "name": "Win64-Shipping",
       "generator": "Ninja",
-      "configurationType": "MinSizeRel",
-      "buildRoot": "${projectDir}\\build\\${name}",
-      "installRoot": "${projectDir}\\install\\${name}",
+      "configurationType": "Release",
+      "buildRoot": "${projectDir}\\Binaries\\${name}",
+      "installRoot": "${projectDir}\\Install\\${name}",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",

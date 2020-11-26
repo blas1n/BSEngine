@@ -431,7 +431,7 @@ MigrationBackup/
 *.vcxproj.user
 
 # Custom build, temp folder
-[Bb]uild/
+[Bb]inaries/
 [Ii]nstall/
 
 # External library, use script

@@ -11,8 +11,8 @@ else ()
 	set (DLL_EXPORT )
 endif ()
 
-add_definitions (-DDLLIMPORT ${DLL_IMPORT})
-add_definitions (-DDLLEXPORT ${DLL_EXPORT})
+add_definitions (-DDLL_IMPORT=${DLL_IMPORT})
+add_definitions (-DDLL_EXPORT=${DLL_EXPORT})
 
 add_subdirectory(Core)
 add_subdirectory(GameBase)

@@ -2,4 +2,4 @@
 
 register_module ()
 
-add_public_dependencies (BSMath)
+target_link_libraries (${MODULE_ID} PUBLIC BSMath PRIVATE spdlog::spdlog fmt::fmt)

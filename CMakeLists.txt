@@ -12,8 +12,6 @@ if (NOT ${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME})
 endif ()
 
 set (CMAKE_CXX_STANDARD 17)
-set (CMAKE_CXX_STANDARD_REQUIRED ON)
-set (CMAKE_CXX_EXTENSIONS OFF)
 
 include (CMake/Platform.cmake)
 include (CMake/Package.cmake)

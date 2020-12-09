@@ -1,6 +1,6 @@
 macro (register_module)
     get_filename_component (MODULE_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-    set (MODULE_ID ${CMAKE_PROJECT_NAME}-${MODULE_NAME})
+    set (MODULE_ID ${PROJECT_NAME}-${MODULE_NAME})
     
     file(GLOB_RECURSE SRCS "*.cpp")
     add_library (${MODULE_ID} SHARED ${SRCS})

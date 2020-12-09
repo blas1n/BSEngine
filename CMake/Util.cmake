@@ -8,7 +8,7 @@ macro (register_module)
     target_include_directories (${MODULE_ID} PUBLIC "Public")
 
     string (TOUPPER ${MODULE_NAME}_API API)
-    target_compile_definitions (${MODULE_ID} PRIVATE ${API}=${DLL_EXPORT})
+    target_compile_definitions (${MODULE_ID} PRIVATE ${API}=${DLL_EXPORT} INTERFACE ${API}=${DLL_IMPORT})
 
     if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Public/pch.h")
         target_precompile_headers (${MODULE_ID} PUBLIC Public/pch.h)

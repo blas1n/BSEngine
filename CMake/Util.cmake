@@ -3,8 +3,7 @@ macro (register_module)
     set (MODULE_ID ${CMAKE_PROJECT_NAME}-${MODULE_NAME})
     
     file(GLOB_RECURSE SRCS "*.cpp")
-    file(GLOB_RECURSE HDRS "*.h")
-    add_library (${MODULE_ID} SHARED ${SRCS} ${HDRS})
+    add_library (${MODULE_ID} SHARED ${SRCS})
     target_include_directories (${MODULE_ID} PUBLIC "Public")
 
     string (TOUPPER ${MODULE_NAME}_API API)

@@ -1,13 +1,18 @@
 #pragma once
 
-#include <>
-#include <utility>
+#include "Core.h"
+#include <fmt/core.h>
+#include "LogCategory.h"
 
-namespace ArenaBoss
+enum class LogVerbosity : uint8
 {
-	template <class... Args>
-	void Log(const char* format, Args&&... args)
-	{
-		//SDL_Log(format, std::forward<Args>(args)...);
-	}
+	Debug, Log, Display, Warn, Error, Critical
+};
+
+CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const std::string& msg);
+
+template <class Str, class... Args>
+void Log(const LogCategory& category, LogVerbosity verbocity, const Str& format, const Args&... args)
+{
+	Log(category, level, fmt::format(format, args...));
 }

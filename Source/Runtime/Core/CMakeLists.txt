@@ -2,4 +2,4 @@
 
 register_module ()
 
-target_link_libraries (Core PUBLIC BSMath PRIVATE spdlog::spdlog fmt::fmt)
+target_link_libraries (Core PUBLIC BSMath fmt::fmt rapidJSON PRIVATE spdlog::spdlog)

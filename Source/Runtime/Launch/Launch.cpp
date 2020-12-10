@@ -1,6 +1,4 @@
-#include "Game.h"
-
 int main()
 {
-	return ArenaBoss::Game{}.Run();
+	return 0;
 }

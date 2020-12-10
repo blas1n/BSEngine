@@ -15,6 +15,6 @@ add_definitions (-DDLL_IMPORT=${DLL_IMPORT})
 add_definitions (-DDLL_EXPORT=${DLL_EXPORT})
 
 add_subdirectory(Core)
-add_subdirectory(GameBase)
-add_subdirectory(Memory)
+add_subdirectory(Engine)
+add_subdirectory(Launch)
 add_subdirectory(Thread)

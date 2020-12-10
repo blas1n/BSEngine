@@ -11,27 +11,28 @@ const std::string* ConfigFile::ConfigSection::operator[](const std::string& key)
 
 namespace
 {
-    std::string TrimInline(const std::string& s)
+    std::string TrimInline(const std::string& s) noexcept
     {
         auto begin = s.find_first_not_of(" \t");
         auto end = s.find_last_not_of(" \t");
+
         if (begin == std::string::npos || end == std::string::npos || begin > end)
             return "";
+        
         return s.substr(begin, end - begin + 1);
     }
 }
 
 bool ConfigFile::LoadFromFile(const std::string& fileName) noexcept
 {
-    if (state != State::Uninitialized)
-        throw std::exception{ "Not initialized" };
+    Clear();
 
     try
     {
-        std::ifstream fin("Config\\" + fileName + ".ini");
+        std::ifstream fin{ "Config\\" + fileName + ".ini" };
         if (!fin) return false;
 
-        std::string section{ "Global" };
+        std::string section{ "" };
         std::unordered_map<std::string, std::string> sectionMap;
         std::string line;
 
@@ -66,12 +67,12 @@ bool ConfigFile::LoadFromFile(const std::string& fileName) noexcept
         }
 
         data.emplace(std::make_pair(section, ConfigSection{ sectionMap }));
-        state = State::Available;
+        isAvailable = true;
         return true;
     }
     catch (...)
     {
-        data.clear();
+        Clear();
         return false;
     }
 }
@@ -79,7 +80,7 @@ bool ConfigFile::LoadFromFile(const std::string& fileName) noexcept
 void ConfigFile::Clear() noexcept
 {
     data.clear();
-    state = State::Uninitialized;
+    isAvailable = false;
 }
 
 const std::string* ConfigFile::operator()(const std::string& sectionName, const std::string& keyName) const noexcept

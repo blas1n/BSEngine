@@ -14,7 +14,6 @@ endif ()
 set (CMAKE_CXX_STANDARD 17)
 
 include (CMake/Platform.cmake)
-include (CMake/Package.cmake)
 include (CMake/Util.cmake)
 
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)

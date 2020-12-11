@@ -3,7 +3,7 @@
 #include <string>
 #include <unordered_map>
 
-class ConfigFile final
+class CORE_API ConfigFile final
 {
     class ConfigSection final
     {
@@ -14,7 +14,7 @@ class ConfigFile final
         ConfigSection(std::unordered_map<std::string, std::string>&& inData)
             : data(std::move(inData)) {}
         
-        const std::string* operator[](const std::string& key) const noexcept;
+        [[nodiscard]] const std::string* operator[](const std::string& key) const noexcept;
 
     private:
         std::unordered_map<std::string, std::string> data;
@@ -32,23 +32,17 @@ public:
     bool LoadFromFile(const std::string& fileName) noexcept;
     void Clear() noexcept;
 
-    bool IsAvailable() const noexcept { return state == State::Available; }
-    operator bool() const noexcept { return IsAvailable(); }
+    [[nodiscard]] bool IsAvailable() const noexcept { return isAvailable; }
+    [[nodiscard]] operator bool() const noexcept { return isAvailable; }
 
-    bool IsExistSection(const std::string& section) const noexcept
+    [[nodiscard]] bool IsExistSection(const std::string& section) const noexcept
     {
         return data.find(section) != data.cend();
     }
 
-    const std::string* operator()(const std::string& sectionName, const std::string& keyName) const noexcept;
+    [[nodiscard]] const std::string* operator()(const std::string& sectionName, const std::string& keyName) const noexcept;
 
 private:
-    enum class State
-    {
-        Uninitialized,
-        Available,
-        Error
-    } state = State::Uninitialized;
-
     std::unordered_map<std::string, ConfigSection> data;
+    bool isAvailable;
 };

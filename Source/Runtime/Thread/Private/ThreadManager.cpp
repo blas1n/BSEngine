@@ -1,5 +1,5 @@
 #include "ThreadManager.h"
-#include "Debug.h"
+#include "Assertion.h"
 
 ThreadManager::ThreadManager() noexcept
 	: threads(), tasks(), cv(), taskMutex(), isEnd(false) {}

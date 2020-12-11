@@ -4,7 +4,7 @@
 #include "Platform.h"
 #include <fmt/core.h>
 
-CORE_API DECLARE_LOG_CATEGORY(LogDebug)
+CORE_API DECLARE_LOG_CATEGORY(LogAssert)
 
 #ifdef NDEBUG
 

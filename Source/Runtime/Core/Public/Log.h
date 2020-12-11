@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Core.h"
-#include <fmt/core.h>
 #include "LogCategory.h"
+#include <fmt/core.h>
 
 enum class LogVerbosity : uint8
 {

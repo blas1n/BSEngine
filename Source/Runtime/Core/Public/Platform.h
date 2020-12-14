@@ -15,7 +15,7 @@ namespace Detail
 #ifdef NDEBUG
     return false;
 #else
-    return Detail::IsDebuggingImpl();
+    return ::Detail::IsDebuggingImpl();
 #endif
 }
 

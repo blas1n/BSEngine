@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core.h"
+#include <stdexcept>
 
 #ifndef NDEBUG
 namespace Detail
@@ -24,7 +25,14 @@ public:
     explicit Dll(const std::string& inPath);
     ~Dll();
 
+    [[nodiscard]] void* GetSymbol(const std::string& name) const;
     [[nodiscard]] void* FindSymbol(const std::string& name) const noexcept;
+
+    template <class T>
+    [[nodiscard]] T& GetSymbol(const std::string& name) const
+    {
+        return *(T*)GetSymbol(name);
+    }
 
     template <class T>
     [[nodiscard]] T* FindSymbol(const std::string& name) const noexcept
@@ -35,7 +43,7 @@ public:
     template <class Fn, class... Args>
     decltype(auto) Call(const std::string& name, Args&&... args) const
     {
-        return (*FindSymbol<Fn>(name))(std::forward<Args>(args)...);
+        return GetSymbol<Fn>(name)(std::forward<Args>(args)...);
     }
 
 private:

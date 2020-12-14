@@ -44,12 +44,23 @@ Dll::Dll(const std::string& inPath)
     : path(inPath)
 {
     dll = LoadLibrary(path.c_str());
-    Check(dll, "{}: cannot load module: {}", filepath, GetLastErrorMsg());
+    Check(dll, "{}: cannot load module, {}", path, GetLastErrorMsg());
 }
 
 Dll::~Dll()
 {
     FreeLibrary(reinterpret_cast<HMODULE>(dll));
+}
+
+void* Dll::GetSymbol(const std::string& name) const
+{
+    auto* symbol = FindSymbol(name);
+    if (!symbol)
+    {
+        const auto msg = fmt::format("Path: {}, Name: {}, {}", path, name, GetLastErrorMsg());
+        throw std::runtime_error{ msg };
+    }
+    return symbol;
 }
 
 void* Dll::FindSymbol(const std::string& name) const noexcept

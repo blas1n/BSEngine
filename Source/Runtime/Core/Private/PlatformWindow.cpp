@@ -9,12 +9,9 @@
 
 #ifndef NDEBUG
 
-namespace Detail
+bool ::Detail::IsDebuggingImpl() noexcept
 {
-    bool IsDebuggingImpl() noexcept
-    {
-        return IsDebuggerPresent();
-    }
+    return IsDebuggerPresent();
 }
 
 #endif

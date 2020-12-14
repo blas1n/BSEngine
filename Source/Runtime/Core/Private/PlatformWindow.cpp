@@ -44,6 +44,35 @@ Dll::Dll(const std::string& inPath)
     Check(dll, "{}: cannot load module, {}", path, GetLastErrorMsg());
 }
 
+Dll::Dll(const Dll& other)
+    : path(other.path)
+{
+    if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    dll = other.dll;
+}
+
+Dll::Dll(Dll&& other) noexcept
+    : path(std::move(other.path))
+{
+    if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    dll = std::move(other.dll);
+
+}
+
+Dll& Dll::operator=(const Dll& other)
+{
+    if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    dll = other.dll;
+    path = other.path;
+}
+
+Dll& Dll::operator=(Dll&& other) noexcept
+{
+    if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    dll = std::move(other.dll);
+    path = std::move(other.path);
+}
+
 Dll::~Dll()
 {
     FreeLibrary(reinterpret_cast<HMODULE>(dll));

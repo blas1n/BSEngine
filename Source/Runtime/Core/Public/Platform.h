@@ -23,6 +23,13 @@ class CORE_API Dll final
 {
 public:
     explicit Dll(const std::string& inPath);
+
+    Dll(const Dll& other);
+    Dll(Dll&& other) noexcept;
+
+    Dll& operator=(const Dll& other);
+    Dll& operator=(Dll&& other) noexcept;
+
     ~Dll();
 
     [[nodiscard]] void* GetSymbol(const std::string& name) const;

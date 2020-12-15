@@ -1,9 +1,6 @@
 #include "ThreadManager.h"
 #include "Assertion.h"
 
-ThreadManager::ThreadManager() noexcept
-	: threads(), tasks(), cv(), taskMutex(), isEnd(false) {}
-
 void ThreadManager::Init()
 {
 	auto threadNum = std::thread::hardware_concurrency();

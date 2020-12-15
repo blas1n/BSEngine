@@ -6,6 +6,7 @@ void ThreadManager::Init()
 	auto threadNum = std::thread::hardware_concurrency();
 	Check(threadNum > 0);
 
+	mainThreadId = std::this_thread::get_id();
 	threads.reserve(threadNum);
 
 	while (threadNum--)
@@ -19,6 +20,12 @@ void ThreadManager::Release() noexcept
 
 	for (auto& t : threads)
 		t.join();
+}
+
+bool ThreadManager::IsMainThread() const noexcept
+{
+	Check(mainThreadId == std::thread::id{});
+	return mainThreadId == std::this_thread::get_id();
 }
 
 void ThreadManager::ThreadWork() noexcept

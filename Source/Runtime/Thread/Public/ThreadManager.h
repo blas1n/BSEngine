@@ -16,12 +16,15 @@ public:
 	template <class Fn, class... Args>
 	decltype(auto) AddTask(Fn&& fn, Args&&... args) noexcept;
 
+	bool IsMainThread() const noexcept;
+
 private:
 	void ThreadWork() noexcept;
 
 private:
 	std::vector<std::thread> threads;
 	std::queue<std::function<void()>> tasks;
+	std::thread::id mainThreadId;
 	std::condition_variable cv;
 	std::mutex taskMutex;
 	bool isEnd;

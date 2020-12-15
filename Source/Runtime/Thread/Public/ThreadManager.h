@@ -14,8 +14,7 @@ public:
 	void Release() noexcept;
 
 	template <class Fn, class... Args>
-	std::future<std::invoke_result_t<Fn, Args...>> AddTask
-		(Fn&& fn, Args&&... args) noexcept;
+	decltype(auto) AddTask(Fn&& fn, Args&&... args) noexcept;
 
 private:
 	void ThreadWork() noexcept;
@@ -29,7 +28,7 @@ private:
 };
 
 template <class Fn, class... Args>
-std::future<std::invoke_result_t<Fn, Args...>> ThreadManager::AddTask(Fn&& fn, Args&&... args) noexcept
+decltype(auto) ThreadManager::AddTask(Fn&& fn, Args&&... args) noexcept
 {
 	auto task = std::make_shared
 		<std::packaged_task<std::invoke_result_t<Fn, Args...>()>>(

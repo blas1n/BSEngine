@@ -10,8 +10,6 @@
 class ThreadManager
 {
 public:
-	ThreadManager() noexcept;
-
 	void Init() noexcept;
 	void Release() noexcept;
 

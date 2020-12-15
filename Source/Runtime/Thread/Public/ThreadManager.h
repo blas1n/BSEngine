@@ -7,7 +7,7 @@
 #include <future>
 #include <mutex>
 
-class ThreadManager
+class ThreadManager final
 {
 public:
 	void Init() noexcept;

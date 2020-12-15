@@ -27,7 +27,7 @@ private:
 	std::thread::id mainThreadId;
 	std::condition_variable cv;
 	std::mutex taskMutex;
-	bool isEnd;
+	bool isEnd = false;
 };
 
 template <class Fn, class... Args>

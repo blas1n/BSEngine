@@ -7,17 +7,16 @@
 #include <future>
 #include <mutex>
 
-class ThreadManager
+class ThreadManager final
 {
 public:
-	ThreadManager() noexcept;
-
 	void Init() noexcept;
 	void Release() noexcept;
 
 	template <class Fn, class... Args>
-	std::future<std::invoke_result_t<Fn, Args...>> AddTask
-		(Fn&& fn, Args&&... args) noexcept;
+	decltype(auto) AddTask(Fn&& fn, Args&&... args) noexcept;
+
+	bool IsMainThread() const noexcept;
 
 private:
 	void ThreadWork() noexcept;
@@ -25,17 +24,18 @@ private:
 private:
 	std::vector<std::thread> threads;
 	std::queue<std::function<void()>> tasks;
+	std::thread::id mainThreadId;
 	std::condition_variable cv;
 	std::mutex taskMutex;
-	bool isEnd;
+	bool isEnd = false;
 };
 
 template <class Fn, class... Args>
-std::future<std::invoke_result_t<Fn, Args...>> ThreadManager::AddTask(Fn&& fn, Args&&... args) noexcept
+decltype(auto) ThreadManager::AddTask(Fn&& fn, Args&&... args) noexcept
 {
 	auto task = std::make_shared
 		<std::packaged_task<std::invoke_result_t<Fn, Args...>()>>(
-			std::bind(Forward<Fn>(fn), Forward<Args>(args)...)
+			std::bind(std::forward<Fn>(fn), std::forward<Args>(args)...)
 		);
 
 	taskMutex.lock();

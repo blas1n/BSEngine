@@ -2,35 +2,32 @@
 
 #include <cstdint>
 
-namespace ArenaBoss
+class Game final
 {
-	class Game final
-	{
-	public:
-		Game();
+public:
+	Game();
 
-		Game(const Game&) = delete;
-		Game(Game&&) noexcept = default;
+	Game(const Game&) = delete;
+	Game(Game&&) noexcept = default;
 
-		Game& operator=(const Game&) = delete;
-		Game& operator=(Game&&) noexcept = default;
+	Game& operator=(const Game&) = delete;
+	Game& operator=(Game&&) noexcept = default;
 
-		~Game();
+	~Game();
 
-		int Run();
+	int Run();
 
-		inline static void Exit() noexcept { isRun = false; }
+	inline static void Exit() noexcept { isRun = false; }
 
-	private:
-		inline static bool isRun = true;
+private:
+	inline static bool isRun = true;
 
-		class WindowManager* windowManager = nullptr;
-		class RenderManager* renderManager = nullptr;
-		class InputManager* inputManager = nullptr;
-		class SceneManager* sceneManager = nullptr;
-		class ResourceManager* resourceManager = nullptr;
-		class ComponentManager* componentManager = nullptr;
+	class WindowManager* windowManager = nullptr;
+	class RenderManager* renderManager = nullptr;
+	class InputManager* inputManager = nullptr;
+	class SceneManager* sceneManager = nullptr;
+	class ResourceManager* resourceManager = nullptr;
+	class ComponentManager* componentManager = nullptr;
 
-		uint32_t ticksCount = 0u;
-	};
-}
+	uint32_t ticksCount = 0u;
+};

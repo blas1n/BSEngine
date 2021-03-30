@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace ArenaBoss::Util
+namespace Util
 {
     template <class T, int N>
     constexpr int ArraySize(const T(&arr)[N]) noexcept

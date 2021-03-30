@@ -433,6 +433,7 @@ MigrationBackup/
 # Custom build, temp folder
 [Bb]inaries/
 [Ii]nstall/
+[Bb]uild/
 
 # External library, use script
 vcpkg/

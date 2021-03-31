@@ -15,6 +15,7 @@ set (CMAKE_CXX_STANDARD 17)
 
 include (CMake/Platform.cmake)
 include (CMake/Util.cmake)
+include (CMake/ThirdParty.cmake)
 
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)

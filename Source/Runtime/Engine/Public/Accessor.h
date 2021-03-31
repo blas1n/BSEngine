@@ -6,7 +6,7 @@ template <class T>
 class Accessor
 {
 protected:
-	inline static T& GetManager() noexcept
+	static T& GetManager() noexcept
 	{
 		assert(manager != nullptr);
 		return *manager;

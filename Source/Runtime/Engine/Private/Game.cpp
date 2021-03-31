@@ -11,56 +11,38 @@
 #include "SceneManager.h"
 #include "WindowManager.h"
 
-Game::Game()
+bool Game::Init()
 {
-	try
-	{
-		ConfigFile config{ "Config.txt" };
+	ConfigFile config{ "Config.txt" };
 
-		const char* name = config("Common", "Name")->c_str();
-		uint32_t width = std::stoi(*config("Common", "Width"));
-		uint32_t height = std::stoi(*config("Common", "Height"));
-		std::string screenStr = *config("Common", "ScreenMode");
+	const char* name = config("Common", "Name")->c_str();
+	uint32_t width = std::stoi(*config("Common", "Width"));
+	uint32_t height = std::stoi(*config("Common", "Height"));
+	std::string screenStr = *config("Common", "ScreenMode");
 
-		ScreenMode screenMode = ScreenMode::Window;
-		if (screenStr == "FullScreen")
-			screenMode = ScreenMode::FullScreen;
-		else if (screenStr == "Borderless")
-			screenMode = ScreenMode::Borderless;
+	ScreenMode screenMode = ScreenMode::Window;
+	if (screenStr == "FullScreen")
+		screenMode = ScreenMode::FullScreen;
+	else if (screenStr == "Borderless")
+		screenMode = ScreenMode::Borderless;
 
-		windowManager = new WindowManager{ name, width, height, screenMode };
-		Accessor<WindowManager>::manager = windowManager;
+	windowManager = new WindowManager{ name, width, height, screenMode };
+	Accessor<WindowManager>::manager = windowManager;
 
-		resourceManager = new ResourceManager{};
-		Accessor<ResourceManager>::manager = resourceManager;
+	resourceManager = new ResourceManager{};
+	Accessor<ResourceManager>::manager = resourceManager;
 
-		renderManager = new RenderManager{};
-		Accessor<RenderManager>::manager = renderManager;
+	renderManager = new RenderManager{};
+	Accessor<RenderManager>::manager = renderManager;
 
-		inputManager = new InputManager{};
-		Accessor<InputManager>::manager = inputManager;
+	inputManager = new InputManager{};
+	Accessor<InputManager>::manager = inputManager;
 
-		sceneManager = new SceneManager{ *config("Scene", "StartName") };
-		Accessor<SceneManager>::manager = sceneManager;
+	sceneManager = new SceneManager{ *config("Scene", "StartName") };
+	Accessor<SceneManager>::manager = sceneManager;
 
-		componentManager = new ComponentManager{};
-		Accessor<ComponentManager>::manager = componentManager;
-	}
-	catch (std::exception& e)
-	{
-		Log(e.what());
-	}
-}
-
-Game::~Game()
-{
-	delete componentManager;
-	delete sceneManager;
-	delete inputManager;
-	delete renderManager;
-	delete resourceManager;
-	delete windowManager;
-	SDL_Quit();
+	componentManager = new ComponentManager{};
+	Accessor<ComponentManager>::manager = componentManager;
 }
 
 int Game::Run()
@@ -84,4 +66,14 @@ int Game::Run()
 	}
 
 	return 0;
+}
+
+void Game::Release()
+{
+	delete componentManager;
+	delete sceneManager;
+	delete inputManager;
+	delete renderManager;
+	delete resourceManager;
+	delete windowManager;
 }

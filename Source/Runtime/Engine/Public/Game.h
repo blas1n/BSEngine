@@ -5,7 +5,7 @@
 class Game final
 {
 public:
-	Game();
+	Game() noexcept = default;
 
 	Game(const Game&) = delete;
 	Game(Game&&) noexcept = default;
@@ -13,9 +13,11 @@ public:
 	Game& operator=(const Game&) = delete;
 	Game& operator=(Game&&) noexcept = default;
 
-	~Game();
+	~Game() = default;
 
-	int Run();
+	[[nodiscard]] int32_t Init() noexcept;
+	[[nodiscard]] int32_t Run() noexcept;
+	void Release() noexcept;
 
 	inline static void Exit() noexcept { isRun = false; }
 

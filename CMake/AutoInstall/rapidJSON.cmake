@@ -1,9 +1,9 @@
 cmake_minimum_required (VERSION 3.10)
-project (@name@-download NONE)
+project (${NAME}-DOWNLOAD NONE)
 include (ExternalProject)
 
 ExternalProject_Add (
-	@name@-download
+	${NAME}-DOWNLOAD
 	GIT_REPOSITORY		https://github.com/Tencent/rapidjson/
 	GIT_TAG				1.1.0
 	GIT_SHALLOW			TRUE

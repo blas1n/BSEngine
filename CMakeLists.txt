@@ -12,6 +12,7 @@ if (NOT ${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME})
 endif ()
 
 set (CMAKE_CXX_STANDARD 17)
+set (CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
 
 include (CMake/Platform.cmake)
 include (CMake/Util.cmake)

@@ -1,5 +1,5 @@
 # Source/Runtime/Core
 
-register_module ()
+register_library ()
 
 target_link_libraries (Core PUBLIC BSMath fmt::fmt rapidJSON PRIVATE spdlog::spdlog)

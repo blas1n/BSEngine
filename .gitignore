@@ -437,3 +437,8 @@ MigrationBackup/
 
 # External library, use script
 vcpkg/
+
+# Atuo installed third party
+Sources/ThirdParty/fmt/
+Sources/ThirdParty/spdlog/
+Sources/ThirdParty/rapidJSON/

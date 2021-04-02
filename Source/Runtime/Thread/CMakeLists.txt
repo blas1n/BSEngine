@@ -1,5 +1,5 @@
 # Source/Runtime/Thread
 
-register_module ()
+register_library ()
 
 target_link_libraries (Thread Private Core)

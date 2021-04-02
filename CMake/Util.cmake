@@ -1,75 +1,67 @@
-function (register_module)
-    get_filename_component (module_name ${cmake_current_source_dir} name)
+function (register_library)
+    get_filename_component (MODULE_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
     
-    file (GLOB_RECURSE srcs "*.cpp")
-    add_library (${module_name} SHARED ${srcs})
-    target_include_directories (${module_name} PUBLIC "Public")
+    file (GLOB_RECURSE SRCS "*.cpp")
+    add_library (${MODULE_NAME} SHARED ${SRCS})
+    target_include_directories (${MODULE_NAME} PUBLIC "Public")
 
-    string (TOUPPER ${module_name}_API api)
-    target_compile_definitions (${module_name} PRIVATE ${api}=${dll_export} INTERFACE ${api}=${dll_import})
+    string (TOUPPER ${MODULE_NAME}_API API)
+    target_compile_definitions (${MODULE_NAME} PRIVATE ${API}=${DLL_EXPORT} INTERFACE ${API}=${DLL_IMPORT})
 
-    if (EXISTS "${cmake_current_source_dir}/Public/pch.h")
-        target_precompile_headers (${module_name} PUBLIC Public/pch.h)
+    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Public/pch.h")
+        target_precompile_headers (${MODULE_NAME} PUBLIC Public/pch.h)
     endif ()
 
-    if (EXISTS "${cmake_current_source_dir}/Private/pch.h")
-        target_precompile_headers (${module_name} PRIVATE Private/pch.h)
+    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Private/pch.h")
+        target_precompile_headers (${MODULE_NAME} PRIVATE Private/pch.h)
     endif ()
 endfunction ()
 
-function (download_package name REPO TAG)
-    set (cmake_dir "${project_source_dir}/CMake/AutoInstall")
-    set (src_dir "${project_source_dir}/Source/ThirdParty/${name}")
-    set (build_dir "${cmake_binary_dir}/ThirdParty/${name}-build")
-    set (download_dir "${cmake_binary_dir}/ThirdParty/${name}-download")
-    configure_file ("${cmake_dir}/${name}.cmake" "${download_dir}/CMakeLists.txt" @ONLY)
+function (download_package NAME REPO TAG)
+    set (SRC_DIR "${PROJECT_SOURCE_DIR}/Source/ThirdParty/${NAME}")
+    set (BUILD_DIR "${CMAKE_BINARY_DIR}/ThirdParty/${NAME}-build")
+    set (DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/ThirdParty/${NAME}-download")
 
-    message ("Dir: ${src_dir}, ${build_dir} ${download_dir}")
+    message (${NAME}, ${REPO}, ${TAG}, ${SRC_DIR}, ${BUILD_DIR})
 
-    execute_process (
-        COMMAND ${cmake_command} -G "${cmake_generator}" .
-        RESULT_VARIABLE result
-        WORKING_DIRECTORY "${download_dir}"
-    )
-
-    if (result)
-        message (FATAL_ERROR "CMake step for ${name} failed: ${result}")
-    endif ()
+    configure_file ("${CMAKE_DIR}/AutoInstall.cmake" "${DOWNLOAD_DIR}/CMakeLists.txt" @ONLY)
 
     execute_process (
-        COMMAND ${cmake_command} --build .
-        RESULT_VARIABLE result
-        WORKING_DIRECTORY "${download_dir}"
+        COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .
+        RESULT_VARIABLE RESULT
+        WORKING_DIRECTORY "${DOWNLOAD_DIR}"
     )
 
-    if (result)
-        message (FATAL_ERROR "Build step for ${name} failed: ${result}")
+    if (RESULT)
+        message (FATAL_ERROR "CMake step for ${NAME} failed: ${RESULT}")
     endif ()
 
-    if (EXISTS "${cmake_dir}/${name}-build.cmake")
-         configure_file ("${cmake_dir}/${name}-build.cmake" "${src_dir}/CMakeLists.txt" @ONLY)
+    execute_process (
+        COMMAND ${CMAKE_COMMAND} --build .
+        RESULT_VARIABLE RESULT
+        WORKING_DIRECTORY "${DOWNLOAD_DIR}"
+    )
+
+    if (RESULT)
+        message (FATAL_ERROR "Build step for ${NAME} failed: ${RESULT}")
     endif ()
 
-    if (EXISTS "${src_dir}/CMakeLists.txt")
-         add_subdirectory ("${src_dir}" "${build_dir}" EXCLUDE_FROM_ALL)
+    if (EXISTS "${CMAKE_DIR}/${NAME}-build.cmake")
+         configure_file ("${CMAKE_DIR}/${NAME}-build.cmake" "${SRC_DIR}/CMakeLists.txt" @ONLY)
+    endif ()
+
+    if (EXISTS "${SRC_DIR}/CMakeLists.txt")
+         add_subdirectory ("${SRC_DIR}" "${BUILD_DIR}" EXCLUDE_FROM_ALL)
     endif ()
 endfunction ()
 
-function (get_package name)
-    if (${argc} GREATER 1)
-         set(version ${argv1})
-    endif ()
+function (get_package NAME REPO TAG)
+    find_package (${NAME} CONFIG QUIET)
 
-    if (version)
-        find_package (${name} ${version} QUIET)
+    if (${NAME}_FOUND)
+        message (STATUS "Found ${NAME} from system")
     else ()
-        find_package (${name} QUIET)
-    endif ()
-    
-    if (${name}_FOUND)
-        message (STATUS "Found ${name} from system")
-    else ()
-        message (STATUS "Could not find ${name} from system. Downloading...")
-        download_package (${name})
+        message (STATUS "Could not find ${NAME} from system. Downloading...")
+        download_package (${NAME} ${REPO} ${TAG})
     endif ()
 endfunction ()

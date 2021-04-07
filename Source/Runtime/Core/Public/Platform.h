@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Core.h"
-#include <stdexcept>
+#include "CharSet.h"
 
 #ifndef NDEBUG
-namespace Detail
+namespace Impl
 {
     [[nodiscard]] CORE_API bool IsDebuggingImpl() noexcept;
 }

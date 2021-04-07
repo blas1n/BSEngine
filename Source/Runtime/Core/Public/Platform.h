@@ -15,14 +15,14 @@ namespace Impl
 #ifdef NDEBUG
     return false;
 #else
-    return ::Detail::IsDebuggingImpl();
+    return Impl::IsDebuggingImpl();
 #endif
 }
 
 class CORE_API Dll final
 {
 public:
-    explicit Dll(const std::string& inPath);
+    explicit Dll(const String& inPath);
 
     Dll(const Dll& other);
     Dll(Dll&& other) noexcept;
@@ -32,28 +32,28 @@ public:
 
     ~Dll();
 
-    [[nodiscard]] void* GetSymbol(const std::string& name) const;
-    [[nodiscard]] void* FindSymbol(const std::string& name) const noexcept;
+    [[nodiscard]] void* GetSymbol(const String& name) const;
+    [[nodiscard]] void* FindSymbol(const String& name) const noexcept;
 
     template <class T>
-    [[nodiscard]] T& GetSymbol(const std::string& name) const
+    [[nodiscard]] T& GetSymbol(const String& name) const
     {
         return *(T*)GetSymbol(name);
     }
 
     template <class T>
-    [[nodiscard]] T* FindSymbol(const std::string& name) const noexcept
+    [[nodiscard]] T* FindSymbol(const String& name) const noexcept
     {
         return (T*)FindSymbol(name);
     }
 
     template <class Fn, class... Args>
-    decltype(auto) Call(const std::string& name, Args&&... args) const
+    decltype(auto) Call(const String& name, Args&&... args) const
     {
         return GetSymbol<Fn>(name)(std::forward<Args>(args)...);
     }
 
 private:
     void* dll;
-    std::string path;
+    String path;
 };

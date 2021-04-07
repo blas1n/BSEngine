@@ -9,8 +9,10 @@ enum class LogVerbosity : uint8
 	Debug, Log, Display, Warn, Error, Critical
 };
 
-CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const std::string& msg);
+namespace Impl
+{
 	CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const String& msg);
+}
 
 template <class Str, class... Args>
 void Log(const LogCategory& category, LogVerbosity verbocity, const Str& format, const Args&... args)

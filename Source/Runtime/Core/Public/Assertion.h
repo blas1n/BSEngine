@@ -1,8 +1,9 @@
 #pragma once
 
+#include "BSBase/Type.h"
+#include "fmt/core.h"
 #include "LogCategory.h"
 #include "Platform.h"
-#include <fmt/core.h>
 
 CORE_API DECLARE_LOG_CATEGORY(LogAssert)
 

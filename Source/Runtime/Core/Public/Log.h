@@ -1,10 +1,11 @@
 #pragma once
 
-#include "Core.h"
+#include "BSBase/Type.h"
+#include "fmt/core.h"
+#include "CharSet.h"
 #include "LogCategory.h"
-#include <fmt/core.h>
 
-enum class LogVerbosity : uint8
+enum class LogVerbosity : BSBase::uint8
 {
 	Debug, Log, Display, Warn, Error, Critical
 };

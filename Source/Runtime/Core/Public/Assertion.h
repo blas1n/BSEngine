@@ -16,10 +16,10 @@ CORE_API DECLARE_LOG_CATEGORY(LogAssert)
 
 #else
 
-CORE_API void LogToFail(bool isCritical, const char* expr, const char* file, int32 line, const std::string& msg);
+CORE_API void LogToFail(bool isCritical, const char* expr, const char* file, BSBase::int32 line, const std::string& msg);
 
 template <class Str, class... Args>
-void LogToFail(bool isCritical, const char* expr, const char* file, int32 line, const Str& format, Args... args)
+void LogToFail(bool isCritical, const char* expr, const char* file, BSBase::int32 line, const Str& format, Args... args)
 {
 	LogToFail(isCritical, expr, file, line, fmt::format(format, args...));
 }

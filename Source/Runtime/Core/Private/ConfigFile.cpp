@@ -1,9 +1,8 @@
 #include "ConfigFile.h"
 #include <algorithm>
-#include <fstream>
 #include "Log.h"
 
-const std::string* ConfigFile::ConfigSection::operator[](const std::string& key) const noexcept
+const String* ConfigFile::ConfigSection::operator[](const String& key) const noexcept
 {
     const auto iter = data.find(key);
     return iter != data.cend() ? &(iter->second) : nullptr;
@@ -11,70 +10,72 @@ const std::string* ConfigFile::ConfigSection::operator[](const std::string& key)
 
 namespace
 {
-    std::string TrimInline(const std::string& s) noexcept
+    String TrimInline(const String& s) noexcept
     {
-        auto begin = s.find_first_not_of(" \t");
-        auto end = s.find_last_not_of(" \t");
+        auto begin = s.find_first_not_of(u" \t");
+        auto end = s.find_last_not_of(u" \t");
 
-        if (begin == std::string::npos || end == std::string::npos || begin > end)
-            return "";
+        if (begin == String::npos || end == String::npos || begin > end)
+            return u"";
         
         return s.substr(begin, end - begin + 1);
     }
 }
 
-bool ConfigFile::LoadFromFile(const std::string& fileName) noexcept
+bool ConfigFile::LoadFromFile(const String& fileName) noexcept
 {
     Clear();
 
-    try
+    const auto path = u"Config\\" + fileName + u".ini";
+    IfStream fin{ reinterpret_cast<const BSBase::uint16*>(path.c_str()) };
+    if (!fin) return false;
+
+    String section{ u"" };
+    std::unordered_map<String, String> sectionMap;
+    String line;
+
+    while (std::getline(fin, line))
     {
-        std::ifstream fin{ "Config\\" + fileName + ".ini" };
-        if (!fin) return false;
+        if ((line = TrimInline(line)).empty() || line[0] == u'#')
+            continue;
 
-        std::string section{ "" };
-        std::unordered_map<std::string, std::string> sectionMap;
-        std::string line;
-
-        while (std::getline(fin, line))
+        if (line[0] == u'[')
         {
-            if ((line = TrimInline(line)).empty() || line[0] == '#')
-                continue;
-
-            if (line[0] == '[')
+            const auto end = line.rfind(u']');
+            if (end == String::npos || end == 1)
             {
-                const auto end = line.rfind(']');
-                if (end == std::string::npos || end == 1)
-                    throw;
-
-                data.emplace(std::make_pair(section, ConfigSection{ sectionMap }));
-                section = TrimInline(line.substr(1, end - 1));
+                Clear();
+                return false;
             }
-            else
-            {
-                const auto eq = line.find('=');
-                if (eq == std::string::npos || eq == 0 || eq == line.length() - 1)
-                    throw;
 
-                const auto left = TrimInline(line.substr(0, eq));
-                const auto right = TrimInline(line.substr(eq + 1));
-
-                if (left.empty() || right.empty())
-                    throw;
-
-                sectionMap.emplace(std::make_pair(left, right));
-            }
+            data.emplace(std::make_pair(section, ConfigSection{ sectionMap }));
+            section = TrimInline(line.substr(1, end - 1));
         }
+        else
+        {
+            const auto eq = line.find(u'=');
+            if (eq == String::npos || eq == 0 || eq == line.length() - 1)
+            {
+                Clear();
+                return false;
+            }
 
-        data.emplace(std::make_pair(section, ConfigSection{ sectionMap }));
-        isAvailable = true;
-        return true;
+            const auto left = TrimInline(line.substr(0, eq));
+            const auto right = TrimInline(line.substr(eq + 1));
+
+            if (left.empty() || right.empty())
+            {
+                Clear();
+                return false;
+            }
+
+            sectionMap.emplace(std::make_pair(left, right));
+        }
     }
-    catch (...)
-    {
-        Clear();
-        return false;
-    }
+
+    data.emplace(std::make_pair(section, ConfigSection{ sectionMap }));
+    isAvailable = true;
+    return true;
 }
 
 void ConfigFile::Clear() noexcept
@@ -83,7 +84,7 @@ void ConfigFile::Clear() noexcept
     isAvailable = false;
 }
 
-const std::string* ConfigFile::operator()(const std::string& sectionName, const std::string& keyName) const noexcept
+const String* ConfigFile::operator()(const String& sectionName, const String& keyName) const noexcept
 {
     const auto iter = data.find(sectionName);
     if (iter == data.cend()) return nullptr;

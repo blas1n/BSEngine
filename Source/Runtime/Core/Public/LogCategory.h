@@ -1,11 +1,11 @@
 #pragma once
 
-#include <string>
+#include "CharSet.h"
 
 struct LogCategory final
 {
-	std::string name;
+	String name;
 };
 
 #define DECLARE_LOG_CATEGORY(name) extern const LogCategory name;
-#define DEFINE_LOG_CATEGORY(name) const LogCategory name{ #name };
+#define DEFINE_LOG_CATEGORY(name) const LogCategory name{ u#name };

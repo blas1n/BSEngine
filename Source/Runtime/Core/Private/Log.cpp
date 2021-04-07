@@ -46,7 +46,7 @@ public:
         file->flush();
     }
 
-    void Log(const LogCategory& category, LogVerbosity verbosity, std::string message)
+    void Log(const LogCategory& category, LogVerbosity verbosity, const String& message)
     {
         const auto msg = fmt::format("{}: {}", category.name, message);
         file->log(ToSpdLogLevel(verbosity), msg);
@@ -62,7 +62,7 @@ private:
     std::shared_ptr<spdlog::logger> file;
 };
 
-void Log(const LogCategory& category, LogVerbosity level, std::string message)
+void Impl::Log(const LogCategory& category, LogVerbosity level, const String& message)
 {
     Logger::Get().Log(category, level, message);
 }

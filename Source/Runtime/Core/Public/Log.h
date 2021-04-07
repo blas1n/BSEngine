@@ -10,6 +10,7 @@ enum class LogVerbosity : uint8
 };
 
 CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const std::string& msg);
+	CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const String& msg);
 
 template <class Str, class... Args>
 void Log(const LogCategory& category, LogVerbosity verbocity, const Str& format, const Args&... args)

@@ -10,7 +10,7 @@
 
 #ifndef NDEBUG
 
-bool ::Detail::IsDebuggingImpl() noexcept
+bool Impl::IsDebuggingImpl() noexcept
 {
     return IsDebuggerPresent();
 }

@@ -2,7 +2,7 @@
 
 #include <string>
 
-struct LogCategory
+struct LogCategory final
 {
 	std::string name;
 };

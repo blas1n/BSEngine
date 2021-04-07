@@ -24,7 +24,7 @@ void LogToFail(bool isCritical, const char* expr, const char* file, BSBase::int3
 	LogToFail(isCritical, expr, file, line, fmt::format(format, args...));
 }
 
-#	ifdef _WIN32
+#	ifdef WINDOWS
 #		define DEBUG_BREAK() (void)(IsDebugging() && (::__debugbreak(), true))
 #	else
 #		include <csignal>

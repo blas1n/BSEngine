@@ -5,20 +5,6 @@ string(REPLACE "/DNDEBUG" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_R
 string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
 string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
 
-if (${PLATFORM_WINDOWS})
-	set (DLL_IMPORT "__declspec(dllimport)")
-	set (DLL_EXPORT "__declspec(dllexport)")
-elseif (${PLATFORM_LINUX} OR ${PLATFORM_MAC})
-	set (DLL_IMPORT "__attribute__((visibility(\"default\")))")
-	set (DLL_EXPORT "__attribute__((visibility(\"default\")))")
-else ()
-	set (DLL_IMPORT )
-	set (DLL_EXPORT )
-endif ()
-
-add_definitions (-DDLL_IMPORT=${DLL_IMPORT})
-add_definitions (-DDLL_EXPORT=${DLL_EXPORT})
-
 add_subdirectory(Core)
 add_subdirectory(Engine)
 add_subdirectory(Launch)

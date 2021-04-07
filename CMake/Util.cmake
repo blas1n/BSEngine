@@ -1,8 +1,10 @@
 function (register_library)
     get_filename_component (MODULE_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
     
+    # This is unnecessary, but added for convenience in the editor.
+    file (GLOB_RECURSE INCS "*.h")
     file (GLOB_RECURSE SRCS "*.cpp")
-    add_library (${MODULE_NAME} SHARED ${SRCS})
+    add_library (${MODULE_NAME} SHARED ${INCS} ${SRCS})
     target_include_directories (${MODULE_NAME} PUBLIC "Public")
 
     string (TOUPPER ${MODULE_NAME}_API API)

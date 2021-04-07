@@ -4,8 +4,9 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include "Platform.h"
-#include "Assertion.h"
 #include <Windows.h>
+#include "fmt/core.h"
+#include "Assertion.h"
 
 #ifndef NDEBUG
 
@@ -18,12 +19,12 @@ bool ::Detail::IsDebuggingImpl() noexcept
 
 namespace
 {
-    std::string GetLastErrorMsg()
+    String GetLastErrorMsg()
     {
         constexpr static auto MaxSize = 512;
-        static char buffer[MaxSize];
+        static wchar_t buffer[MaxSize];
 
-        FormatMessage(
+        FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM,
             nullptr,
             GetLastError(),
@@ -33,15 +34,15 @@ namespace
             nullptr
         );
 
-        return std::string{ buffer };
+        return String{ buffer };
     }
 }
 
-Dll::Dll(const std::string& inPath)
+Dll::Dll(const String& inPath)
     : path(inPath)
 {
     dll = LoadLibrary(path.c_str());
-    Check(dll, "{}: cannot load module, {}", path, GetLastErrorMsg());
+    Check(dll, u"{}: cannot load module, {}", path, GetLastErrorMsg());
 }
 
 Dll::Dll(const Dll& other)
@@ -78,18 +79,19 @@ Dll::~Dll()
     FreeLibrary(reinterpret_cast<HMODULE>(dll));
 }
 
-void* Dll::GetSymbol(const std::string& name) const
+void* Dll::GetSymbol(const String& name) const
 {
     auto* symbol = FindSymbol(name);
     if (!symbol)
     {
-        const auto msg = fmt::format("Path: {}, Name: {}, {}", path, name, GetLastErrorMsg());
+        fmt::format("");
+        const auto msg = fmt::format(u"Path: {}, Name: {}, {}", path, name, GetLastErrorMsg());
         throw std::runtime_error{ msg };
     }
     return symbol;
 }
 
-void* Dll::FindSymbol(const std::string& name) const noexcept
+void* Dll::FindSymbol(const String& name) const noexcept
 {
     return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dll), name.c_str()));
 }

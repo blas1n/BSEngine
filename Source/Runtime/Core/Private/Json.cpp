@@ -3,7 +3,7 @@
 
 namespace Json
 {
-	std::optional<int> GetInt(const Object& inObject, const char* name)
+	std::optional<int> GetInt(const Object& inObject, const Char* name)
 	{
 		const auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
@@ -16,7 +16,7 @@ namespace Json
 		return property.GetInt();
 	}
 
-	std::optional<float> GetFloat(const Object& inObject, const char* name)
+	std::optional<float> GetFloat(const Object& inObject, const Char* name)
 	{
 		const auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
@@ -29,7 +29,7 @@ namespace Json
 		return property.GetFloat();
 	}
 
-	std::optional<std::string> GetString(const Object& inObject, const char* name) {
+	std::optional<String> GetString(const Object& inObject, const Char* name) {
 		const auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
 			return std::nullopt;
@@ -38,10 +38,10 @@ namespace Json
 		if (!property.IsString())
 			return std::nullopt;
 
-		return property.GetString();
+		return String{ property.GetString() };
 	}
 
-	std::optional<bool> GetBool(const Object& inObject, const char* name)
+	std::optional<bool> GetBool(const Object& inObject, const Char* name)
 	{
 		const auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
@@ -54,7 +54,7 @@ namespace Json
 		return property.GetBool();
 	}
 
-	std::optional<Vector2> GetVector2(const Object& inObject, const char* name)
+	std::optional<Vector2> GetVector2(const Object& inObject, const Char* name)
 	{
 		auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
@@ -75,7 +75,7 @@ namespace Json
 		};
 	}
 
-	std::optional<Vector3> GetVector3(const Object& inObject, const char* name)
+	std::optional<Vector3> GetVector3(const Object& inObject, const Char* name)
 	{
 		auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
@@ -97,7 +97,7 @@ namespace Json
 		};
 	}
 
-	std::optional<Vector4> GetVector4(const Object& inObject, const char* name)
+	std::optional<Vector4> GetVector4(const Object& inObject, const Char* name)
 	{
 		auto iter = inObject.FindMember(name);
 		if (iter == inObject.MemberEnd())
@@ -120,7 +120,7 @@ namespace Json
 		};
 	}
 
-	std::optional<Rotator> GetRotator(const Object& inObject, const char* name)
+	std::optional<Rotator> GetRotator(const Object& inObject, const Char* name)
 	{
 		const auto vec = GetVector3(inObject, name);
 		if (vec)
@@ -129,32 +129,32 @@ namespace Json
 		return std::nullopt;
 	}
 
-	void AddInt(JsonSaver& saver, const char* name, int value)
+	void AddInt(JsonSaver& saver, const Char* name, int value)
 	{
 		Object v{ value };
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddFloat(JsonSaver& saver, const char* name, float value)
+	void AddFloat(JsonSaver& saver, const Char* name, float value)
 	{
 		Object v{ value };
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddString(JsonSaver& saver, const char* name, const std::string& value)
+	void AddString(JsonSaver& saver, const Char* name, const String& value)
 	{
 		Object v;
 		v.SetString(value.c_str(), static_cast<rapidjson::SizeType>(value.length()), saver.alloc);
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddBool(JsonSaver& saver, const char* name, const bool value)
+	void AddBool(JsonSaver& saver, const Char* name, const bool value)
 	{
 		Object v{ value };
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddVector2(JsonSaver& saver, const char* name, const Vector2& value)
+	void AddVector2(JsonSaver& saver, const Char* name, const Vector2& value)
 	{
 		Object v{ rapidjson::kArrayType };
 
@@ -164,7 +164,7 @@ namespace Json
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddVector3(JsonSaver& saver, const char* name, const Vector3& value)
+	void AddVector3(JsonSaver& saver, const Char* name, const Vector3& value)
 	{
 		Object v{ rapidjson::kArrayType };
 
@@ -175,7 +175,7 @@ namespace Json
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddVector4(JsonSaver& saver, const char* name, const Vector4& value)
+	void AddVector4(JsonSaver& saver, const Char* name, const Vector4& value)
 	{
 		Object v{ rapidjson::kArrayType };
 
@@ -187,7 +187,7 @@ namespace Json
 		saver.object.AddMember(rapidjson::StringRef(name), v, saver.alloc);
 	}
 
-	void AddRotator(JsonSaver& saver, const char* name, const Rotator& value)
+	void AddRotator(JsonSaver& saver, const Char* name, const Rotator& value)
 	{
 		return AddVector3(saver, name, Vector3{ value.roll, value.pitch, value.yaw });
 	}

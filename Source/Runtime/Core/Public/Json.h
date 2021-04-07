@@ -1,15 +1,15 @@
 #pragma once
 
-#include <string> // I don't know why, but if you include string after optional, an error occurs.
 #include <optional>
-#include <BSMath/Basic.h>
-#include <rapidjson/document.h>
+#include "BSMath/Basic.h"
+#include "rapidjson/document.h"
+#include "CharSet.h"
 
 namespace Json
 {
-	using Object = rapidjson::Value;
+	using Object = rapidjson::GenericValue<rapidjson::UTF16<Char>>;
 
-	struct JsonSaver final
+	struct CORE_API JsonSaver final
 	{
 		using Allocator = rapidjson::Document::AllocatorType;
 
@@ -23,21 +23,21 @@ namespace Json
 		Object& object;
 	};
 
-	[[nodiscard]] CORE_API std::optional<int> GetInt(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<float> GetFloat(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<std::string> GetString(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<bool> GetBool(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<Vector2> GetVector2(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<Vector3> GetVector3(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<Vector4> GetVector4(const Object& object, const char* name);
-	[[nodiscard]] CORE_API std::optional<Rotator> GetRotator(const Object& object, const char* name);
+	[[nodiscard]] CORE_API std::optional<int> GetInt(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<float> GetFloat(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<String> GetString(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<bool> GetBool(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<Vector2> GetVector2(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<Vector3> GetVector3(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<Vector4> GetVector4(const Object& object, const Char* name);
+	[[nodiscard]] CORE_API std::optional<Rotator> GetRotator(const Object& object, const Char* name);
 
-	CORE_API void AddInt(JsonSaver& saver, const char* name, int value);
-	CORE_API void AddFloat(JsonSaver& saver, const char* name, float value);
-	CORE_API void AddString(JsonSaver& saver, const char* name, const std::string& value);
-	CORE_API void AddBool(JsonSaver& saver, const char* name, bool value);
-	CORE_API void AddVector2(JsonSaver& saver, const char* name, const Vector2& value);
-	CORE_API void AddVector3(JsonSaver& saver, const char* name, const Vector3& value);
-	CORE_API void AddVector4(JsonSaver& saver, const char* name, const Vector4& value);
-	CORE_API void AddRotator(JsonSaver& saver, const char* name, const Rotator& value);
+	CORE_API void AddInt(JsonSaver& saver, const Char* name, int value);
+	CORE_API void AddFloat(JsonSaver& saver, const Char* name, float value);
+	CORE_API void AddString(JsonSaver& saver, const Char* name, const String& value);
+	CORE_API void AddBool(JsonSaver& saver, const Char* name, bool value);
+	CORE_API void AddVector2(JsonSaver& saver, const Char* name, const Vector2& value);
+	CORE_API void AddVector3(JsonSaver& saver, const Char* name, const Vector3& value);
+	CORE_API void AddVector4(JsonSaver& saver, const Char* name, const Vector4& value);
+	CORE_API void AddRotator(JsonSaver& saver, const Char* name, const Rotator& value);
 }

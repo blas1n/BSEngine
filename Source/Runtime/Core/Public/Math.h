@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BSMath/Color.h"
+#include "BSMath/Creator.h"
 #include "BSMath/Matrix.h"
 #include "BSMath/Quaternion.h"
 #include "BSMath/Rotator.h"

@@ -40,7 +40,7 @@ public:
 	template <class T>
 	Delegate& operator=(T&& obj, R(T::*fn)(Args...))
 	{
-		return *this = Delegate(obj, fn);
+		return *this = Delegate{ obj, fn };
 	}
 
 	[[nodiscard]] R operator()(Args&&... args)

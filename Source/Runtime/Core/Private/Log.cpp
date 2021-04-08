@@ -11,7 +11,7 @@ namespace
         constexpr spdlog::level::level_enum mapper[]{ spdlog::level::debug, spdlog::level::info,
             spdlog::level::info, spdlog::level::warn, spdlog::level::err, spdlog::level::critical };
 
-        return mapper[static_cast<uint8>(verbosity)];
+        return mapper[static_cast<BSBase::uint8>(verbosity)];
     }
 }
 
@@ -30,9 +30,9 @@ public:
         console = spdlog::stdout_color_mt("console");
 
         const auto path = current_path();
-        auto dir = path.parent_path() / "Saved" / "Logs";
+        auto dir = path.parent_path() / u"Saved" / u"Logs";
         create_directories(dir);
-        dir /= fmt::format("{}.log", path.filename().string());
+        dir /= fmt::format(u"{}.log", path.filename().u16string());
 
         file = spdlog::daily_logger_mt("file", dir.string());
         file->set_level(spdlog::level::debug);
@@ -48,7 +48,7 @@ public:
 
     void Log(const LogCategory& category, LogVerbosity verbosity, const String& message)
     {
-        const auto msg = fmt::format("{}: {}", category.name, message);
+        const auto msg = fmt::format(u"{}: {}", category.name, message);
         file->log(ToSpdLogLevel(verbosity), msg);
 
 #ifdef NDEBUG

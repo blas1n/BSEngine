@@ -1,8 +1,8 @@
 #pragma once
 
 #include <optional>
-#include "BSMath/Basic.h"
 #include "rapidjson/document.h"
+#include "BSMath.h"
 #include "CharSet.h"
 
 namespace Json

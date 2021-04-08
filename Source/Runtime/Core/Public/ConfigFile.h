@@ -4,7 +4,7 @@
 #include "BSBase/Type.h"
 #include "CharSet.h"
 
-class CORE_API ConfigFile final
+class ConfigFile final
 {
     class ConfigSection final
     {
@@ -22,26 +22,26 @@ class CORE_API ConfigFile final
     };
 
 public:
-    ConfigFile() = default;
+    CORE_API  ConfigFile() = default;
 
-    ConfigFile(const String& fileName)
+    CORE_API ConfigFile(const String& fileName)
         : ConfigFile{}
     {
         LoadFromFile(fileName);
     }
 
-    bool LoadFromFile(const String& fileName) noexcept;
-    void Clear() noexcept;
+    CORE_API bool LoadFromFile(const String& fileName) noexcept;
+    CORE_API void Clear() noexcept;
 
-    [[nodiscard]] bool IsAvailable() const noexcept { return isAvailable; }
-    [[nodiscard]] operator bool() const noexcept { return isAvailable; }
+    [[nodiscard]] CORE_API bool IsAvailable() const noexcept { return isAvailable; }
+    [[nodiscard]] CORE_API operator bool() const noexcept { return isAvailable; }
 
-    [[nodiscard]] bool IsExistSection(const String& section) const noexcept
+    [[nodiscard]] CORE_API bool IsExistSection(const String& section) const noexcept
     {
         return data.find(section) != data.cend();
     }
 
-    [[nodiscard]] const String* operator()(const String& sectionName, const String& keyName) const noexcept;
+    [[nodiscard]] CORE_API const String* operator()(const String& sectionName, const String& keyName) const noexcept;
 
 private:
     std::unordered_map<String, ConfigSection> data;

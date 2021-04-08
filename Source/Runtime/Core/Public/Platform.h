@@ -3,6 +3,9 @@
 #include "Core.h"
 #include "CharSet.h"
 
+// The warning is unnecessary because the path variable is used internally.
+#pragma warning(disable: 4251)
+
 #ifndef NDEBUG
 namespace Impl
 {

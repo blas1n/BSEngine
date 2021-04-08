@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include "Platform.h"
+#include <locale>
 #include <Windows.h>
 #include "fmt/core.h"
 #include "Assertion.h"
@@ -33,16 +34,18 @@ namespace
             MaxSize,
             nullptr
         );
-
-        return String{ buffer };
+        
+        const std::wstring msg(buffer);
+        return String(msg.begin(), msg.end());
     }
 }
 
 Dll::Dll(const String& inPath)
     : path(inPath)
 {
-    dll = LoadLibrary(path.c_str());
-    Check(dll, u"{}: cannot load module, {}", path, GetLastErrorMsg());
+    const std::wstring wPath(path.cbegin(), path.cend());
+    dll = LoadLibraryW(wPath.c_str());
+    CheckMsg(dll, u"{}: cannot load module, {}", path, GetLastErrorMsg());
 }
 
 Dll::Dll(const Dll& other)
@@ -81,19 +84,24 @@ Dll::~Dll()
 
 void* Dll::GetSymbol(const String& name) const
 {
-    auto* symbol = FindSymbol(name);
-    if (!symbol)
-    {
-        fmt::format("");
-        const auto msg = fmt::format(u"Path: {}, Name: {}, {}", path, name, GetLastErrorMsg());
-        throw std::runtime_error{ msg };
-    }
-    return symbol;
+    const auto symbol = FindSymbol(name);
+    if (EnsureMsg(symbol, u"Path: {}, Name: {}, {}", path, name, GetLastErrorMsg()))
+        return symbol;
+
+    return nullptr;
 }
 
 void* Dll::FindSymbol(const String& name) const noexcept
 {
-    return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dll), name.c_str()));
+    const auto& convert = std::use_facet<std::codecvt<Char, char, std::mbstate_t>>(std::locale());
+    std::mbstate_t state;
+    std::string buf((name.size() + 1) * convert.max_length(), 0);
+    
+    const Char* in = name.c_str();
+    char* out = buf.data();
+
+    convert.out(state, name.c_str(), name.c_str() + name.size(), in, buf.data(), buf.data() + buf.size(), out);
+    return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dll), buf.c_str()));
 }
 
 #endif

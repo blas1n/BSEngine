@@ -6,7 +6,7 @@
 #include "Platform.h"
 #include <Windows.h>
 #include "fmt/core.h"
-#include "utf8/cpp11.h"
+#include "utf8cpp/utf8/cpp11.h"
 #include "Assertion.h"
 
 #ifndef NDEBUG

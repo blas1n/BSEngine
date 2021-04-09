@@ -3,7 +3,7 @@
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
-#include "utf8/cpp11.h"
+#include "utf8cpp/utf8/cpp11.h"
 
 namespace
 {

@@ -31,7 +31,7 @@ namespace Impl
 		{
 			size = sizeof(T);
 
-			if constexpr (sizeof(T) > HeapSize)
+			if constexpr (sizeof(T) > sizeof(ptr))
 				ptr = new T{ std::forward<T>(obj) };
 			else
 				memcpy(ptr, &obj, size);
@@ -41,12 +41,10 @@ namespace Impl
 		{
 			if (!ptr) return nullptr;
 
-			return (size > HeapSize) ? ptr : &ptr;
+			return (size > sizeof(ptr)) ? ptr : &ptr;
 		}
 
 	private:
-		constexpr static auto HeapSize = sizeof(void*);
-
 		void* ptr;
 		size_t size;
 	};

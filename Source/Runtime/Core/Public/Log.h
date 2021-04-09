@@ -15,8 +15,8 @@ namespace Impl
 	CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const String& msg);
 }
 
-template <class Str, class... Args>
-void Log(const LogCategory& category, LogVerbosity verbocity, const Str& format, const Args&... args)
+template <class... Args>
+void Log(const LogCategory& category, LogVerbosity verbosity, const String& format, Args&&... args)
 {
 	Impl::Log(category, verbosity, fmt::format(format, std::forward<Args>(args)...));
 }

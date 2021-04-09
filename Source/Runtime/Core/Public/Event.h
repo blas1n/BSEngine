@@ -1,47 +1,56 @@
 #pragma once
 
-#include <functional>
 #include <vector>
+#include "Delegate.h"
+
+template <class T>
+class Event
+{
+	static_assert(sizeof(T) == 0, "Expected a function signature for the event template parameter");
+};
 
 template <class R, class... Args>
-class Event final
+class Event<R(Args...)> final
 {
+public:
+	using Func = R(*)(Args...);
+
 public:
 	Event() noexcept = default;
 	Event(std::nullptr_t) noexcept : Event() {}
 
-	Event(const Event&) = default;
+	Event(const Event&) noexcept = default;
 	Event(Event&&) noexcept = default;
 
-	Event& operator=(const Event&) = default;
+	Event& operator=(const Event&) noexcept = default;
 	Event& operator=(Event&&) noexcept = default;
 
 	~Event() = default;
 
-	Event& operator=(std::nullptr_t)
+	Event& operator+=(Delegate<Func>&& fn)
 	{
-		funcs.clear();
+		funcs.emplace_back(std::forward<Delegate<Func>(fn));
 		return *this;
+	}
+
+	void operator()(Args&&... args) const
+	{
+		for (auto& fn : funcs)
+			fn(args);
 	}
 
 	template <class Fn>
-	Event& operator+=(Fn&& fn)
+	R operator()(Fn&& mixer, Args&&... args) const
 	{
-		funcs.emplace_back(std::forward<Fn>(fn));
-		return *this;
-	}
+		if (!IsBound()) return R();
 
-	template <class T>
-	Event& operator+=(T&& obj, R(T::*fn)(Args...))
-	{
-		funcs.emplace_back([obj, fn](Args&&... args) { return obj.*fn(std::forward<Args>(args)...) });
-		return *this;
-	}
+		R ret = funcs[0](args...);
 
-	void operator()(Args&&... args)
-	{
-		for (auto& fn : funcs)
-			fn(std::forward<Args>(args)...);
+		const size_t size = Size();
+		for (size_t i = 1; i < size; ++i)
+			ret = mixer(ret, fn(args));
+
+		return ret;
 	}
 
 	[[nodiscard]] operator bool() const noexcept
@@ -52,6 +61,11 @@ public:
 	[[nodiscard]] bool IsBound() const noexcept
 	{
 		return !funcs.empty();
+	}
+
+	size_t Size() const noexcept
+	{
+		return funcs.size();
 	}
 
 	void Clear() noexcept
@@ -80,5 +94,5 @@ public:
 	}
 
 private:
-	std::vector<std::function<R(Args...)>> funcs;
+	std::vector<Delegate<Func>> funcs;
 };

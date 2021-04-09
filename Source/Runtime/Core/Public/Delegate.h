@@ -1,63 +1,49 @@
 #pragma once
 
-#include <functional>
+#include "DelegateBase.h"
+#include "DelegateInst.h"
+
+template <class T>
+class Delegate
+{
+	static_assert(sizeof(T) == 0, "Expected a function signature for the delegate template parameter");
+};
 
 template <class R, class... Args>
-class Delegate final
+class Delegate<R(Args...)> final : public Impl::DelegateBase
 {
 public:
-	Delegate() noexcept = default;
-	Delegate(std::nullptr_t) noexcept : Delegate() {}
+	using Func = R(*)(Args...);
 
-	template <class Fn>
-	Delegate(Fn&& fn)
-		: func(fn) {}
+public:
+	using DelegateBase::DelegateBase;
+	~Delegate() = default;
+
+	Delegate(Func fn)
+	{
+		Allocate(FunctionDelegateInst{ fn });
+	}
 
 	template <class T>
 	Delegate(T&& obj, R(T::*fn)(Args...))
-		: func([obj, fn](Args&&... args) { return obj.*fn(std::forward<Args>(args)...) }) {}
-
-	Delegate(const Delegate&) = default;
-	Delegate(Delegate&&) noexcept = default;
-
-	Delegate& operator=(const Delegate&) = default;
-	Delegate& operator=(Delegate&&) noexcept = default;
-
-	~Delegate() = default;
-	
-	Delegate& operator=(std::nullptr_t)
 	{
-		func = nullptr;
-		return *this;
+		Allocate(MethodDelegateInst{ obj, fn });
 	}
 
 	template <class Fn>
-	Delegate& operator=(Fn&& fn)
+	Delegate(Fn&& fn)
 	{
-		return *this = Delegate(fn);
+		Allocate(FunctorDelegateInst<Func>{ fn });
 	}
 
-	template <class T>
-	Delegate& operator=(T&& obj, R(T::*fn)(Args...))
+	R operator()(Args&&... args) const
 	{
-		return *this = Delegate{ obj, fn };
-	}
+		if (const void* ptr = GetPtr())
+		{
+			return reinterpret_cast<DelegateInstBase
+				<Func>*>(ptr)(std::forward<Args>(args)...);
+		}
 
-	[[nodiscard]] R operator()(Args&&... args)
-	{
-		return func(std::forward<Args>(args)...);
+		return R();
 	}
-	
-	[[nodiscard]] operator bool() const noexcept
-	{
-		return static_cast<bool>(func);
-	}
-
-	[[nodiscard]] bool IsBound() const noexcept
-	{
-		return static_cast<bool>(func);
-	}
-
-private:
-	std::function<R(Args...)> func;
 };

@@ -18,5 +18,5 @@ namespace Impl
 template <class Str, class... Args>
 void Log(const LogCategory& category, LogVerbosity verbocity, const Str& format, const Args&... args)
 {
-	Log(category, level, fmt::format(format, args...));
+	Impl::Log(category, verbosity, fmt::format(format, std::forward<Args>(args)...));
 }

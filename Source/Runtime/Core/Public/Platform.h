@@ -41,13 +41,13 @@ public:
     template <class T>
     [[nodiscard]] T& GetSymbol(const String& name) const
     {
-        return *(T*)GetSymbol(name);
+        return *reinterpret_cast<T*>(GetSymbol(name));
     }
 
     template <class T>
     [[nodiscard]] T* FindSymbol(const String& name) const noexcept
     {
-        return (T*)FindSymbol(name);
+        return reinterpret_cast<T*>(FindSymbol(name));
     }
 
     template <class Fn, class... Args>

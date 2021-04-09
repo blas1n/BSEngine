@@ -29,9 +29,9 @@ namespace Impl
 		template <class T>
 		void Allocate(T&& obj)
 		{
-			size = sizeof(T);
+			size = sizeof(obj);
 
-			if constexpr (sizeof(obj) > sizeof(ptr))
+			if constexpr (size > sizeof(ptr))
 				ptr = new T{ std::forward<T>(obj) };
 			else
 				memcpy(ptr, &obj, size);

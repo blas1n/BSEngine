@@ -8,7 +8,7 @@ DEFINE_LOG_CATEGORY(LogAssert)
 void Impl::LogToFail(bool isCritical, const Char* expr, const Char* file, BSBase::int32 line, const String& msg) noexcept
 {
 	Log(LogAssert, isCritical ? LogVerbosity::Critical : LogVerbosity::Error,
-		"{} failed: {} {}, file: {}, line: {}", isCritical ? "Check" : "Ensure", expr, msg, file, line);
+		u"{} failed: {} {}, file: {}, line: {}", isCritical ? u"Check" : u"Ensure", expr, msg, file, line);
 }
 
 #endif

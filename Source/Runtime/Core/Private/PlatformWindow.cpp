@@ -4,9 +4,9 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include "Platform.h"
-#include <locale>
 #include <Windows.h>
 #include "fmt/core.h"
+#include "utf8/cpp11.h"
 #include "Assertion.h"
 
 #ifndef NDEBUG
@@ -60,19 +60,22 @@ Dll::Dll(Dll&& other) noexcept
 {
     if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
     dll = std::move(other.dll);
-
 }
 
 Dll& Dll::operator=(const Dll& other)
 {
-    if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    if (dll)
+        FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    
     dll = other.dll;
     path = other.path;
 }
 
 Dll& Dll::operator=(Dll&& other) noexcept
 {
-    if (dll) FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    if (dll)
+        FreeLibrary(reinterpret_cast<HMODULE>(dll));
+    
     dll = std::move(other.dll);
     path = std::move(other.path);
 }
@@ -93,14 +96,7 @@ void* Dll::GetSymbol(const String& name) const
 
 void* Dll::FindSymbol(const String& name) const noexcept
 {
-    const auto& convert = std::use_facet<std::codecvt<Char, char, std::mbstate_t>>(std::locale());
-    std::mbstate_t state;
-    std::string buf((name.size() + 1) * convert.max_length(), 0);
-    
-    const Char* in = name.c_str();
-    char* out = buf.data();
-
-    convert.out(state, name.c_str(), name.c_str() + name.size(), in, buf.data(), buf.data() + buf.size(), out);
+    const auto buf = utf8::utf16to8(name);
     return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dll), buf.c_str()));
 }
 

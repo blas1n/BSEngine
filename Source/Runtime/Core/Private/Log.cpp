@@ -1,8 +1,9 @@
 #include "Log.h"
 #include <filesystem>
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/daily_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/daily_file_sink.h"
+#include "spdlog/sinks/stdout_color_sinks.h"
+#include "utf8/cpp11.h"
 
 namespace
 {
@@ -30,9 +31,9 @@ public:
         console = spdlog::stdout_color_mt("console");
 
         const auto path = current_path();
-        auto dir = path.parent_path() / u"Saved" / u"Logs";
+        auto dir = path.parent_path() / "Saved" / "Logs";
         create_directories(dir);
-        dir /= fmt::format(u"{}.log", path.filename().u16string());
+        dir /= fmt::format("{}.log", path.filename().string());
 
         file = spdlog::daily_logger_mt("file", dir.string());
         file->set_level(spdlog::level::debug);
@@ -48,13 +49,15 @@ public:
 
     void Log(const LogCategory& category, LogVerbosity verbosity, const String& message)
     {
-        const auto msg = fmt::format(u"{}: {}", category.name, message);
-        file->log(ToSpdLogLevel(verbosity), msg);
+        const auto name = utf8::utf16to8(category.name);
+        const auto msg = utf8::utf16to8(message);
+        const auto log = fmt::format("{}: {}", name, msg);
+        file->log(ToSpdLogLevel(verbosity), log);
 
 #ifdef NDEBUG
         if (verbosity != LogVerbosity::Log)
 #endif
-            console->log(ToSpdLogLevel(verbosity), msg);
+            console->log(ToSpdLogLevel(verbosity), log);
     }
 
 private:

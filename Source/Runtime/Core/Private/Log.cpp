@@ -26,9 +26,10 @@ public:
     }
 
     Logger()
+        : console(spdlog::stdout_color_mt("console")),
+        file(nullptr)
     {
         using namespace std::filesystem;
-        console = spdlog::stdout_color_mt("console");
 
         const auto path = current_path();
         auto dir = path.parent_path() / "Saved" / "Logs";

@@ -69,6 +69,7 @@ Dll& Dll::operator=(const Dll& other)
     
     dll = other.dll;
     path = other.path;
+    return *this;
 }
 
 Dll& Dll::operator=(Dll&& other) noexcept
@@ -78,6 +79,7 @@ Dll& Dll::operator=(Dll&& other) noexcept
     
     dll = std::move(other.dll);
     path = std::move(other.path);
+    return *this;
 }
 
 Dll::~Dll()

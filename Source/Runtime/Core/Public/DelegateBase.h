@@ -31,7 +31,7 @@ namespace Impl
 		{
 			size = sizeof(T);
 
-			if constexpr (sizeof(T) > sizeof(ptr))
+			if constexpr (sizeof(obj) > sizeof(ptr))
 				ptr = new T{ std::forward<T>(obj) };
 			else
 				memcpy(ptr, &obj, size);

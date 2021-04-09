@@ -49,9 +49,7 @@ public:
 
     void Log(const LogCategory& category, LogVerbosity verbosity, const String& message)
     {
-        const auto name = utf8::utf16to8(category.name);
-        const auto msg = utf8::utf16to8(message);
-        const auto log = fmt::format("{}: {}", name, msg);
+        const auto log = fmt::format("{}: {}", utf8::utf16to8(category.name), utf8::utf16to8(message));
         file->log(ToSpdLogLevel(verbosity), log);
 
 #ifdef NDEBUG

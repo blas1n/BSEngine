@@ -68,21 +68,21 @@ private:
 	template <class T, R(T::*Method)(Args...)>
 	static R MethodStub(void* object, Args... args)
 	{
-		T* ptr = static_cast<T*>(object);
+		T* ptr = reinterpret_cast<T*>(object);
 		return (ptr->*Method)(std::forward<Args>(args)...);
 	}
 	
 	template <class T, R(T::*Method)(Args...) const>
 	static R ConstMethodStub(const void* object, Args... args)
 	{
-		const T* ptr = static_cast<const T*>(object);
+		const T* ptr = reinterpret_cast<const T*>(object);
 		return (ptr->*Method)(std::forward<Args>(args)...);
 	}
 	
 	template <class Functor>
 	static R FunctorStub(void* object, Args... args)
 	{
-		Functor* ptr = static_cast<Functor*>(object);
+		Functor* ptr = reinterpret_cast<Functor*>(object);
 		return (ptr->operator())(std::forward<Args>(args)...);
 	}
 

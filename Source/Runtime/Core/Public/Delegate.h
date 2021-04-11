@@ -2,15 +2,9 @@
 
 #include <utility>
 
-template <class T>
-class Delegate
-{
-	static_assert(sizeof(T) == 0, "Expected a function signature for the delegate template parameter");
-};
-
 // This code was created with reference to https://www.codeproject.com/Articles/1170503/The-Impossibly-Fast-Cplusplus-Delegates-Fixed
 template <class R, class... Args>
-class Delegate<R(Args...)> final
+class Delegate final
 {
 public:
 	Delegate() noexcept

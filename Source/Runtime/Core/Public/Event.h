@@ -3,14 +3,8 @@
 #include <vector>
 #include "Delegate.h"
 
-template <class T>
-class Event
-{
-	static_assert(sizeof(T) == 0, "Expected a function signature for the event template parameter");
-};
-
 template <class R, class... Args>
-class Event<R(Args...)> final
+class CORE_API Event final
 {
 public:
 	using Func = R(*)(Args...);

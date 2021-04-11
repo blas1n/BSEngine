@@ -6,8 +6,6 @@
 #include "LogCategory.h"
 #include "Platform.h"
 
-CORE_API DECLARE_LOG_CATEGORY(LogAssert)
-
 #ifdef NDEBUG
 
 #	define CheckMsg(expr, fmt, ...) (void)expr
@@ -17,6 +15,8 @@ CORE_API DECLARE_LOG_CATEGORY(LogAssert)
 #	define Ensure(expr) !!(expr)
 
 #else
+
+CORE_API DECLARE_LOG_CATEGORY(LogAssert)
 
 namespace Impl
 {

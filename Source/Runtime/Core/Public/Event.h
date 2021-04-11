@@ -23,7 +23,7 @@ public:
 
 	Event& operator+=(Delegate<Func>&& fn)
 	{
-		funcs.emplace_back(std::forward<Delegate<Func>(fn));
+		funcs.emplace_back(std::forward<Delegate<Func>>(fn));
 		return *this;
 	}
 

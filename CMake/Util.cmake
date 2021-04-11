@@ -18,10 +18,3 @@ function (register_library)
         target_precompile_headers (${MODULE_NAME} PRIVATE Private/pch.h)
     endif ()
 endfunction ()
-
-function (link_test)
-    get_filename_component (MODULE_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-
-    target_include_directories(Tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Public)
-    target_link_libraries(Tests PRIVATE ${MODULE_NAME})
-endfunction ()

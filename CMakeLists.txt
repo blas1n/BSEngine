@@ -23,17 +23,10 @@ set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
 add_subdirectory (Source)
+add_subdirectory (Tests)
 
 if (${PLATFORM_WINDOWS})
 	install (DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.dll")
 else ()
 	install (DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.so")
-endif ()
-
-if (GTest_FOUND)
-	file(GLOB_RECURSE TEST_FILES "Tests/*.cpp")
-	target_link_libraries(Tests PRIVATE GTest::GTest)
-
-	enable_testing()
-	add_test(NAME Test COMMAND Tests)
 endif ()

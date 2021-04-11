@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BSBase/Type.h"
-#include "fmt/core.h"
+#include "fmt/format.h"
 #include "CharSet.h"
 #include "LogCategory.h"
 

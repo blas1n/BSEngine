@@ -442,3 +442,6 @@ vcpkg/
 Sources/ThirdParty/fmt/
 Sources/ThirdParty/spdlog/
 Sources/ThirdParty/rapidJSON/
+
+# Document Path
+[Dd]ocument/

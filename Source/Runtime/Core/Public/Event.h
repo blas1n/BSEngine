@@ -7,9 +7,6 @@ template <class R, class... Args>
 class Event final
 {
 public:
-	using Func = R(*)(Args...);
-
-public:
 	Event() noexcept = default;
 	Event(std::nullptr_t) noexcept : Event() {}
 
@@ -21,9 +18,9 @@ public:
 
 	~Event() = default;
 
-	Event& operator+=(Delegate<Func>&& fn)
+	Event& operator+=(Delegate<R, Args...>&& fn)
 	{
-		funcs.emplace_back(std::forward<Delegate<Func>>(fn));
+		funcs.emplace_back(std::forward<Delegate<R, Args...>>(fn));
 		return *this;
 	}
 
@@ -88,5 +85,5 @@ public:
 	}
 
 private:
-	std::vector<Delegate<Func>> funcs;
+	std::vector<Delegate<R, Args...>> funcs;
 };

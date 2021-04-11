@@ -12,25 +12,11 @@ public:
 
 	Delegate(std::nullptr_t) noexcept : Delegate() {}
 
-	Delegate(const Delegate& other) noexcept
-		: object(other.object), stub(other.stub) {}
+	Delegate(const Delegate& other) noexcept = default;
+	Delegate(Delegate&& other) noexcept = default;
 
-	Delegate(Delegate&& other) noexcept
-		: object(std::move(other.object)), stub(std::move(other.stub)) {}
-
-	Delegate& operator=(const Delegate& other) noexcept
-	{
-		object = other.object;
-		stub = other.stub;
-		return *this;
-	}
-
-	Delegate& operator=(Delegate&& other)
-	{
-		object = std::move(other.object);
-		stub = std::move(other.stub);
-		return *this;
-	}
+	Delegate& operator=(const Delegate& other) noexcept = default;
+	Delegate& operator=(Delegate&& other) noexcept = default;
 
 	~Delegate() = default;
 

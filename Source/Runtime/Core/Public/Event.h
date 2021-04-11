@@ -4,7 +4,7 @@
 #include "Delegate.h"
 
 template <class R, class... Args>
-class CORE_API Event final
+class Event final
 {
 public:
 	using Func = R(*)(Args...);

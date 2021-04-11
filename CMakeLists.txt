@@ -29,3 +29,11 @@ if (${PLATFORM_WINDOWS})
 else ()
 	install (DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.so")
 endif ()
+
+if (GTest_FOUND)
+	file(GLOB_RECURSE TEST_FILES "Tests/*.cpp")
+	target_link_libraries(Tests PRIVATE GTest::GTest)
+
+	enable_testing()
+	add_test(NAME Test COMMAND Tests)
+endif ()

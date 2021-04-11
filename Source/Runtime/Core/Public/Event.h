@@ -29,8 +29,8 @@ public:
 
 	void operator()(Args&&... args) const
 	{
-		for (auto& fn : funcs)
-			fn(args);
+		for (const auto& fn : funcs)
+			fn(std::forward<Args>(args)...);
 	}
 
 	template <class Fn>

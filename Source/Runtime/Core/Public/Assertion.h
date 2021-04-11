@@ -8,8 +8,8 @@
 
 #ifdef NDEBUG
 
-#	define CheckMsg(expr, fmt, ...) (void)expr
-#	define Check(expr) (void)expr
+#	define CheckMsg(expr, fmt, ...) (void)(expr)
+#	define Check(expr) (void)(expr)
 
 #	define EnsureMsg(expr, fmt, ...) !!(expr)
 #	define Ensure(expr) !!(expr)

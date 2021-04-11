@@ -42,7 +42,7 @@ public:
 
 		const size_t size = Size();
 		for (size_t i = 1; i < size; ++i)
-			ret = mixer(ret, fn(args));
+			ret = mixer(ret, funcs[i](args...));
 
 		return ret;
 	}

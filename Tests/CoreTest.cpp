@@ -12,6 +12,11 @@ TEST(CoreTest, AssertTest)
 	EXPECT_TRUE(EnsureMsg(lhs == rhs, u"{} and {} are different.", lhs, rhs));
 }
 
+bool TestA(int32 lhs, int32 rhs)
+{
+	return true;
+}
+
 struct Foo final
 {
 	bool Boo(int32 lhs, int32 rhs)
@@ -28,7 +33,10 @@ TEST(CoreTest, DelegateTest)
 	};
 
 	Foo foo;
-	Delegate<bool, int32, int32> delegate{ &foo, &Foo::Boo };
+	Delegate<bool, int32, int32> delegate;
+	delegate = &TestA;
+	delegate = { &foo, &Foo::Boo };
+	delegate = lambda;
 
 	EXPECT_TRUE(delegate(1, 1));
 }
@@ -47,8 +55,8 @@ TEST(CoreTest, EventTest)
 	};
 
 	event(1, 1);
-	/*EXPECT_TRUE(event([](bool result, bool newResult)
+	EXPECT_TRUE(event([](bool result, bool newResult)
 		{
 			return result && newResult;
-		}, 1, 1));*/
+		}, 1, 1));
 }

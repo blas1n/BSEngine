@@ -61,6 +61,9 @@ public:
 
 	void Clear() noexcept
 	{
+		for (auto& fn : funcs)
+			fn.Clear();
+
 		funcs.clear();
 	}
 

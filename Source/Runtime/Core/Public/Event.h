@@ -97,3 +97,15 @@ private:
 private:
 	std::vector<Delegate<R, Args...>> funcs;
 };
+
+template <class R, class... Args>
+[[nodiscard]] bool operator==(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
+{
+	return &lhs == &rhs;
+}
+
+template <class R, class... Args>
+[[nodiscard]] bool operator!=(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
+{
+	return !(lhs == rhs);
+}

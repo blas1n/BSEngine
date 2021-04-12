@@ -31,7 +31,7 @@ public:
 	}
 
 	template <class Fn>
-	R operator()(Fn&& mixer, Args&&... args) const
+	R operator()(Fn&& mixer, const Args&... args)
 	{
 		if (!IsBound()) return R();
 

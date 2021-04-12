@@ -24,10 +24,10 @@ public:
 		return *this;
 	}
 
-	void operator()(Args&&... args) const
+	void operator()(const Args&... args)
 	{
-		for (const auto& fn : funcs)
-			fn(std::forward<Args>(args)...);
+		for (auto& fn : funcs)
+			fn(args...);
 	}
 
 	template <class Fn>

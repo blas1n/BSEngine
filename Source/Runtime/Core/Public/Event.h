@@ -64,6 +64,7 @@ public:
 		funcs.clear();
 	}
 
+private:
 	[[nodiscard]] decltype(auto) begin() noexcept
 	{
 		return funcs.begin();

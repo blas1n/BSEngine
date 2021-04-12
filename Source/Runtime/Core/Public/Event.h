@@ -18,9 +18,15 @@ public:
 
 	~Event() = default;
 
+	Event& operator+=(const Delegate<R, Args...>& fn)
+	{
+		funcs.emplace_back(fn);
+		return *this;
+	}
+
 	Event& operator+=(Delegate<R, Args...>&& fn)
 	{
-		funcs.emplace_back(std::forward<Delegate<R, Args...>>(fn));
+		funcs.emplace_back(std::move(fn));
 		return *this;
 	}
 

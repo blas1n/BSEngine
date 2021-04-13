@@ -7,20 +7,21 @@ template <class R, class... Args>
 class Delegate final
 {
 public:
-	Delegate() noexcept : storage(nullptr) {}
+	Delegate() noexcept : storage() {}
 
 	Delegate(std::nullptr_t) noexcept : Delegate() {}
 
 	Delegate(const Delegate& other) noexcept
 	{
-		if (other.storage)
-			other.GetInst()->CloneTo(storage);
+		if (const auto* inst = other.GetInst())
+			inst->CloneTo(&storage);
 	}
 
 	Delegate(Delegate&& other) noexcept
 	{
-		storage = other.storage;
-		other.Clear();
+		storage[0] = std::move(other.storage[0]);
+		storage[1] = std::move(other.storage[1]);
+		other.storage[0] = other.storage[1] = nullptr;
 	}
 
 	Delegate& operator=(const Delegate& other) noexcept
@@ -29,8 +30,8 @@ public:
 
 		Clear();
 
-		if (other.storage)
-			other.GetInst()->CloneTo(storage);
+		if (const auto* inst = other.GetInst())
+			inst->CloneTo(&storage);
 
 		return *this;
 	}
@@ -40,21 +41,35 @@ public:
 		if (*this == other) return *this;
 
 		Clear();
+		storage[0] = std::move(other.storage[0]);
+		storage[1] = std::move(other.storage[1]);
+		other.storage[0] = other.storage[1] = nullptr;
 
-		storage = std::move(other.storage);
 		return *this;
 	}
 
 	Delegate(R(*fn)(Args...))
-		: storage(Impl::DelegateInstFunction<R, Args...>::Create(fn)) {}
+	{
+		Impl::DelegateInstFunction<R, Args...>{ fn }.MoveTo(storage);
+	}
 
 	template <class T>
-	Delegate(T* obj, Impl::MethodPtrType<T, R, Args...> fn)
-		: storage(Impl::DelegateInstMethod<T, R, Args...>::Create(obj, fn)) {}
+	Delegate(T* obj, R(T::* fn)(Args...))
+	{
+		Impl::DelegateInstMethod<T, R, Args...>{ obj, fn }.MoveTo(storage);
+	}
+
+	template <class T>
+	Delegate(T* obj, R(T::* fn)(Args...) const)
+	{
+		Impl::DelegateInstConstMethod<R, Args...>{ obj, fn }.MoveTo(storage);
+	}
 
 	template <class Func>
 	Delegate(Func&& fn)
-		: storage(Impl::DelegateInstFunctor<Func, R, Args...>::Create(std::forward<Func>(fn))) {}
+	{
+		Impl::DelegateInstFunctor<Func, R, Args...>{ std::forward<Func>(fn) }.MoveTo(storage);
+	}
 
 	~Delegate() { Clear(); }
 
@@ -70,26 +85,31 @@ public:
 
 	void Clear() noexcept
 	{
-		if (const auto heap = storage.GetHeap())
+		if (const auto heap = GetHeap())
 			delete heap;
 		
-		storage = nullptr;
+		storage[0] = storage[1] = nullptr;
 	}
 
-	[[nodiscard]] bool IsBound() const noexcept { return storage.IsBound(); }
+	[[nodiscard]] bool IsBound() const noexcept { return storage[0]; }
 	[[nodiscard]] operator bool() const noexcept { return IsBound(); }
 
 private:
-	[[nodiscard]] Impl::DelegateInstBase<R, Args...>* GetInst() noexcept
+	[[nodiscard]] decltype(auto) GetInst() noexcept
 	{
-		if (const auto heap = storage.GetHeap())
+		if (const auto heap = GetHeap())
 			return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(heap);
 		
 		return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(&storage);
 	}
 
+	[[nodiscard]] void* GetHeap() noexcept
+	{
+		return (storage[0] && !storage[1]) ? storage[0] : nullptr;
+	}
+
 private:
-	Impl::DelegateStorage storage;
+	void* storage[2];
 };
 
 template <class R, class... Args>

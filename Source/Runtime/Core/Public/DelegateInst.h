@@ -1,102 +1,11 @@
 #pragma once
 
+#include <cstring>
 #include <type_traits>
+#include <utility>
 
 namespace Impl
 {
-	template <class Class, class R, class... Args>
-	struct MethodPtr
-	{
-		using Type = R(Class::*)(Args...);
-	};
-
-	template <class Class, class R, class... Args>
-	struct MethodPtr<const Class, R, Args...>
-	{
-		using Type = R(Class::*)(Args...) const;
-	};
-
-	template <class Class, class R, class... Args>
-	using MethodPtrType = typename MethodPtr<Class, R, Args...>::Type;
-
-	template <class Output, class Input>
-	union HorribleCastType
-	{
-		static_assert(sizeof(Input) <= sizeof(Output));
-
-		Input input;
-		Output output;
-	};
-
-	template <class Output, class Input>
-	Output HorribleCast(Input&& input)
-	{
-		HorribleCastType<Input, Output> cast;
-		cast.input = std::forward<Input>(input);
-		return cast.output;
-	}
-
-	class DelegateStorage final
-	{
-	public:
-		DelegateStorage() noexcept : element() {}
-
-		DelegateStorage(void* val) noexcept
-		{
-			element[0] = val;
-			element[1] = val;
-		}
-
-		DelegateStorage(const DelegateStorage& other) noexcept
-		{
-			element[0] = other.element[0];
-			element[1] = other.element[1];
-		}
-
-		DelegateStorage(DelegateStorage&& other) noexcept
-		{
-			element[0] = std::move(other.element[0]);
-			element[1] = std::move(other.element[1]);
-
-			other.element[0] = other.element[1] = nullptr;
-		}
-		
-		DelegateStorage& operator=(void* val) noexcept
-		{
-			element[0] = val;
-			element[1] = val;
-			return *this;
-		}
-
-		DelegateStorage& operator=(const DelegateStorage& other) noexcept
-		{
-			element[0] = other.element[0];
-			element[1] = other.element[1];
-			return *this;
-		}
-
-		DelegateStorage& operator=(DelegateStorage&& other) noexcept
-		{
-			element[0] = std::move(other.element[0]);
-			element[1] = std::move(other.element[1]);
-
-			other.element[0] = other.element[1] = nullptr;
-			return *this;
-		}
-
-		~DelegateStorage() = default;
-
-		[[nodiscard]] void* GetHeap() noexcept
-		{
-			return (element[0] && !element[1]) ? element[0] : nullptr;
-		}
-
-		[[nodiscard]] bool IsBound() const noexcept { return element[0]; }
-
-	private:
-		void* element[2];
-	};
-
 	template <class R, class... Args>
 	class DelegateInstBase
 	{
@@ -106,7 +15,8 @@ namespace Impl
 		virtual R Execute(const Args&...) = 0;
 		virtual R Execute(Args&&...) = 0;
 
-		virtual void CloneTo(DelegateStorage& storage) = 0;
+		virtual void CopyTo(void* storage[2]) = 0;
+		virtual void MoveTo(void* storage[2]) = 0;
 	};
 
 	template <class R, class... Args>
@@ -115,10 +25,8 @@ namespace Impl
 		using Func = R(*)(Args...);
 
 	public:
-		DelegateStorage Create(Func fn)
-		{
-			return HorribleCast<DelegateStorage>(DelegateInstFunction{ fn });
-		}
+		DelegateInstFunction(Func inFn)
+			: fn(inFn) {}
 
 		R Execute(const Args&... args) override
 		{
@@ -130,30 +38,28 @@ namespace Impl
 			return (*fn)(std::move(args)...);
 		}
 
-		void CloneTo(DelegateStorage& storage) override
+		void CopyTo(void* storage[2]) override
 		{
-			storage = Create(fn);
+			memcpy(storage, this, sizeof(*this));
+		}
+
+		void MoveTo(void* storage[2]) override
+		{
+			CopyTo(storage);
 		}
 
 	private:
-		DelegateInstFunction(Func inFn)
-			: fn(inFn) {}
-
 		Func fn;
 	};
 
 	template <class Class, class R, class... Args>
 	class DelegateInstMethod final : public DelegateInstBase<R, Args...>
 	{
-		using Func = MethodPtrType<Class, R, Args...>;
+		using Func = R(Class::*)(Args...);
 
 	public:
-		DelegateStorage Create(Class* inInst, Func inFn)
-		{
-			DelegateStorage ret;
-			ret[0] = new DelegateInstMethod{ inInst, inFn };
-			return ret;
-		}
+		DelegateInstMethod(Class* inInst, Func inFn)
+			: inst(inInst), fn(inFn) {}
 
 		R Execute(const Args&... args) override
 		{
@@ -165,42 +71,75 @@ namespace Impl
 			return (inst->*fn)(std::move(args)...);
 		}
 
-		void CloneTo(DelegateStorage& storage) override
+		void CopyTo(void* storage[2]) override
 		{
-			storage = Create(fn);
+			storage[0] = new Impl::DelegateInstMethod<Class, R, Args...>{ inst, fn };
+			storage[1] = nullptr;
+		}
+
+		void MoveTo(void* storage[2]) override
+		{
+			storage[0] = new Impl::DelegateInstMethod
+				<Class, R, Args...>{ std::move(inst), std::move(fn) };
+			
+			storage[1] = nullptr;
 		}
 
 	private:
-		DelegateInstMethod(Class* inInst, Func inFn)
-			: inst(inInst), fn(inFn) {}
-
 		Class* inst;
 		Func fn;
 	};
 
-	template <class Func, class R, class... Args>
-	class DelegateInstFunctor final : public DelegateInstBase<Func, R, Args...>
+	template <class Class, class R, class... Args>
+	class DelegateInstConstMethod final : public DelegateInstBase<R, Args...>
 	{
+		static_assert(std::is_const_v<Class>);
+		using Func = R(Class::*)(Args...) const;
+
 	public:
-		DelegateStorage Create(const Func& inFn)
-		{
-			if constexpr (sizeof(Func) <= sizeof(DelegateStorage))
-				return HorribleCast<DelegateStorage>(DelegateInstFunctor{ inFn });
+		DelegateInstConstMethod(Class* inInst, Func inFn)
+			: inst(inInst), fn(inFn) {}
 
-			DelegateStorage ret;
-			ret[0] = new DelegateInstFunctor inst{ inFn };
-			return ret;
+		R Execute(const Args&... args) override
+		{
+			return (inst->*fn)(args...);
 		}
 
-		DelegateStorage Create(Func&& inFn)
+		R Execute(Args&&... args) override
 		{
-			if constexpr (sizeof(Func) <= sizeof(DelegateStorage))
-				return HorribleCast<DelegateStorage>(DelegateInstFunctor{ std::move(inFn) });
-
-			DelegateStorage ret;
-			ret[0] = new DelegateInstFunctor inst{ std::move(inFn) };
-			return ret;
+			return (inst->*fn)(std::move(args)...);
 		}
+
+		void CopyTo(void* storage[2]) override
+		{
+			storage[0] = new Impl::DelegateInstConstMethod<Class, R, Args...>{ inst, fn };
+			storage[1] = nullptr;
+		}
+
+		void MoveTo(void* storage[2]) override
+		{
+			storage[0] = new Impl::DelegateInstMethod
+				<Class, R, Args...>{ std::move(inst), std::move(fn) };
+
+			storage[1] = nullptr;
+		}
+
+	private:
+		Class* inst;
+		Func fn;
+	};
+
+	template <class Functor, class R, class... Args>
+	class DelegateInstFunctor final : public DelegateInstBase<R, Args...>
+	{
+		using Func = std::remove_cv_t<std::remove_reference_t<Functor>>;
+
+	public:
+		DelegateInstFunctor(const Func& inFn)
+			: fn(inFn) {}
+
+		DelegateInstFunctor(Func&& inFn)
+			: fn(std::move(inFn)) {}
 
 		R Execute(const Args&... args) override
 		{
@@ -212,18 +151,39 @@ namespace Impl
 			return fn(std::move(args)...);
 		}
 
-		void CloneTo(DelegateStorage& storage) override
+		void CopyTo(void* storage[2]) override
 		{
-			storage = Create(fn);
+			if constexpr (sizeof(Func) > sizeof(storage))
+			{
+				storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ fn };
+			}
+			else
+			{
+				Impl::DelegateInstFunctor<Func, R, Args...> inst{ fn };
+				memcpy(&storage, &inst, sizeof(inst));
+
+				if (!storage[1])
+					storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ fn };
+			}
+		}
+
+		void MoveTo(void* storage[2]) override
+		{
+			if constexpr (sizeof(Func) > sizeof(storage))
+			{
+				storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ std::move(fn) };
+			}
+			else
+			{
+				Impl::DelegateInstFunctor<Func, R, Args...> inst{ std::move(fn) };
+				memcpy(&storage, &inst, sizeof(inst));
+
+				if (!storage[1])
+					storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ std::move(inst) };
+			}
 		}
 
 	private:
-		DelegateInstFunctor(const Func& inFn)
-			: fn(inFn) {}
-
-		DelegateInstFunctor(Func&& inFn)
-			: fn(std::move(inFn)) {}
-		
 		std::remove_const_t<Func> fn;
 	};
 }

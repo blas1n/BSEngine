@@ -220,7 +220,7 @@ namespace Impl
 			if constexpr (sizeof(T) > sizeof(storage))
 				storage[0] = new Impl::DelegateInstFunctor<Functor, R, Args...>{ std::forward<T>(inst.fn) };
 			else
-				memcpy(&storage, &inst, sizeof(inst));
+				memcpy(storage, &inst, sizeof(inst));
 		}
 
 	private:

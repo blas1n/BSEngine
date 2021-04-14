@@ -153,7 +153,7 @@ namespace Impl
 	template <class Functor, class R, class... Args>
 	class DelegateInstFunctor final : public DelegateInstBase<R, Args...>
 	{
-		using Func = std::remove_cv_t<std::remove_reference_t<Functor>>;
+		using Func = std::decay_t<Functor>;
 
 	public:
 		static void Create(void* storage[2], const Func& inFn)

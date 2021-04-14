@@ -45,12 +45,13 @@ namespace Impl
 
 		void CopyTo(void* storage[2]) const override
 		{
-			memcpy(storage, this, sizeof(*this));
+			Create(storage, fn);
 		}
 
 		void MoveTo(void* storage[2]) override
 		{
-			CopyTo(storage);
+			Create(storage, std::move(fn));
+			Clear();
 		}
 
 		void Clear() override
@@ -90,15 +91,15 @@ namespace Impl
 
 		void CopyTo(void* storage[2]) const override
 		{
-			storage[0] = new Impl::DelegateInstMethod<Class, R, Args...>{ inst, fn };
-			storage[1] = nullptr;
+			Create(storage, inst, fn);
 		}
 
 		void MoveTo(void* storage[2]) override
 		{
-			storage[0] = new Impl::DelegateInstMethod
-				<Class, R, Args...>{ std::move(inst), std::move(fn) };
-			
+			Create(storage, std::move(inst), std::move(fn));
+			Clear();
+		}
+
 		void Clear() override
 		{
 			delete this;
@@ -138,14 +139,14 @@ namespace Impl
 
 		void CopyTo(void* storage[2]) const override
 		{
-			storage[0] = new Impl::DelegateInstConstMethod<Class, R, Args...>{ inst, fn };
-			storage[1] = nullptr;
+			Create(storage, inst, fn);
 		}
 
 		void MoveTo(void* storage[2]) override
 		{
-			storage[0] = new Impl::DelegateInstMethod
-				<Class, R, Args...>{ std::move(inst), std::move(fn) };
+			Create(storage, std::move(inst), std::move(fn));
+			Clear();
+		}
 
 		void Clear() override
 		{
@@ -189,10 +190,15 @@ namespace Impl
 
 		void CopyTo(void* storage[2]) const override
 		{
-			if constexpr (sizeof(Func) > sizeof(storage))
-			{
-				storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ fn };
-			}
+			Create(storage, fn);
+		}
+
+		void MoveTo(void* storage[2]) override
+		{
+			Create(storage, std::move(fn));
+			Clear();
+		}
+
 		void Clear() override
 		{
 			if constexpr (sizeof(Func) > sizeof(void*) * 2)
@@ -207,29 +213,18 @@ namespace Impl
 
 		DelegateInstFunctor(Func&& inFn)
 			: fn(std::move(inFn)) {}
-			{
-				Impl::DelegateInstFunctor<Func, R, Args...> inst{ fn };
-				memcpy(&storage, &inst, sizeof(inst));
 
-				if (!storage[1])
-					storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ fn };
-			}
-		}
-
-		void MoveTo(void* storage[2]) override
+		template <class T>
+		static void CreateImpl(void* storage[2], T&& inFn)
 		{
-			if constexpr (sizeof(Func) > sizeof(storage))
-			{
-				storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ std::move(fn) };
-			}
-			else
-			{
-				Impl::DelegateInstFunctor<Func, R, Args...> inst{ std::move(fn) };
-				memcpy(&storage, &inst, sizeof(inst));
+			static_assert(std::is_same_v<std::decay_t<Func>, std::decay_t<T>>);
 
-				if (!storage[1])
-					storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ std::move(inst) };
-			}
+			Impl::DelegateInstFunctor<Functor, R, Args...> inst{ std::forward<T>(inFn) };
+
+			if constexpr (sizeof(T) > sizeof(storage))
+				storage[0] = new Impl::DelegateInstFunctor<Functor, R, Args...>{ std::forward<T>(inst.fn) };
+			else
+				memcpy(&storage, &inst, sizeof(inst));
 		}
 
 	private:

@@ -51,7 +51,6 @@ namespace Impl
 		void MoveTo(void* storage[2]) override
 		{
 			Create(storage, std::move(fn));
-			Clear();
 		}
 
 		void Clear() override
@@ -97,7 +96,6 @@ namespace Impl
 		void MoveTo(void* storage[2]) override
 		{
 			Create(storage, std::move(inst), std::move(fn));
-			Clear();
 		}
 
 		void Clear() override
@@ -145,7 +143,6 @@ namespace Impl
 		void MoveTo(void* storage[2]) override
 		{
 			Create(storage, std::move(inst), std::move(fn));
-			Clear();
 		}
 
 		void Clear() override
@@ -196,7 +193,6 @@ namespace Impl
 		void MoveTo(void* storage[2]) override
 		{
 			Create(storage, std::move(fn));
-			Clear();
 		}
 
 		void Clear() override

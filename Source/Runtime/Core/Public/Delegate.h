@@ -7,20 +7,22 @@ template <class R, class... Args>
 class Delegate final
 {
 public:
-	Delegate() noexcept : storage() {}
+	Delegate() noexcept : storage{ nullptr, nullptr } {}
 
 	Delegate(std::nullptr_t) noexcept : Delegate() {}
 
-	Delegate(const Delegate& other) noexcept
+	Delegate(const Delegate& other) noexcept : Delegate()
 	{
 		if (const auto* inst = other.GetInst())
 			inst->CopyTo(storage);
 	}
 
-	Delegate(Delegate&& other) noexcept
+	Delegate(Delegate&& other) noexcept : Delegate()
 	{
 		if (const auto inst = other.GetInst())
 			inst->MoveTo(storage);
+
+		other.Clear();
 	}
 
 	Delegate& operator=(const Delegate& other) noexcept
@@ -44,28 +46,29 @@ public:
 		if (const auto inst = other.GetInst())
 			inst->MoveTo(storage);
 
+		other.Clear();
 		return *this;
 	}
 
-	Delegate(R(*fn)(Args...))
+	Delegate(R(*fn)(Args...)) : Delegate()
 	{
 		Impl::DelegateInstFunction<R, Args...>::Create(storage, fn);
 	}
 
 	template <class T>
-	Delegate(T* obj, R(T::* fn)(Args...))
+	Delegate(T* obj, R(T::* fn)(Args...)) : Delegate()
 	{
 		Impl::DelegateInstMethod<T, R, Args...>::Create(storage, obj, fn);
 	}
 
 	template <class T>
-	Delegate(T* obj, R(T::* fn)(Args...) const)
+	Delegate(T* obj, R(T::* fn)(Args...) const) : Delegate()
 	{
 		Impl::DelegateInstConstMethod<T, R, Args...>::Create(storage, obj, fn);
 	}
 
 	template <class Func>
-	Delegate(Func&& fn)
+	Delegate(Func&& fn) : Delegate()
 	{
 		Impl::DelegateInstFunctor<Func, R, Args...>::Create(storage, std::forward<Func>(fn));
 	}
@@ -94,8 +97,10 @@ public:
 	[[nodiscard]] operator bool() const noexcept { return IsBound(); }
 
 private:
-	[[nodiscard]] decltype(auto) GetInst() noexcept
+	[[nodiscard]] Impl::DelegateInstBase<R, Args...>* GetInst() noexcept
 	{
+		if (!storage[0]) return nullptr;
+
 		if (const auto heap = GetHeap())
 			return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(heap);
 		

@@ -8,6 +8,7 @@ if exist vcpkg\ (
     ./bootstrap-vcpkg
 
     set CMAKE_TOOLCHAIN_FILE=./scripts/buildsystems/vcpkg.cmake
+    set CMAKE_PREFIX_PATH=./scripts/buildsystems/vcpkg.cmake
 )
 
 set VCPKG_DEFAULT_TRIPLET=x64-windows

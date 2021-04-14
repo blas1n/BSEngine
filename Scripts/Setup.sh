@@ -10,7 +10,7 @@ else
     sh bootstrap-vcpkg.sh
 
     CMAKE_TOOLCHAIN_FILE=./scripts/buildsystems/vcpkg.cmake
-
+    CMAKE_PREFIX_PATH=./scripts/buildsystems/vcpkg.cmake
 fi
 
 CHECK_OS="`uname -s`"

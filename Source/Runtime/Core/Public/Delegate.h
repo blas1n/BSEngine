@@ -14,14 +14,13 @@ public:
 	Delegate(const Delegate& other) noexcept
 	{
 		if (const auto* inst = other.GetInst())
-			inst->CloneTo(&storage);
+			inst->CopyTo(storage);
 	}
 
 	Delegate(Delegate&& other) noexcept
 	{
-		storage[0] = std::move(other.storage[0]);
-		storage[1] = std::move(other.storage[1]);
-		other.storage[0] = other.storage[1] = nullptr;
+		if (const auto inst = other.GetInst())
+			inst->MoveTo(storage);
 	}
 
 	Delegate& operator=(const Delegate& other) noexcept
@@ -31,7 +30,7 @@ public:
 		Clear();
 
 		if (const auto* inst = other.GetInst())
-			inst->CloneTo(&storage);
+			inst->CopyTo(storage);
 
 		return *this;
 	}
@@ -41,34 +40,34 @@ public:
 		if (*this == other) return *this;
 
 		Clear();
-		storage[0] = std::move(other.storage[0]);
-		storage[1] = std::move(other.storage[1]);
-		other.storage[0] = other.storage[1] = nullptr;
+		
+		if (const auto inst = other.GetInst())
+			inst->MoveTo(storage);
 
 		return *this;
 	}
 
 	Delegate(R(*fn)(Args...))
 	{
-		Impl::DelegateInstFunction<R, Args...>{ fn }.MoveTo(storage);
+		Impl::DelegateInstFunction<R, Args...>::Create(storage, fn);
 	}
 
 	template <class T>
 	Delegate(T* obj, R(T::* fn)(Args...))
 	{
-		Impl::DelegateInstMethod<T, R, Args...>{ obj, fn }.MoveTo(storage);
+		Impl::DelegateInstMethod<T, R, Args...>::Create(storage, obj, fn);
 	}
 
 	template <class T>
 	Delegate(T* obj, R(T::* fn)(Args...) const)
 	{
-		Impl::DelegateInstConstMethod<R, Args...>{ obj, fn }.MoveTo(storage);
+		Impl::DelegateInstConstMethod<T, R, Args...>::Create(storage, obj, fn);
 	}
 
 	template <class Func>
 	Delegate(Func&& fn)
 	{
-		Impl::DelegateInstFunctor<Func, R, Args...>{ std::forward<Func>(fn) }.MoveTo(storage);
+		Impl::DelegateInstFunctor<Func, R, Args...>::Create(storage, std::forward<Func>(fn));
 	}
 
 	~Delegate() { Clear(); }
@@ -85,10 +84,10 @@ public:
 
 	void Clear() noexcept
 	{
-		if (const auto heap = GetHeap())
-			delete heap;
-		
-		storage[0] = storage[1] = nullptr;
+		if (const auto inst = GetInst())
+			inst->Clear();
+
+		memset(storage, 0, sizeof(storage));
 	}
 
 	[[nodiscard]] bool IsBound() const noexcept { return storage[0]; }

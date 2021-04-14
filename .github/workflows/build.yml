@@ -16,10 +16,10 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Build
+    - name: Setup and Build
       shell: cmd
       working-directory: ./Scripts
-      run: Build.bat
+      run: Setup.bat && Build.bat
     - name: Run Test
       working-directory: ./Binaries/Tests/Tests
       run: ls && ./BSEngine-Tests

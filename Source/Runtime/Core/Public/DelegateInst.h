@@ -217,7 +217,7 @@ namespace Impl
 		template <class T>
 		static void CreateImpl(void* storage[2], T&& inFn)
 		{
-			static_assert(std::is_same_v<std::decay_t<Func>, std::decay_t<T>>);
+			static_assert(std::is_same_v<Func, std::decay_t<T>>);
 
 			Impl::DelegateInstFunctor<Functor, R, Args...> inst{ std::forward<T>(inFn) };
 

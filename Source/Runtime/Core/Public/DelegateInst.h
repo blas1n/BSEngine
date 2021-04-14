@@ -15,7 +15,7 @@ namespace Impl
 		virtual R Execute(const Args&...) = 0;
 		virtual R Execute(Args&&...) = 0;
 
-		virtual void CopyTo(void* storage[2]) = 0;
+		virtual void CopyTo(void* storage[2]) const = 0;
 		virtual void MoveTo(void* storage[2]) = 0;
 	};
 
@@ -38,7 +38,7 @@ namespace Impl
 			return (*fn)(std::move(args)...);
 		}
 
-		void CopyTo(void* storage[2]) override
+		void CopyTo(void* storage[2]) const override
 		{
 			memcpy(storage, this, sizeof(*this));
 		}
@@ -71,7 +71,7 @@ namespace Impl
 			return (inst->*fn)(std::move(args)...);
 		}
 
-		void CopyTo(void* storage[2]) override
+		void CopyTo(void* storage[2]) const override
 		{
 			storage[0] = new Impl::DelegateInstMethod<Class, R, Args...>{ inst, fn };
 			storage[1] = nullptr;
@@ -110,7 +110,7 @@ namespace Impl
 			return (inst->*fn)(std::move(args)...);
 		}
 
-		void CopyTo(void* storage[2]) override
+		void CopyTo(void* storage[2]) const override
 		{
 			storage[0] = new Impl::DelegateInstConstMethod<Class, R, Args...>{ inst, fn };
 			storage[1] = nullptr;
@@ -151,7 +151,7 @@ namespace Impl
 			return fn(std::move(args)...);
 		}
 
-		void CopyTo(void* storage[2]) override
+		void CopyTo(void* storage[2]) const override
 		{
 			if constexpr (sizeof(Func) > sizeof(storage))
 			{

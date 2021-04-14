@@ -17,6 +17,8 @@ namespace Impl
 
 		virtual void CopyTo(void* storage[2]) const = 0;
 		virtual void MoveTo(void* storage[2]) = 0;
+
+		virtual void Clear() = 0;
 	};
 
 	template <class R, class... Args>
@@ -49,6 +51,11 @@ namespace Impl
 		void MoveTo(void* storage[2]) override
 		{
 			CopyTo(storage);
+		}
+
+		void Clear() override
+		{
+			memset(this, 0, sizeof(*this));
 		}
 
 	private:
@@ -92,7 +99,9 @@ namespace Impl
 			storage[0] = new Impl::DelegateInstMethod
 				<Class, R, Args...>{ std::move(inst), std::move(fn) };
 			
-			storage[1] = nullptr;
+		void Clear() override
+		{
+			delete this;
 		}
 
 	private:
@@ -138,7 +147,9 @@ namespace Impl
 			storage[0] = new Impl::DelegateInstMethod
 				<Class, R, Args...>{ std::move(inst), std::move(fn) };
 
-			storage[1] = nullptr;
+		void Clear() override
+		{
+			delete this;
 		}
 
 	private:
@@ -182,7 +193,14 @@ namespace Impl
 			{
 				storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ fn };
 			}
+		void Clear() override
+		{
+			if constexpr (sizeof(Func) > sizeof(void*) * 2)
+				delete this;
 			else
+				memset(this, 0, sizeof(*this));
+		}
+
 	private:
 		DelegateInstFunctor(const Func& inFn)
 			: fn(inFn) {}

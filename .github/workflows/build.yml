@@ -18,7 +18,8 @@ jobs:
     - uses: actions/checkout@v2
     - name: Build
       shell: cmd
-      run: ls && Scripts/Build.bat
+      working-directory: ./Scripts
+      run: ls && ./Build.bat
     - name: Run Test
       working-directory: ./Binaries/Tests/Tests
       run: ls && ./BSEngine-Tests

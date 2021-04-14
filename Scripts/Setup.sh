@@ -27,6 +27,8 @@ fi
 
 VCPKG_DEFAULT_TRIPLET=x64-windows
 
+vcpkg install SDL2
+vcpkg install glew
 vcpkg install fmt
 vcpkg install spdlog
 vcpkg install rapidJSON

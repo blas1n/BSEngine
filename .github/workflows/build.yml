@@ -19,7 +19,7 @@ jobs:
     - name: Build
       shell: cmd
       working-directory: ./Scripts
-      run: ls && ./Build.bat
+      run: Build.bat
     - name: Run Test
       working-directory: ./Binaries/Tests/Tests
       run: ls && ./BSEngine-Tests

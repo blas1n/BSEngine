@@ -444,4 +444,7 @@ Sources/ThirdParty/spdlog/
 Sources/ThirdParty/rapidJSON/
 
 # Document Path
-[Dd]ocument/
+Document/
+
+# vcpkg
+Scripts/vcpkg

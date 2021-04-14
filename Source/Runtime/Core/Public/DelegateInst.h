@@ -218,9 +218,16 @@ namespace Impl
 			Impl::DelegateInstFunctor<Functor, R, Args...> inst{ std::forward<T>(inFn) };
 
 			if constexpr (sizeof(T) > sizeof(storage))
+			{
 				storage[0] = new Impl::DelegateInstFunctor<Functor, R, Args...>{ std::forward<T>(inst.fn) };
+			}
 			else
+			{
 				memcpy(storage, &inst, sizeof(inst));
+
+				if (!storage[1])
+					storage[0] = new Impl::DelegateInstFunctor<Functor, R, Args...>{ std::forward<T>(inst.fn) };
+			}
 		}
 
 	private:

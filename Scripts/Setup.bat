@@ -2,7 +2,6 @@
 
 if exist vcpkg\ (
     cd vcpkg
-    
 ) else (
     git clone https://github.com/Microsoft/vcpkg.git
     cd vcpkg
@@ -10,6 +9,7 @@ if exist vcpkg\ (
 )
 
 set VCPKG_DEFAULT_TRIPLET=x64-windows
+set CMAKE_TOOLCHAIN_FILE=./scripts/buildsystems/vcpkg.cmake
 
 vcpkg install SDL2
 vcpkg install glew

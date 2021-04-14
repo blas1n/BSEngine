@@ -26,6 +26,7 @@ else
 fi
 
 VCPKG_DEFAULT_TRIPLET=x64-windows
+CMAKE_TOOLCHAIN_FILE=./scripts/buildsystems/vcpkg.cmake
 
 vcpkg install SDL2
 vcpkg install glew

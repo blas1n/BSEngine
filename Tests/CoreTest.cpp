@@ -52,7 +52,11 @@ static bool ReturnTrue(int32 lhs, int32 rhs)
 
 TEST(CoreTest, EventTest)
 {
+	Foo foo;
 	Event<bool, int32, int32> event;
+
+	event += &TestA;
+	event += { &foo, & Foo::Boo };
 	event += [](int32 lhs, int32 rhs)
 	{
 		return lhs == rhs;

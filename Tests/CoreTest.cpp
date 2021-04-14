@@ -34,10 +34,14 @@ TEST(CoreTest, DelegateTest)
 
 	Foo foo;
 	Delegate<bool, int32, int32> delegate;
-	delegate = &TestA;
-	delegate = { &foo, &Foo::Boo };
-	delegate = lambda;
 
+	delegate = &TestA;
+	EXPECT_TRUE(delegate(1, 1));
+
+	delegate = { &foo, &Foo::Boo };
+	EXPECT_TRUE(delegate(1, 1));
+
+	delegate = lambda;
 	EXPECT_TRUE(delegate(1, 1));
 }
 

@@ -25,8 +25,11 @@ namespace Impl
 		using Func = R(*)(Args...);
 
 	public:
-		DelegateInstFunction(Func inFn)
-			: fn(inFn) {}
+		static void Create(void* storage[2], Func inFn)
+		{
+			Impl::DelegateInstFunction<R, Args...> inst{ inFn };
+			memcpy(storage, &inst, sizeof(inst));
+		}
 
 		R Execute(const Args&... args) override
 		{
@@ -49,6 +52,10 @@ namespace Impl
 		}
 
 	private:
+		DelegateInstFunction(Func inFn)
+			: fn(inFn) {}
+
+	private:
 		Func fn;
 	};
 
@@ -58,8 +65,11 @@ namespace Impl
 		using Func = R(Class::*)(Args...);
 
 	public:
-		DelegateInstMethod(Class* inInst, Func inFn)
-			: inst(inInst), fn(inFn) {}
+		static void Create(void* storage[2], Class* inInst, Func inFn)
+		{
+			storage[0] = new Impl::DelegateInstMethod<Class, R, Args...>{ inInst, inFn };
+			storage[1] = nullptr;
+		}
 
 		R Execute(const Args&... args) override
 		{
@@ -86,6 +96,10 @@ namespace Impl
 		}
 
 	private:
+		DelegateInstMethod(Class* inInst, Func inFn)
+			: inst(inInst), fn(inFn) {}
+
+	private:
 		Class* inst;
 		Func fn;
 	};
@@ -97,8 +111,11 @@ namespace Impl
 		using Func = R(Class::*)(Args...) const;
 
 	public:
-		DelegateInstConstMethod(Class* inInst, Func inFn)
-			: inst(inInst), fn(inFn) {}
+		static void Create(void* storage[2], Class* inInst, Func inFn)
+		{
+			storage[0] = new Impl::DelegateInstConstMethod<Class, R, Args...>{ inInst, inFn };
+			storage[1] = nullptr;
+		}
 
 		R Execute(const Args&... args) override
 		{
@@ -125,6 +142,10 @@ namespace Impl
 		}
 
 	private:
+		DelegateInstConstMethod(Class* inInst, Func inFn)
+			: inst(inInst), fn(inFn) {}
+
+	private:
 		Class* inst;
 		Func fn;
 	};
@@ -135,11 +156,15 @@ namespace Impl
 		using Func = std::remove_cv_t<std::remove_reference_t<Functor>>;
 
 	public:
-		DelegateInstFunctor(const Func& inFn)
-			: fn(inFn) {}
+		static void Create(void* storage[2], const Func& inFn)
+		{
+			CreateImpl(storage, inFn);
+		}
 
-		DelegateInstFunctor(Func&& inFn)
-			: fn(std::move(inFn)) {}
+		static void Create(void* storage[2], Func&& inFn)
+		{
+			CreateImpl(storage, std::move(inFn));
+		}
 
 		R Execute(const Args&... args) override
 		{
@@ -158,6 +183,12 @@ namespace Impl
 				storage[0] = new Impl::DelegateInstFunctor<Func, R, Args...>{ fn };
 			}
 			else
+	private:
+		DelegateInstFunctor(const Func& inFn)
+			: fn(inFn) {}
+
+		DelegateInstFunctor(Func&& inFn)
+			: fn(std::move(inFn)) {}
 			{
 				Impl::DelegateInstFunctor<Func, R, Args...> inst{ fn };
 				memcpy(&storage, &inst, sizeof(inst));

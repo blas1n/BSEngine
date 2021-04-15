@@ -1,5 +1,7 @@
 @echo off
 
+cd ../ThirdParty
+
 if exist vcpkg\ (
     cd vcpkg
 ) else (
@@ -19,3 +21,5 @@ vcpkg install spdlog
 vcpkg install rapidJSON
 vcpkg install utfcpp
 vcpkg integrate install
+
+cd ../../Scripts

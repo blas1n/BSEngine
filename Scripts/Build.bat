@@ -2,23 +2,26 @@
 
 cd ..
 
-if exist build (
-  rmdir /s /q build
+if not exist Binaries (
+  mkdir Binaries
 )
 
-mkdir build && cd build
+cd Binaries
 
 if "%1%" == "Debug" (
-	cmake .. -DCMAKE_BUILD_TYPE=Debug
+	set BUILD_TYPE=Debug
 ) else if "%1%" == "Develop" (
-	cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
+	set BUILD_TYPE=RelWithDebInfo
 ) else if "%1%" == "Shipping" (
-	cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
+	set BUILD_TYPE=MinSizeRel
 ) else if "%1" == "" (
-	cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
+	set BUILD_TYPE=RelWithDebInfo
 ) else (
 	echo "Unknown build type."
+	cd ../Scripts
 	exit /b 1
 )
 
+cmake .. -DCMAKE_BUILD_TYPE=%BUILD_TYPE%
 cmake --build .
+cd ../Scripts

@@ -4,22 +4,25 @@ set -e
 
 cd ..
 
-if [ -d build ]; then
-	rm -rf build
+if [ ! -d Binaries ]; then
+	mkdir Binaries
 fi
 
-mkdir build && cd build
+cd Binaries
 
 case "$1" in
 	"Debug")
-		cmake .. -DCMAKE_BUILD_TYPE=Debug;;
+		BUILD_TYPE=Debug;;
 	"Develop"|"")
-		cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo;;
+		BUILD_TYPE=RelWithDebInfo;;
 	"Shipping")
-		cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel;;
+		BUILD_TYPE=MinSizeRel;;
 	*)
 		echo "Unknown build type."
+		cd ../Scripts
 		exit 1;;
 esac
 
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 cmake --build .
+cd ../Scripts

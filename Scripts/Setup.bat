@@ -5,10 +5,9 @@ if exist vcpkg\ (
 ) else (
     git clone https://github.com/Microsoft/vcpkg.git
     cd vcpkg
-    ./bootstrap-vcpkg
 
-    set CMAKE_TOOLCHAIN_FILE=./scripts/buildsystems/vcpkg.cmake
-    set CMAKE_PREFIX_PATH=./scripts/buildsystems/vcpkg.cmake
+    setx VCPKG_ROOT %CD%\vcpkg
+    bootstrap-vcpkg
 )
 
 set VCPKG_DEFAULT_TRIPLET=x64-windows

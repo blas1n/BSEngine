@@ -7,10 +7,9 @@ if [ -d "vcpkg" ]; then
 else
     git clone https://github.com/Microsoft/vcpkg.git
     cd vcpkg
-    sh bootstrap-vcpkg.sh
 
-    CMAKE_TOOLCHAIN_FILE=./scripts/buildsystems/vcpkg.cmake
-    CMAKE_PREFIX_PATH=./scripts/buildsystems/vcpkg.cmake
+    export VCPKG_ROOT ${PWD}
+    sh bootstrap-vcpkg.sh
 fi
 
 CHECK_OS="`uname -s`"
@@ -27,8 +26,6 @@ else
     echo "Unknown OS!"
     exit 1
 fi
-
-VCPKG_DEFAULT_TRIPLET=x64-windows
 
 vcpkg install SDL2
 vcpkg install glew

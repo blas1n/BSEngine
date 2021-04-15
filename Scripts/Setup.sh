@@ -2,7 +2,9 @@
 
 set -e
 
-if [ -d "vcpkg" ]; then
+cd ../ThirdParty
+
+if [[ -d "vcpkg" ]]; then
     cd vcpkg
 else
     git clone https://github.com/Microsoft/vcpkg.git
@@ -34,3 +36,5 @@ vcpkg install spdlog
 vcpkg install rapidJSON
 vcpkg install utfcpp
 vcpkg integrate install
+
+cd ../../Scripts

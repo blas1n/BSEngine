@@ -2,7 +2,7 @@
 
 cd ../ThirdParty/vcpkg
 
-bootstrap-vcpkg
+call bootstrap-vcpkg
 vcpkg install SDL2
 vcpkg install glew
 vcpkg install fmt

@@ -54,5 +54,5 @@ jobs:
       - name: Build
         run: cmake --build "${{ env.CMAKE_BUILD_DIR }}"
       - name: Run Test
-        working-directory: ./Binaries/Tests/Tests
+        working-directory: ./Binaries
         run: ./BSEngine-Tests

@@ -18,7 +18,7 @@ jobs:
     runs-on: windows-latest
     env:
       CMAKE_BUILD_DIR: ${{ github.workspace }}/Binaries/
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_ROOT: ${{ github.workspace }}/ThirdParty/vcpkg
       TRIPLET: x64-windows
 
     steps:

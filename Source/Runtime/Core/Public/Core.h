@@ -14,3 +14,5 @@
 #include "LogCategory.h"
 #include "BSMath.h"
 #include "Platform.h"
+
+using namespace BSBase;

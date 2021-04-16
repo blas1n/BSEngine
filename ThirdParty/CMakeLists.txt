@@ -1,3 +1,3 @@
-# Source/ThirdPary
+# ThirdPary
 
 add_subdirectory(BSMath)

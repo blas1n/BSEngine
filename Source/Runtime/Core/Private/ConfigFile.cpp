@@ -26,7 +26,7 @@ bool ConfigFile::LoadFromFile(const String& fileName) noexcept
 {
     Clear();
 
-    const auto path = u"Config\\" + fileName + u".ini";
+    const auto path = STR("Config\\") + fileName + STR(".ini");
     IfStream fin{ reinterpret_cast<const BSBase::uint16*>(path.c_str()) };
     if (!fin) return false;
 
@@ -36,12 +36,12 @@ bool ConfigFile::LoadFromFile(const String& fileName) noexcept
 
     while (std::getline(fin, line))
     {
-        if ((line = TrimInline(line)).empty() || line[0] == u'#')
+        if ((line = TrimInline(line)).empty() || line[0] == STR('#'))
             continue;
 
-        if (line[0] == u'[')
+        if (line[0] == STR('['))
         {
-            const auto end = line.rfind(u']');
+            const auto end = line.rfind(STR(']'));
             if (end == String::npos || end == 1)
             {
                 Clear();
@@ -53,7 +53,7 @@ bool ConfigFile::LoadFromFile(const String& fileName) noexcept
         }
         else
         {
-            const auto eq = line.find(u'=');
+            const auto eq = line.find(STR('='));
             if (eq == String::npos || eq == 0 || eq == line.length() - 1)
             {
                 Clear();

@@ -3,18 +3,9 @@
 #include <vector>
 #include "Delegate.h"
 
-template <class T>
-class Event
-{
-	static_assert(sizeof(T) == 0, "Expected a function signature for the event template parameter");
-};
-
 template <class R, class... Args>
-class Event<R(Args...)> final
+class Event final
 {
-public:
-	using Func = R(*)(Args...);
-
 public:
 	Event() noexcept = default;
 	Event(std::nullptr_t) noexcept : Event() {}
@@ -27,20 +18,26 @@ public:
 
 	~Event() = default;
 
-	Event& operator+=(Delegate<Func>&& fn)
+	Event& operator+=(const Delegate<R, Args...>& fn)
 	{
-		funcs.emplace_back(std::forward<Delegate<Func>(fn));
+		funcs.emplace_back(fn);
 		return *this;
 	}
 
-	void operator()(Args&&... args) const
+	Event& operator+=(Delegate<R, Args...>&& fn)
+	{
+		funcs.emplace_back(std::move(fn));
+		return *this;
+	}
+
+	void operator()(const Args&... args)
 	{
 		for (auto& fn : funcs)
-			fn(args);
+			fn(args...);
 	}
 
 	template <class Fn>
-	R operator()(Fn&& mixer, Args&&... args) const
+	R operator()(Fn&& mixer, const Args&... args)
 	{
 		if (!IsBound()) return R();
 
@@ -48,7 +45,7 @@ public:
 
 		const size_t size = Size();
 		for (size_t i = 1; i < size; ++i)
-			ret = mixer(ret, fn(args));
+			ret = mixer(ret, funcs[i](args...));
 
 		return ret;
 	}
@@ -70,9 +67,13 @@ public:
 
 	void Clear() noexcept
 	{
+		for (auto& fn : funcs)
+			fn.Clear();
+
 		funcs.clear();
 	}
 
+private:
 	[[nodiscard]] decltype(auto) begin() noexcept
 	{
 		return funcs.begin();
@@ -94,5 +95,17 @@ public:
 	}
 
 private:
-	std::vector<Delegate<Func>> funcs;
+	std::vector<Delegate<R, Args...>> funcs;
 };
+
+template <class R, class... Args>
+[[nodiscard]] bool operator==(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
+{
+	return &lhs == &rhs;
+}
+
+template <class R, class... Args>
+[[nodiscard]] bool operator!=(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
+{
+	return !(lhs == rhs);
+}

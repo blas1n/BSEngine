@@ -1,100 +1,129 @@
 #pragma once
 
 #include <utility>
+#include "DelegateInst.h"
 
-template <class T>
-class Delegate
-{
-	static_assert(sizeof(T) == 0, "Expected a function signature for the delegate template parameter");
-};
-
-// This code was created with reference to https://www.codeproject.com/Articles/1170503/The-Impossibly-Fast-Cplusplus-Delegates-Fixed
 template <class R, class... Args>
-class Delegate<R(Args...)> final
+class Delegate final
 {
 public:
-	Delegate() noexcept
-		: object(nullptr), stub(nullptr) {}
+	Delegate() noexcept : storage{ nullptr, nullptr } {}
 
 	Delegate(std::nullptr_t) noexcept : Delegate() {}
 
-	Delegate(const Delegate& other) noexcept
-		: object(other.object), stub(other.stub) {}
+	Delegate(const Delegate& other) noexcept : Delegate()
+	{
+		if (const auto* inst = other.GetInst())
+			inst->CopyTo(storage);
+	}
 
-	Delegate(Delegate&& other) noexcept
-		: object(std::move(other.object)), stub(std::move(other.stub)) {}
+	Delegate(Delegate&& other) noexcept : Delegate()
+	{
+		if (const auto inst = other.GetInst())
+			inst->MoveTo(storage);
+
+		other.Clear();
+	}
 
 	Delegate& operator=(const Delegate& other) noexcept
 	{
-		object = other.object;
-		stub = other.stub;
+		if (*this == other) return *this;
+
+		Clear();
+
+		if (const auto* inst = other.GetInst())
+			inst->CopyTo(storage);
+
 		return *this;
 	}
 
-	Delegate& operator=(Delegate&& other)
+	Delegate& operator=(Delegate&& other) noexcept
 	{
-		object = std::move(other.object);
-		stub = std::move(other.stub);
+		if (*this == other) return *this;
+
+		Clear();
+		
+		if (const auto inst = other.GetInst())
+			inst->MoveTo(storage);
+
+		other.Clear();
 		return *this;
 	}
 
-	~Delegate() = default;
-
-	template <R(*Function)(Args...)>
-	Delegate(R(*fn)(Args...)) : object(nullptr), stub(&FunctionStub<Function>) {}
-
-	template <class T, R(*Method)(Args...)>
-	Delegate(T* obj) : object(obj), stub(&MethodStub<Method>) {}
-
-	template <class T, R(*Method)(Args...)>
-	Delegate(const T* obj) : object(const_cast<T*>(obj)), stub(&ConstMethodStub<Method>) {}
-
-	template <class Functor>
-	Delegate(Functor&& fn) : object(&fn), stub(&FunctorStub<Functor>) {}
-
-	R operator()(Args&&... args) const
+	Delegate(R(*fn)(Args...)) : Delegate()
 	{
-		if (!stub) return R();
-
-		return (*stub)(object, std::forward<Args>(args)...);
+		Impl::DelegateInstFunction<R, Args...>::Create(storage, fn);
 	}
 
-	void Clear() noexcept { object = stub = nullptr; }
+	template <class T>
+	Delegate(T* obj, R(T::* fn)(Args...)) : Delegate()
+	{
+		Impl::DelegateInstMethod<T, R, Args...>::Create(storage, obj, fn);
+	}
 
-	[[nodiscard]] bool IsBound() const noexcept { return stub; }
-	[[nodiscard]] operator bool() const noexcept { return stub; }
+	template <class T>
+	Delegate(T* obj, R(T::* fn)(Args...) const) : Delegate()
+	{
+		Impl::DelegateInstConstMethod<T, R, Args...>::Create(storage, obj, fn);
+	}
+
+	template <class Func>
+	Delegate(Func&& fn) : Delegate()
+	{
+		Impl::DelegateInstFunctor<Func, R, Args...>::Create(storage, std::forward<Func>(fn));
+	}
+
+	~Delegate() { Clear(); }
+
+	R operator()(const Args&... args)
+	{
+		return IsBound() ? GetInst()->Execute(args...) : R();
+	}
+
+	R operator()(Args&&... args)
+	{
+		return IsBound() ? GetInst()->Execute(std::move(args)...) : R();
+	}
+
+	void Clear() noexcept
+	{
+		if (const auto inst = GetInst())
+			inst->Clear();
+
+		memset(storage, 0, sizeof(storage));
+	}
+
+	[[nodiscard]] bool IsBound() const noexcept { return storage[0]; }
+	[[nodiscard]] operator bool() const noexcept { return IsBound(); }
 
 private:
-	template <R(*Function)(Args...)>
-	static R FunctionStub(void* object, Args... args)
+	[[nodiscard]] Impl::DelegateInstBase<R, Args...>* GetInst() noexcept
 	{
-		return (Function)(std::forward<Args>(args)...);
+		if (!storage[0]) return nullptr;
+
+		if (const auto heap = GetHeap())
+			return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(heap);
+		
+		return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(&storage);
 	}
 
-	template <class T, R(T::*Method)(Args...)>
-	static R MethodStub(void* object, Args... args)
+	[[nodiscard]] void* GetHeap() noexcept
 	{
-		T* ptr = static_cast<T*>(object);
-		return (ptr->*Method)(std::forward<Args>(args)...);
-	}
-	
-	template <class T, R(T::*Method)(Args...) const>
-	static R ConstMethodStub(const void* object, Args... args)
-	{
-		const T* ptr = static_cast<const T*>(object);
-		return (ptr->*Method)(std::forward<Args>(args)...);
-	}
-	
-	template <class Functor>
-	static R FunctorStub(void* object, Args... args)
-	{
-		Functor* ptr = static_cast<Functor*>(object);
-		return (ptr->operator())(std::forward<Args>(args)...);
+		return (storage[0] && !storage[1]) ? storage[0] : nullptr;
 	}
 
 private:
-	using Stub = R(*)(void*, Args...);
-
-	void* object;
-	Stub stub;
+	void* storage[2];
 };
+
+template <class R, class... Args>
+[[nodiscard]] bool operator==(const Delegate<R, Args...>& lhs, const Delegate<R, Args...>& rhs)
+{
+	return &lhs == &rhs;
+}
+
+template <class R, class... Args>
+[[nodiscard]] bool operator!=(const Delegate<R, Args...>& lhs, const Delegate<R, Args...>& rhs)
+{
+	return !(lhs == rhs);
+}

@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
+      # Init my submodule (vcpkg, BSMath, BSBase)
+      - uses: snickerbockers/submodules-init@v4
       - uses: lukka/get-cmake@latest
       - name: Restore vcpkg and its artifacts.
         uses: actions/cache@v2

@@ -1,18 +1,16 @@
 {
-  "name": "BSEngine",
+  "name": "bs-engine",
   "version-string": "0.1.0",
   "description": "Game Engine made by blAs1N",
   "homepage": "https://github.com/blAs1N/BS_Engine",
   "license": "MIT",
   "dependencies": [
-    "SDL2",
+    "sdl2",
     "glew",
     "fmt",
     "spdlog",
-    "rapidJSON",
-    "utfcpp"
-  ],
-  "dev-dependencies": [
-    "GTest"
+    "rapidjson",
+    "utfcpp",
+    "gtest"
   ]
 }

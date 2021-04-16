@@ -42,13 +42,14 @@ jobs:
       # On Windows runners, let's ensure to have the Developer Command Prompt environment setup correctly. As used here the Developer Command Prompt created is targeting x64 and using the default the Windows SDK.
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Setup
-        shell: cmd
+        shell: powershell
         working-directory: ./Scripts
-        run: Setup
+        run: ./Setup
       - name: Build
-        shell: cmd 
+        shell: powershell
         working-directory: ./Scripts
-        run: Build
+        run: ./Build
       - name: Run Test
+        shell: powershell
         working-directory: ./Binaries/Tests/Tests
         run: ls && ./BSEngine-Tests

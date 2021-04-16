@@ -47,7 +47,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
       # Run CMake to generate Ninja project files, using the vcpkg's toolchain file to resolve and install the dependencies as specified in vcpkg.json.
       - name: Install dependencies and generate project files
-        run: dir ${env.VCPKG_ROOT} /s && cmake -S "${{ github.workspace }}" -B "${{ env.CMAKE_BUILD_DIR }}" -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake"
+        run: dir ${{ env.VCPKG_ROOT }} /s && cmake -S "${{ github.workspace }}" -B "${{ env.CMAKE_BUILD_DIR }}" -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake"
       # Build the whole project with Ninja (which is spawn by CMake).
       - name: Build
         run: cmake --build "${{ env.CMAKE_BUILD_DIR }}"

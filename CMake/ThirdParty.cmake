@@ -1,3 +1,5 @@
+set (CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/vcpkg/scripts/buildsystems/vcpkg.cmake CACHE STRING "Vcpkg toolchain file")
+
 find_package (SDL2 CONFIG REQUIRED)
 find_package (GLEW REQUIRED)
 find_package (fmt CONFIG REQUIRED)

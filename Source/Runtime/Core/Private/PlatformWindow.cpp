@@ -45,7 +45,7 @@ Dll::Dll(const String& inPath)
 {
     const std::wstring wPath(path.cbegin(), path.cend());
     dll = LoadLibraryW(wPath.c_str());
-    CheckMsg(dll, u"{}: cannot load module, {}", path, GetLastErrorMsg());
+    CheckMsg(dll, STR("{}: cannot load module, {}"), path, GetLastErrorMsg());
 }
 
 Dll::Dll(const Dll& other)
@@ -90,7 +90,7 @@ Dll::~Dll()
 void* Dll::GetSymbol(const String& name) const
 {
     const auto symbol = FindSymbol(name);
-    if (EnsureMsg(symbol, u"Path: {}, Name: {}, {}", path, name, GetLastErrorMsg()))
+    if (EnsureMsg(symbol, STR("Path: {}, Name: {}, {}"), path, name, GetLastErrorMsg()))
         return symbol;
 
     return nullptr;

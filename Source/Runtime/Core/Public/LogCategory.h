@@ -8,4 +8,4 @@ struct LogCategory final
 };
 
 #define DECLARE_LOG_CATEGORY(name) extern const LogCategory name;
-#define DEFINE_LOG_CATEGORY(name) const LogCategory name{ u#name };
+#define DEFINE_LOG_CATEGORY(name) const LogCategory name{ STR(#name) };

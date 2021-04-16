@@ -8,12 +8,12 @@
 #include <string>
 #include <ostream>
 
-#ifdef TEXT
-#	undef TEXT
+#ifdef STR
+#	undef STR
 #endif
 
-#define TEXT_IMPL(x) u#x
-#define TEST(x) TEST_IMPL(x)
+#define STR_IMPL(x) u##x
+#define STR(x) STR_IMPL(x)
 
 using Char = char16_t;
 using String = std::u16string;

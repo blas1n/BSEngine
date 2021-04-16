@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.10)
 
-project (BS_Engine
+project (BSEngine
 	VERSION 0.1.0
 	LANGUAGES CXX
 	DESCRIPTION "Game Engine made by blAs1N"
@@ -22,7 +22,9 @@ set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
 
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
+add_subdirectory (ThirdParty)
 add_subdirectory (Source)
+add_subdirectory (Tests)
 
 if (${PLATFORM_WINDOWS})
 	install (DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.dll")

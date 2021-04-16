@@ -8,8 +8,8 @@
 
 #ifdef NDEBUG
 
-#	define CheckMsg(expr, fmt, ...) (void)expr
-#	define Check(expr) (void)expr
+#	define CheckMsg(expr, fmt, ...) (void)(expr)
+#	define Check(expr) (void)(expr)
 
 #	define EnsureMsg(expr, fmt, ...) !!(expr)
 #	define Ensure(expr) !!(expr)
@@ -39,11 +39,11 @@ namespace Impl
 #	define CheckMsg(expr, fmt, ...) (void)(!!(expr) || (Impl::LogToFail(true, \
 		u#expr, ADD_PREFIX(u, __FILE__), __LINE__, fmt, ##__VA_ARGS__), DEBUG_BREAK(), false))
 
-#	define Check(expr) CheckMsg(expr, u"")
+#	define Check(expr) CheckMsg(expr, STR(""))
 
 #	define EnsureMsg(expr, fmt, ...) (!!(expr) || (Impl::LogToFail(false, \
 		u#expr, ADD_PREFIX(u, __FILE__), __LINE__, fmt, ##__VA_ARGS__), DEBUG_BREAK(), false))
 
-#	define Ensure(expr) EnsureMsg(exprt, u"")
+#	define Ensure(expr) EnsureMsg(expr, STR(""))
 
 #endif

@@ -1,3 +1,6 @@
-[submodule "Source/ThirdParty/BSMath"]
-	path = Source/ThirdParty/BSMath
+[submodule "ThirdParty/BSMath"]
+	path = ThirdParty/BSMath
 	url = https://github.com/blAs1N/BSMath
+[submodule "ThirdParty/vcpkg"]
+	path = ThirdParty/vcpkg
+	url = https://github.com/Microsoft/vcpkg.git

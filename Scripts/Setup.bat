@@ -1,7 +1,5 @@
 @echo off
 
-vcpkg install fmt
-vcpkg install spdlog
-vcpkg install rapidJSON
-vcpkg install utfcpp
-vcpkg integrate install
+pushd %~dp0
+cmake -S .. -B ../Binaries/ -DCMAKE_TOOLCHAIN_FILE=../ThirdParty/vcpkg/scripts/buildsystems/vcpkg.cmake
+popd

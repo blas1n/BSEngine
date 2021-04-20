@@ -16,8 +16,9 @@ set (CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 
-include (CMake/Util.cmake)
+include (CMake/Platform.cmake)
 include (CMake/ThirdParty.cmake)
+include (CMake/Util.cmake)
 
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 

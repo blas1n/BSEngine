@@ -54,5 +54,5 @@ jobs:
       - name: Build
         run: ${{ github.workspace }}/Scripts/Build.bat ${{ env.BUILD_TYPE }}
       - name: Run Test
-        working-directory: ./Binaries
+        working-directory: ${{ github.workspace }}/Binaries/${{ env.BUILD_TYPE }}
         run: ./BSEngine-Tests

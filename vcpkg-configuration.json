@@ -1,0 +1,9 @@
+{
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/blAs1N/vcpkg-registry",
+      "packages": [ "bsbase", "bsmath" ]
+    }
+  ]
+}

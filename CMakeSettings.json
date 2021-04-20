@@ -5,36 +5,54 @@
       "generator": "Ninja",
       "configurationType": "Debug",
       "buildRoot": "${projectDir}\\Binaries\\${name}",
-      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeToolchain": "${projectDir}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": []
+      "variables": [
+        {
+          "name": "VCPKG_FEATURE_FLAGS",
+          "value": "manifests,registries",
+          "type": "STRING"
+        }
+      ]
     },
     {
       "name": "Win64-Development",
       "generator": "Ninja",
       "configurationType": "RelWithDebInfo",
       "buildRoot": "${projectDir}\\Binaries\\${name}",
-      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeToolchain": "${projectDir}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": []
+      "variables": [
+        {
+          "name": "VCPKG_FEATURE_FLAGS",
+          "value": "manifests,registries",
+          "type": "STRING"
+        }
+      ]
     },
     {
       "name": "Win64-Shipping",
       "generator": "Ninja",
       "configurationType": "Release",
       "buildRoot": "${projectDir}\\Binaries\\${name}",
-      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeToolchain": "${projectDir}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": []
+      "variables": [
+        {
+          "name": "VCPKG_FEATURE_FLAGS",
+          "value": "manifests,registries",
+          "type": "STRING"
+        }
+      ]
     }
   ]
 }

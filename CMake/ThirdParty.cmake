@@ -1,3 +1,5 @@
+find_package (BSBase CONFIG REQUIRED)
+find_package (BSMath CONFIG REQUIRED)
 find_package (SDL2 CONFIG REQUIRED)
 find_package (GLEW REQUIRED)
 find_package (fmt CONFIG REQUIRED)
@@ -9,4 +11,6 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	find_package (Threads REQUIRED)
 endif ()
 
-find_package(GTest)
+if (NOT DEFINED BUILD_GAME)
+	find_package(GTest)
+endif ()

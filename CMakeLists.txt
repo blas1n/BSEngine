@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.10)
+cmake_minimum_required (VERSION 3.12)
 
 project (BSEngine
 	VERSION 0.1.0
@@ -13,18 +13,20 @@ endif ()
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
+set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
+set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 
-include (CMake/Util.cmake)
+include (CMake/Platform.cmake)
 include (CMake/ThirdParty.cmake)
-
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
-set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
+include (CMake/Util.cmake)
 
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
-add_subdirectory (ThirdParty)
 add_subdirectory (Source)
-add_subdirectory (Tests)
+
+if (NOT DEFINED BUILD_GAME)
+	add_subdirectory (Tests)
+endif ()
 
 if (${PLATFORM_WINDOWS})
 	install (DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.dll")

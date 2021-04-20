@@ -5,6 +5,8 @@
   "homepage": "https://github.com/blAs1N/BS_Engine",
   "license": "MIT",
   "dependencies": [
+    "bsmath",
+    "bsbase",
     "sdl2",
     "glew",
     "fmt",

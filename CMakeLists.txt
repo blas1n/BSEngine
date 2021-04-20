@@ -22,7 +22,10 @@ include (CMake/ThirdParty.cmake)
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
 add_subdirectory (Source)
-add_subdirectory (Tests)
+
+if (NOT DEFINED BUILD_GAME)
+	add_subdirectory (Tests)
+endif ()
 
 if (${PLATFORM_WINDOWS})
 	install (DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} DESTINATION "." FILES_MATCHING PATTERN "*.dll")

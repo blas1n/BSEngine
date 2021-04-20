@@ -13,16 +13,14 @@ endif ()
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
+set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
+set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 
 include (CMake/Util.cmake)
 include (CMake/ThirdParty.cmake)
 
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
-set (CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/Binaries>)
-
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
-add_subdirectory (ThirdParty)
 add_subdirectory (Source)
 add_subdirectory (Tests)
 

@@ -11,14 +11,15 @@ on:
     branches: [ master ]
 
 env:
+  VCPKG_ROOT: ${{ github.workspace }}/ThirdParty/vcpkg  
+  CMAKE_BUILD_DIR: ${{ github.workspace }}/Binaries/
   BUILD_TYPE: Release
 
 jobs:
   build_windows:
     runs-on: windows-latest
     env:
-      CMAKE_BUILD_DIR: ${{ github.workspace }}/Binaries/
-      VCPKG_ROOT: ${{ github.workspace }}/ThirdParty/vcpkg
+      triplet: x64-windows
 
     steps:
       - uses: actions/checkout@v2

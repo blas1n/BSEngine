@@ -5,15 +5,16 @@
       "generator": "Ninja",
       "configurationType": "Debug",
       "buildRoot": "${projectDir}\\Binaries\\${name}",
-      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeToolchain": "${projectDir}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
       "variables": [
         {
-          "name": "CMAKE_TOOLCHAIN_FILE",
-          "value": "${projectDir}\\ThirdParty\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+          "name": "VCPKG_FEATURE_FLAGS",
+          "value": "manifests,registries",
+          "type": "STRING"
         }
       ]
     },
@@ -22,15 +23,16 @@
       "generator": "Ninja",
       "configurationType": "RelWithDebInfo",
       "buildRoot": "${projectDir}\\Binaries\\${name}",
-      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeToolchain": "${projectDir}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
       "variables": [
         {
-          "name": "CMAKE_TOOLCHAIN_FILE",
-          "value": "${projectDir}\\ThirdParty\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+          "name": "VCPKG_FEATURE_FLAGS",
+          "value": "manifests,registries",
+          "type": "STRING"
         }
       ]
     },
@@ -39,15 +41,16 @@
       "generator": "Ninja",
       "configurationType": "Release",
       "buildRoot": "${projectDir}\\Binaries\\${name}",
-      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeToolchain": "${projectDir}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
       "variables": [
         {
-          "name": "CMAKE_TOOLCHAIN_FILE",
-          "value": "${projectDir}\\ThirdParty\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+          "name": "VCPKG_FEATURE_FLAGS",
+          "value": "manifests,registries",
+          "type": "STRING"
         }
       ]
     }

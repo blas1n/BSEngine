@@ -6,7 +6,6 @@
 #include "Platform.h"
 #include <Windows.h>
 #include "fmt/core.h"
-#include "utf8cpp/utf8/cpp11.h"
 #include "Assertion.h"
 
 #ifndef NDEBUG
@@ -98,7 +97,7 @@ void* Dll::GetSymbol(const String& name) const
 
 void* Dll::FindSymbol(const String& name) const noexcept
 {
-    const auto buf = utf8::utf16to8(name);
+    const auto buf = CastCharSet<char>(StringView{ name });
     return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dll), buf.c_str()));
 }
 

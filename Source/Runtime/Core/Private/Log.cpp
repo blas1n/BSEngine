@@ -3,7 +3,6 @@
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
-#include "utf8cpp/utf8/cpp11.h"
 
 namespace
 {
@@ -50,7 +49,9 @@ public:
 
     void Log(const LogCategory& category, LogVerbosity verbosity, const String& message)
     {
-        const auto log = fmt::format("{}: {}", utf8::utf16to8(category.name), utf8::utf16to8(message));
+        const auto log = fmt::format("{}: {}", CastCharSet<char>
+            (StringView{ category.name }), CastCharSet<char>(StringView{ message }));
+
         file->log(ToSpdLogLevel(verbosity), log);
 
 #ifdef NDEBUG

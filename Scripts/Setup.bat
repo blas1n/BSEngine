@@ -11,15 +11,10 @@ if "%1%" == "" (
 )
 
 cd ..
-if not exist Binaries\ (
-	mkdir Binaries
+if not exist Binaries\%BUILD_TYPE%\ (
+	mkdir Binaries\%BUILD_TYPE%
 )
-cd Binaries
-
-if not exist %BUILD_TYPE%\ (
-	mkdir %BUILD_TYPE%
-)
-cd %BUILD_TYPE%
+cd Binaries\%BUILD_TYPE%
 
 cmake ../.. -DCMAKE_TOOLCHAIN_FILE=%TOOLCHAIN_FILE% -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DVCPKG_FEATURE_FLAGS=manifests,registries
 popd

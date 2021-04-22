@@ -3,7 +3,6 @@
 #include "BSBase/Type.h"
 #include "fmt/format.h"
 #include "CharSet.h"
-#include "LogCategory.h"
 
 enum class LogVerbosity : BSBase::uint8
 {
@@ -16,7 +15,7 @@ namespace Impl
 }
 
 template <class... Args>
-void Log(const LogCategory& category, LogVerbosity verbosity, const String& format, Args&&... args)
+void Log(StringView category, LogVerbosity verbosity, const String& format, Args&&... args)
 {
 	Impl::Log(category, verbosity, fmt::format(format, std::forward<Args>(args)...));
 }

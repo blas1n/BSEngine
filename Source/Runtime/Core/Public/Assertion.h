@@ -16,8 +16,6 @@
 
 #else
 
-CORE_API DECLARE_LOG_CATEGORY(LogAssert)
-
 namespace Impl
 {
 	CORE_API void LogToFail(bool isCritical, const Char* expr, const Char* file, BSBase::int32 line, const String& msg) noexcept;

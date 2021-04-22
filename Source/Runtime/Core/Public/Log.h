@@ -12,7 +12,7 @@ enum class LogVerbosity : BSBase::uint8
 
 namespace Impl
 {
-	CORE_API void Log(const LogCategory& category, LogVerbosity verbosity, const String& msg);
+	CORE_API void Log(StringView category, LogVerbosity verbosity, const String& msg);
 }
 
 template <class... Args>

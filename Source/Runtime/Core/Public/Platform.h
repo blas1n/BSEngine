@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core.h"
 #include "CharSet.h"
 
 // The warning is unnecessary because the path variable is used internally.

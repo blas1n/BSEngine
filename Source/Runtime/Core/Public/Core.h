@@ -10,8 +10,7 @@
 #include "Delegate.h"
 #include "Event.h"
 #include "Json.h"
-#include "Log.h"
-#include "LogCategory.h"
+#include "Logger.h"
 #include "BSMath.h"
 #include "Platform.h"
 

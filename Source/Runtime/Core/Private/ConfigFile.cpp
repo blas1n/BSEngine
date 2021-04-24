@@ -1,6 +1,6 @@
 #include "ConfigFile.h"
 #include <algorithm>
-#include "Log.h"
+#include "Logger.h"
 
 const String* ConfigFile::ConfigSection::operator[](const String& key) const noexcept
 {

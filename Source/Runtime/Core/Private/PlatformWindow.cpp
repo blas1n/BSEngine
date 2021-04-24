@@ -44,7 +44,7 @@ Dll::Dll(const String& inPath)
 {
     const std::wstring wPath(path.cbegin(), path.cend());
     dll = LoadLibraryW(wPath.c_str());
-    CheckMsg(dll, STR("{}: cannot load module, {}"), path, GetLastErrorMsg());
+    AssertMsg(dll, STR("{}: cannot load module, {}"), path, GetLastErrorMsg());
 }
 
 Dll::Dll(const Dll& other)

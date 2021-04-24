@@ -5,8 +5,8 @@ TEST(CoreTest, AssertTest)
 {
 	const int32 lhs = 1, rhs = 1;
 
-	Check(lhs == rhs);
-	CheckMsg(lhs == rhs, u"{} and {} are different.", lhs, rhs);
+	Assert(lhs == rhs);
+	AssertMsg(lhs == rhs, u"{} and {} are different.", lhs, rhs);
 
 	EXPECT_TRUE(Ensure(lhs == rhs));
 	EXPECT_TRUE(EnsureMsg(lhs == rhs, u"{} and {} are different.", lhs, rhs));

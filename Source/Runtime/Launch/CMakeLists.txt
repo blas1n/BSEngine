@@ -8,4 +8,4 @@ else ()
 	message (FATAL_ERROR "Unsupported OS!")
 endif ()
 
-target_link_libraries (${CMAKE_PROJECT_NAME} PRIVATE Engine)
+target_link_libraries (${CMAKE_PROJECT_NAME} PRIVATE Core Engine)

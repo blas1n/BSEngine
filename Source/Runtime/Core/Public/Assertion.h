@@ -26,14 +26,12 @@ namespace Impl
 	}
 }
 
+#	ifdef WINDOWS
 #		define DEBUG_BREAK() (void)(::IsDebugging() && (::__debugbreak(), true))
-
-//#	ifdef WINDOWS
-//#		define DEBUG_BREAK() (void)(::IsDebugging() && (::__debugbreak(), true))
-//#	else
-//#		include <csignal>
-//#		define DEBUG_BREAK() (void)(::IsDebugging() && (::std::raise(SIGTRAP), true))
-//#	endif
+#	else
+#		include <csignal>
+#		define DEBUG_BREAK() (void)(::IsDebugging() && (::std::raise(SIGTRAP), true))
+#	endif
 
 #	define AssertMsg(expr, fmt, ...) (void)(!!(expr) || (Impl::LogToFail(true, \
 		u#expr, ADD_PREFIX(u, __FILE__), __LINE__, fmt, ##__VA_ARGS__), DEBUG_BREAK(), false))

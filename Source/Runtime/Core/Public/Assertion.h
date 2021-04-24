@@ -30,7 +30,7 @@ namespace Impl
 #		define DEBUG_BREAK() (void)(::IsDebugging() && (::__debugbreak(), true))
 #	else
 #		include <csignal>
-#		define DEBUG_BREAK() (void)(IsDebugging() && (::std::raise(SIGTRAP), true))
+#		define DEBUG_BREAK() (void)(::IsDebugging() && (::std::raise(SIGTRAP), true))
 #	endif
 
 #	define AssertMsg(expr, fmt, ...) (void)(!!(expr) || (Impl::LogToFail(true, \

@@ -48,11 +48,15 @@ namespace Impl
 	std::wstring ToWString(std::u16string_view from)
 	{
 		if constexpr (sizeof(wchar_t) == sizeof(char16_t))
+		{
 			return std::wstring(from.cbegin(), from.cend());
-		
-		std::wstring to;
-		utf8::utf16to8(from.cbegin(), from.cend(), std::back_inserter(to));
-		return to;
+		}
+		else
+		{
+			std::wstring to;
+			utf8::utf16to8(from.cbegin(), from.cend(), std::back_inserter(to));
+			return to;
+		}
 	}
 
 	std::wstring ToWString(std::u32string_view from)
@@ -72,11 +76,15 @@ namespace Impl
 	std::u16string ToU16String(std::wstring_view from)
 	{
 		if constexpr (sizeof(wchar_t) == sizeof(char16_t))
+		{
 			return std::u16string(from.cbegin(), from.cend());
-
-		std::u16string to;
-		utf8::utf8to16(from.cbegin(), from.cend(), std::back_inserter(to));
-		return to;
+		}
+		else
+		{
+			std::u16string to;
+			utf8::utf8to16(from.cbegin(), from.cend(), std::back_inserter(to));
+			return to;
+		}
 	}
 
 	std::u32string ToU32String(std::string_view from)

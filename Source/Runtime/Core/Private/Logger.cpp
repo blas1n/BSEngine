@@ -1,8 +1,5 @@
 #include "Logger.h"
-#include <filesystem>
 #include "spdlog/spdlog.h"
-#include "spdlog/sinks/basic_file_sink.h"
-#include "spdlog/sinks/stdout_color_sinks.h"
 
 namespace
 {
@@ -15,36 +12,18 @@ namespace
     }
 }
 
-Logger::Logger(StringView name, StringView dir)
+Logger::Logger(StringView name)
 {
-    using namespace std::filesystem;
-
-    if (const auto logger = spdlog::get(CastCharSet<char>(name)))
+    const auto str = CastCharSet<char>(name);
+    if (const auto logger = spdlog::get(str))
     {
         impl = logger;
         return;
     }
 
-    auto path = current_path().parent_path() / "Saved" / "Logs";
-    create_directories(dir);
-    
-    path /= fmt::format(STR("{}.log"), dir);
-    impl = spdlog::basic_logger_mt(CastCharSet<char>(name), path.string());
+    impl = std::make_shared<spdlog::logger>(std::move(str));
+    spdlog::details::registry::instance().initialize_logger(impl);
     impl->set_level(spdlog::level::debug);
-    impl->flush_on(spdlog::level::critical);
-}
-
-Logger::Logger(StringView name, const Console&)
-{
-    using namespace std::filesystem;
-
-    if (const auto logger = spdlog::get(CastCharSet<char>(name)))
-    {
-        impl = logger;
-        return;
-    }
-
-    impl = spdlog::stdout_color_mt("console");
     impl->flush_on(spdlog::level::critical);
 }
 
@@ -53,7 +32,19 @@ Logger::~Logger()
     impl->flush();
 }
 
-void Logger::Log(LogVerbosity verbosity, const String& message)
+void Logger::RemoveSink(size_t index)
 {
-    impl->log(ToSpdLogLevel(verbosity), CastCharSet<char>(StringView{ message }));
+    impl->sinks().erase(impl->sinks().cbegin() + index);
+}
+
+void Logger::LogImpl(LogVerbosity verbosity, String message)
+{
+    impl->log(ToSpdLogLevel(verbosity),
+        CastCharSet<char>(StringView{ std::move(message) }));
+}
+
+size_t Logger::AddSinkImpl(std::shared_ptr<spdlog::sinks::sink> sink)
+{
+    impl->sinks().emplace_back(std::move(sink));
+    return impl->sinks().size() - 1;
 }

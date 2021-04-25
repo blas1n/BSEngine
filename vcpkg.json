@@ -5,14 +5,14 @@
   "homepage": "https://github.com/blAs1N/BS_Engine",
   "license": "MIT",
   "dependencies": [
-    "bsmath",
     "bsbase",
-    "sdl2",
-    "glew",
+    "bsmath",
     "fmt",
+    "glew",
+    "gtest",
+    "nlohmann-json",
+    "sdl2",
     "spdlog",
-    "rapidjson",
-    "utfcpp",
-    "gtest"
+    "utfcpp"
   ]
 }

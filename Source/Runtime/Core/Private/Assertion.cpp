@@ -1,7 +1,8 @@
 #include "Assertion.h"
-#include "Logger.h"
 
 #ifndef NDEBUG
+
+#include "Logger.h"
 
 void Impl::LogToFail(bool isCritical, const Char* expr, const Char* file, BSBase::int32 line, const String& msg) noexcept
 {

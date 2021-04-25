@@ -5,7 +5,6 @@
 
 #include "Platform.h"
 #include <Windows.h>
-#include "fmt/core.h"
 #include "Assertion.h"
 
 #ifndef NDEBUG

@@ -6,5 +6,5 @@ string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWI
 string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
 
 add_subdirectory(Core)
-#add_subdirectory(Engine)
+add_subdirectory(Engine)
 add_subdirectory(Launch)

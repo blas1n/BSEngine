@@ -19,9 +19,10 @@ public:
 	[[nodiscard]] int32 Run() noexcept;
 	void Release() noexcept;
 
-	void Exit() noexcept { isEnd = true; }
+	void Exit(int32 error = 0) noexcept;
 
 private:
 	uint32 ticksCount;
-	bool isEnd;
+	int32 errorCode;
+	uint8 isEnd : 1;
 };

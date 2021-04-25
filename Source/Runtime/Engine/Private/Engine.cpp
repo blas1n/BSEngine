@@ -12,10 +12,16 @@ int32 Engine::Run() noexcept
 		
 	}
 
-	return 0;
+	return errorCode;
 }
 
 void Engine::Release() noexcept
 {
 	
+}
+
+void Engine::Exit(int32 error) noexcept
+{
+	errorCode = error;
+	isEnd = true;
 }

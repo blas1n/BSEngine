@@ -7,6 +7,7 @@
 #include <streambuf>
 #include <string>
 #include <ostream>
+#include <type_traits>
 #include "BSBase/Base.h"
 
 #ifdef STR
@@ -56,7 +57,7 @@ namespace Impl
 
 	CORE_API std::u16string ToU16String(std::string_view from);
 
-	// sizeof(wchar_t) must be 1byte
+	// sizeof(wchar_t) must be 1byte or 2byte
 	CORE_API std::u16string ToU16String(std::wstring_view from);
 
 	NO_ODR std::u16string ToU16String(std::u16string_view from) { return std::u16string(from.begin(), from.end()); }
@@ -70,15 +71,16 @@ namespace Impl
 template <class To, class From>
 std::basic_string<To> CastCharSet(std::basic_string_view<From> from)
 {
-	static_assert(sizeof(From) < 2 || sizeof(To) < 2, "Mutual conversion between utf16 and utf32 is not supported");
+	static_assert((sizeof(From) == sizeof(To)) || (sizeof(From) < 2 ||
+		sizeof(To) < 2), "Mutual conversion between utf16 and utf32 is not supported");
 
 	if constexpr (std::is_same_v<To, char>)
 		return Impl::ToString(from);
-	else if (std::is_same_v<To, wchar_t>)
+	else if constexpr (std::is_same_v<To, wchar_t>)
 		return Impl::ToWString(from);
-	else if (std::is_same_v<To, char16_t>)
+	else if constexpr (std::is_same_v<To, char16_t>)
 		return Impl::ToU16String(from);
-	else if (std::is_same_v<To, char32_t>)
+	else if constexpr (std::is_same_v<To, char32_t>)
 		return Impl::ToU32String(from);
 	else
 		static_assert(false, "Unknown type!");

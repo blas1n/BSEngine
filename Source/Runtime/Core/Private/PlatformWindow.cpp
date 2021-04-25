@@ -1,4 +1,4 @@
-#ifdef _WIN32
+#ifdef WINDOWS
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -39,12 +39,12 @@ namespace
     }
 }
 
-Dll::Dll(const String& inPath)
-    : path(inPath)
+Dll::Dll(StringView inPath)
+    : path(inPath.data())
 {
     const std::wstring wPath(path.cbegin(), path.cend());
     dll = LoadLibraryW(wPath.c_str());
-    CheckMsg(dll, STR("{}: cannot load module, {}"), path, GetLastErrorMsg());
+    AssertMsg(dll, STR("{}: cannot load module, {}"), path, GetLastErrorMsg());
 }
 
 Dll::Dll(const Dll& other)
@@ -86,7 +86,7 @@ Dll::~Dll()
     FreeLibrary(reinterpret_cast<HMODULE>(dll));
 }
 
-void* Dll::GetSymbol(const String& name) const
+void* Dll::GetSymbol(StringView name) const
 {
     const auto symbol = FindSymbol(name);
     if (EnsureMsg(symbol, STR("Path: {}, Name: {}, {}"), path, name, GetLastErrorMsg()))
@@ -95,7 +95,7 @@ void* Dll::GetSymbol(const String& name) const
     return nullptr;
 }
 
-void* Dll::FindSymbol(const String& name) const noexcept
+void* Dll::FindSymbol(StringView name) const noexcept
 {
     const auto buf = CastCharSet<char>(StringView{ name });
     return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dll), buf.c_str()));

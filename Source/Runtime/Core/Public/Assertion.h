@@ -3,20 +3,17 @@
 #include "BSBase/Type.h"
 #include "fmt/format.h"
 #include "CharSet.h"
-#include "LogCategory.h"
 #include "Platform.h"
 
 #ifdef NDEBUG
 
-#	define CheckMsg(expr, fmt, ...) (void)(expr)
-#	define Check(expr) (void)(expr)
+#	define Assert(expr)
+#	define AssertMsg(expr, fmt, ...)
 
-#	define EnsureMsg(expr, fmt, ...) !!(expr)
-#	define Ensure(expr) !!(expr)
+#	define Ensure(expr) (expr)
+#	define EnsureMsg(expr, fmt, ...) (expr)
 
 #else
-
-CORE_API DECLARE_LOG_CATEGORY(LogAssert)
 
 namespace Impl
 {
@@ -29,17 +26,17 @@ namespace Impl
 	}
 }
 
-#	ifdef _WIN32
-#		define DEBUG_BREAK() (void)(IsDebugging() && (::__debugbreak(), true))
+#	ifdef WINDOWS
+#		define DEBUG_BREAK() (void)(::IsDebugging() && (::__debugbreak(), true))
 #	else
 #		include <csignal>
-#		define DEBUG_BREAK() (void)(IsDebugging() && (::std::raise(SIGTRAP), true))
+#		define DEBUG_BREAK() (void)(::IsDebugging() && (::std::raise(SIGTRAP), true))
 #	endif
 
-#	define CheckMsg(expr, fmt, ...) (void)(!!(expr) || (Impl::LogToFail(true, \
+#	define AssertMsg(expr, fmt, ...) (void)(!!(expr) || (Impl::LogToFail(true, \
 		u#expr, ADD_PREFIX(u, __FILE__), __LINE__, fmt, ##__VA_ARGS__), DEBUG_BREAK(), false))
 
-#	define Check(expr) CheckMsg(expr, STR(""))
+#	define Assert(expr) AssertMsg(expr, STR(""))
 
 #	define EnsureMsg(expr, fmt, ...) (!!(expr) || (Impl::LogToFail(false, \
 		u#expr, ADD_PREFIX(u, __FILE__), __LINE__, fmt, ##__VA_ARGS__), DEBUG_BREAK(), false))

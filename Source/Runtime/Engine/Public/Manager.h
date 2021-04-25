@@ -10,7 +10,7 @@ class Manager
 	Manager& operator=(const Manager&) = delete;
 	Manager& operator=(Manager&&) = delete;
 
-	virtual Manager() = default;
+	virtual ~Manager() = default;
 
 	[[nodiscard]] virtual int32_t Init() noexcept;
 	[[nodiscard]] virtual int32_t Update() noexcept {}

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core.h"
 #include "CharSet.h"
 
 // The warning is unnecessary because the path variable is used internally.
@@ -25,7 +24,7 @@ namespace Impl
 class CORE_API Dll final
 {
 public:
-    explicit Dll(const String& inPath);
+    explicit Dll(StringView inPame);
 
     Dll(const Dll& other);
     Dll(Dll&& other) noexcept;
@@ -35,23 +34,23 @@ public:
 
     ~Dll();
 
-    [[nodiscard]] void* GetSymbol(const String& name) const;
-    [[nodiscard]] void* FindSymbol(const String& name) const noexcept;
+    [[nodiscard]] void* GetSymbol(StringView name) const;
+    [[nodiscard]] void* FindSymbol(StringView name) const noexcept;
 
     template <class T>
-    [[nodiscard]] T& GetSymbol(const String& name) const
+    [[nodiscard]] T& GetSymbol(StringView name) const
     {
         return *reinterpret_cast<T*>(GetSymbol(name));
     }
 
     template <class T>
-    [[nodiscard]] T* FindSymbol(const String& name) const noexcept
+    [[nodiscard]] T* FindSymbol(StringView name) const noexcept
     {
         return reinterpret_cast<T*>(FindSymbol(name));
     }
 
     template <class Fn, class... Args>
-    decltype(auto) Call(const String& name, Args&&... args) const
+    decltype(auto) Call(StringView name, Args&&... args) const
     {
         return GetSymbol<Fn>(name)(std::forward<Args>(args)...);
     }

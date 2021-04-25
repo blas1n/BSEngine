@@ -1,13 +1,11 @@
 # Source/Runtime/Launch
 
-if (MSVC)
-	add_executable (${CMAKE_PROJECT_NAME} WIN32 "Launch.cpp")
+set (SRCS "Private/Launch.cpp")
+
+if (${PLATFORM_WINDOWS})
+	add_executable (${CMAKE_PROJECT_NAME} WIN32 "Private/LaunchWindows.cpp" ${SRCS})
 else ()
-	add_executable (${CMAKE_PROJECT_NAME} "Launch.cpp")
+	message (FATAL_ERROR "Unsupported OS!")
 endif ()
 
-target_link_libraries (${CMAKE_PROJECT_NAME} PRIVATE
-	Engine
-	Renderer
-	Thread
-)
+target_link_libraries (${CMAKE_PROJECT_NAME} PRIVATE Core)

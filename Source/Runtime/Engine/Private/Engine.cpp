@@ -1,11 +1,11 @@
 #include "Engine.h"
 
-int32 Engine::Init()
+int32 Engine::Init() noexcept
 {
-	
+	return 0;
 }
 
-int32 Engine::Run()
+int32 Engine::Run() noexcept
 {
 	while (!isEnd)
 	{
@@ -15,7 +15,7 @@ int32 Engine::Run()
 	return 0;
 }
 
-void Engine::Release()
+void Engine::Release() noexcept
 {
 	
 }

@@ -10,8 +10,8 @@
 #	define Assert(expr)
 #	define AssertMsg(expr, fmt, ...)
 
-#	define Ensure(expr)
-#	define EnsureMsg(expr, fmt, ...)
+#	define Ensure(expr) (expr)
+#	define EnsureMsg(expr, fmt, ...) (expr)
 
 #else
 

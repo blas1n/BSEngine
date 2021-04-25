@@ -123,7 +123,7 @@ namespace Sink
             using spdlog::details::os::filename_to_str;
             using spdlog::details::os::remove_if_exists;
 
-            const auto crtFile = fileHelper.filename();
+            auto crtFile = fileHelper.filename();
             if (filenames.full())
             {
                 const auto oldName = std::move(filenames.front());

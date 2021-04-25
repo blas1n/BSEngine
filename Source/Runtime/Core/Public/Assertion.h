@@ -2,7 +2,6 @@
 
 #include "BSBase/Type.h"
 #include "fmt/format.h"
-#include "CharSet.h"
 #include "Platform.h"
 
 #ifdef NDEBUG

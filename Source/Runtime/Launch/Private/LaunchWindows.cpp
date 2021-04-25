@@ -1,3 +1,5 @@
+#ifdef WINDOWS
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
@@ -19,3 +21,5 @@ int32 WINAPI WinMain(_In_ HINSTANCE hInInstance, _In_opt_ HINSTANCE, _In_ char*,
 	const auto cmdLine = ProcessCommandLine();
 	return GuardedMain(StringView{ cmdLine.c_str() });
 }
+
+#endif

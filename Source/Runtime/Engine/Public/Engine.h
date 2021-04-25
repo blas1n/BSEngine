@@ -2,7 +2,7 @@
 
 #include "Core.h"
 
-class Engine final
+class ENGINE_API Engine final
 {
 public:
 	Engine() noexcept = default;

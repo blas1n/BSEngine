@@ -16,7 +16,7 @@ public:
 
 	virtual ~Manager() {}
 
-	[[nodiscard]] virtual int32 Init() noexcept {}
+	[[nodiscard]] virtual int32 Init() noexcept { return 0; }
 	virtual void Update(float deltaTime) noexcept {}
 	virtual void Release() noexcept {}
 

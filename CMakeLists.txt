@@ -7,6 +7,8 @@ project (BSEngine
 	HOMEPAGE_URL "https://github.com/blAs1N/BS_Engine"
 )
 
+add_compile_definitions (GAME_NAME=${CMAKE_PROJECT_NAME})
+
 if (NOT ${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME})
 	set (BUILD_GAME TRUE)
 endif ()

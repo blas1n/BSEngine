@@ -29,7 +29,6 @@ private:
 private:
 	std::vector<class Manager*> managers;
 
-	uint32 tickCount;
 	int32 errorCode;
 	uint8 isEnd : 1;
 };

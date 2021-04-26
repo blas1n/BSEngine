@@ -21,6 +21,8 @@ int32 Engine::Run() noexcept
 
 		for (const auto manager : managers)
 			manager->Update();
+
+		++tickCount;
 	}
 
 	return errorCode;

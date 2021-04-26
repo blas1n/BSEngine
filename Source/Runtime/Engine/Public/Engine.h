@@ -1,8 +1,9 @@
 #pragma once
 
+#include <vector>
 #include "Core.h"
 
-class Engine final
+class ENGINE_API Engine final
 {
 public:
 	Engine() noexcept = default;
@@ -19,9 +20,15 @@ public:
 	[[nodiscard]] int32 Run() noexcept;
 	void Release() noexcept;
 
-	void Exit() noexcept { isEnd = true; }
+	void Exit(int32 error = 0) noexcept;
 
 private:
-	uint32 ticksCount;
-	bool isEnd;
+	[[nodiscard]] int32 LoadManager() noexcept;
+	void UnloadManager() noexcept;
+
+private:
+	std::vector<class Manager*> managers;
+
+	int32 errorCode;
+	uint8 isEnd : 1;
 };

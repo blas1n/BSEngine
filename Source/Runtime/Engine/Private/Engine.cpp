@@ -1,48 +1,59 @@
 #include "Engine.h"
-#include <exception>
-#include "Accessor.h"
-#include "ComponentManager.h"
-#include "ConfigFile.h"
-#include "InputManager.h"
-#include "Log.h"
-#include "MathFunctions.h"
-#include "RenderManager.h"
-#include "ResourceManager.h"
-#include "SceneManager.h"
-#include "WindowManager.h"
+#include "Manager.h"
 
-int32 Engine::Init()
+int32 Engine::Init() noexcept
 {
-	ConfigFile config{ STR("Config.ini") };
+	int32 error = LoadManager();
+	if (error) return error;
 
-	const char* name = config("Common", "Name")->c_str();
-	uint32_t width = std::stoi(*config("Common", "Width"));
-	uint32_t height = std::stoi(*config("Common", "Height"));
-	std::string screenStr = *config("Common", "ScreenMode");
-
-	ScreenMode screenMode = ScreenMode::Window;
-	if (screenStr == "FullScreen")
-		screenMode = ScreenMode::FullScreen;
-	else if (screenStr == "Borderless")
-		screenMode = ScreenMode::Borderless;
-
-	
-}
-
-int32 Engine::Run()
-{
-	while (!isEnd)
-	{
-		// GLFW version v-sync.
-		// Calc delta time.
-
-		
-	}
+	for (const auto manager : managers)
+		if ((error = manager->Init()))
+			return error;
 
 	return 0;
 }
 
-void Engine::Release()
+int32 Engine::Run() noexcept
 {
-	
+	while (!isEnd)
+	{
+		// Todo: delta time
+
+		float deltaTime = 0.0f;
+
+		for (const auto manager : managers)
+			manager->Update(deltaTime);
+	}
+
+	return errorCode;
+}
+
+void Engine::Release() noexcept
+{
+	for (auto iter = managers.rbegin(); iter != managers.rend(); ++iter)
+		(*iter)->Release();
+
+	UnloadManager();
+}
+
+void Engine::Exit(int32 error) noexcept
+{
+	errorCode = error;
+	isEnd = true;
+}
+
+int32 Engine::LoadManager() noexcept
+{
+	return 0;
+}
+
+void Engine::UnloadManager() noexcept
+{
+	while (!managers.empty())
+	{
+		if (const auto manager = managers.back())
+			delete manager;
+
+		managers.pop_back();
+	}
 }

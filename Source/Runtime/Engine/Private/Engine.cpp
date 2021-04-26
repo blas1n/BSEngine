@@ -17,12 +17,12 @@ int32 Engine::Run() noexcept
 {
 	while (!isEnd)
 	{
-		// Todo: v-sync
+		// Todo: delta time
+
+		float deltaTime = 0.0f;
 
 		for (const auto manager : managers)
-			manager->Update();
-
-		++tickCount;
+			manager->Update(deltaTime);
 	}
 
 	return errorCode;

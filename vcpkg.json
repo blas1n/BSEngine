@@ -8,10 +8,8 @@
     "bsbase",
     "bsmath",
     "fmt",
-    "glew",
     "gtest",
     "nlohmann-json",
-    "sdl2",
     "spdlog",
     "utfcpp"
   ]

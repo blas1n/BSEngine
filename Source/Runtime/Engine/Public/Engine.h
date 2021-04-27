@@ -6,7 +6,8 @@
 class ENGINE_API Engine final
 {
 public:
-	Engine() noexcept = default;
+	Engine() noexcept
+		: timer(), window(nullptr) {}
 
 	Engine(const Engine&) = delete;
 	Engine(Engine&&) noexcept = delete;

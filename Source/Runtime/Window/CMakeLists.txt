@@ -2,4 +2,4 @@
 
 register_library ()
 
-target_link_libraries (Window PUBLIC Engine)
+target_link_libraries (Window PUBLIC Framework)

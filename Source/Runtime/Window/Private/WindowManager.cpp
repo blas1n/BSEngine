@@ -4,7 +4,6 @@
 #define NOMINMAX
 
 #include "WindowManager.h"
-#include "Engine.h"
 #include <windows.h>
 
 namespace
@@ -25,7 +24,7 @@ namespace
     }
 }
 
-int32 WindowManager::Init() noexcept
+bool WindowManager::Init() noexcept
 {
     hInstance = GetModuleHandle(nullptr);
 
@@ -46,7 +45,7 @@ int32 WindowManager::Init() noexcept
     wc.cbSize = sizeof(WNDCLASSEX);
 
     if (!RegisterClassEx(&wc))
-        return 1;
+        return false;
 
     size.x = GetSystemMetrics(SM_CXSCREEN);
     size.y = GetSystemMetrics(SM_CYSCREEN);
@@ -64,17 +63,17 @@ int32 WindowManager::Init() noexcept
         WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_POPUP,
         size.x, size.y, 0, 0, nullptr, nullptr, hInstance, nullptr);
 
-    if (!hWnd) return 1;
+    if (!hWnd) return false;
     
     ShowWindow(hWnd, SW_SHOWDEFAULT);
     SetForegroundWindow(hWnd);
     SetFocus(hWnd);
 
     UpdateWindow(hWnd);
-    return 0;
+    return true;
 }
 
-void WindowManager::Update(float deltaTime) noexcept
+bool WindowManager::Update(float deltaTime) noexcept
 {
     MSG msg;
     if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
@@ -83,8 +82,7 @@ void WindowManager::Update(float deltaTime) noexcept
         DispatchMessage(&msg);
     }
 
-    if (msg.message == WM_QUIT)
-        GetEngine()->Exit();
+    return msg.message != WM_QUIT;
 }
 
 void WindowManager::Release() noexcept

@@ -52,8 +52,8 @@ bool WindowManager::Init() noexcept
 
     memset(&dmScreenSettings, 0, sizeof(dmScreenSettings));
     dmScreenSettings.dmSize = sizeof(dmScreenSettings);
-    dmScreenSettings.dmPelsWidth = (DWORD)size.x;
-    dmScreenSettings.dmPelsHeight = (DWORD)size.y;
+    dmScreenSettings.dmPelsWidth = static_cast<DWORD>(size.x);
+    dmScreenSettings.dmPelsHeight = static_cast<DWORD>(size.y);
     dmScreenSettings.dmBitsPerPel = 32;
     dmScreenSettings.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
     ChangeDisplaySettings(&dmScreenSettings, CDS_FULLSCREEN);

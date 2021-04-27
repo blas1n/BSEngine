@@ -11,5 +11,6 @@
 #include "Json.h"
 #include "Logger.h"
 #include "Platform.h"
+#include "Timer.h"
 
 using namespace BSBase;

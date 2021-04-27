@@ -11,8 +11,8 @@ public:
 	void Release() noexcept override;
 
 private:
-	struct HINSTANCE__* hInstance;
-	struct HWND__* hWnd;
+	struct HINSTANCE__* hInstance = nullptr;
+	struct HWND__* hWnd = nullptr;
 
 	IntVector2 size;
 };

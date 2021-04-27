@@ -2,4 +2,4 @@
 
 register_library ()
 
-target_link_libraries (Engine PUBLIC Core)
+target_link_libraries (Engine PUBLIC Core PRIVATE Window)

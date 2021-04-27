@@ -6,7 +6,8 @@
 class ENGINE_API Engine final
 {
 public:
-	Engine() noexcept = default;
+	Engine() noexcept
+		: timer(), window(nullptr) {}
 
 	Engine(const Engine&) = delete;
 	Engine(Engine&&) noexcept = delete;
@@ -20,16 +21,10 @@ public:
 	[[nodiscard]] int32 Run() noexcept;
 	void Release() noexcept;
 
-	void Exit(int32 error = 0) noexcept;
+private:
 
 private:
-	[[nodiscard]] int32 LoadManager() noexcept;
-	void UnloadManager() noexcept;
-
-private:
-	std::vector<class Manager*> managers;
 	Timer timer;
 
-	int32 errorCode;
-	uint8 isEnd : 1;
+	class WindowManager* window;
 };

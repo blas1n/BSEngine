@@ -1,19 +1,18 @@
 #pragma once
 
+#include "BSMath.h"
 #include "Manager.h"
 
 class WINDOW_API WindowManager final : public Manager
 {
 public:
-	using Manager::Manager;
-
-	[[nodiscard]] int32 Init() noexcept override;
-	void Update(float deltaTime) noexcept override;
+	[[nodiscard]] bool Init() noexcept override;
+	[[nodiscard]] bool Update(float deltaTime) noexcept override;
 	void Release() noexcept override;
 
 private:
-	struct HINSTANCE__* hInstance;
-	struct HWND__* hWnd;
+	struct HINSTANCE__* hInstance = nullptr;
+	struct HWND__* hWnd = nullptr;
 
 	IntVector2 size;
 };

@@ -65,7 +65,7 @@ bool WindowManager::Init() noexcept
 
     if (!hWnd) return false;
     
-    ShowWindow(hWnd, SW_SHOWMAXIMIZED);
+    ShowWindow(hWnd, SW_SHOWDEFAULT);
     SetForegroundWindow(hWnd);
     SetFocus(hWnd);
 

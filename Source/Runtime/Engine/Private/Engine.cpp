@@ -10,6 +10,7 @@ int32 Engine::Init() noexcept
 		if ((error = manager->Init()))
 			return error;
 
+	timer.Reset();
 	return 0;
 }
 
@@ -17,9 +18,7 @@ int32 Engine::Run() noexcept
 {
 	while (!isEnd)
 	{
-		// Todo: delta time
-
-		float deltaTime = 0.0f;
+		const float deltaTime = timer.Tick();
 
 		for (const auto manager : managers)
 			manager->Update(deltaTime);

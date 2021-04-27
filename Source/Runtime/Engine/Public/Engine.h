@@ -28,6 +28,7 @@ private:
 
 private:
 	std::vector<class Manager*> managers;
+	Timer timer;
 
 	int32 errorCode;
 	uint8 isEnd : 1;

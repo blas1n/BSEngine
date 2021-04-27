@@ -61,7 +61,7 @@ bool WindowManager::Init() noexcept
     // Todo: Support window mode (not full screen)
     HWND hWnd = CreateWindow(ClassName, STRINGIFY(GAME_NAME),
         WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_POPUP,
-        size.x, size.y, 0, 0, nullptr, nullptr, hInstance, nullptr);
+        0, 0, size.x, size.y, nullptr, nullptr, hInstance, nullptr);
 
     if (!hWnd) return false;
     

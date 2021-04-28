@@ -43,7 +43,7 @@ namespace Impl
 		const ::String* ptr;
 	};
 
-	::String ToLower(StringView str)
+	NO_ODR ::String ToLower(StringView str)
 	{
 		::String ret(str.data());
 		std::transform(ret.begin(), ret.end(), ret.begin(), [](char c) { return std::tolower(c); });
@@ -66,7 +66,7 @@ namespace Impl
 	[[nodiscard]] NO_ODR bool operator>=(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return !(lhs < rhs); }
 }
 
-template <NameCase Sensitivity>
+template <NameCase Sensitivity = NameCase::IgnoreCase>
 class Name;
 
 template <>

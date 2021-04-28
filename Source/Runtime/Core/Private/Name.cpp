@@ -41,6 +41,7 @@ namespace
 
 		const String* Find(ReservedName name) const
 		{
+			Assert(name < ReservedName::ReserveNum);
 			return reserveMapper[static_cast<BSBase::uint32>(name)];
 		}
 

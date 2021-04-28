@@ -72,6 +72,7 @@ class Name;
 template <>
 class Name<NameCase::IgnoreCase> final : public Impl::NameBase
 {
+public:
 	Name(StringView str)
 		: NameBase(Impl::ToLower(str)) {}
 
@@ -82,6 +83,7 @@ class Name<NameCase::IgnoreCase> final : public Impl::NameBase
 template <>
 class Name<NameCase::CompareCase> final : public Impl::NameBase
 {
+public:
 	Name(StringView str)
 		: NameBase(str) {}
 

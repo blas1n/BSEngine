@@ -56,9 +56,17 @@ private:
 	BSBase::uint32 len;
 };
 
-[[nodiscard]] NO_ODR bool operator==(const Name& lhs, const Name& rhs) { return lhs.id == rhs.id; }
-[[nodiscard]] NO_ODR bool operator!=(const Name& lhs, const Name& rhs) { return !(lhs == rhs); }
-[[nodiscard]] NO_ODR bool operator<(const Name& lhs, const Name& rhs) { return lhs.id < rhs.id; }
+[[nodiscard]] NO_ODR bool operator==(const Name& lhs, const Name& rhs) noexcept { return lhs.id.id == rhs.id.id; }
+[[nodiscard]] NO_ODR bool operator!=(const Name& lhs, const Name& rhs) noexcept { return !(lhs == rhs); }
+
+/// @warning That function has the same cost as string.
+[[nodiscard]] NO_ODR bool operator<(const Name& lhs, const Name& rhs) { return lhs.ToString() < rhs.ToString(); }
+
+/// @warning That function has the same cost as string.
 [[nodiscard]] NO_ODR bool operator>(const Name& lhs, const Name& rhs) { return  rhs < lhs; }
+
+/// @warning That function has the same cost as string.
 [[nodiscard]] NO_ODR bool operator<=(const Name& lhs, const Name& rhs) { return !(lhs > rhs); }
+
+/// @warning That function has the same cost as string.
 [[nodiscard]] NO_ODR bool operator>=(const Name& lhs, const Name& rhs) { return !(lhs < rhs); }

@@ -67,10 +67,7 @@ namespace Impl
 }
 
 template <NameCase Sensitivity = NameCase::IgnoreCase>
-class Name;
-
-template <>
-class Name<NameCase::IgnoreCase> final : public Impl::NameBase
+class Name final : public Impl::NameBase
 {
 public:
 	Name(StringView str)

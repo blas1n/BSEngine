@@ -1,7 +1,13 @@
 #pragma once
 
+#include <algorithm>
 #include "BSBase/Type.h"
 #include "CharSet.h"
+
+enum class NameCase : BSBase::uint8
+{
+	IgnoreCase, CompareCase
+};
 
 #define REGISTER_NAME(name,num) name = num,
 enum class ReservedName : BSBase::uint32
@@ -13,60 +19,72 @@ enum class ReservedName : BSBase::uint32
 
 namespace Impl
 {
-	struct NameEntryId final
+	class CORE_API NameBase
 	{
-		NameEntryId(BSBase::uint32 inId = 0u) : id(inId) {}
-		CORE_API NameEntryId(ReservedName name);
+	public:
+		NameBase(StringView str);
+		NameBase(ReservedName name);
 
-		NameEntryId(const NameEntryId&) = default;
-		NameEntryId(NameEntryId&&) noexcept = default;
+		NameBase(const NameBase&) = default;
+		NameBase(NameBase&&) = default;
 
-		NameEntryId& operator=(const NameEntryId&) = default;
-		NameEntryId& operator=(NameEntryId&&) noexcept = default;
+		NameBase& operator=(const NameBase&) = default;
+		NameBase& operator=(NameBase&&) = default;
 
-		~NameEntryId() = default;
+		~NameBase() = default;
 
-		BSBase::uint32 id;
+		[[nodiscard]] const ::String& ToString() const { return *ptr; }
+		[[nodiscard]] BSBase::uint32 GetLength() const noexcept { return ptr->size(); }
+
+		friend bool operator==(const NameBase& lhs, const NameBase& rhs) noexcept;
+		friend bool operator<(const NameBase& lhs, const NameBase& rhs);
+
+	private:
+		const ::String* ptr;
 	};
+
+	::String ToLower(StringView str)
+	{
+		::String ret(str.data());
+		std::transform(ret.begin(), ret.end(), ret.begin(), [](char c) { return std::tolower(c); });
+		return ret;
+	}
+
+	[[nodiscard]] NO_ODR bool operator==(const Impl::NameBase& lhs, const Impl::NameBase& rhs) noexcept { return lhs.ptr == rhs.ptr; }
+	[[nodiscard]] NO_ODR bool operator!=(const Impl::NameBase& lhs, const Impl::NameBase& rhs) noexcept { return !(lhs == rhs); }
+
+	/// @warning That function has the same cost as string.
+	[[nodiscard]] NO_ODR bool operator<(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return lhs.ToString() < rhs.ToString(); }
+
+	/// @warning That function has the same cost as string.
+	[[nodiscard]] NO_ODR bool operator>(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return  rhs < lhs; }
+
+	/// @warning That function has the same cost as string.
+	[[nodiscard]] NO_ODR bool operator<=(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return !(lhs > rhs); }
+
+	/// @warning That function has the same cost as string.
+	[[nodiscard]] NO_ODR bool operator>=(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return !(lhs < rhs); }
 }
 
-class CORE_API Name final
+template <NameCase Sensitivity>
+class Name;
+
+template <>
+class Name<NameCase::IgnoreCase> final : public Impl::NameBase
 {
-public:
-	Name(StringView str);
-	Name(ReservedName name = ReservedName::None);
+	Name(StringView str)
+		: NameBase(Impl::ToLower(str)) {}
 
-	Name(const Name&) = default;
-	Name(Name&&) = default;
-
-	Name& operator=(const Name&) = default;
-	Name& operator=(Name&&) = default;
-
-	~Name() = default;
-
-	[[nodiscard]] bool IsValid() const;
-	[[nodiscard]] String ToString() const;
-	[[nodiscard]] BSBase::uint32 GetLength() const noexcept { return len; }
-
-	friend bool operator==(const Name& lhs, const Name& rhs);
-	friend bool operator<(const Name& lhs, const Name& rhs);
-
-private:
-	Impl::NameEntryId id;
-	BSBase::uint32 len;
+	Name(ReservedName name = ReservedName::None)
+		: NameBase(name) {}
 };
 
-[[nodiscard]] NO_ODR bool operator==(const Name& lhs, const Name& rhs) noexcept { return lhs.id.id == rhs.id.id; }
-[[nodiscard]] NO_ODR bool operator!=(const Name& lhs, const Name& rhs) noexcept { return !(lhs == rhs); }
+template <>
+class Name<NameCase::CompareCase> final : public Impl::NameBase
+{
+	Name(StringView str)
+		: NameBase(str) {}
 
-/// @warning That function has the same cost as string.
-[[nodiscard]] NO_ODR bool operator<(const Name& lhs, const Name& rhs) { return lhs.ToString() < rhs.ToString(); }
-
-/// @warning That function has the same cost as string.
-[[nodiscard]] NO_ODR bool operator>(const Name& lhs, const Name& rhs) { return  rhs < lhs; }
-
-/// @warning That function has the same cost as string.
-[[nodiscard]] NO_ODR bool operator<=(const Name& lhs, const Name& rhs) { return !(lhs > rhs); }
-
-/// @warning That function has the same cost as string.
-[[nodiscard]] NO_ODR bool operator>=(const Name& lhs, const Name& rhs) { return !(lhs < rhs); }
+	Name(ReservedName name = ReservedName::None)
+		: NameBase(name) {}
+};

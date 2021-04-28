@@ -36,7 +36,9 @@ namespace
 		const String* Find(StringView str) const
 		{
 			std::shared_lock lock{ mutex };
-			return &*nameSet.find(String(str.data()));
+
+			const auto iter = nameSet.find(String(str.data()));
+			return iter != nameSet.end() ? &*iter : nullptr;
 		}
 
 		const String* Find(ReservedName name) const

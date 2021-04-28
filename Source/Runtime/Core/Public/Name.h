@@ -15,27 +15,19 @@ namespace Impl
 {
 	struct NameEntryId final
 	{
-		constexpr NameEntryId(BSBase::uint32 inId = 0u) : id(inId) {}
+		NameEntryId(BSBase::uint32 inId = 0u) : id(inId) {}
 		CORE_API NameEntryId(ReservedName name);
 
-		constexpr NameEntryId(const NameEntryId&) = default;
-		constexpr NameEntryId(NameEntryId&&) = default;
+		NameEntryId(const NameEntryId&) = default;
+		NameEntryId(NameEntryId&&) noexcept = default;
 
-		constexpr NameEntryId& operator=(const NameEntryId&) = default;
-		constexpr NameEntryId& operator=(NameEntryId&&) = default;
+		NameEntryId& operator=(const NameEntryId&) = default;
+		NameEntryId& operator=(NameEntryId&&) noexcept = default;
 
 		~NameEntryId() = default;
 
 		BSBase::uint32 id;
 	};
-
-	[[nodiscard]] constexpr bool operator==(NameEntryId lhs, NameEntryId rhs) { return lhs.id == rhs.id; }
-	[[nodiscard]] constexpr bool operator!=(NameEntryId lhs, NameEntryId rhs) { return !(lhs == rhs); }
-
-	[[nodiscard]] CORE_API bool operator<(NameEntryId lhs, NameEntryId rhs);
-	[[nodiscard]] NO_ODR bool operator>(NameEntryId lhs, NameEntryId rhs) { return rhs < lhs; }
-	[[nodiscard]] NO_ODR bool operator<=(NameEntryId lhs, NameEntryId rhs) { return !(lhs > rhs); }
-	[[nodiscard]] NO_ODR bool operator>=(NameEntryId lhs, NameEntryId rhs) { return !(lhs < rhs); }
 }
 
 class CORE_API Name final

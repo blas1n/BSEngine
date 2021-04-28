@@ -10,6 +10,7 @@
 #include "Event.h"
 #include "Json.h"
 #include "Logger.h"
+#include "Name.h"
 #include "Platform.h"
 #include "Timer.h"
 

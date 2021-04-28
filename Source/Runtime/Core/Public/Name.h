@@ -11,12 +11,6 @@ enum class ReservedName : BSBase::uint32
 };
 #undef REGISTER_NAME
 
-enum class NameCase : BSBase::uint8
-{
-	IgnoreCase,
-	CompareCase
-};
-
 namespace Impl
 {
 	struct NameEntryId final

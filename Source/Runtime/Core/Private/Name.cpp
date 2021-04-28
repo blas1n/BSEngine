@@ -3,6 +3,26 @@
 
 namespace
 {
+	constexpr static BSBase::uint16 MaxNameSize = 1024u;
+
+	struct NameValue final
+	{
+		explicit NameValue(StringView inName)
+			: name(inName), Hash(HashName<Sensitivity>(InName))
+		{}
+
+		StringView name;
+		FNameHash Hash;
+		TOptional<FNameEntryId> ComparisonId;
+	};
+
+	class NameEntry final
+	{
+		Char str[MaxNameSize];
+		Impl::NameEntryId id;
+		BSBase::uint16 len;
+	};
+
 	class NamePool final
 	{
 	public:

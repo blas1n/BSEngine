@@ -68,3 +68,13 @@ TEST(CoreTest, EventTest)
 			return result && newResult;
 		}, 1, 1));
 }
+
+TEST(CoreTest, NameTest)
+{
+	Name lhs{ STR("Hello") };
+	Name rhs{ STR("hello") };
+
+	EXPECT_EQ(lhs, rhs);
+	EXPECT_EQ(lhs.ToString(), STR("hello"));
+	EXPECT_EQ(lhs.GetLength(), 5);
+}

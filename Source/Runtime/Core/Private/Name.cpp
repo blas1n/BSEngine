@@ -1,114 +1,65 @@
 #include "Name.h"
+#include <unordered_set>
 #include <shared_mutex>
+#include <vector>
+#include "BSMath/Hash.h"
+#include "Assertion.h"
 
 namespace
 {
-	constexpr static BSBase::uint16 MaxNameSize = 1024u;
-
-	struct NameValue final
-	{
-		explicit NameValue(StringView inName)
-			: name(inName), Hash(HashName<Sensitivity>(InName))
-		{}
-
-		StringView name;
-		FNameHash Hash;
-		TOptional<FNameEntryId> ComparisonId;
-	};
-
-	class NameEntry final
-	{
-		Char str[MaxNameSize];
-		Impl::NameEntryId id;
-		BSBase::uint16 len;
-	};
-
 	class NamePool final
 	{
 	public:
-		NamePool();
+		static NamePool& Get()
+		{
+			return *inst;
+		}
 
-		Impl::NameEntryId Store(StringView str);
+		NamePool()
+		{
+			reserveMapper.resize(static_cast<BSBase::uint32>(ReservedName::ReserveNum), nullptr);
 
-		[[nodiscard]] Impl::NameEntryId Find(StringView str) const;
-		[[nodiscard]] Impl::NameEntryId Find(ReservedName name) const;
+#define REGISTER_NAME(name, num) reserveMapper[num] = &*nameSet.insert(Impl::ToLower(STR(#name))).first;
+#include "ReservedName.inl"
+#undef REGISTER_NAME
+		}
+
+		const String* Insert(StringView str)
+		{
+			if (const auto ptr = Find(str))
+				return ptr;
+
+			std::unique_lock lock{ mutex };
+			return &*nameSet.insert(String{ str.data() }).first;
+		}
+
+		const String* Find(StringView str) const
+		{
+			std::shared_lock lock{ mutex };
+			return &*nameSet.find(String(str.data()));
+		}
+
+		const String* Find(ReservedName name) const
+		{
+			return reserveMapper[static_cast<BSBase::uint32>(name)];
+		}
 
 	private:
-		Impl::NameEntryId ReservePool[static_cast<BSBase::uint32>(ReservedName::ReserveNum)] = {};
+		static std::unique_ptr<NamePool> inst;
+
+		std::unordered_set<String, BSMath::Hash<String>> nameSet;
+		std::vector<const String*> reserveMapper;
 		mutable std::shared_mutex mutex;
 	};
 
-	NamePool::NamePool()
-	{
-#define REGISTER_NAME(name, num) ReservePool[num] = Store(StringView{ STR(#name) });
-#include "ReservedName.inl"
-#undef REGISTER_NAME
-
-
-	}
-
-	Impl::NameEntryId NamePool::Store(StringView str)
-	{
-		// Note: Don't declare it as a const variable for RVO
-		auto existing = Find(str);
-		if (existing.id)
-			return existing;
-
-		std::unique_lock lock{ mutex };
-
-		bool bAdded = false;
-		NameValue nameValue{ str };
-		Impl::NameEntryId ComparisonId = shards[ComparisonValue.Hash.ShardIndex].Insert(nameValue, bAdded);
-
-		if (bAdded || EqualsSameDimensions<ENameCase::CaseSensitive>(Resolve(ComparisonId), str))
-		{
-			DisplayShard.InsertExistingEntry(DisplayValue.Hash, ComparisonId);
-			return ComparisonId;
-		}
-		else
-		{
-			DisplayValue.ComparisonId = ComparisonId;
-			return DisplayShard.Insert(DisplayValue, bAdded);
-		}
-	}
-
-	Impl::NameEntryId NamePool::Find(StringView str) const
-	{
-		std::shared_lock lock{ mutex };
-	}
-
-	Impl::NameEntryId NamePool::Find(ReservedName name) const
-	{
-		std::shared_lock lock{ mutex };
-	}
-
-	alignas(NamePool) static NamePool namePool;
+	std::unique_ptr<NamePool> NamePool::inst = std::make_unique<NamePool>();
 }
 
 namespace Impl
 {
-	NameEntryId::NameEntryId(ReservedName name)
-		: NameEntryId(namePool.Find(name)) {}
-}
+	NameBase::NameBase(StringView str)
+		: ptr(NamePool::Get().Insert(str)) {}
 
-Name::Name(StringView str)
-	: id(), len(0)
-{
-
-}
-
-Name::Name(ReservedName name)
-	: id(name), len(0)
-{
-
-}
-
-bool Name::IsValid() const
-{
-
-}
-
-String Name::ToString() const
-{
-
+	NameBase::NameBase(ReservedName name)
+		: ptr(NamePool::Get().Find(name)) {}
 }

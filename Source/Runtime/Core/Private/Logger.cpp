@@ -12,9 +12,9 @@ namespace
     }
 }
 
-Logger::Logger(StringView name)
+Logger::Logger(Name name)
 {
-    const auto str = CastCharSet<char>(name);
+    auto str = CastCharSet<char>(StringView{ name.ToString() });
     if (const auto logger = spdlog::get(str))
     {
         impl = logger;

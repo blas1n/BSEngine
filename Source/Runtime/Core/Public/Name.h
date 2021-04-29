@@ -66,24 +66,29 @@ namespace Impl
 	[[nodiscard]] NO_ODR bool operator>=(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return !(lhs < rhs); }
 }
 
-template <NameCase Sensitivity = NameCase::IgnoreCase>
-class Name final : public Impl::NameBase
+template <NameCase Sensitivity>
+class CasedName;
+
+template <>
+class CasedName<NameCase::IgnoreCase> final : public Impl::NameBase
 {
 public:
-	Name(StringView str)
+	CasedName(StringView str)
 		: NameBase(Impl::ToLower(str)) {}
 
-	Name(ReservedName name = ReservedName::None)
+	CasedName(ReservedName name = ReservedName::None)
 		: NameBase(name) {}
 };
 
 template <>
-class Name<NameCase::CompareCase> final : public Impl::NameBase
+class CasedName<NameCase::CompareCase> final : public Impl::NameBase
 {
 public:
-	Name(StringView str)
+	CasedName(StringView str)
 		: NameBase(str) {}
 
-	Name(ReservedName name = ReservedName::None)
+	CasedName(ReservedName name = ReservedName::None)
 		: NameBase(name) {}
 };
+
+using Name = CasedName<NameCase::IgnoreCase>;

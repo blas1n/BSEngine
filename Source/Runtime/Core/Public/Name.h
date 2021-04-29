@@ -26,10 +26,10 @@ namespace Impl
 		NameBase(ReservedName name);
 
 		NameBase(const NameBase&) = default;
-		NameBase(NameBase&&) = default;
+		NameBase(NameBase&&) noexcept = default;
 
 		NameBase& operator=(const NameBase&) = default;
-		NameBase& operator=(NameBase&&) = default;
+		NameBase& operator=(NameBase&&) noexcept = default;
 
 		~NameBase() = default;
 

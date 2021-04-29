@@ -34,7 +34,7 @@ namespace Impl
 		~NameBase() = default;
 
 		[[nodiscard]] const ::String& ToString() const { return *ptr; }
-		[[nodiscard]] BSBase::uint32 GetLength() const noexcept { return ptr->size(); }
+		[[nodiscard]] size_t GetLength() const noexcept { return ptr->size(); }
 
 		friend bool operator==(const NameBase& lhs, const NameBase& rhs) noexcept;
 		friend bool operator<(const NameBase& lhs, const NameBase& rhs);

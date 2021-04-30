@@ -4,6 +4,7 @@
 
 bool Scene::Init(Name inName) noexcept
 {
+	Release();
 	name = inName;
 	return true;
 }

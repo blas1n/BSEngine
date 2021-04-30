@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vector>
 #include "Core.h"
+#include <vector>
 
 class ENGINE_API Engine final
 {

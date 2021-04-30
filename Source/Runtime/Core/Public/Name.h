@@ -71,7 +71,7 @@ template <NameCase Sensitivity>
 class CasedName;
 
 template <>
-class CasedName<NameCase::IgnoreCase> final : public Impl::NameBase
+class CORE_API CasedName<NameCase::IgnoreCase> final : public Impl::NameBase
 {
 public:
 	CasedName(StringView str)
@@ -82,7 +82,7 @@ public:
 };
 
 template <>
-class CasedName<NameCase::CompareCase> final : public Impl::NameBase
+class CORE_API CasedName<NameCase::CompareCase> final : public Impl::NameBase
 {
 public:
 	CasedName(StringView str)

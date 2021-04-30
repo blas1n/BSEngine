@@ -2,7 +2,7 @@
 
 #include "Name.h"
 
-class FRAMEWORK_API Scene final
+class ENGINE_API Scene final
 {
 public:
 	Scene() = default;

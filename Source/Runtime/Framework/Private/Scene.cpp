@@ -2,9 +2,10 @@
 #include <filesystem>
 #include "Core.h"
 
-void Scene::Init(Name inName)
+bool Scene::Init(Name inName) noexcept
 {
 	name = inName;
+	return true;
 }
 
 void Scene::Release() noexcept
@@ -12,7 +13,7 @@ void Scene::Release() noexcept
 
 }
 
-void Scene::Load()
+bool Scene::Load() noexcept
 {
 	std::filesystem::path path{ STR("Assets") };
 	path /= name.ToString();
@@ -22,9 +23,11 @@ void Scene::Load()
 	stream >> file;
 
 	/// @todo: deserialization
+
+	return true;
 }
 
-void Scene::Save()
+bool Scene::Save() noexcept
 {
 	std::filesystem::path path{ STR("Assets") };
 	path /= name.ToString();
@@ -35,4 +38,5 @@ void Scene::Save()
 
 	std::ofstream stream{ path.string() };
 	stream << file;
+	return true;
 }

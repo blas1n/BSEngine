@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <locale>
 #include "BSBase/Type.h"
 #include "CharSet.h"
 
@@ -46,7 +47,7 @@ namespace Impl
 	NO_ODR ::String ToLower(StringView str)
 	{
 		::String ret(str.data());
-		std::transform(ret.begin(), ret.end(), ret.begin(), [](char c) { return std::tolower(c); });
+		std::transform(ret.begin(), ret.end(), ret.begin(), [](Char c) { return std::tolower(c, std::locale{}); });
 		return ret;
 	}
 

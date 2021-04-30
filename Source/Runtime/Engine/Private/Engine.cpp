@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "Accessor.h"
 #include "WindowManager.h"
 
 namespace
@@ -9,19 +10,23 @@ namespace
 		manager = new T{};
 		if (!manager) return 1;
 
+		Accessor<T>::SetManager(manager);
 		return manager->Init(std::forward<Args>(args)...) ? 0 : 2;
 	}
 
-	void RemoveManager(Manager* manager) noexcept
+	template <class T>
+	void RemoveManager(T*& manager) noexcept
 	{
+		Accessor<T>::SetManager(nullptr);
 		manager->Release();
 		delete manager;
+		manager = nullptr;
 	}
 }
 
 int32 Engine::Init() noexcept
 {
-	int32 error = CreateManager<WindowManager>(window);
+	int32 error = CreateManager(window);
 	if (error) return error;
 
 	timer.Reset();

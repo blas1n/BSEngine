@@ -20,7 +20,7 @@ namespace Sink
     using StdoutSink = spdlog::sinks::stdout_color_sink_mt;
     using StderrSink = spdlog::sinks::stderr_color_sink_mt;
 
-    class CORE_API FileSink final : public spdlog::sinks::base_sink<std::mutex>
+    class FileSink final : public spdlog::sinks::base_sink<std::mutex>
     {
         using FileNameCalc = spdlog::sinks::daily_filename_calculator;
 

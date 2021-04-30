@@ -58,7 +58,7 @@ bool WindowManager::Init() noexcept
     dmScreenSettings.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
     ChangeDisplaySettings(&dmScreenSettings, CDS_FULLSCREEN);
 
-    // Todo: Support window mode (not full screen)
+    /// @todo: Support window mode (not full screen)
     HWND hWnd = CreateWindowEx(WS_EX_APPWINDOW, ClassName, STRINGIFY(GAME_NAME),
         WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_POPUP,
         0, 0, size.x, size.y, nullptr, nullptr, hInstance, nullptr);

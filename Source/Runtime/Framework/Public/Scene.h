@@ -15,11 +15,11 @@ public:
 
 	~Scene() { Release(); }
 
-	void Init(Name inName);
+	bool Init(Name inName) noexcept;
 	void Release() noexcept;
 
-	void Load();
-	void Save();
+	bool Load() noexcept;
+	bool Save() noexcept;
 
 private:
 	Name name;

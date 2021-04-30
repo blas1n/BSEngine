@@ -22,8 +22,6 @@ public:
 	void Release() noexcept;
 
 private:
-
-private:
 	Timer timer;
 
 	class WindowManager* window;

@@ -10,6 +10,7 @@
     "fmt",
     "gtest",
     "nlohmann-json",
+    "rttr",
     "spdlog",
     "utfcpp"
   ]

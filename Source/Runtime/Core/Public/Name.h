@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <locale>
 #include "BSBase/Type.h"
+#include "BSMath/Hash.h"
 #include "CharSet.h"
 
 enum class NameCase : BSBase::uint8
@@ -35,6 +36,7 @@ namespace Impl
 		~NameBase() = default;
 
 		[[nodiscard]] const ::String& ToString() const { return *ptr; }
+		[[nodiscard]] const ::String* GetPtr() const noexcept { return ptr; }
 		[[nodiscard]] size_t GetLength() const noexcept { return ptr->size(); }
 
 		friend bool operator==(const NameBase& lhs, const NameBase& rhs) noexcept;
@@ -93,3 +95,15 @@ public:
 };
 
 using Name = CasedName<NameCase::IgnoreCase>;
+
+namespace BSMath
+{
+	template <NameCase Sensitivity>
+	struct Hash<CasedName<Sensitivity>> final
+	{
+		[[nodiscard]] size_t operator()(const CasedName<Sensitivity>& value) const noexcept
+		{
+			return Hash<const ::String*>{}(value.GetPtr());
+		}
+	};
+}

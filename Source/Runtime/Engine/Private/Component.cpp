@@ -12,27 +12,27 @@ namespace
 			return *inst;
 		}
 
-		Component* CreateComponent(Name name) const
+		Component* CreateComponent(Name name, Entity* entity) const
 		{
-			return registry.find(name)->second();
+			return registry.find(name)->second(entity);
 		}
 
-		void RegisterComponent(Name name, Component*(*ptr)())
+		void RegisterComponent(Name name, Component*(*ptr)(Entity*))
 		{
 			registry.insert(std::make_pair(name, ptr));
 		}
 
 	private:
-		std::unordered_map<Name, Component*(*)()> registry;
+		std::unordered_map<Name, Component*(*)(Entity*)> registry;
 	};
 }
 
-Component* Impl::CreateComponent(Name name)
+Component* Impl::CreateComponent(Name name, Entity* entity)
 {
-	ComponentRegistry::Get().CreateComponent(name);
+	ComponentRegistry::Get().CreateComponent(name, entity);
 }
 
-void Impl::RegisterComponent(Name name, Component*(*ptr)())
+void Impl::RegisterComponent(Name name, Component*(*ptr)(Entity*))
 {
 	ComponentRegistry::Get().RegisterComponent(name, ptr);
 }

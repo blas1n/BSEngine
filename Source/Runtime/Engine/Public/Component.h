@@ -9,10 +9,10 @@ class ENGINE_API Component
 {
 public:
     Component(Entity* inEntity) : entity(inEntity) {}
-    virtual ~Component() = 0;
+    virtual ~Component() {};
 
-    void Serialize(Json& json) {}
-    void Deserialize(const Json& json) {}
+    virtual void Serialize(Json& json) {}
+    virtual void Deserialize(const Json& json) {}
 
     Entity* GetEntity() noexcept { return entity; }
     const Entity* GetEntity() const noexcept { return entity; }

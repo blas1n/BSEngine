@@ -1,31 +1,6 @@
 #include "Entity.h"
 
-Component* Entity::AddComponent(Name type)
-{
-	return nullptr;
-}
-
-Component* Entity::GetComponent(Name type)
-{
-	return nullptr;
-}
-
-const Component* Entity::GetComponent(Name type) const
-{
-	return nullptr;
-}
-
-std::vector<Component*> Entity::GetComponents(Name type)
-{
-	return std::vector<Component*>();
-}
-
-std::vector<const Component*> Entity::GetComponents(Name type) const
-{
-	return std::vector<const Component*>();
-}
-
-StringView Entity::GetComponentName(StringView functionName)
+Name Entity::GetComponentName(StringView functionName)
 {
 	const size_t begin = functionName.find(STR('<'));
 	const size_t end = functionName.find(STR('>'));

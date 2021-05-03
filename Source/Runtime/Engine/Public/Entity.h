@@ -82,6 +82,7 @@ public:
 
 	void SetName(StringView inName) noexcept { name = inName; }
 	const String& GetName() const noexcept { return name; }
+	uint32 GetId() const noexcept { return id; }
 
 private:
 	Name GetComponentName(StringView functionName);

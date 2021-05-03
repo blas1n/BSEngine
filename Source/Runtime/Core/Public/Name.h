@@ -103,7 +103,7 @@ namespace BSMath
 	{
 		[[nodiscard]] size_t operator()(const CasedName<Sensitivity>& value) const noexcept
 		{
-			return static_cast<size_t>(value.GetPtr());
+			return reinterpret_cast<size_t>(value.GetPtr());
 		}
 	};
 }

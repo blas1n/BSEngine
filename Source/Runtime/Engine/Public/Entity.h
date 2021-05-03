@@ -74,12 +74,6 @@ public:
 		}
 	}
 
-	class Component* AddComponent(Name type);
-	Component* GetComponent(Name type);
-	const Component* GetComponent(Name type) const;
-	std::vector<Component*> GetComponents(Name type);
-	std::vector<const Component*> GetComponents(Name type) const;
-
 	void Serialize(Json& json);
 	void Deserialize(const Json& json);
 

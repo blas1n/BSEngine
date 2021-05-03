@@ -8,6 +8,8 @@
 class ENGINE_API Entity final
 {
 public:
+	Entity(class Scene* inScene) : scene(inScene) {}
+
 	template <class T>
 	T* AddComponent()
 	{
@@ -75,6 +77,8 @@ public:
 
 	class Transform* GetTransform() noexcept { return transform; }
 	const Transform* GetTransform() const noexcept { return transform; }
+	Scene* GetScene() noexcept { return scene; }
+	const Scene* GetScene() const noexcept { return scene; }
 
 	void SetName(StringView inName) noexcept { name = inName; }
 	const String& GetName() const noexcept { return name; }
@@ -85,6 +89,7 @@ private:
 private:
 	std::unordered_multimap<Name, Component*, Hash<Name>> components;
 	Transform* transform;
+	Scene* scene;
 
 	String name;
 	uint32 id;

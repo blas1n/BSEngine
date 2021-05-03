@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Core.h"
-#include <vector>
 #include <type_traits>
+#include <unordered_map>
+#include "Transform.h"
 
 class ENGINE_API Entity final
 {
@@ -11,65 +12,60 @@ public:
 	T* AddComponent()
 	{
 		static_assert(std::is_base_of_v<Component, T> && !std::is_same_v<Transform, T>);
-		return reinterpret_cast<T*>(AddComponent(GetComponentName(__FUNCSIG__)));
+		
+		const Name name = GetComponentName(STR(__FUNCSIG__));
+		const auto ret = CreateComponent<T>(name);
+		components.insert(std::make_pair(name, ret));
+		return ret;
 	}
 
 	template <class T>
 	T* GetComponent()
 	{
-		static_assert(std::is_base_of_v<Component, T>>);
-
-		if constexpr (std::is_same_v<Transform, T>)
-			return transform;
-		else
-			return reinterpret_cast<T*>(GetComponent(GetComponentName(__FUNCSIG__)));
+		return const_cast<T*>(static_cast<const Entity*>(this)->GetComponent<T>());
 	}
 
 	template <class T>
 	const T* GetComponent() const
 	{
-		static_assert(std::is_base_of_v<Component, T>);
+		static_assert(std::is_base_of_v<Component, T >> );
 
 		if constexpr (std::is_same_v<Transform, T>)
 			return transform;
 		else
-			return reinterpret_cast<const T*>(GetComponent(GetComponentName(__FUNCSIG__)));
+		{
+			const auto iter = components.find(GetComponentName(STR(__FUNCSIG__)));
+			return iter != component.end() ? reinterpret_cast<T*>(iter->second) : nullptr;
+		}
 	}
 
 	template <class T>
 	std::vector<T*> GetComponents()
 	{
+		const std::vector<const T*> vec = static_cast<const Entity*>(this)->GetComponent<T>();
+		const size_t size = vec.size();
+
+		std::vector<T*> ret(vec.size());
+		for (size_t i = 0; i < size; ++i)
+			ret[i] = const_cast<T*>(vec[i]);
+		return ret;
+	}
+
+	template <class T>
+	std::vector<const T*> GetComponents() const
+	{
 		static_assert(std::is_base_of_v<Component, T>);
 
 		if constexpr (std::is_same_v<Transform, T>)
 			return std::vector<T*>{ transform };
 		else
 		{
-			const auto comps = GetComponents(GetComponentName(__FUNCSIG__));
-			const size_t size = comps.size();
-			
-			std::vector<T*> ret(size);
-			for (size_t i = 0; i < size; ++i)
-				ret[i] = reinterpret_cast<T*>(comps[i]);
-			return ret;
-		}
-	}
-
-	template <class T>
-	std::vector<const T*> GetComponents() const
-	{
-		static_assert(std::is_base_of_v<Component, T> && !std::is_same_v<Transform, T>);
-
-		if constexpr (std::is_same_v<Transform, T>)
-			return std::vector<T*>{ transform };
-		else
-		{
-			const auto comps = GetComponents(GetComponentName(__FUNCSIG__));
-			const size_t size = comps.size();
+			const auto iters = components.equal_range(GetComponentName(STR(__FUNCSIG__)));
+			const size_t size = std::distance(iters.first, iters.second);
 
 			std::vector<T*> ret(size);
 			for (size_t i = 0; i < size; ++i)
-				ret[i] = reinterpret_cast<T*>(comps[i]);
+				ret[i] = reinterpret_cast<T*>(iters.first->second + i);
 			return ret;
 		}
 	}
@@ -82,13 +78,12 @@ public:
 
 	void SetName(StringView inName) noexcept { name = inName; }
 	const String& GetName() const noexcept { return name; }
-	uint32 GetId() const noexcept { return id; }
 
 private:
-	StringView GetComponentName(StringView functionName);
+	Name GetComponentName(StringView functionName);
 
 private:
-	std::vector<Component*> components;
+	std::unordered_multimap<Name, Component*, Hash<Name>> components;
 	Transform* transform;
 
 	String name;

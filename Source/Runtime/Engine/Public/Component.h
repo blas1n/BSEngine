@@ -1,28 +1,42 @@
 #pragma once
 
 #include "Name.h"
+#include "Json.h"
+
+class Entity;
 
 class ENGINE_API Component
 {
+public:
+    Component(Entity* inEntity) : entity(inEntity) {}
+    virtual ~Component() = 0;
 
+    void Serialize(Json& json) {}
+    void Deserialize(const Json& json) {}
+
+    Entity* GetEntity() noexcept { return entity; }
+    const Entity* GetEntity() const noexcept { return entity; }
+
+private:
+    Entity* entity;
 };
 
 template <class T = Component>
-T* CreateComponent(Name name)
+T* CreateComponent(Name name, Entity* entity)
 {
-    return reinterpret_cast<T*>(Impl::CreateComponent(name));
+    return reinterpret_cast<T*>(Impl::CreateComponent(name, entity));
 }
 
 namespace Impl
 {
     template <class T>
-    Component* Create()
+    Component* Create(Entity* entity)
     {
-        return new T{};
+        return new T{ entity };
     }
 
-    Component* CreateComponent(Name name);
-    void RegisterComponent(Name name, Component*(*ptr)());
+    Component* CreateComponent(Name name, Entity* entity);
+    void RegisterComponent(Name name, Component*(*ptr)(Entity*));
 }
 
 #define REGISTER_COMPONENT(Class)                                                   \

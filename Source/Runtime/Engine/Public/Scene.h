@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Name.h"
+#include "Entity.h"
+#include <vector>
 
 class ENGINE_API Scene final
 {
@@ -21,6 +22,18 @@ public:
 	bool Load() noexcept;
 	bool Save() noexcept;
 
+	Entity* GetEntity(uint32 index) noexcept
+	{
+		return (index < entities.size()) ? &*(entities.begin() + index) : nullptr;
+	}
+
+	const Entity* GetEntity(uint32 index) const noexcept
+	{
+		return (index < entities.size()) ? &*(entities.begin() + index) : nullptr;
+	}
+
 private:
 	Name name;
+
+	std::vector<Entity> entities;
 };

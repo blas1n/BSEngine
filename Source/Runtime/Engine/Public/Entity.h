@@ -75,8 +75,9 @@ public:
 	void Serialize(Json& json);
 	void Deserialize(const Json& json);
 
-	class Transform* GetTransform() noexcept { return transform; }
-	const Transform* GetTransform() const noexcept { return transform; }
+	class Transform* GetTransform() noexcept { return &transform; }
+	const Transform* GetTransform() const noexcept { return &transform; }
+
 	Scene* GetScene() noexcept { return scene; }
 	const Scene* GetScene() const noexcept { return scene; }
 
@@ -89,7 +90,8 @@ private:
 
 private:
 	std::unordered_multimap<Name, Component*, Hash<Name>> components;
-	Transform* transform;
+	Transform transform;
+
 	Scene* scene;
 
 	String name;

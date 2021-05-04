@@ -9,6 +9,7 @@ class ENGINE_API Entity final
 {
 public:
 	Entity(class Scene* inScene, uint32 inId) : scene(inScene), id(inId) {}
+	~Entity();
 
 	template <class T>
 	T* AddComponent()

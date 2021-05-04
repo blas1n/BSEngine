@@ -1,10 +1,11 @@
 #include "Entity.h"
 
-Name Entity::GetComponentName(StringView functionName)
+Entity::~Entity()
 {
-	const size_t begin = functionName.find(STR('<'));
-	const size_t end = functionName.find(STR('>'));
-	return functionName.substr(begin + 1, end - begin - 1);
+	for (const auto comp : components)
+		delete comp.second;
+
+	components.clear();
 }
 
 Json Entity::Serialize() const
@@ -31,4 +32,11 @@ void Entity::Deserialize(const Json& json)
 		const Name name = CastCharSet<Char>(std::string_view{ strName.c_str() });
 		components.insert(std::make_pair(name, CreateComponent(name, this)))->second->Deserialize(comp);
 	}
+}
+
+Name Entity::GetComponentName(StringView functionName)
+{
+	const size_t begin = functionName.find(STR('<'));
+	const size_t end = functionName.find(STR('>'));
+	return functionName.substr(begin + 1, end - begin - 1);
 }

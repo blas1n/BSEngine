@@ -12,7 +12,7 @@ public:
 
 	[[nodiscard]] Matrix4 GetWorldMatrix();
 
-	void Serialize(Json& json) override;
+	Json Serialize() const override;
 	void Deserialize(const Json& json) override;
 
 	[[nodiscard]] uint32 GetParent() const noexcept { return parent; }

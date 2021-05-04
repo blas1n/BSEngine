@@ -29,14 +29,18 @@ void Transform::SetParent(uint32 inParent)
 	SetParentTransform();
 }
 
-void Transform::Serialize(Json& json)
+Json Transform::Serialize() const
 {
+	Json json = Json::object();
+
 	json["position"] = { position.x, position.y, position.z };
 	json["rotation"] = { rotation.roll, rotation.pitch, rotation.yaw };
 	json["scale"] = { scale.x, scale.y, scale.z };
 
 	if (parent != Entity::IdNone)
 		json["parent"] = parent;
+
+	return json;
 }
 
 void Transform::Deserialize(const Json& json)

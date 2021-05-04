@@ -53,3 +53,23 @@ bool Scene::Save() const noexcept
 	stream << json;
 	return true;
 }
+
+const Entity* Scene::GetEntity(uint32 id) const noexcept
+{
+	const size_t size = entities.size();
+	int32 curIdx = static_cast<int32>(Min(id, size - 1));
+	
+	while (curIdx >= 0 && curIdx < size)
+	{
+		const auto& entity = entities[curIdx];
+		if (id == entity.GetId())
+			return &entity;
+		
+		if (id > entity.GetId())
+			++curIdx;
+		else
+			--curIdx;
+	}
+	
+	return nullptr;
+}

@@ -1,6 +1,8 @@
 #include "Transform.h"
 #include "Scene.h"
 
+REGISTER_COMPONENT(Transform)
+
 Matrix4 Transform::GetWorldMatrix()
 {
 	if (!isMatUpdated)

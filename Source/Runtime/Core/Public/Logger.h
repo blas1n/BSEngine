@@ -2,12 +2,11 @@
 
 #include <filesystem>
 #include <mutex>
-#include "BSBase/Type.h"
 #include "fmt/format.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/null_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
-#include "CharSet.h"
+#include "Name.h"
 
 namespace spdlog
 {
@@ -21,7 +20,7 @@ namespace Sink
     using StdoutSink = spdlog::sinks::stdout_color_sink_mt;
     using StderrSink = spdlog::sinks::stderr_color_sink_mt;
 
-    class CORE_API FileSink final : public spdlog::sinks::base_sink<std::mutex>
+    class FileSink final : public spdlog::sinks::base_sink<std::mutex>
     {
         using FileNameCalc = spdlog::sinks::daily_filename_calculator;
 
@@ -157,7 +156,7 @@ enum class LogVerbosity : BSBase::uint8
 class CORE_API Logger final
 {
 public:
-    Logger(StringView name);
+    Logger(Name name);
 
     Logger(const Logger&) = default;
     Logger(Logger&&) noexcept = default;

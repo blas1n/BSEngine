@@ -29,7 +29,7 @@ namespace
 
 Component* Impl::CreateComponent(Name name, Entity* entity)
 {
-	ComponentRegistry::Get().CreateComponent(name, entity);
+	return ComponentRegistry::Get().CreateComponent(name, entity);
 }
 
 void Impl::RegisterComponent(Name name, Component*(*ptr)(Entity*))

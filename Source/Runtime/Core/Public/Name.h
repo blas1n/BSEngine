@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <locale>
 #include "BSBase/Type.h"
+#include "BSMath/Hash.h"
 #include "CharSet.h"
 
 enum class NameCase : BSBase::uint8
@@ -26,15 +28,16 @@ namespace Impl
 		NameBase(ReservedName name);
 
 		NameBase(const NameBase&) = default;
-		NameBase(NameBase&&) = default;
+		NameBase(NameBase&&) noexcept = default;
 
 		NameBase& operator=(const NameBase&) = default;
-		NameBase& operator=(NameBase&&) = default;
+		NameBase& operator=(NameBase&&) noexcept = default;
 
 		~NameBase() = default;
 
 		[[nodiscard]] const ::String& ToString() const { return *ptr; }
-		[[nodiscard]] BSBase::uint32 GetLength() const noexcept { return ptr->size(); }
+		[[nodiscard]] const ::String* GetPtr() const noexcept { return ptr; }
+		[[nodiscard]] size_t GetLength() const noexcept { return ptr->size(); }
 
 		friend bool operator==(const NameBase& lhs, const NameBase& rhs) noexcept;
 		friend bool operator<(const NameBase& lhs, const NameBase& rhs);
@@ -46,7 +49,7 @@ namespace Impl
 	NO_ODR ::String ToLower(StringView str)
 	{
 		::String ret(str.data());
-		std::transform(ret.begin(), ret.end(), ret.begin(), [](char c) { return std::tolower(c); });
+		std::transform(ret.begin(), ret.end(), ret.begin(), [](Char c) { return std::tolower(c, std::locale{}); });
 		return ret;
 	}
 
@@ -66,24 +69,41 @@ namespace Impl
 	[[nodiscard]] NO_ODR bool operator>=(const Impl::NameBase& lhs, const Impl::NameBase& rhs) { return !(lhs < rhs); }
 }
 
-template <NameCase Sensitivity = NameCase::IgnoreCase>
-class Name final : public Impl::NameBase
+template <NameCase Sensitivity>
+class CasedName;
+
+template <>
+class CORE_API CasedName<NameCase::IgnoreCase> final : public Impl::NameBase
 {
 public:
-	Name(StringView str)
+	CasedName(StringView str)
 		: NameBase(Impl::ToLower(str)) {}
 
-	Name(ReservedName name = ReservedName::None)
+	CasedName(ReservedName name = ReservedName::None)
 		: NameBase(name) {}
 };
 
 template <>
-class Name<NameCase::CompareCase> final : public Impl::NameBase
+class CORE_API CasedName<NameCase::CompareCase> final : public Impl::NameBase
 {
 public:
-	Name(StringView str)
+	CasedName(StringView str)
 		: NameBase(str) {}
 
-	Name(ReservedName name = ReservedName::None)
+	CasedName(ReservedName name = ReservedName::None)
 		: NameBase(name) {}
 };
+
+using Name = CasedName<NameCase::IgnoreCase>;
+
+namespace BSMath
+{
+	template <NameCase Sensitivity>
+	struct Hash<CasedName<Sensitivity>> final
+	{
+		[[nodiscard]] size_t operator()(const CasedName<Sensitivity>& value) const noexcept
+		{
+			return reinterpret_cast<size_t>(value.GetPtr());
+		}
+	};
+}

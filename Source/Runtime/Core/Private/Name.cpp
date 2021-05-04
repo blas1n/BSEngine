@@ -30,7 +30,7 @@ namespace
 				return ptr;
 
 			std::unique_lock lock{ mutex };
-			return &*nameSet.insert(String{ str.data() }).first;
+			return &*nameSet.insert(String(str.data())).first;
 		}
 
 		const String* Find(StringView str) const

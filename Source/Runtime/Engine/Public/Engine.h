@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vector>
 #include "Core.h"
+#include <vector>
 
 class ENGINE_API Engine final
 {
@@ -20,8 +20,6 @@ public:
 	[[nodiscard]] int32 Init() noexcept;
 	[[nodiscard]] int32 Run() noexcept;
 	void Release() noexcept;
-
-private:
 
 private:
 	Timer timer;

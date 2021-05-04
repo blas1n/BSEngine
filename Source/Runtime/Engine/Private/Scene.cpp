@@ -11,11 +11,13 @@ bool Scene::Init(Name inName) noexcept
 
 void Scene::Release() noexcept
 {
-
+	entities.clear();
 }
 
 bool Scene::Load() noexcept
 {
+	Release();
+
 	std::filesystem::path path{ STR("Assets") };
 	path /= name.ToString();
 

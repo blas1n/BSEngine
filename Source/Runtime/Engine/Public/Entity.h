@@ -8,7 +8,7 @@
 class ENGINE_API Entity final
 {
 public:
-	Entity(class Scene* inScene) : scene(inScene) {}
+	Entity(class Scene* inScene) : scene(inScene), transform(this) {}
 
 	template <class T>
 	T* AddComponent()

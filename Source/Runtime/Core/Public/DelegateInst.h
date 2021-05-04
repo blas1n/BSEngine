@@ -18,7 +18,19 @@ namespace Impl
 		virtual void CopyTo(void* storage[2]) const = 0;
 		virtual void MoveTo(void* storage[2]) = 0;
 
+		bool EqualTo(const DelegateInstBase& other) const
+		{
+			const size_t size = GetSize();
+			if (size != other.GetSize())
+				return false;
+
+			return !memcmp(this, &other, size);
+		}
+
 		virtual void Clear() = 0;
+
+	protected:
+		virtual size_t GetSize() const = 0;
 	};
 
 	template <class R, class... Args>
@@ -61,6 +73,11 @@ namespace Impl
 	private:
 		DelegateInstFunction(Func inFn)
 			: fn(inFn) {}
+
+		size_t GetSize() const override
+		{
+			return sizeof(*this);
+		}
 
 	private:
 		Func fn;
@@ -106,6 +123,11 @@ namespace Impl
 	private:
 		DelegateInstMethod(Class* inInst, Func inFn)
 			: inst(inInst), fn(inFn) {}
+
+		size_t GetSize() const override
+		{
+			return sizeof(*this);
+		}
 
 	private:
 		Class* inst;
@@ -153,6 +175,11 @@ namespace Impl
 	private:
 		DelegateInstConstMethod(Class* inInst, Func inFn)
 			: inst(inInst), fn(inFn) {}
+
+		size_t GetSize() const override
+		{
+			return sizeof(*this);
+		}
 
 	private:
 		Class* inst;
@@ -228,6 +255,11 @@ namespace Impl
 				if (!storage[1])
 					storage[0] = new Impl::DelegateInstFunctor<Functor, R, Args...>{ std::forward<T>(inst.fn) };
 			}
+		}
+
+		size_t GetSize() const override
+		{
+			return sizeof(*this);
 		}
 
 	private:

@@ -22,15 +22,12 @@ public:
 	bool Load() noexcept;
 	bool Save() const noexcept;
 
-	Entity* GetEntity(uint32 index) noexcept
+	Entity* GetEntity(uint32 id) noexcept
 	{
-		return (index < entities.size()) ? &*(entities.begin() + index) : nullptr;
+		return const_cast<Entity*>(static_cast<const Scene*>(this)->GetEntity(id));
 	}
 
-	const Entity* GetEntity(uint32 index) const noexcept
-	{
-		return (index < entities.size()) ? &*(entities.begin() + index) : nullptr;
-	}
+	const Entity* GetEntity(uint32 id) const noexcept;
 
 private:
 	std::vector<Entity> entities;

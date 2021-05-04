@@ -20,24 +20,34 @@ bool Scene::Load() noexcept
 	path /= name.ToString();
 
 	std::ifstream stream{ path.string() };
-	Json file;
-	stream >> file;
+	Json json;
+	stream >> json;
 
-	/// @todo: deserialization
+	const auto jsonStr = json["name"].get<std::string>();
+	const Name jsonName = CastCharSet<Char>(std::string_view{ jsonStr.c_str() });
+	if (Ensure(jsonName == name))
+		return false;
+
+	for (const auto& entity : json["entities"])
+		entities.emplace_back(this, entity["id"]).Deserialize(entity);
 
 	return true;
 }
 
-bool Scene::Save() noexcept
+bool Scene::Save() const noexcept
 {
 	std::filesystem::path path{ STR("Assets") };
 	path /= name.ToString();
 	
-	Json file;
+	Json json = Json::object();
 
-	/// @todo: serialization
+	json["name"] = CastCharSet<char>(StringView{ name.ToString().c_str() });
+	Json entityJson = json["entities"] = Json::array();
+
+	for (const auto& entity : entities)
+		entityJson.push_back(entity.Serialize());
 
 	std::ofstream stream{ path.string() };
-	stream << file;
+	stream << json;
 	return true;
 }

@@ -7,12 +7,28 @@ Name Entity::GetComponentName(StringView functionName)
 	return functionName.substr(begin + 1, end - begin - 1);
 }
 
-void Entity::Serialize(Json& json)
+Json Entity::Serialize() const
 {
+	Json json = Json::object();
+	json["id"] = id;
+	json["name"] = CastCharSet<char>(StringView{ name.c_str() });
+	Json comps = json["components"] = Json::array();
 
+	for (const auto& comp : components)
+		comps.push_back(comp.second->Serialize().get<std::string>());
+
+	return json;
 }
 
 void Entity::Deserialize(const Json& json)
 {
+	const auto str = json["name"].get<std::string>();
+	name = CastCharSet<Char>(std::string_view{ str.c_str() });
 
+	for (const auto& comp : json["components"])
+	{
+		const auto strName = comp["name"].get<std::string>();
+		const Name name = CastCharSet<Char>(std::string_view{ strName.c_str() });
+		components.insert(std::make_pair(name, CreateComponent(name, this)))->second->Deserialize(comp);
+	}
 }

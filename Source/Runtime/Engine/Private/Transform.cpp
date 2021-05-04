@@ -60,12 +60,6 @@ void Transform::Deserialize(const Json& json)
 
 void Transform::SetParentTransform()
 {
-	if (parentTransform)
-	{
-		parentTransform->GetEntity()->OnChangeId -=
-			Delegate<void, uint32, uint32>{ this, &Transform::OnChangeParentId };
-	}
-
 	if (parent == Entity::IdNone)
 	{
 		parentTransform = nullptr;
@@ -73,11 +67,7 @@ void Transform::SetParentTransform()
 	}
 
 	if (const auto entity = GetEntity()->GetScene()->GetEntity(parent))
-	{
-		parentTransform = entity->GetTransform();
-		parentTransform->GetEntity()->OnChangeId +=
-			Delegate<void, uint32, uint32>{ this, & Transform::OnChangeParentId };
-	}
+		parentTransform = entity->GetComponent<Transform>();
 	else
 		parentTransform = nullptr;
 }

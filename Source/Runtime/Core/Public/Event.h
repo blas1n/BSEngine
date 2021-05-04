@@ -30,6 +30,12 @@ public:
 		return *this;
 	}
 
+	Event& operator-=(const Delegate<R, Args...>& fn)
+	{
+		funcs.erase(std::find(funcs.cbegin(), funcs.cend(), fn));
+		return *this;
+	}
+
 	void operator()(const Args&... args)
 	{
 		for (auto& fn : funcs)
@@ -73,6 +79,8 @@ public:
 		funcs.clear();
 	}
 
+	friend bool operator==(const Event& lhs, const Event& rhs);
+
 private:
 	[[nodiscard]] decltype(auto) begin() noexcept
 	{
@@ -101,7 +109,15 @@ private:
 template <class R, class... Args>
 [[nodiscard]] bool operator==(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
 {
-	return &lhs == &rhs;
+	const size_t size = lhs.Size();
+	if (size != rhs.Size())
+		return false;
+
+	for (size_t i = 0; i < size; ++i)
+		if (lhs.funcs[i] != rhs.funcs[i])
+			return false;
+
+	return true;
 }
 
 template <class R, class... Args>

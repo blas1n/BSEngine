@@ -1,5 +1,6 @@
 #include "Component.h"
 #include <unordered_map>
+#include "BSMath.h"
 
 namespace
 {
@@ -23,7 +24,7 @@ namespace
 		}
 
 	private:
-		std::unordered_map<Name, Component*(*)(Entity*)> registry;
+		std::unordered_map<Name, Component*(*)(Entity*), Hash<Name>> registry;
 	};
 }
 

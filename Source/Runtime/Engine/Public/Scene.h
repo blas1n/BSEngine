@@ -20,7 +20,7 @@ public:
 	void Release() noexcept;
 
 	bool Load() noexcept;
-	bool Save() noexcept;
+	bool Save() const noexcept;
 
 	Entity* GetEntity(uint32 index) noexcept
 	{
@@ -33,7 +33,6 @@ public:
 	}
 
 private:
-	Name name;
-
 	std::vector<Entity> entities;
+	Name name;
 };

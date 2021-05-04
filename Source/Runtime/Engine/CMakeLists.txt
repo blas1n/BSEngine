@@ -2,4 +2,4 @@
 
 register_library ()
 
-target_link_libraries (Engine PUBLIC Core PRIVATE Framework Window RTTR::Core)
+target_link_libraries (Engine PUBLIC Framework PRIVATE Window)

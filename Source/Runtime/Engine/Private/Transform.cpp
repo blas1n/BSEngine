@@ -1,8 +1,7 @@
 #include "Transform.h"
-#include "Entity.h"
 #include "Scene.h"
 
-Matrix4 Transform::GetWorldMatrix() const
+Matrix4 Transform::GetWorldMatrix()
 {
 	if (!isMatUpdated)
 	{
@@ -10,29 +9,22 @@ Matrix4 Transform::GetWorldMatrix() const
 		isMatUpdated = true;
 	}
 
-	return parent.ptr->GetWorldMatrix() * mat;
+	if (parent != Entity::IdNone && !parentTransform)
+		SetParentTransform();
+
+	const Matrix4 parentMat = parentTransform ?
+		parentTransform->GetWorldMatrix() : Matrix4::Identity;
+
+	return parentMat * mat;
 }
 
 void Transform::SetParent(uint32 inParent)
 {
-	const auto parentTransform = GetEntity()->
-		GetScene()->GetEntity(inParent)->GetTransform();
+	if (parent == inParent)
+		return;
 
-	const auto myId = GetEntity()->GetId();
-
-	SetParentImpl(Impl::Node{ parentTransform, inParent });
-	parentTransform->AddChildImpl(Impl::Node{ this, myId });
-}
-
-void Transform::AddChild(uint32 inChild)
-{
-	const auto childTransform = GetEntity()->
-		GetScene()->GetEntity(inChild)->GetTransform();
-
-	const auto myId = GetEntity()->GetId();
-
-	AddChildImpl(Impl::Node{ childTransform, inChild });
-	childTransform->SetParentImpl(Impl::Node{ this, myId });
+	parent = inParent;
+	SetParentTransform();
 }
 
 void Transform::Serialize(Json& json)
@@ -41,14 +33,8 @@ void Transform::Serialize(Json& json)
 	json["rotation"] = { rotation.roll, rotation.pitch, rotation.yaw };
 	json["scale"] = { scale.x, scale.y, scale.z };
 
-	json["parent"] = parent.id;
-
-	const size_t childNum = children.size();
-	auto& childList = json["children"];
-	childList = Json::array();
-
-	for (size_t i = 0; i < childNum; ++i)
-		json["children"].push_back(children[i].id);
+	if (parent != Entity::IdNone)
+		json["parent"] = parent;
 }
 
 void Transform::Deserialize(const Json& json)
@@ -62,15 +48,30 @@ void Transform::Deserialize(const Json& json)
 	const auto inScale = json["scale"].get<std::vector<float>>();
 	SetScale(Vector3{ inScale.data() });
 
-	/// @todo : How to connect to an object that has not yet been created
+	if (json.contains("parent"))
+		SetParent(json["parent"].get<uint32>());
 }
 
-void Transform::SetParentImpl(Impl::Node inParent)
+void Transform::SetParentTransform()
 {
-	parent = inParent;
-}
+	if (parentTransform)
+	{
+		parentTransform->GetEntity()->OnChangeId -=
+			Delegate<void, uint32, uint32>{ this, &Transform::OnChangeParentId };
+	}
 
-void Transform::AddChildImpl(Impl::Node inChild)
-{
-	children.emplace_back(inChild);
+	if (parent == Entity::IdNone)
+	{
+		parentTransform = nullptr;
+		return;
+	}
+
+	if (const auto entity = GetEntity()->GetScene()->GetEntity(parent))
+	{
+		parentTransform = entity->GetTransform();
+		parentTransform->GetEntity()->OnChangeId +=
+			Delegate<void, uint32, uint32>{ this, & Transform::OnChangeParentId };
+	}
+	else
+		parentTransform = nullptr;
 }

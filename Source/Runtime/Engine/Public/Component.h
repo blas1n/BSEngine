@@ -11,7 +11,7 @@ public:
     Component(Entity* inEntity) : entity(inEntity) {}
     virtual ~Component() {};
 
-    virtual void Serialize(Json& json) {}
+    virtual Json Serialize() const { return Json{}; }
     virtual void Deserialize(const Json& json) {}
 
     Entity* GetEntity() noexcept { return entity; }

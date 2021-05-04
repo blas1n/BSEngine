@@ -83,10 +83,17 @@ public:
 
 	void SetName(StringView inName) noexcept { name = inName; }
 	const String& GetName() const noexcept { return name; }
+
 	uint32 GetId() const noexcept { return id; }
+	void SetId(uint32 newId) noexcept { OnChangeId(newId, id); id = newId; }
 
 private:
 	Name GetComponentName(StringView functionName);
+
+public:
+	constexpr static uint32 IdNone = static_cast<uint32>(-1);
+
+	Event<void, uint32, uint32> OnChangeId;
 
 private:
 	std::unordered_multimap<Name, Component*, Hash<Name>> components;
@@ -95,5 +102,5 @@ private:
 	Scene* scene;
 
 	String name;
-	uint32 id;
+	uint32 id = IdNone;
 };

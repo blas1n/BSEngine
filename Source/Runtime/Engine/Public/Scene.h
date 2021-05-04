@@ -14,13 +14,11 @@ public:
 	Scene& operator=(const Scene&) = delete;
 	Scene& operator=(Scene&&) noexcept = default;
 
-	~Scene() { Release(); }
+	~Scene() = default;
 
-	bool Init(Name inName) noexcept;
-	void Release() noexcept;
-
-	bool Load() noexcept;
-	bool Save() const noexcept;
+	bool Load(Name inName) noexcept;
+	bool Save(Name inName) const noexcept;
+	bool Save() const noexcept { return Save(name); }
 
 	Entity* GetEntity(uint32 id) noexcept
 	{
@@ -28,6 +26,8 @@ public:
 	}
 
 	const Entity* GetEntity(uint32 id) const noexcept;
+	
+	Name GetName() const noexcept { return name; }
 
 private:
 	std::vector<Entity> entities;

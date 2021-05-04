@@ -2,21 +2,10 @@
 #include <filesystem>
 #include "Core.h"
 
-bool Scene::Init(Name inName) noexcept
+bool Scene::Load(Name inName) noexcept
 {
-	Release();
 	name = inName;
-	return true;
-}
-
-void Scene::Release() noexcept
-{
 	entities.clear();
-}
-
-bool Scene::Load() noexcept
-{
-	Release();
 
 	std::filesystem::path path{ STR("Assets") };
 	path /= name.ToString();
@@ -36,14 +25,14 @@ bool Scene::Load() noexcept
 	return true;
 }
 
-bool Scene::Save() const noexcept
+bool Scene::Save(Name inName) const noexcept
 {
 	std::filesystem::path path{ STR("Assets") };
-	path /= name.ToString();
+	path /= inName.ToString();
 	
 	Json json = Json::object();
 
-	json["name"] = CastCharSet<char>(StringView{ name.ToString().c_str() });
+	json["name"] = CastCharSet<char>(StringView{ inName.ToString().c_str() });
 	Json entityJson = json["entities"] = Json::array();
 
 	for (const auto& entity : entities)

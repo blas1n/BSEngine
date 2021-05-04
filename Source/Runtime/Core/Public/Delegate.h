@@ -96,18 +96,39 @@ public:
 	[[nodiscard]] bool IsBound() const noexcept { return storage[0]; }
 	[[nodiscard]] operator bool() const noexcept { return IsBound(); }
 
+	[[nodiscard]] friend bool operator==(const Delegate& lhs, const Delegate& rhs)
+	{
+		const auto lhsInst = lhs.GetInst();
+		const auto rhsInst = rhs.GetInst();
+
+		if (!lhsInst) return !rhsInst;
+		if (!rhsInst) return false;
+
+		return lhsInst->EqualTo(*rhsInst);
+	}
+
 private:
 	[[nodiscard]] Impl::DelegateInstBase<R, Args...>* GetInst() noexcept
+	{
+		return const_cast<Impl::DelegateInstBase<R, Args...>*>(static_cast<const Delegate*>(this)->GetInst());
+	}
+
+	[[nodiscard]] const Impl::DelegateInstBase<R, Args...>* GetInst() const noexcept
 	{
 		if (!storage[0]) return nullptr;
 
 		if (const auto heap = GetHeap())
-			return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(heap);
+			return reinterpret_cast<const Impl::DelegateInstBase<R, Args...>*>(heap);
 		
-		return reinterpret_cast<Impl::DelegateInstBase<R, Args...>*>(&storage);
+		return reinterpret_cast<const Impl::DelegateInstBase<R, Args...>*>(&storage);
 	}
 
-	[[nodiscard]] void* GetHeap() noexcept
+	[[nodiscard]] void* GetHeap() const noexcept
+	{
+		return (storage[0] && !storage[1]) ? storage[0] : nullptr;
+	}
+
+	[[nodiscard]] const void* GetHeap() noexcept
 	{
 		return (storage[0] && !storage[1]) ? storage[0] : nullptr;
 	}
@@ -115,12 +136,6 @@ private:
 private:
 	void* storage[2];
 };
-
-template <class R, class... Args>
-[[nodiscard]] bool operator==(const Delegate<R, Args...>& lhs, const Delegate<R, Args...>& rhs)
-{
-	return &lhs == &rhs;
-}
 
 template <class R, class... Args>
 [[nodiscard]] bool operator!=(const Delegate<R, Args...>& lhs, const Delegate<R, Args...>& rhs)

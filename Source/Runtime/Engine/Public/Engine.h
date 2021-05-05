@@ -7,7 +7,7 @@ class ENGINE_API Engine final
 {
 public:
 	Engine() noexcept
-		: timer(), window(nullptr) {}
+		: timer(), window(nullptr), thread(nullptr), input(nullptr), scene(nullptr) {}
 
 	Engine(const Engine&) = delete;
 	Engine(Engine&&) noexcept = delete;
@@ -26,5 +26,6 @@ private:
 
 	class WindowManager* window;
 	class ThreadManager* thread;
+	class InputManager* input;
 	class SceneManager* scene;
 };

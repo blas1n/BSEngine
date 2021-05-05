@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "Accessor.h"
 #include "SceneManager.h"
+#include "InputManager.h"
 #include "ThreadManager.h"
 #include "WindowManager.h"
 
@@ -34,6 +35,9 @@ int32 Engine::Init() noexcept
 	error = CreateManager(thread);
 	if (error) return error;
 
+	error = CreateManager(input);
+	if (error) return error;
+
 	error = CreateManager(scene);
 	if (error) return error;
 
@@ -51,6 +55,10 @@ int32 Engine::Run() noexcept
 
 		if (!window->Update(deltaTime))
 			isEnd = true;
+
+		if (!input->Update(deltaTime))
+			isEnd = true;
+
 	}
 
 	return 0;
@@ -59,6 +67,7 @@ int32 Engine::Run() noexcept
 void Engine::Release() noexcept
 {
 	RemoveManager(scene);
+	RemoveManager(input);
 	RemoveManager(thread);
 	RemoveManager(window);
 }

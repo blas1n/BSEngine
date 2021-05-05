@@ -3,8 +3,11 @@
 #include <utility>
 #include "DelegateInst.h"
 
+template <class T>
+class Delegate;
+
 template <class R, class... Args>
-class Delegate final
+class Delegate<R(Args...)> final
 {
 public:
 	Delegate() noexcept : storage{ nullptr, nullptr } {}
@@ -80,11 +83,6 @@ public:
 		return IsBound() ? GetInst()->Execute(args...) : R();
 	}
 
-	R operator()(Args&&... args)
-	{
-		return IsBound() ? GetInst()->Execute(std::move(args)...) : R();
-	}
-
 	void Clear() noexcept
 	{
 		if (const auto inst = GetInst())
@@ -137,8 +135,8 @@ private:
 	void* storage[2];
 };
 
-template <class R, class... Args>
-[[nodiscard]] bool operator!=(const Delegate<R, Args...>& lhs, const Delegate<R, Args...>& rhs)
+template <class T>
+[[nodiscard]] bool operator!=(const Delegate<T>& lhs, const Delegate<T>& rhs)
 {
 	return !(lhs == rhs);
 }

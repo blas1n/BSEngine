@@ -3,8 +3,11 @@
 #include <vector>
 #include "Delegate.h"
 
+template <class T>
+class Event;
+
 template <class R, class... Args>
-class Event final
+class Event<R(Args...)> final
 {
 public:
 	Event() noexcept = default;
@@ -18,19 +21,19 @@ public:
 
 	~Event() = default;
 
-	Event& operator+=(const Delegate<R, Args...>& fn)
+	Event& operator+=(const Delegate<R(Args...)>& fn)
 	{
 		funcs.emplace_back(fn);
 		return *this;
 	}
 
-	Event& operator+=(Delegate<R, Args...>&& fn)
+	Event& operator+=(Delegate<R(Args...)>&& fn)
 	{
 		funcs.emplace_back(std::move(fn));
 		return *this;
 	}
 
-	Event& operator-=(const Delegate<R, Args...>& fn)
+	Event& operator-=(const Delegate<R(Args...)>& fn)
 	{
 		funcs.erase(std::find(funcs.cbegin(), funcs.cend(), fn));
 		return *this;
@@ -103,11 +106,11 @@ private:
 	}
 
 private:
-	std::vector<Delegate<R, Args...>> funcs;
+	std::vector<Delegate<R(Args...)>> funcs;
 };
 
-template <class R, class... Args>
-[[nodiscard]] bool operator==(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
+template <class T>
+[[nodiscard]] bool operator==(const Event<T>& lhs, const Event<T>& rhs)
 {
 	const size_t size = lhs.Size();
 	if (size != rhs.Size())
@@ -120,8 +123,8 @@ template <class R, class... Args>
 	return true;
 }
 
-template <class R, class... Args>
-[[nodiscard]] bool operator!=(const Event<R, Args...>& lhs, const Event<R, Args...>& rhs)
+template <class T>
+[[nodiscard]] bool operator!=(const Event<T>& lhs, const Event<T>& rhs)
 {
 	return !(lhs == rhs);
 }

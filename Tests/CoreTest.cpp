@@ -33,7 +33,7 @@ TEST(CoreTest, DelegateTest)
 	};
 
 	Foo foo;
-	Delegate<bool, int32, int32> delegate;
+	Delegate<bool(int32, int32)> delegate;
 
 	delegate = &TestA;
 	EXPECT_TRUE(delegate(1, 1));
@@ -53,10 +53,10 @@ static bool ReturnTrue(int32 lhs, int32 rhs)
 TEST(CoreTest, EventTest)
 {
 	Foo foo;
-	Event<bool, int32, int32> event;
+	Event<bool(int32, int32)> event;
 
 	event += &TestA;
-	event += { &foo, & Foo::Boo };
+	event += { &foo, &Foo::Boo };
 	event += [](int32 lhs, int32 rhs)
 	{
 		return lhs == rhs;

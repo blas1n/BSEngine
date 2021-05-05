@@ -12,8 +12,7 @@ namespace Impl
 	public:
 		virtual ~DelegateInstBase() = default;
 
-		virtual R Execute(const Args&...) = 0;
-		virtual R Execute(Args&&...) = 0;
+		virtual R Execute(const Args&... args) = 0;
 
 		virtual void CopyTo(void* storage[2]) const = 0;
 		virtual void MoveTo(void* storage[2]) = 0;
@@ -48,11 +47,6 @@ namespace Impl
 		R Execute(const Args&... args) override
 		{
 			return (*fn)(args...);
-		}
-
-		R Execute(Args&&... args) override
-		{
-			return (*fn)(std::move(args)...);
 		}
 
 		void CopyTo(void* storage[2]) const override
@@ -100,11 +94,6 @@ namespace Impl
 			return (inst->*fn)(args...);
 		}
 
-		R Execute(Args&&... args) override
-		{
-			return (inst->*fn)(std::move(args)...);
-		}
-
 		void CopyTo(void* storage[2]) const override
 		{
 			Create(storage, inst, fn);
@@ -150,11 +139,6 @@ namespace Impl
 		R Execute(const Args&... args) override
 		{
 			return (inst->*fn)(args...);
-		}
-
-		R Execute(Args&&... args) override
-		{
-			return (inst->*fn)(std::move(args)...);
 		}
 
 		void CopyTo(void* storage[2]) const override
@@ -205,11 +189,6 @@ namespace Impl
 		R Execute(const Args&... args) override
 		{
 			return fn(args...);
-		}
-
-		R Execute(Args&&... args) override
-		{
-			return fn(std::move(args)...);
 		}
 
 		void CopyTo(void* storage[2]) const override

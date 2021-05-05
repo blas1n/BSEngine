@@ -83,11 +83,6 @@ public:
 		return IsBound() ? GetInst()->Execute(args...) : R();
 	}
 
-	R operator()(Args&&... args)
-	{
-		return IsBound() ? GetInst()->Execute(std::move(args)...) : R();
-	}
-
 	void Clear() noexcept
 	{
 		if (const auto inst = GetInst())

@@ -1,5 +1,7 @@
 #include "Engine.h"
 #include "Accessor.h"
+#include "SceneManager.h"
+#include "ThreadManager.h"
 #include "WindowManager.h"
 
 namespace
@@ -29,6 +31,12 @@ int32 Engine::Init() noexcept
 	int32 error = CreateManager(window);
 	if (error) return error;
 
+	error = CreateManager(thread);
+	if (error) return error;
+
+	error = CreateManager(scene);
+	if (error) return error;
+
 	timer.Reset();
 	return 0;
 }
@@ -50,5 +58,7 @@ int32 Engine::Run() noexcept
 
 void Engine::Release() noexcept
 {
+	RemoveManager(scene);
+	RemoveManager(thread);
 	RemoveManager(window);
 }

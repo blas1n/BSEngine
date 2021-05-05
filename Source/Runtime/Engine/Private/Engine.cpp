@@ -59,6 +59,8 @@ int32 Engine::Run() noexcept
 		if (!input->Update(deltaTime))
 			isEnd = true;
 
+		if (!scene->Update(deltaTime))
+			isEnd = true;
 	}
 
 	return 0;

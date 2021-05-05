@@ -2,4 +2,4 @@
 
 register_library ()
 
-target_link_libraries (Input PUBLIC Framework)
+target_link_libraries (Input PUBLIC Framework PRIVATE Window)

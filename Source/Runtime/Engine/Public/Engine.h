@@ -25,4 +25,6 @@ private:
 	Timer timer;
 
 	class WindowManager* window;
+	class ThreadManager* thread;
+	class SceneManager* scene;
 };

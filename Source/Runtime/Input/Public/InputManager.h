@@ -11,10 +11,8 @@ public:
 	[[nodiscard]] bool Update(float deltaTime) noexcept override;
 	void Release() noexcept override;
 
-	bool IsPressed(uint8 key) const noexcept { return keyStates[isFrontState][key]; }
-	bool IsReleased(uint8 key) const noexcept { return !keyStates[isFrontState][key]; }
-	bool IsPress(uint8 key) const noexcept { return keyStates[isFrontState][key] && !keyStates[!isFrontState][key]; }
-	bool IsRelease(uint8 key) const noexcept { return !keyStates[isFrontState][key] && keyStates[!isFrontState][key]; }
+	bool IsPressed(uint8 key) const noexcept { return keyState[key]; }
+	bool IsReleased(uint8 key) const noexcept { return !keyState[key]; }
 
 	const IntVector2& GetMousePos() const noexcept { return mousePos; }
 
@@ -25,8 +23,6 @@ private:
 private:
 	struct InputImpl* impl;
 
-	uint8 keyStates[2][256];
+	uint8 keyState[256];
 	IntVector2 mousePos;
-
-	uint8 isFrontState : 1;
 };

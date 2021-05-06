@@ -5,7 +5,7 @@
 
 class Entity;
 
-class ENGINE_API Component
+class FRAMEWORK_API Component
 {
 public:
     Component(Entity* inEntity) : entity(inEntity) {}
@@ -35,8 +35,8 @@ namespace Impl
         return new T{ entity };
     }
 
-    Component* CreateComponent(Name name, Entity* entity);
-    void RegisterComponent(Name name, Component*(*ptr)(Entity*));
+    FRAMEWORK_API Component* CreateComponent(Name name, Entity* entity);
+    FRAMEWORK_API void RegisterComponent(Name name, Component*(*ptr)(Entity*));
 }
 
 #define REGISTER_COMPONENT(Class)                                                   \

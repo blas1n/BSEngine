@@ -57,8 +57,6 @@ bool InputManager::Init() noexcept
 
 bool InputManager::Update(float deltaTime) noexcept
 {
-	isFrontState = !isFrontState;
-
 	bool result = ReadKeyboard();
 	if(!result) return false;
 	
@@ -96,7 +94,7 @@ void InputManager::Release() noexcept
 bool InputManager::ReadKeyboard()
 {
 	const HRESULT result = impl->keyboard->GetDeviceState(
-		sizeof(keyStates[0]), reinterpret_cast<LPVOID>(&keyStates[isFrontState]));
+		sizeof(keyState), reinterpret_cast<LPVOID>(&keyState));
 	
 	if (FAILED(result))
 	{

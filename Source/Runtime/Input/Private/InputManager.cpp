@@ -10,7 +10,7 @@ struct InputImpl final
 	IDirectInput8* directInput;
 	IDirectInputDevice8* keyboard;
 	IDirectInputDevice8* mouse;
-	DIMOUSESTATE mouseState;
+	DIMOUSESTATE2 mouseState;
 };
 
 bool InputManager::Init() noexcept
@@ -43,7 +43,7 @@ bool InputManager::Init() noexcept
 	result = impl->directInput->CreateDevice(GUID_SysMouse, &impl->mouse, nullptr);
 	if (FAILED(result)) return false;
 
-	result = impl->mouse->SetDataFormat(&c_dfDIMouse);
+	result = impl->mouse->SetDataFormat(&c_dfDIMouse2);
 	if (FAILED(result)) return false;
 
 	result = impl->mouse->SetCooperativeLevel(hWnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
@@ -110,7 +110,7 @@ bool InputManager::ReadKeyboard()
 bool InputManager::ReadMouse()
 {
 	const HRESULT result = impl->mouse->GetDeviceState(
-		sizeof(DIMOUSESTATE), reinterpret_cast<LPVOID>(&impl->mouseState));
+		sizeof(DIMOUSESTATE2), reinterpret_cast<LPVOID>(&impl->mouseState));
 	
 	if (FAILED(result))
 	{

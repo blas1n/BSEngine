@@ -6,8 +6,8 @@
 
 void Impl::LogToFail(bool isCritical, const Char* expr, const Char* file, BSBase::int32 line, const String& msg) noexcept
 {
-	static Logger assertLogger{ Name{ STR("Assert") } };
-	static Logger ensureLogger{ Name{ STR("Ensure") } };
+	static Logger assertLogger{ ReservedName::Assert };
+	static Logger ensureLogger{ ReservedName::Ensure };
 	static bool bInit = false;
 
 	if (!bInit)

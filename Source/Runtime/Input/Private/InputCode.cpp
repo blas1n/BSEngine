@@ -30,10 +30,10 @@ Name FromMouseAxis(MouseAxis axis) noexcept
 {
 	constexpr static ReservedName names[]
 	{
-		ReservedName::X, ReservedName::Y
+		ReservedName::X, ReservedName::Y, ReservedName::Wheel
 	};
 
-	if (static_cast<uint8>(axis) > static_cast<uint8>(MouseAxis::Y))
+	if (static_cast<uint8>(axis) > static_cast<uint8>(MouseAxis::Wheel))
 		return ReservedName::None;
 
 	return names[static_cast<uint8>(axis)];
@@ -99,6 +99,8 @@ std::optional<MouseAxis> ToMouseAxis(Name name) noexcept
 		return MouseAxis::X;
 	if (name == ReservedName::Y)
 		return MouseAxis::Y;
+	if (name == ReservedName::Wheel)
+		return MouseAxis::Wheel;
 
 	return std::nullopt;
 }

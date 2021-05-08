@@ -131,7 +131,7 @@ enum class KeyCode : BSBase::uint8
 	Sleep
 };
 
-enum class MouseCode : BSBase::uint8 { L, R, M, X1, X2, X3, X4 };
+enum class MouseCode : uint8 { L, R, M, X1, X2, X3, X4, X5 };
 enum class MouseAxis : BSBase::uint8 { X, Y };
 
 NO_ODR Name FromKeyCode(KeyCode code) noexcept

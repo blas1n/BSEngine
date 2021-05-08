@@ -60,5 +60,5 @@ private:
 
 	uint8 keyState[256];
 	uint8 mouseState[8];
-	IntVector2 mousePos;
+	IntVector3 mouseAxis;
 };

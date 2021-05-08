@@ -120,11 +120,7 @@ bool InputManager::ReadMouse()
 			return false;
 	}
 
-	mousePos = IntVector2{ impl->mouseState.lX, impl->mouseState.lY };
+	mouseAxis = IntVector3{ impl->mouseState.lX, impl->mouseState.lY, -impl->mouseState.lZ };
 	memcpy(mouseState, impl->mouseState.rgbButtons, 8);
-	
-	const IntVector2 windowSize = Accessor<WindowManager>::GetManager()->GetSize();
-	mousePos = Clamp(mousePos, IntVector2::Zero, windowSize);
-
 	return true;
 }

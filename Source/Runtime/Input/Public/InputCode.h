@@ -1,10 +1,13 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 #include "BSBase/Type.h"
 #include "Name.h"
 
-enum class KeyCode : BSBase::uint8
+using BSBase::uint8;
+
+enum class KeyCode : uint8
 {
 	Escape = 1,
 	One,
@@ -132,7 +135,39 @@ enum class KeyCode : BSBase::uint8
 };
 
 enum class MouseCode : uint8 { L, R, M, X1, X2, X3, X4, X5 };
-enum class MouseAxis : BSBase::uint8 { X, Y };
+enum class MouseAxis : uint8 { X, Y };
+
+enum class KeyMode : uint8
+{
+	None	= 0x00,
+	Shift	= 0x01,
+	Ctrl	= 0x02,
+	Alt		= 0x04,
+	Gui		= 0x08,
+	Num		= 0x10,
+	Caps	= 0x20,
+	Mode	= 0x40
+};
+
+constexpr KeyMode operator&(KeyMode a, KeyMode b) noexcept
+{
+	return static_cast<KeyMode>(static_cast<int>(a) & static_cast<int>(b));
+}
+
+constexpr KeyMode operator|(KeyMode a, KeyMode b) noexcept
+{
+	return static_cast<KeyMode>(static_cast<int>(a) | static_cast<int>(b));
+}
+
+constexpr KeyMode& operator&=(KeyMode& lhs, KeyMode rhs) noexcept
+{
+	return lhs = lhs & rhs;
+}
+
+constexpr KeyMode& operator|=(KeyMode& lhs, KeyMode rhs) noexcept
+{
+	return lhs = lhs | rhs;
+}
 
 NO_ODR Name FromKeyCode(KeyCode code) noexcept
 {
@@ -140,9 +175,11 @@ NO_ODR Name FromKeyCode(KeyCode code) noexcept
 		(ReservedName::Escape) + static_cast<BSBase::int8>(code) - 1);
 }
 
+INPUT_API std::vector<Name> FromKeyMode(KeyMode mode) noexcept;
 INPUT_API Name FromMouseCode(MouseCode code) noexcept;
 INPUT_API Name FromMouseAxis(MouseAxis axis) noexcept;
 
 INPUT_API std::optional<KeyCode> ToKeyCode(Name name) noexcept;
+INPUT_API std::optional<KeyMode> ToKeyMode(Name name) noexcept;
 INPUT_API std::optional<MouseCode> ToMouseCode(Name name) noexcept;
 INPUT_API std::optional<MouseAxis> ToMouseAxis(Name name) noexcept;

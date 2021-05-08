@@ -1,5 +1,16 @@
 #include "InputCode.h"
 
+std::vector<Name> FromKeyMode(KeyMode mode) noexcept
+{
+	std::vector<Name> ret;
+
+	for (uint8 i = 0; i < 8; ++i)
+		if ((mode & static_cast<KeyMode>(1 << i)) != KeyMode::None)
+			ret.push_back(static_cast<ReservedName>(static_cast<BSBase::uint32>(ReservedName::Shift) + i));
+
+	return ret;
+}
+
 Name FromMouseCode(MouseCode code) noexcept
 {
 	switch (code)
@@ -44,6 +55,27 @@ std::optional<KeyCode> ToKeyCode(Name name) noexcept
 	for (BSBase::uint32 i = Begin; i <= End; ++i)
 		if (name == static_cast<ReservedName>(i))
 			return static_cast<KeyCode>(i - Begin + 1);
+
+	return std::nullopt;
+}
+
+std::optional<KeyMode> ToKeyMode(Name name) noexcept
+{
+	static std::unordered_map<Name, KeyMode, BSMath::Hash<Name>> modes
+	{
+		std::make_pair(Name{ ReservedName::None }, KeyMode::None),
+		std::make_pair(Name{ ReservedName::Shift }, KeyMode::Shift),
+		std::make_pair(Name{ ReservedName::Ctrl }, KeyMode::Ctrl),
+		std::make_pair(Name{ ReservedName::Alt }, KeyMode::Alt),
+		std::make_pair(Name{ ReservedName::Gui }, KeyMode::Gui),
+		std::make_pair(Name{ ReservedName::Num }, KeyMode::Num),
+		std::make_pair(Name{ ReservedName::Caps }, KeyMode::Caps),
+		std::make_pair(Name{ ReservedName::Mode }, KeyMode::Mode)
+	};
+	
+	const auto iter = modes.find(name);
+	if (iter != modes.cend())
+		return iter->second;
 
 	return std::nullopt;
 }

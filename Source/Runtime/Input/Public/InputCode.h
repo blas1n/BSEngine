@@ -135,7 +135,7 @@ enum class KeyCode : uint8
 };
 
 enum class MouseCode : uint8 { L, R, M, X1, X2, X3, X4, X5 };
-enum class MouseAxis : uint8 { X, Y };
+enum class MouseAxis : uint8 { X, Y, Wheel };
 
 enum class KeyMode : uint8
 {

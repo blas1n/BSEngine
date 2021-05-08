@@ -1,4 +1,5 @@
 #include "InputCode.h"
+#include <unordered_map>
 
 std::vector<Name> FromKeyMode(KeyMode mode) noexcept
 {
@@ -13,38 +14,29 @@ std::vector<Name> FromKeyMode(KeyMode mode) noexcept
 
 Name FromMouseCode(MouseCode code) noexcept
 {
-	switch (code)
+	constexpr static ReservedName names[]
 	{
-	case MouseCode::L:
-		return ReservedName::L;
-	case MouseCode::R:
-		return ReservedName::R;
-	case MouseCode::M:
-		return ReservedName::M;
-	case MouseCode::X1:
-		return ReservedName::X1;
-	case MouseCode::X2:
-		return ReservedName::X2;
-	case MouseCode::X3:
-		return ReservedName::X3;
-	case MouseCode::X4:
-		return ReservedName::X4;
-	default:
+		ReservedName::L, ReservedName::R, ReservedName::M, ReservedName::X1,
+		ReservedName::X2, ReservedName::X3, ReservedName::X4, ReservedName::X5
+	};
+
+	if (static_cast<uint8>(code) > static_cast<uint8>(MouseCode::X5))
 		return ReservedName::None;
-	}
+	
+	return names[static_cast<uint8>(code)];
 }
 
 Name FromMouseAxis(MouseAxis axis) noexcept
 {
-	switch (axis)
+	constexpr static ReservedName names[]
 	{
-	case MouseAxis::X:
-		return ReservedName::X;
-	case MouseAxis::Y:
-		return ReservedName::Y;
-	default:
+		ReservedName::X, ReservedName::Y
+	};
+
+	if (static_cast<uint8>(axis) > static_cast<uint8>(MouseAxis::Y))
 		return ReservedName::None;
-	}
+
+	return names[static_cast<uint8>(axis)];
 }
 
 std::optional<KeyCode> ToKeyCode(Name name) noexcept
@@ -82,20 +74,21 @@ std::optional<KeyMode> ToKeyMode(Name name) noexcept
 
 std::optional<MouseCode> ToMouseCode(Name name) noexcept
 {
-	if (name == ReservedName::L)
-		return MouseCode::L;
-	if (name == ReservedName::R)
-		return MouseCode::R;
-	if (name == ReservedName::M)
-		return MouseCode::M;
-	if (name == ReservedName::X1)
-		return MouseCode::X1;
-	if (name == ReservedName::X2)
-		return MouseCode::X2;
-	if (name == ReservedName::X3)
-		return MouseCode::X3;
-	if (name == ReservedName::X4)
-		return MouseCode::X4;
+	static std::unordered_map<Name, MouseCode, BSMath::Hash<Name>> codes
+	{
+		std::make_pair(Name{ ReservedName::L }, MouseCode::L),
+		std::make_pair(Name{ ReservedName::R }, MouseCode::R),
+		std::make_pair(Name{ ReservedName::M }, MouseCode::M),
+		std::make_pair(Name{ ReservedName::X1 }, MouseCode::X1),
+		std::make_pair(Name{ ReservedName::X2 }, MouseCode::X2),
+		std::make_pair(Name{ ReservedName::X3 }, MouseCode::X3),
+		std::make_pair(Name{ ReservedName::X4 }, MouseCode::X4),
+		std::make_pair(Name{ ReservedName::X5 }, MouseCode::X5)
+	};
+
+	const auto iter = codes.find(name);
+	if (iter != codes.cend())
+		return iter->second;
 
 	return std::nullopt;
 }

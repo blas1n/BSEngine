@@ -6,15 +6,6 @@
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-template <class... Ts>
-struct Overload : Ts...
-{
-	using Ts::operator()...;
-};
-
-template <class... Ts>
-Overload(Ts ...)->Overload<Ts...>;
-
 struct InputImpl final
 {
 	IDirectInput8* directInput;
@@ -22,6 +13,121 @@ struct InputImpl final
 	IDirectInputDevice8* mouse;
 	DIMOUSESTATE2 mouseState;
 };
+
+namespace
+{
+	template <class... Ts>
+	struct Overload : Ts...
+	{
+		using Ts::operator()...;
+	};
+
+	template <class... Ts>
+	Overload(Ts ...)->Overload<Ts...>;
+
+	String ToString(InputCode code)
+	{
+		const auto type = std::visit(
+			Overload{
+				[] (KeyCode) { return ReservedName::KeyCode; },
+				[] (MouseCode) { return ReservedName::MouseCode; },
+				[] (MouseAxis) { return ReservedName::MouseAxis; }
+			}, code);
+
+		Name str = std::visit(
+			Overload{
+				[] (KeyCode code) { return FromKeyCode(code); },
+				[] (MouseCode code) { return FromMouseCode(code); },
+				[] (MouseAxis axis) { return FromMouseAxis(axis); }
+			}, code);
+
+		return Name{ type }.ToString() + str.ToString();
+	}
+
+	std::optional<InputCode> FromString(String str)
+	{
+		const static std::unordered_map<Name, Delegate<std::optional<InputCode>(Name)>, Hash<Name>> parser
+		{
+			std::make_pair(ReservedName::KeyCode, ToKeyCode),
+			std::make_pair(ReservedName::MouseCode, ToMouseCode),
+			std::make_pair(ReservedName::MouseAxis, ToMouseAxis)
+		};
+
+		const auto del = str.find(STR('.'));
+		if (del == String::npos)
+			return std::nullopt;
+
+		const auto type = str.substr(0, del);
+		const auto code = str.substr(del + 1);
+
+		auto iter = parser.find(Name{ type.c_str() });
+		if (iter == parser.cend())
+			return std::nullopt;
+
+		return iter->second(Name{ code.c_str() });
+	}
+}
+
+Json InputAction::Serialize() const
+{
+	Json json = Json::object();
+	json["code"] = CastCharSet<char>(StringView{ ToString(code).c_str() });
+	Json modes = json["mode"] = Json::array();
+	
+	for (const auto mod : FromKeyMode(mode))
+		modes.emplace_back(CastCharSet<char>(StringView{ mod.ToString().c_str() }));
+
+	return json;
+}
+
+void InputAction::Deserialize(const Json& json)
+{
+	const auto str = json["code"].get<std::string>();
+	const auto codeValue = FromString(CastCharSet<Char>(std::string_view{ str.c_str() }));
+	if (codeValue)
+		code = codeValue.value();
+
+	mode = KeyMode::None;
+
+	for (const auto mod : json["mode"])
+	{
+		const auto modeAnsiStr = mod.get<std::string>();
+		const auto modeStr = CastCharSet<Char>(std::string_view{ modeAnsiStr.c_str() });
+		mode |= ToKeyMode(Name{ modeStr.c_str() }).value();
+	}
+}
+
+Json InputAxis::Serialize() const
+{
+	Json json = Json::object();
+	json["code"] = CastCharSet<char>(StringView{ ToString(code).c_str() });
+	json["scale"] = scale;
+	return json;
+}
+
+void InputAxis::Deserialize(const Json& json)
+{
+	const auto str = json["code"].get<std::string>();
+	const auto codeValue = FromString(CastCharSet<Char>(std::string_view{ str.c_str() }));
+	if (codeValue)
+		code = codeValue.value();
+
+	scale = json["scale"].get<float>();
+}
+
+Json AxisConfig::Serialize() const
+{
+	Json json = Json::object();
+	json["deadZone"] = deadZone;
+	json["sensitivity"] = sensitivity;
+	return json;
+}
+
+void AxisConfig::Deserialize(const Json& json)
+{
+	deadZone = json["deadZone"].get<float>();
+	sensitivity = json["sensitivity"].get<float>();
+}
 
 bool InputManager::Init() noexcept
 {

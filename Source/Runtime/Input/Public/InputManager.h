@@ -42,6 +42,12 @@ struct INPUT_API InputAxis final
 	float scale;
 };
 
+struct AxisConfig final
+{
+	float deadZone = 0.0f;
+	float sensitivity = 1.0f;
+};
+
 class INPUT_API InputManager : public Manager, private Accessor<class WindowManager>
 {
 public:

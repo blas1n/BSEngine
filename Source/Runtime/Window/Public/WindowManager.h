@@ -10,6 +10,11 @@ public:
 	[[nodiscard]] bool Update(float deltaTime) noexcept override;
 	void Release() noexcept override;
 
+	void* GetInstanceHandle() const noexcept { return hInstance; }
+	void* GetWindowHandle() const noexcept { return hWnd; }
+
+	const IntVector2& GetSize() const noexcept { return size; }
+
 private:
 	struct HINSTANCE__* hInstance = nullptr;
 	struct HWND__* hWnd = nullptr;

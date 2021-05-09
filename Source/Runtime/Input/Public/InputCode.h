@@ -143,10 +143,6 @@ enum class KeyMode : uint8
 	Shift	= 0x01,
 	Ctrl	= 0x02,
 	Alt		= 0x04,
-	Gui		= 0x08,
-	Num		= 0x10,
-	Caps	= 0x20,
-	Mode	= 0x40
 };
 
 constexpr KeyMode operator&(KeyMode a, KeyMode b) noexcept

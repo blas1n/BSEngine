@@ -19,7 +19,9 @@ struct INPUT_API InputAction final
 	constexpr InputAction(MouseAxis inAxis, KeyMode inMode = KeyMode::None) noexcept
 		: code(inAxis), mode(inMode) {}
 
-	explicit InputAction(const Json& json);
+
+	Json Serialize() const;
+	void Deserialize(const Json& json);
 
 	InputCode code;
 	KeyMode mode;
@@ -36,7 +38,8 @@ struct INPUT_API InputAxis final
 	constexpr InputAxis(MouseAxis inAxis, float inScale = 1.0f) noexcept
 		: code(inAxis), scale(inScale) {}
 
-	explicit InputAxis(const Json& json);
+	Json Serialize() const;
+	void Deserialize(const Json& json);
 
 	InputCode code;
 	float scale;
@@ -46,6 +49,9 @@ struct AxisConfig final
 {
 	float deadZone = 0.0f;
 	float sensitivity = 1.0f;
+
+	Json Serialize() const;
+	void Deserialize(const Json& json);
 };
 
 class INPUT_API InputManager : public Manager, private Accessor<class WindowManager>

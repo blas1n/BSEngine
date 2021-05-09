@@ -2,4 +2,4 @@
 
 register_library ()
 
-target_link_libraries (Engine PUBLIC Framework PRIVATE Thread Window)
+target_link_libraries (Engine PUBLIC Framework PRIVATE Input Thread Window)

@@ -145,6 +145,8 @@ enum class KeyMode : uint8
 	Alt		= 0x04,
 };
 
+constexpr static uint8 ModeNum = 3;
+
 constexpr KeyMode operator&(KeyMode a, KeyMode b) noexcept
 {
 	return static_cast<KeyMode>(static_cast<int>(a) & static_cast<int>(b));

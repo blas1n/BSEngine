@@ -58,11 +58,7 @@ std::optional<KeyMode> ToKeyMode(Name name) noexcept
 		std::make_pair(Name{ ReservedName::None }, KeyMode::None),
 		std::make_pair(Name{ ReservedName::Shift }, KeyMode::Shift),
 		std::make_pair(Name{ ReservedName::Ctrl }, KeyMode::Ctrl),
-		std::make_pair(Name{ ReservedName::Alt }, KeyMode::Alt),
-		std::make_pair(Name{ ReservedName::Gui }, KeyMode::Gui),
-		std::make_pair(Name{ ReservedName::Num }, KeyMode::Num),
-		std::make_pair(Name{ ReservedName::Caps }, KeyMode::Caps),
-		std::make_pair(Name{ ReservedName::Mode }, KeyMode::Mode)
+		std::make_pair(Name{ ReservedName::Alt }, KeyMode::Alt)
 	};
 	
 	const auto iter = modes.find(name);

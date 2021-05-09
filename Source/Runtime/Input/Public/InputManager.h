@@ -55,14 +55,30 @@ public:
 	[[nodiscard]] bool Update(float deltaTime) noexcept override;
 	void Release() noexcept override;
 
-	const IntVector2& GetMousePos() const noexcept { return mousePos; }
+	float GetAxisValue(Name name) const noexcept;
+	float GetAxisValue(InputAxis axis) const noexcept;
+	float GetAxisValue(MouseAxis axis) const noexcept;
+
+	bool GetValue(Name name) const noexcept;
+	bool GetValue(InputAction action) const noexcept;
+
+	bool GetValue(KeyCode code) const noexcept;
+	bool GetValue(MouseCode code) const noexcept;
 
 private:
-	bool ReadKeyboard();
-	bool ReadMouse();
+	bool ReadKeyboard() noexcept;
+	bool ReadMouse() noexcept;
+
+	float FilterValue(InputCode code, float value) const noexcept;
+	bool GetModeValue(KeyMode mode) const noexcept;
+	bool GetSimpleModeValue(uint8 mode) const noexcept;
 
 private:
 	struct InputImpl* impl;
+
+	std::unordered_map<Name, std::vector<InputAxis>, Hash<Name>> axises;
+	std::unordered_map<Name, std::vector<InputAction>, Hash<Name>> actions;
+	std::unordered_map<InputCode, AxisConfig> axisConfigs;
 
 	uint8 keyState[256];
 	uint8 mouseState[8];

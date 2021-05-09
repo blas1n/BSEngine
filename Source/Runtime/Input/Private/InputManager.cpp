@@ -1,9 +1,19 @@
 #include "InputManager.h"
 #include <dinput.h>
+#include "BSMath.h"
 #include "WindowManager.h"
 
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
+
+template <class... Ts>
+struct Overload : Ts...
+{
+	using Ts::operator()...;
+};
+
+template <class... Ts>
+Overload(Ts ...)->Overload<Ts...>;
 
 struct InputImpl final
 {
@@ -91,7 +101,78 @@ void InputManager::Release() noexcept
 	delete impl;
 }
 
-bool InputManager::ReadKeyboard()
+float InputManager::GetAxisValue(Name name) const noexcept
+{
+	const auto iter = axises.find(name);
+	if (iter != axises.cend()) return 0.0f;
+
+	float value = 0.0f;
+
+	for (auto axis : iter->second)
+		value += GetAxisValue(axis);
+
+	return value;
+}
+
+float InputManager::GetAxisValue(InputAxis axis) const noexcept
+{
+	const auto get = Overload{
+			[this] (KeyCode code) {	return GetValue(code) ? 1.0f : 0.0f; },
+			[this] (MouseCode code) { return GetValue(code) ? 1.0f : 0.0f; },
+			[this] (MouseAxis axis)	{ return GetAxisValue(axis); }
+	};
+
+	return std::visit(get, axis.code) * axis.scale;
+}
+
+float InputManager::GetAxisValue(MouseAxis axis) const noexcept
+{
+	if (static_cast<uint8>(axis) > static_cast<uint8>(MouseAxis::Wheel))
+		return 0.0f;
+
+	return FilterValue(axis, static_cast<float>(mouseAxis[static_cast<uint8>(axis)]));
+}
+
+bool InputManager::GetValue(Name name) const noexcept
+{
+	const auto iter = actions.find(name);
+	if (iter != actions.cend()) return false;
+
+	for (auto action : iter->second)
+		if (GetValue(action))
+			return true;
+
+	return false;
+}
+
+bool InputManager::GetValue(InputAction action) const noexcept
+{
+	const auto get = Overload{
+			[this](KeyCode code) { return GetValue(code); },
+			[this](MouseCode code) { return GetValue(code); },
+			[this](MouseAxis axis) { return GetAxisValue(axis) != 0.0f; }
+	};
+
+	return std::visit(get, action.code) && GetModeValue(action.mode);
+}
+
+bool InputManager::GetValue(KeyCode code) const noexcept
+{
+	if (static_cast<uint8>(code) > static_cast<uint8>(KeyCode::Sleep))
+		return false;
+
+	return keyState[static_cast<uint8>(code)] & 0x80;
+}
+
+bool InputManager::GetValue(MouseCode code) const noexcept
+{
+	if (static_cast<uint8>(code) > static_cast<uint8>(MouseCode::X5))
+		return false;
+
+	return mouseState[static_cast<uint8>(code)] & 0x80;
+}
+
+bool InputManager::ReadKeyboard() noexcept
 {
 	const HRESULT result = impl->keyboard->GetDeviceState(
 		sizeof(keyState), reinterpret_cast<LPVOID>(&keyState));
@@ -107,7 +188,7 @@ bool InputManager::ReadKeyboard()
 	return true;
 }
 
-bool InputManager::ReadMouse()
+bool InputManager::ReadMouse() noexcept
 {
 	const HRESULT result = impl->mouse->GetDeviceState(
 		sizeof(DIMOUSESTATE2), reinterpret_cast<LPVOID>(&impl->mouseState));
@@ -123,4 +204,49 @@ bool InputManager::ReadMouse()
 	mouseAxis = IntVector3{ impl->mouseState.lX, impl->mouseState.lY, -impl->mouseState.lZ };
 	memcpy(mouseState, impl->mouseState.rgbButtons, 8);
 	return true;
+}
+
+float InputManager::FilterValue(InputCode code, float value) const noexcept
+{
+	const auto config = axisConfigs.find(code);
+	
+	if (config != axisConfigs.cend())
+	{
+		const auto cfg = config->second;
+		
+		value = value >= 0.0f
+			? Max(0, Lerp(0.0f, 1.0f, GetRangePct(value, cfg.deadZone, 1.0f)))
+			: Min(0, Lerp(-1.0f, 0.0f, GetRangePct(value, -1.0f, cfg.deadZone)));
+
+		value *= cfg.sensitivity;
+	}
+
+	return value;
+}
+
+bool InputManager::GetModeValue(KeyMode mode) const noexcept
+{
+	bool ret = true;
+
+	for (uint8 i = 1; i <= ModeNum; ++i)
+		if (static_cast<uint8>(mode) & 1 << i)
+			ret = ret && GetSimpleModeValue(i - 1);
+
+	return ret;
+}
+
+bool InputManager::GetSimpleModeValue(uint8 mode) const noexcept
+{
+	const static std::vector<KeyCode> mapper[3]
+	{
+		{ KeyCode::LShift, KeyCode::RShift },
+		{ KeyCode::LControl, KeyCode::RControl },
+		{ KeyCode::LMenu, KeyCode::RMenu }
+	};
+
+	for (const auto code : mapper[mode])
+		if (GetValue(code))
+			return true;
+
+	return false;
 }

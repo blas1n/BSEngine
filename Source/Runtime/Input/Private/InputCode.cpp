@@ -5,7 +5,7 @@ std::vector<Name> FromKeyMode(KeyMode mode) noexcept
 {
 	std::vector<Name> ret;
 
-	for (uint8 i = 0; i < 8; ++i)
+	for (uint8 i = 1; i <= ModeNum; ++i)
 		if ((mode & static_cast<KeyMode>(1 << i)) != KeyMode::None)
 			ret.push_back(static_cast<ReservedName>(static_cast<BSBase::uint32>(ReservedName::Shift) + i));
 

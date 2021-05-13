@@ -63,6 +63,9 @@ TEST(CoreTest, EventTest)
 	};
 
 	event(1, 1);
+
+	event -= &TestA;
+
 	EXPECT_TRUE(event([](bool result, bool newResult)
 		{
 			return result && newResult;

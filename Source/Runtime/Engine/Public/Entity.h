@@ -64,9 +64,9 @@ public:
 		const auto iters = components.equal_range(GetComponentName(STR(__FUNCSIG__)));
 		const size_t size = std::distance(iters.first, iters.second);
 
-		std::vector<T*> ret(size);
+		std::vector<const T*> ret(size);
 		for (size_t i = 0; i < size; ++i)
-			ret[i] = reinterpret_cast<T*>(iters.first->second + i);
+			ret[i] = reinterpret_cast<const T*>(iters.first->second + i);
 		return ret;
 	}
 

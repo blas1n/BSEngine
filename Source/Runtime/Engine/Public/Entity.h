@@ -24,7 +24,7 @@ public:
 		static_assert(std::is_base_of_v<Component, T>);
 		
 		const Name name = GetComponentName(STR(__FUNC_SIG__));
-		const auto ret = CreateComponent<T>(name);
+		const auto ret = CreateComponent<T>(name, this);
 		components.insert(std::make_pair(name, ret));
 		return ret;
 	}

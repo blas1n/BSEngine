@@ -7,14 +7,18 @@
 
 namespace
 {
+	constexpr static int32 Success = 0;
+	constexpr static int32 FailCreate = 1;
+	constexpr static int32 FailInit = 2;
+
 	template <class T, class... Args>
 	int32 CreateManager(T*& manager, Args&&... args) noexcept
 	{
-		manager = new T{};
-		if (!manager) return 1;
+		manager = new T{ std::forward<Args>(args)... };
+		if (!manager) return FailCreate;
 
 		Accessor<T>::SetManager(manager);
-		return manager->Init(std::forward<Args>(args)...) ? 0 : 2;
+		return manager->Init() ? Success : FailInit;
 	}
 
 	template <class T>

@@ -66,6 +66,14 @@ namespace
 
 		return iter->second(Name{ code.c_str() });
 	}
+
+	void DeserializeCode(const Json& json, InputCode& code)
+	{
+		const auto str = json["code"].get<std::string>();
+		const auto codeValue = FromString(CastCharSet<Char>(std::string_view{ str.c_str() }));
+		if (codeValue)
+			code = codeValue.value();
+	}
 }
 
 Json InputAction::Serialize() const
@@ -82,11 +90,7 @@ Json InputAction::Serialize() const
 
 void InputAction::Deserialize(const Json& json)
 {
-	const auto str = json["code"].get<std::string>();
-	const auto codeValue = FromString(CastCharSet<Char>(std::string_view{ str.c_str() }));
-	if (codeValue)
-		code = codeValue.value();
-
+	DeserializeCode(json, code);
 	mode = KeyMode::None;
 
 	for (const auto mod : json["mode"])
@@ -107,11 +111,7 @@ Json InputAxis::Serialize() const
 
 void InputAxis::Deserialize(const Json& json)
 {
-	const auto str = json["code"].get<std::string>();
-	const auto codeValue = FromString(CastCharSet<Char>(std::string_view{ str.c_str() }));
-	if (codeValue)
-		code = codeValue.value();
-
+	DeserializeCode(json, code);
 	scale = json["scale"].get<float>();
 }
 

@@ -20,6 +20,10 @@ public:
 	bool Save(Name inName) const noexcept;
 	bool Save() const noexcept { return Save(name); }
 
+	Entity* AddEntity(const String& name);
+	Entity* AddEntity(const String& name, Entity* prefab);
+	Entity* AddEntity(const String& name, uint32 id) { return AddEntity(name, GetEntity(id)); }
+
 	Entity* GetEntity(uint32 id) noexcept
 	{
 		return const_cast<Entity*>(static_cast<const Scene*>(this)->GetEntity(id));

@@ -43,6 +43,22 @@ bool Scene::Save(Name inName) const noexcept
 	return true;
 }
 
+Entity* Scene::AddEntity(const String& name)
+{
+	const uint32 id = entities.back().GetId() + 1;
+	const auto entity = &entities.emplace_back(this, id);
+	entity->SetName(name);
+	return entity;
+}
+
+Entity* Scene::AddEntity(const String& name, Entity* prefab)
+{
+	const uint32 id = entities.back().GetId() + 1;
+	const auto entity = &entities.emplace_back(*prefab);
+	entity->SetName(name);
+	return entity;
+}
+
 const Entity* Scene::GetEntity(uint32 id) const noexcept
 {
 	const size_t size = entities.size();

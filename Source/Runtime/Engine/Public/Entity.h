@@ -47,7 +47,7 @@ public:
 	template <class T>
 	std::vector<T*> GetComponents()
 	{
-		const std::vector<const T*> vec = static_cast<const Entity*>(this)->GetComponent<T>();
+		const std::vector<const T*> vec = static_cast<const Entity*>(this)->GetComponents<T>();
 		const size_t size = vec.size();
 
 		std::vector<T*> ret(vec.size());

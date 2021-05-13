@@ -5,6 +5,12 @@
 #include <unordered_map>
 #include "Component.h"
 
+#if WINDOWS
+#	define FUNC_SIG __FUNCSIG__
+#else
+#	define FUNC_SIG __PRETTY_FUNCTION__
+#endif
+
 class ENGINE_API Entity final
 {
 public:
@@ -23,7 +29,7 @@ public:
 	{
 		static_assert(std::is_base_of_v<Component, T>);
 		
-		const Name name = GetComponentName(STR(__FUNC_SIG__));
+		const Name name = GetComponentName(STR(FUNC_SIG));
 		const auto ret = CreateComponent<T>(name, this);
 		components.insert(std::make_pair(name, ret));
 		return ret;
@@ -40,7 +46,7 @@ public:
 	{
 		static_assert(std::is_base_of_v<Component, T>);
 
-		const auto iter = components.find(GetComponentName(STR(__FUNCSIG__)));
+		const auto iter = components.find(GetComponentName(STR(FUNC_SIG)));
 		return iter != components.cend() ? reinterpret_cast<const T*>(iter->second) : nullptr;
 	}
 
@@ -61,7 +67,7 @@ public:
 	{
 		static_assert(std::is_base_of_v<Component, T>);
 
-		const auto iters = components.equal_range(GetComponentName(STR(__FUNCSIG__)));
+		const auto iters = components.equal_range(GetComponentName(STR(FUNC_SIG)));
 		const size_t size = std::distance(iters.first, iters.second);
 
 		std::vector<const T*> ret(size);
@@ -95,3 +101,5 @@ private:
 	String name;
 	uint32 id;
 };
+
+#undef FUNC_SIG

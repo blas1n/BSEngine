@@ -5,28 +5,19 @@ REGISTER_COMPONENT(Transform)
 
 Matrix4 Transform::GetWorldMatrix()
 {
-	if (!isMatUpdated)
+	if (!isUpdated)
 	{
 		mat = Creator::Matrix::FromTRS(position, rotation, scale);
-		isMatUpdated = true;
+		isUpdated = true;
 	}
 
-	if (parent != Entity::IdNone && !parentTransform)
+	if (!parentName.empty() && !parent)
 		SetParentTransform();
 
-	const Matrix4 parentMat = parentTransform ?
-		parentTransform->GetWorldMatrix() : Matrix4::Identity;
+	const Matrix4 parentMat = parent ?
+		parent->GetWorldMatrix() : Matrix4::Identity;
 
 	return parentMat * mat;
-}
-
-void Transform::SetParent(uint32 inParent)
-{
-	if (parent == inParent)
-		return;
-
-	parent = inParent;
-	SetParentTransform();
 }
 
 Json Transform::Serialize() const
@@ -37,8 +28,8 @@ Json Transform::Serialize() const
 	json["rotation"] = { rotation.roll, rotation.pitch, rotation.yaw };
 	json["scale"] = { scale.x, scale.y, scale.z };
 
-	if (parent != Entity::IdNone)
-		json["parent"] = parent;
+	if (parent)
+		json["parent"] = parent->GetEntity()->GetName();
 
 	return json;
 }
@@ -55,19 +46,10 @@ void Transform::Deserialize(const Json& json)
 	SetScale(Vector3{ inScale.data() });
 
 	if (json.contains("parent"))
-		SetParent(json["parent"].get<uint32>());
+		parentName = json["parent"].get<uint32>();
 }
 
 void Transform::SetParentTransform()
 {
-	if (parent == Entity::IdNone)
-	{
-		parentTransform = nullptr;
-		return;
-	}
-
-	if (const auto entity = GetEntity()->GetScene()->GetEntity(parent))
-		parentTransform = entity->GetComponent<Transform>();
-	else
-		parentTransform = nullptr;
+	//Todo: link parent
 }

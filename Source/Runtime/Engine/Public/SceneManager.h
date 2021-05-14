@@ -19,8 +19,8 @@ public:
 	void RegisterUpdate(const Delegate<void(float)>& callback);
 	void RegisterUpdate(Delegate<void(float)>&& callback);
 
-	Scene& GetScene() noexcept { return scenes[isFrontScene]; }
-	const Scene& GetScene() const noexcept { return scenes[isFrontScene]; }
+	[[nodiscard]] Scene& GetScene() noexcept { return scenes[isFrontScene]; }
+	[[nodiscard]] const Scene& GetScene() const noexcept { return scenes[isFrontScene]; }
 
 	void Exit() noexcept { isEnd = true; }
 

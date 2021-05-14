@@ -14,13 +14,35 @@
 class ENGINE_API Entity final
 {
 public:
-	Entity(class Scene* inScene, uint32 inId) : scene(inScene), id(inId) {}
+	Entity() : components(), name() {}
 
-	Entity(const Entity&) = default;
-	Entity(Entity&&) noexcept = default;
+	Entity(const Entity& other)
+		: components(other.components)
+		, name(other.name)
+	{
+		// Todo: Create name appender
+	}
 
-	Entity& operator=(Entity&) = default;
-	Entity& operator=(Entity&&) noexcept = default;
+	Entity(Entity&& other) noexcept
+		: components(std::move(other.components))
+		, name(std::move(other.name))
+	{
+		// Todo: Create name appender
+		other.components.clear();
+	}
+
+	Entity& operator=(const Entity& other)
+	{
+		components = other.components;
+		return *this;
+	}
+
+	Entity& operator=(Entity&& other) noexcept
+	{
+		components = std::move(other.components);
+		other.components.clear();
+		return *this;
+	}
 
 	~Entity();
 
@@ -36,70 +58,56 @@ public:
 	}
 
 	template <class T>
-	T* GetComponent()
+	[[nodiscard]] T* GetComponent()
 	{
 		return const_cast<T*>(static_cast<const Entity*>(this)->GetComponent<T>());
 	}
 
 	template <class T>
-	const T* GetComponent() const
+	[[nodiscard]] const T* GetComponent() const
+	{
+		const auto& comps = GetComponents<T>();
+		return comps.empty() ? nullptr : comps[0];
+	}
+
+	template <class T>
+	[[nodiscard]] std::vector<T*> GetComponents()
+	{
+		return reinterpret_cast<const std::vector<T*>&>
+			(const_cast<const Entity*>(this)->GetComponents<T>());
+	}
+
+	template <class T>
+	[[nodiscard]] std::vector<const T*> GetComponents() const
 	{
 		static_assert(std::is_base_of_v<Component, T>);
 
 		const auto iter = components.find(GetComponentName(STR(FUNC_SIG)));
-		return iter != components.cend() ? reinterpret_cast<const T*>(iter->second) : nullptr;
-	}
-
-	template <class T>
-	std::vector<T*> GetComponents()
-	{
-		const std::vector<const T*> vec = static_cast<const Entity*>(this)->GetComponents<T>();
-		const size_t size = vec.size();
-
-		std::vector<T*> ret(vec.size());
+		if (iter == components.cend())
+			return std::vector<const T*>{};
+		
+		const auto& comps = iter->second;
+		const size_t size = comps.size();
+		std::vector<const T*> ret(size, nullptr);
+			
 		for (size_t i = 0; i < size; ++i)
-			ret[i] = const_cast<T*>(vec[i]);
+			ret[i] = reinterpret_cast<const T*>(comps[i]);
+
 		return ret;
 	}
 
-	template <class T>
-	std::vector<const T*> GetComponents() const
-	{
-		static_assert(std::is_base_of_v<Component, T>);
-
-		const auto iters = components.equal_range(GetComponentName(STR(FUNC_SIG)));
-		const size_t size = std::distance(iters.first, iters.second);
-
-		std::vector<const T*> ret(size);
-		for (size_t i = 0; i < size; ++i)
-			ret[i] = reinterpret_cast<const T*>(iters.first->second + i);
-		return ret;
-	}
-
-	Json Serialize() const;
+	[[nodiscard]] Json Serialize() const;
 	void Deserialize(const Json& json);
 
-	Scene* GetScene() noexcept { return scene; }
-	const Scene* GetScene() const noexcept { return scene; }
-
-	void SetName(StringView inName) noexcept { name = inName; }
-	const String& GetName() const noexcept { return name; }
-
-	uint32 GetId() const noexcept { return id; }
+	[[nodiscard]] const String& GetName() const noexcept { return name; }
+	void SetName(StringView inName) noexcept { name = std::move(inName); }
 
 private:
-	static Name GetComponentName(StringView functionName);
-
-public:
-	constexpr static uint32 IdNone = static_cast<uint32>(-1);
+	[[nodiscard]] static Name GetComponentName(StringView functionName);
 
 private:
-	std::unordered_multimap<Name, Component*, Hash<Name>> components;
-
-	Scene* scene;
-
+	std::unordered_map<Name, std::vector<Component*>, Hash<Name>> components;
 	String name;
-	uint32 id;
 };
 
 #undef FUNC_SIG

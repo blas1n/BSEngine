@@ -39,7 +39,7 @@ bool WindowManager::Init() noexcept
     wc.hInstance = hInstance;
     wc.hIcon = wc.hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
     wc.hCursor = nullptr;
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)); // Temp background
+    wc.hbrBackground = nullptr;
     wc.lpszMenuName = nullptr;
     wc.lpszClassName = ClassName;
     wc.cbSize = sizeof(WNDCLASSEX);

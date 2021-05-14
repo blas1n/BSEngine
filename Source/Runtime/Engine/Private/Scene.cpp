@@ -14,13 +14,16 @@ bool Scene::Load(Name inName) noexcept
 	Json json;
 	stream >> json;
 
-	const auto jsonStr = json["name"].get<std::string>();
-	const Name jsonName = CastCharSet<Char>(std::string_view{ jsonStr.c_str() });
+	const auto jsonStr = json["name"].get<String>();
+	const Name jsonName{ jsonStr.c_str() };
 	if (Ensure(jsonName == name))
 		return false;
 
 	for (const auto& entity : json["entities"])
-		entities.emplace_back(this, entity["id"]).Deserialize(entity);
+	{
+		const auto name = entity["name"].get<String>();
+		entities[name].Deserialize(entity);
+	}
 
 	return true;
 }
@@ -31,12 +34,12 @@ bool Scene::Save(Name inName) const noexcept
 	path /= inName.ToString();
 	
 	Json json = Json::object();
+	json["name"] = inName.ToString();
 
-	json["name"] = CastCharSet<char>(StringView{ inName.ToString().c_str() });
-	Json entityJson = json["entities"] = Json::array();
+	Json& entityJson = json["entities"] = Json::array();
 
 	for (const auto& entity : entities)
-		entityJson.push_back(entity.Serialize());
+		entityJson.push_back(entity.second.Serialize());
 
 	std::ofstream stream{ path.string() };
 	stream << json;
@@ -45,36 +48,24 @@ bool Scene::Save(Name inName) const noexcept
 
 Entity* Scene::AddEntity(const String& name)
 {
-	const uint32 id = entities.back().GetId() + 1;
-	const auto entity = &entities.emplace_back(this, id);
-	entity->SetName(name);
-	return entity;
+	return &entities.insert(std::make_pair(name, Entity{})).first->second;
 }
 
 Entity* Scene::AddEntity(const String& name, Entity* prefab)
 {
-	const uint32 id = entities.back().GetId() + 1;
-	const auto entity = &entities.emplace_back(*prefab);
-	entity->SetName(name);
-	return entity;
+	return &entities.insert(std::make_pair(name, Entity{ *prefab })).first->second;
 }
 
-const Entity* Scene::GetEntity(uint32 id) const noexcept
+bool Scene::RemoveEntity(Entity* entity)
 {
-	const size_t size = entities.size();
-	int32 curIdx = static_cast<int32>(Min(id, size - 1));
-	
-	while (curIdx >= 0 && curIdx < size)
+	for (auto iter = entities.cbegin(); iter != entities.cend(); ++iter)
 	{
-		const auto& entity = entities[curIdx];
-		if (id == entity.GetId())
-			return &entity;
-		
-		if (id > entity.GetId())
-			++curIdx;
-		else
-			--curIdx;
+		if (&iter->second == entity)
+		{
+			entities.erase(iter);
+			return true;
+		}
 	}
-	
-	return nullptr;
+
+	return false;
 }

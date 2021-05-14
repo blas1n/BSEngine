@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Entity.h"
-#include <vector>
+#include <unordered_map>
 
 class ENGINE_API Scene final
 {
@@ -22,18 +22,16 @@ public:
 
 	Entity* AddEntity(const String& name);
 	Entity* AddEntity(const String& name, Entity* prefab);
-	Entity* AddEntity(const String& name, uint32 id) { return AddEntity(name, GetEntity(id)); }
 
-	Entity* GetEntity(uint32 id) noexcept
-	{
-		return const_cast<Entity*>(static_cast<const Scene*>(this)->GetEntity(id));
-	}
+	bool RemoveEntity(Entity* entity);
+	bool RemoveEntity(const String& name) { return entities.erase(name); }
 
-	const Entity* GetEntity(uint32 id) const noexcept;
+	[[nodiscard]] Entity* GetEntity(const String& name) noexcept { return &entities.at(name); }
+	[[nodiscard]] const Entity* GetEntity(const String& name) const noexcept { return &entities.at(name); }
 	
-	Name GetName() const noexcept { return name; }
+	[[nodiscard]] Name GetName() const noexcept { return name; }
 
 private:
-	std::vector<Entity> entities;
+	std::unordered_map<String, Entity> entities;
 	Name name;
 };

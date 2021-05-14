@@ -1,7 +1,7 @@
 #pragma once
 
-#include "BSMath.h"
 #include "Manager.h"
+#include "BSMath.h"
 
 class WINDOW_API WindowManager final : public Manager
 {

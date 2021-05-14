@@ -100,7 +100,7 @@ public:
 	void Deserialize(const Json& json);
 
 	[[nodiscard]] const String& GetName() const noexcept { return name; }
-	void SetName(StringView inName) noexcept { name = std::move(inName); }
+	void SetName(StringView inName) noexcept;
 
 private:
 	[[nodiscard]] static Name GetComponentName(StringView functionName);

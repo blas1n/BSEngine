@@ -34,6 +34,12 @@ void Entity::Deserialize(const Json& json)
 	}
 }
 
+void Entity::SetName(StringView inName) noexcept
+{
+	name = std::move(inName);
+	//Todo: apply name in scene
+}
+
 Name Entity::GetComponentName(StringView functionName)
 {
 	const size_t begin = functionName.find(STR('<'));

@@ -11,18 +11,18 @@ public:
     Component(Entity* inEntity) : entity(inEntity) {}
     virtual ~Component() {};
 
-    virtual Json Serialize() const { return Json{}; }
+    [[nodiscard]] virtual Json Serialize() const { return Json{}; }
     virtual void Deserialize(const Json& json) {}
 
-    Entity* GetEntity() noexcept { return entity; }
-    const Entity* GetEntity() const noexcept { return entity; }
+    [[nodiscard]] Entity* GetEntity() noexcept { return entity; }
+    [[nodiscard]] const Entity* GetEntity() const noexcept { return entity; }
 
 private:
     Entity* entity;
 };
 
 template <class T = Component>
-T* CreateComponent(Name name, Entity* entity)
+[[nodiscard]] T* CreateComponent(Name name, Entity* entity)
 {
     return reinterpret_cast<T*>(Impl::CreateComponent(name, entity));
 }
@@ -30,12 +30,12 @@ T* CreateComponent(Name name, Entity* entity)
 namespace Impl
 {
     template <class T>
-    Component* Create(Entity* entity)
+    [[nodiscard]] Component* Create(Entity* entity)
     {
         return new T{ entity };
     }
 
-    FRAMEWORK_API Component* CreateComponent(Name name, Entity* entity);
+    [[nodiscard]] FRAMEWORK_API Component* CreateComponent(Name name, Entity* entity);
     FRAMEWORK_API void RegisterComponent(Name name, Component*(*ptr)(Entity*));
 }
 

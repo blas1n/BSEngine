@@ -8,7 +8,6 @@
 
 namespace
 {
-    WindowManager* self = nullptr;
     constexpr char* ClassName = "BSEngine";
 
     LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)

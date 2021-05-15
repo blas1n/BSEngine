@@ -1,14 +1,14 @@
 #pragma once
 
+#include "Accessor.h"
 #include "Component.h"
-#include "BSMath.h"
 #include <vector>
+#include "BSMath.h"
 
-class ENGINE_API Transform final : public Component
+class ENGINE_API Transform final : public Component, public Accessor<class SceneManager>
 {
 public:
-	using Super = Component;
-	using Super::Super;
+	using Component::Component;
 
 	[[nodiscard]] Matrix4 GetWorldMatrix();
 

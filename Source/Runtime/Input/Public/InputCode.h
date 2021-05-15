@@ -147,12 +147,12 @@ enum class KeyMode : uint8
 
 constexpr static uint8 ModeNum = 3;
 
-constexpr KeyMode operator&(KeyMode a, KeyMode b) noexcept
+[[nodiscard]] constexpr KeyMode operator&(KeyMode a, KeyMode b) noexcept
 {
 	return static_cast<KeyMode>(static_cast<int>(a) & static_cast<int>(b));
 }
 
-constexpr KeyMode operator|(KeyMode a, KeyMode b) noexcept
+[[nodiscard]] constexpr KeyMode operator|(KeyMode a, KeyMode b) noexcept
 {
 	return static_cast<KeyMode>(static_cast<int>(a) | static_cast<int>(b));
 }
@@ -167,17 +167,17 @@ constexpr KeyMode& operator|=(KeyMode& lhs, KeyMode rhs) noexcept
 	return lhs = lhs | rhs;
 }
 
-NO_ODR Name FromKeyCode(KeyCode code) noexcept
+[[nodiscard]] NO_ODR Name FromKeyCode(KeyCode code) noexcept
 {
 	return static_cast<ReservedName>(static_cast<BSBase::int32>
 		(ReservedName::Escape) + static_cast<BSBase::int8>(code) - 1);
 }
 
-INPUT_API std::vector<Name> FromKeyMode(KeyMode mode) noexcept;
-INPUT_API Name FromMouseCode(MouseCode code) noexcept;
-INPUT_API Name FromMouseAxis(MouseAxis axis) noexcept;
+[[nodiscard]] INPUT_API std::vector<Name> FromKeyMode(KeyMode mode) noexcept;
+[[nodiscard]] INPUT_API Name FromMouseCode(MouseCode code) noexcept;
+[[nodiscard]] INPUT_API Name FromMouseAxis(MouseAxis axis) noexcept;
 
-INPUT_API std::optional<KeyCode> ToKeyCode(Name name) noexcept;
-INPUT_API std::optional<KeyMode> ToKeyMode(Name name) noexcept;
-INPUT_API std::optional<MouseCode> ToMouseCode(Name name) noexcept;
-INPUT_API std::optional<MouseAxis> ToMouseAxis(Name name) noexcept;
+[[nodiscard]] INPUT_API std::optional<KeyCode> ToKeyCode(Name name) noexcept;
+[[nodiscard]] INPUT_API std::optional<KeyMode> ToKeyMode(Name name) noexcept;
+[[nodiscard]] INPUT_API std::optional<MouseCode> ToMouseCode(Name name) noexcept;
+[[nodiscard]] INPUT_API std::optional<MouseAxis> ToMouseAxis(Name name) noexcept;

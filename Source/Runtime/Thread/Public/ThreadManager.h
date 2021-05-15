@@ -21,7 +21,7 @@ public:
 	template <class R, class... Args>
 	decltype(auto) AddTask(Delegate<R(Args...)>&& task, Args&&... args) noexcept;
 
-	bool IsMainThread() const noexcept { return mainThreadId == std::this_thread::get_id(); }
+	[[nodiscard]] bool IsMainThread() const noexcept { return mainThreadId == std::this_thread::get_id(); }
 
 private:
 	void ThreadWork() noexcept;

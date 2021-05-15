@@ -61,23 +61,23 @@ public:
 	[[nodiscard]] bool Update(float deltaTime) noexcept override;
 	void Release() noexcept override;
 
-	float GetAxisValue(Name name) const noexcept;
-	float GetAxisValue(InputAxis axis) const noexcept;
-	float GetAxisValue(MouseAxis axis) const noexcept;
+	[[nodiscard]] float GetAxisValue(Name name) const noexcept;
+	[[nodiscard]] float GetAxisValue(InputAxis axis) const noexcept;
+	[[nodiscard]] float GetAxisValue(MouseAxis axis) const noexcept;
 
-	bool GetValue(Name name) const noexcept;
-	bool GetValue(InputAction action) const noexcept;
+	[[nodiscard]] bool GetValue(Name name) const noexcept;
+	[[nodiscard]] bool GetValue(InputAction action) const noexcept;
 
-	bool GetValue(KeyCode code) const noexcept;
-	bool GetValue(MouseCode code) const noexcept;
+	[[nodiscard]] bool GetValue(KeyCode code) const noexcept;
+	[[nodiscard]] bool GetValue(MouseCode code) const noexcept;
 
 private:
-	bool ReadKeyboard() noexcept;
-	bool ReadMouse() noexcept;
+	[[nodiscard]] bool ReadKeyboard() noexcept;
+	[[nodiscard]] bool ReadMouse() noexcept;
 
-	float FilterValue(InputCode code, float value) const noexcept;
-	bool GetModeValue(KeyMode mode) const noexcept;
-	bool GetSimpleModeValue(uint8 mode) const noexcept;
+	[[nodiscard]] float FilterValue(InputCode code, float value) const noexcept;
+	[[nodiscard]] bool GetModeValue(KeyMode mode) const noexcept;
+	[[nodiscard]] bool GetSimpleModeValue(uint8 mode) const noexcept;
 
 private:
 	struct InputImpl* impl;

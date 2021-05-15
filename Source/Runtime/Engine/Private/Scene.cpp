@@ -48,24 +48,43 @@ bool Scene::Save(Name inName) const noexcept
 
 Entity* Scene::AddEntity(const String& name)
 {
-	return &entities.insert(std::make_pair(name, Entity{})).first->second;
+	 Entity& entity = entities.insert(std::make_pair(name, Entity{})).first->second;
+	 return AddEntityImpl(entity);
 }
 
 Entity* Scene::AddEntity(const String& name, Entity* prefab)
 {
-	return &entities.insert(std::make_pair(name, Entity{ *prefab })).first->second;
+	Entity& entity = entities.insert(std::make_pair(name, Entity{ *prefab })).first->second;
+	return AddEntityImpl(entity);
 }
 
-bool Scene::RemoveEntity(Entity* entity)
+bool Scene::RemoveEntity(const String& name)
 {
-	for (auto iter = entities.cbegin(); iter != entities.cend(); ++iter)
-	{
-		if (&iter->second == entity)
-		{
-			entities.erase(iter);
-			return true;
-		}
-	}
+	auto iter = entities.find(name);
+	if (iter == entities.end())
+		return false;
 
-	return false;
+	RemoveEntityImpl(iter->second);
+	entities.erase(iter);
+	return true;
+}
+
+Entity* Scene::AddEntityImpl(Entity& entity)
+{
+	entity.onChangedName += Delegate<void(Entity&, const String&, const String&)>{ this, &Scene::OnChangedName };
+	return &entity;
+}
+
+void Scene::RemoveEntityImpl(Entity& entity)
+{
+	entity.onChangedName -= Delegate<void(Entity&, const String&, const String&)>{ this, &Scene::OnChangedName };
+}
+
+void Scene::OnChangedName(Entity& entity, const String& after, const String& before)
+{
+	auto node = entities.extract(before);
+	Assert(!node.empty());
+
+	node.key() = after;
+	entities.insert(std::move(node));
 }

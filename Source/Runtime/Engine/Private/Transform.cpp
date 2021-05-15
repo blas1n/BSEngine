@@ -1,5 +1,6 @@
 #include "Transform.h"
 #include "Scene.h"
+#include "SceneManager.h"
 
 REGISTER_COMPONENT(Transform)
 
@@ -46,10 +47,12 @@ void Transform::Deserialize(const Json& json)
 	SetScale(Vector3{ inScale.data() });
 
 	if (json.contains("parent"))
-		parentName = json["parent"].get<uint32>();
+		parentName = json["parent"].get<String>();
 }
 
 void Transform::SetParentTransform()
 {
-	//Todo: link parent
+	const auto entity = Accessor<SceneManager>::GetManager()->GetScene().GetEntity(parentName);
+	if (entity)
+		parent = entity->GetComponent<Transform>();
 }

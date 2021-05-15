@@ -105,6 +105,9 @@ public:
 private:
 	[[nodiscard]] static Name GetComponentName(StringView functionName);
 
+public:
+	Event<void(Entity&, const String&, const String&)> onChangedName;
+
 private:
 	std::unordered_map<Name, std::vector<Component*>, Hash<Name>> components;
 	String name;

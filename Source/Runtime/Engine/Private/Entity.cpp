@@ -28,16 +28,18 @@ void Entity::Deserialize(const Json& json)
 
 	for (const auto& comp : json["components"])
 	{
-		const auto strName = comp["name"].get<std::string>();
-		const Name name = CastCharSet<Char>(std::string_view{ strName.c_str() });
+		const auto strName = comp["name"].get<String>();
+		const Name name = strName.c_str();
 		components[name].emplace_back(CreateComponent(name, this))->Deserialize(comp);
 	}
 }
 
 void Entity::SetName(StringView inName) noexcept
 {
+	const String beforeName = name;
 	name = std::move(inName);
-	//Todo: apply name in scene
+
+	onChangedName(*this, name, beforeName);
 }
 
 Name Entity::GetComponentName(StringView functionName)

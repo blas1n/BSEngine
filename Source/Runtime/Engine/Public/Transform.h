@@ -1,46 +1,45 @@
 #pragma once
 
+#include "Accessor.h"
 #include "Component.h"
-#include "BSMath.h"
 #include <vector>
+#include "BSMath.h"
 
-class ENGINE_API Transform final : public Component
+class ENGINE_API Transform final : public Component, public Accessor<class SceneManager>
 {
 public:
-	using Super = Component;
-	using Super::Super;
+	using Component::Component;
 
 	[[nodiscard]] Matrix4 GetWorldMatrix();
 
-	Json Serialize() const override;
+	[[nodiscard]] Json Serialize() const override;
 	void Deserialize(const Json& json) override;
 
-	[[nodiscard]] uint32 GetParent() const noexcept { return parent; }
-	void SetParent(uint32 inParent);
+	[[nodiscard]] Transform* GetParent() noexcept { return parent; }
+	[[nodiscard]] const Transform* GetParent() const noexcept { return parent; }
+
+	void SetParent(Transform* inParent) noexcept { parent = inParent; }
 
 	[[nodiscard]] const Vector3& GetPosition() const noexcept { return position; }
 	[[nodiscard]] const Rotator& GetRotation() const noexcept { return rotation; }
 	[[nodiscard]] const Vector3& GetScale() const noexcept { return scale; }
 
-	void SetPosition(const Vector3& inPos) noexcept { position = inPos; isMatUpdated = false; }
-	void SetRotation(const Rotator& inRot) noexcept { rotation = inRot; isMatUpdated = false; }
-	void SetScale(const Vector3& inScale) noexcept { scale = inScale; isMatUpdated = false; }
+	void SetPosition(const Vector3& inPos) noexcept { position = inPos; isUpdated = false; }
+	void SetRotation(const Rotator& inRot) noexcept { rotation = inRot; isUpdated = false; }
+	void SetScale(const Vector3& inScale) noexcept { scale = inScale; isUpdated = false; }
 
 private:
 	void SetParentTransform();
-	void OnChangeParentId(uint32 newId, uint32 oldId) { parent = newId; }
 
 private:
-	constexpr static uint32 ParentNone = static_cast<uint32>(-1);
-
 	Matrix4 mat;
 
 	Vector3 position;
 	Rotator rotation;
 	Vector3 scale;
 
-	Transform* parentTransform;
-	uint32 parent = ParentNone;
+	Transform* parent;
+	String parentName;
 
-	uint8 isMatUpdated : 1;
+	uint8 isUpdated : 1;
 };

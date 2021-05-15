@@ -96,7 +96,7 @@ public:
 
 	~Delegate() { Clear(); }
 
-	R operator()(const Args&... args) const
+	R operator()(Args... args) const
 	{
 		return IsBound() ? GetInst()->Execute(args...) : R();
 	}

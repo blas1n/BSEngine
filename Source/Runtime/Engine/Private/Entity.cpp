@@ -2,8 +2,9 @@
 
 Entity::~Entity()
 {
-	for (const auto comp : components)
-		delete comp.second;
+	for (const auto& compList : components)
+		for (const auto comp : compList.second)
+			delete comp;
 
 	components.clear();
 }
@@ -11,27 +12,34 @@ Entity::~Entity()
 Json Entity::Serialize() const
 {
 	Json json = Json::object();
-	json["id"] = id;
-	json["name"] = CastCharSet<char>(StringView{ name.c_str() });
-	Json comps = json["components"] = Json::array();
+	json["name"] = name;
+	Json& comps = json["components"] = Json::array();
 
-	for (const auto& comp : components)
-		comps.push_back(comp.second->Serialize().get<std::string>());
+	for (const auto& compList : components)
+		for (const auto* comp : compList.second)
+		comps.push_back(comp->Serialize());
 
 	return json;
 }
 
 void Entity::Deserialize(const Json& json)
 {
-	const auto str = json["name"].get<std::string>();
-	name = CastCharSet<Char>(std::string_view{ str.c_str() });
+	name = json["name"].get<String>();
 
 	for (const auto& comp : json["components"])
 	{
-		const auto strName = comp["name"].get<std::string>();
-		const Name name = CastCharSet<Char>(std::string_view{ strName.c_str() });
-		components.insert(std::make_pair(name, CreateComponent(name, this)))->second->Deserialize(comp);
+		const auto strName = comp["name"].get<String>();
+		const Name name = strName.c_str();
+		components[name].emplace_back(CreateComponent(name, this))->Deserialize(comp);
 	}
+}
+
+void Entity::SetName(StringView inName) noexcept
+{
+	const String beforeName = name;
+	name = std::move(inName);
+
+	onChangedName(*this, name, beforeName);
 }
 
 Name Entity::GetComponentName(StringView functionName)

@@ -39,7 +39,7 @@ public:
 		return *this;
 	}
 
-	void operator()(const Args&... args) const
+	void operator()(Args... args) const
 	{
 		for (auto& fn : funcs)
 			fn(args...);

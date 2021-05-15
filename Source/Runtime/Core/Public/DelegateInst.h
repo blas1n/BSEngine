@@ -12,7 +12,7 @@ namespace Impl
 	public:
 		virtual ~DelegateInstBase() = default;
 
-		virtual R Execute(const Args&... args) const = 0;
+		virtual R Execute(Args... args) const = 0;
 	};
 
 	template <class R, class... Args>
@@ -24,7 +24,7 @@ namespace Impl
 		DelegateInstFunction(Func inFn)
 			: fn(inFn) {}
 
-		R Execute(const Args&... args) const override
+		R Execute(Args... args) const override
 		{
 			return (*fn)(args...);
 		}
@@ -42,7 +42,7 @@ namespace Impl
 		DelegateInstMethod(Class* inInst, Func inFn)
 			: inst(inInst), fn(inFn) {}
 
-		R Execute(const Args&... args) const override
+		R Execute(Args... args) const override
 		{
 			return (inst->*fn)(args...);
 		}
@@ -62,7 +62,7 @@ namespace Impl
 		DelegateInstConstMethod(Class* inInst, Func inFn)
 			: inst(inInst), fn(inFn) {}
 
-		R Execute(const Args&... args) const override
+		R Execute(Args... args) const override
 		{
 			return (inst->*fn)(args...);
 		}
@@ -84,7 +84,7 @@ namespace Impl
 		DelegateInstFunctor(Func&& inFn)
 			: fn(std::move(inFn)) {}
 
-		R Execute(const Args&... args) const override
+		R Execute(Args... args) const override
 		{
 			return fn(args...);
 		}

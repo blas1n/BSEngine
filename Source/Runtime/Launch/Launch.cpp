@@ -1,6 +1,6 @@
 #include "Engine.h"
 
-int32 GuardedMain(StringView cmdLine)
+int32 Main(StringView cmdLine)
 {
 	Engine engine;
 

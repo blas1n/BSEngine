@@ -1,9 +1,9 @@
 # Source/Runtime/Launch
 
-set (SRCS "Private/Launch.cpp")
+set (SRCS "Launch.cpp")
 
 if (${PLATFORM_WINDOWS})
-	add_executable (${CMAKE_PROJECT_NAME} WIN32 "Private/LaunchWindows.cpp" ${SRCS})
+	add_executable (${CMAKE_PROJECT_NAME} WIN32 "LaunchWindows.cpp" ${SRCS})
 else ()
 	message (FATAL_ERROR "Unsupported OS!")
 endif ()

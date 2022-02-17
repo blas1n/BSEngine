@@ -8,7 +8,7 @@
 // @note: Error if you include windows.h first
 #include <windows.h>
 
-extern int32 GuardedMain(StringView cmdLine);
+extern int32 Main(StringView cmdLine);
 
 String ProcessCommandLine()
 {
@@ -19,7 +19,7 @@ String ProcessCommandLine()
 int32 WINAPI WinMain(_In_ HINSTANCE hInInstance, _In_opt_ HINSTANCE, _In_ char*, _In_ int32)
 {
 	const auto cmdLine = ProcessCommandLine();
-	return GuardedMain(StringView{ cmdLine.c_str() });
+	return Main(StringView{ cmdLine.c_str() });
 }
 
 #endif

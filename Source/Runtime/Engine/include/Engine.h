@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core.h"
-#include <vector>
 
 class ENGINE_API Engine final
 {
@@ -26,6 +25,9 @@ private:
 
 	class WindowManager* window;
 	class ThreadManager* thread;
+	class PluginManager* plugin;
+
 	class InputManager* input;
 	class SceneManager* scene;
+	class RenderManager* render;
 };

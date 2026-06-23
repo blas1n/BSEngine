@@ -1,1 +1,2 @@
-// bsengine-mcp
+pub mod tool;
+pub use tool::{McpTool, McpToolOutput};

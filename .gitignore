@@ -424,6 +424,14 @@ MigrationBackup/
 
 # End of https://www.gitignore.io/api/c++,windows,visualstudio,visualstudiocode
 
+# BSEngine local-only directories
+docs/
+.omc/
+
+# Rust
+target/
+Cargo.lock
+
 # Visual studio sln, proj file
 *.sln
 *.vcxproj

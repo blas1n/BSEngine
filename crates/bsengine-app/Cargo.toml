@@ -13,9 +13,14 @@ bsengine-ecs.workspace = true
 bevy_app.workspace = true
 bsengine-window.workspace = true
 bsengine-input.workspace = true
+bsengine-rhi-wgpu.workspace = true
+bsengine-render.workspace = true
 
 [dev-dependencies]
 bsengine-ecs.workspace = true
 bevy_ecs.workspace = true
 bsengine-input.workspace = true
 bsengine-window.workspace = true
+bsengine-rhi.workspace = true
+bsengine-rhi-wgpu.workspace = true
+bsengine-render.workspace = true

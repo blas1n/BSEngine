@@ -1,9 +1,12 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Component, Resource, Query, Res, Schedule, ScheduleLabel, World};
+    use crate::{Component, Resource, Schedule, ScheduleLabel, World};
 
     #[derive(Component)]
-    struct Position { x: f32, y: f32 }
+    struct Position {
+        x: f32,
+        y: f32,
+    }
 
     #[derive(Resource)]
     struct Counter(u32);

@@ -18,9 +18,9 @@ impl Plugin for RenderPlugin {
 
 #[cfg(test)]
 mod tests {
+    use super::RenderPlugin;
     use bsengine_app::new_app;
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
-    use super::RenderPlugin;
 
     #[test]
     fn render_plugin_runs_without_rhi() {

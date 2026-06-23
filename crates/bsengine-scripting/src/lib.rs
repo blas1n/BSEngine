@@ -2,5 +2,5 @@
 pub mod ops;
 pub mod plugin;
 pub mod runtime;
-pub use plugin::{ScriptingPlugin, ScriptRuntimeResource};
+pub use plugin::{ScriptRuntimeResource, ScriptingPlugin};
 pub use runtime::ScriptRuntime;

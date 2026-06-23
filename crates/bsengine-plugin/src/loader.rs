@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::descriptor::PluginDescriptor;
+use std::path::Path;
 
 pub struct PluginLoader;
 
@@ -8,8 +8,7 @@ impl PluginLoader {
         let toml_path = dir.join("plugin.toml");
         let content = std::fs::read_to_string(&toml_path)
             .map_err(|e| format!("Cannot read {}: {e}", toml_path.display()))?;
-        toml::from_str(&content)
-            .map_err(|e| format!("Parse error in {}: {e}", toml_path.display()))
+        toml::from_str(&content).map_err(|e| format!("Parse error in {}: {e}", toml_path.display()))
     }
 
     pub fn scan_directory(root: &Path) -> Result<Vec<PluginDescriptor>, String> {
@@ -41,7 +40,10 @@ mod tests {
 
     #[test]
     fn loader_loads_single_plugin_dir() {
-        let dir = create_plugin_dir("loader_single", "name = \"test-plugin\"\nversion = \"1.0.0\"\n");
+        let dir = create_plugin_dir(
+            "loader_single",
+            "name = \"test-plugin\"\nversion = \"1.0.0\"\n",
+        );
         let desc = PluginLoader::load_from_dir(&dir).expect("load failed");
         assert_eq!(desc.name, "test-plugin");
         assert_eq!(desc.version, "1.0.0");
@@ -68,7 +70,8 @@ mod tests {
             std::fs::write(
                 sub.join("plugin.toml"),
                 format!("name = \"{name}\"\nversion = \"{ver}\"\n"),
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let plugins = PluginLoader::scan_directory(&root).expect("scan failed");

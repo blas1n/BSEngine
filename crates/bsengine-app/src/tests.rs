@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{new_app, BsPlugin, App};
+    use crate::{new_app, App, BsPlugin};
 
     struct MyPlugin;
 

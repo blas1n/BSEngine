@@ -1,6 +1,6 @@
-use winit::keyboard::{KeyCode as WinitKeyCode, PhysicalKey};
-use winit::event::ElementState as WinitState;
 use crate::types::{ElementState, KeyCode};
+use winit::event::ElementState as WinitState;
+use winit::keyboard::{KeyCode as WinitKeyCode, PhysicalKey};
 
 pub fn convert_key_code(key: PhysicalKey) -> KeyCode {
     match key {
@@ -78,14 +78,22 @@ mod tests {
     #[test]
     fn convert_unknown_key() {
         use winit::keyboard::PhysicalKey;
-        let result = convert_key_code(PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified));
+        let result = convert_key_code(PhysicalKey::Unidentified(
+            winit::keyboard::NativeKeyCode::Unidentified,
+        ));
         assert_eq!(result, KeyCode::Unknown);
     }
 
     #[test]
     fn convert_pressed_state() {
         use winit::event::ElementState as WinitState;
-        assert_eq!(convert_element_state(WinitState::Pressed), ElementState::Pressed);
-        assert_eq!(convert_element_state(WinitState::Released), ElementState::Released);
+        assert_eq!(
+            convert_element_state(WinitState::Pressed),
+            ElementState::Pressed
+        );
+        assert_eq!(
+            convert_element_state(WinitState::Released),
+            ElementState::Released
+        );
     }
 }

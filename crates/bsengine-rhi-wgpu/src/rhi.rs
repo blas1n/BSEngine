@@ -1,4 +1,4 @@
-use bsengine_rhi::{RHI, RHIMesh, RHIShader, RHITexture};
+use bsengine_rhi::{RHIMesh, RHIShader, RHITexture, RHI};
 use wgpu::{Device, Queue};
 
 pub struct WgpuRHI {
@@ -65,8 +65,7 @@ mod tests {
     use bsengine_rhi::RHI;
 
     fn headless_rhi() -> WgpuRHI {
-        pollster::block_on(WgpuRHI::new_headless())
-            .expect("Failed to create headless WgpuRHI")
+        pollster::block_on(WgpuRHI::new_headless()).expect("Failed to create headless WgpuRHI")
     }
 
     #[test]

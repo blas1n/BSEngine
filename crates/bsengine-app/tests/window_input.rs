@@ -37,9 +37,18 @@ fn key_events_received_by_system() {
     // Manually send events (simulating winit input)
     {
         let mut events = app.world_mut().resource_mut::<Events<KeyInput>>();
-        events.send(KeyInput { key_code: KeyCode::W, state: ElementState::Pressed });
-        events.send(KeyInput { key_code: KeyCode::W, state: ElementState::Pressed });
-        events.send(KeyInput { key_code: KeyCode::S, state: ElementState::Pressed }); // ignored
+        events.send(KeyInput {
+            key_code: KeyCode::W,
+            state: ElementState::Pressed,
+        });
+        events.send(KeyInput {
+            key_code: KeyCode::W,
+            state: ElementState::Pressed,
+        });
+        events.send(KeyInput {
+            key_code: KeyCode::S,
+            state: ElementState::Pressed,
+        }); // ignored
     }
 
     app.update();
@@ -56,8 +65,14 @@ fn mouse_events_received_by_system() {
 
     {
         let mut events = app.world_mut().resource_mut::<Events<MouseInput>>();
-        events.send(MouseInput { button: MouseButton::Left, state: ElementState::Pressed });
-        events.send(MouseInput { button: MouseButton::Right, state: ElementState::Pressed }); // ignored
+        events.send(MouseInput {
+            button: MouseButton::Left,
+            state: ElementState::Pressed,
+        });
+        events.send(MouseInput {
+            button: MouseButton::Right,
+            state: ElementState::Pressed,
+        }); // ignored
     }
 
     app.update();
@@ -75,7 +90,10 @@ fn events_cleared_between_frames() {
     // Frame 1: send W
     {
         let mut events = app.world_mut().resource_mut::<Events<KeyInput>>();
-        events.send(KeyInput { key_code: KeyCode::W, state: ElementState::Pressed });
+        events.send(KeyInput {
+            key_code: KeyCode::W,
+            state: ElementState::Pressed,
+        });
     }
     app.update();
     assert_eq!(app.world().resource::<InputLog>().w_presses, 1);

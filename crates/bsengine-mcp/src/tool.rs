@@ -8,7 +8,10 @@ pub struct McpToolOutput {
 
 impl McpToolOutput {
     pub fn success(content: Value) -> Self {
-        Self { content, error: None }
+        Self {
+            content,
+            error: None,
+        }
     }
 
     pub fn error(msg: &str) -> Self {
@@ -64,9 +67,7 @@ mod tests {
         let tool = McpTool {
             name: "echo".to_string(),
             description: "Echoes input".to_string(),
-            handler: Box::new(|input| {
-                McpToolOutput::success(json!({"echo": input}))
-            }),
+            handler: Box::new(|input| McpToolOutput::success(json!({"echo": input}))),
         };
         let result = (tool.handler)(json!({"msg": "hello"}));
         assert!(result.is_ok());

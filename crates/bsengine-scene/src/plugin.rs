@@ -1,6 +1,6 @@
+use crate::types::SceneDescriptor;
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Commands, Component};
-use crate::types::SceneDescriptor;
 
 #[derive(Component, Debug, Clone)]
 pub struct Name(pub String);
@@ -11,7 +11,9 @@ pub struct ScenePlugin {
 
 impl ScenePlugin {
     pub fn from_file(path: &str) -> Self {
-        Self { path: path.to_string() }
+        Self {
+            path: path.to_string(),
+        }
     }
 }
 
@@ -32,8 +34,8 @@ impl Plugin for ScenePlugin {
 
 #[cfg(test)]
 mod tests {
-    use bsengine_app::new_app;
     use super::{Name, ScenePlugin};
+    use bsengine_app::new_app;
 
     fn write_temp_scene(filename: &str, content: &str) -> String {
         let path = std::env::temp_dir().join(filename);
@@ -52,8 +54,16 @@ mod tests {
 
         let mut q = app.world_mut().query::<&Name>();
         let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
-        assert!(names.contains(&"Player".to_string()), "Player missing: {:?}", names);
-        assert!(names.contains(&"Camera".to_string()), "Camera missing: {:?}", names);
+        assert!(
+            names.contains(&"Player".to_string()),
+            "Player missing: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"Camera".to_string()),
+            "Camera missing: {:?}",
+            names
+        );
     }
 
     #[test]

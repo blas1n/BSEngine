@@ -13,8 +13,16 @@ fn mcp_full_tool_workflow() {
         let reg = &app.world().resource::<McpRegistryResource>().0;
         let tools = reg.list_tools();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-        assert!(names.contains(&"get_world_state"), "missing get_world_state: {:?}", names);
-        assert!(names.contains(&"list_plugins"), "missing list_plugins: {:?}", names);
+        assert!(
+            names.contains(&"get_world_state"),
+            "missing get_world_state: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"list_plugins"),
+            "missing list_plugins: {:?}",
+            names
+        );
     }
 
     // Register custom tool at runtime
@@ -30,7 +38,9 @@ fn mcp_full_tool_workflow() {
     // Execute custom tool
     {
         let reg = &app.world().resource::<McpRegistryResource>().0;
-        let result = reg.execute("custom_tool", json!({})).expect("custom tool not found");
+        let result = reg
+            .execute("custom_tool", json!({}))
+            .expect("custom tool not found");
         assert!(result.is_ok());
         assert_eq!(result.content["status"], "custom_ok");
     }

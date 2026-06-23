@@ -1,10 +1,10 @@
 use bevy_app::{App, AppExit};
+use bevy_ecs::event::Events;
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
-use std::sync::Arc;
-use bevy_ecs::event::Events;
 
 use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowResized};
 
@@ -31,13 +31,18 @@ impl ApplicationHandler for BsWinitApp {
             .with_resizable(desc.resizable);
 
         let window = Arc::new(
-            event_loop.create_window(attrs).expect("Failed to create window"),
+            event_loop
+                .create_window(attrs)
+                .expect("Failed to create window"),
         );
         self.window = Some(window.clone());
         window.request_redraw();
 
         {
-            let mut events = self.ecs_app.world_mut().resource_mut::<Events<WindowCreated>>();
+            let mut events = self
+                .ecs_app
+                .world_mut()
+                .resource_mut::<Events<WindowCreated>>();
             events.send(WindowCreated);
         }
     }
@@ -46,33 +51,43 @@ impl ApplicationHandler for BsWinitApp {
         match event {
             WindowEvent::CloseRequested => {
                 {
-                    let mut events = self.ecs_app.world_mut().resource_mut::<Events<WindowClosed>>();
+                    let mut events = self
+                        .ecs_app
+                        .world_mut()
+                        .resource_mut::<Events<WindowClosed>>();
                     events.send(WindowClosed);
                 }
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                let mut events = self.ecs_app.world_mut().resource_mut::<Events<WindowResized>>();
+                let mut events = self
+                    .ecs_app
+                    .world_mut()
+                    .resource_mut::<Events<WindowResized>>();
                 events.send(WindowResized {
                     width: size.width,
                     height: size.height,
                 });
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                use bevy_ecs::event::Events;
                 use bsengine_input::convert::{convert_element_state, convert_key_code};
                 use bsengine_input::KeyInput;
-                use bevy_ecs::event::Events;
                 let key_code = convert_key_code(event.physical_key);
                 let state = convert_element_state(event.state);
-                if let Some(mut events) = self.ecs_app.world_mut().get_resource_mut::<Events<KeyInput>>() {
+                if let Some(mut events) = self
+                    .ecs_app
+                    .world_mut()
+                    .get_resource_mut::<Events<KeyInput>>()
+                {
                     events.send(KeyInput { key_code, state });
                 }
             }
             WindowEvent::MouseInput { button, state, .. } => {
-                use bsengine_input::{MouseButton, MouseInput};
-                use bsengine_input::convert::convert_element_state;
-                use winit::event::MouseButton as WinitBtn;
                 use bevy_ecs::event::Events;
+                use bsengine_input::convert::convert_element_state;
+                use bsengine_input::{MouseButton, MouseInput};
+                use winit::event::MouseButton as WinitBtn;
                 let btn = match button {
                     WinitBtn::Left => MouseButton::Left,
                     WinitBtn::Right => MouseButton::Right,
@@ -81,15 +96,26 @@ impl ApplicationHandler for BsWinitApp {
                     _ => return,
                 };
                 let state = convert_element_state(state);
-                if let Some(mut events) = self.ecs_app.world_mut().get_resource_mut::<Events<MouseInput>>() {
+                if let Some(mut events) = self
+                    .ecs_app
+                    .world_mut()
+                    .get_resource_mut::<Events<MouseInput>>()
+                {
                     events.send(MouseInput { button: btn, state });
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                use bsengine_input::CursorMoved;
                 use bevy_ecs::event::Events;
-                if let Some(mut events) = self.ecs_app.world_mut().get_resource_mut::<Events<CursorMoved>>() {
-                    events.send(CursorMoved { x: position.x, y: position.y });
+                use bsengine_input::CursorMoved;
+                if let Some(mut events) = self
+                    .ecs_app
+                    .world_mut()
+                    .get_resource_mut::<Events<CursorMoved>>()
+                {
+                    events.send(CursorMoved {
+                        x: position.x,
+                        y: position.y,
+                    });
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -112,6 +138,8 @@ pub fn winit_runner(app: App) -> AppExit {
         window: None,
     };
 
-    event_loop.run_app(&mut winit_app).expect("Event loop error");
+    event_loop
+        .run_app(&mut winit_app)
+        .expect("Event loop error");
     AppExit::Success
 }

@@ -1,18 +1,12 @@
-use bevy_app::{App, Plugin};
-use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowResized};
 use crate::runner::winit_runner;
+use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowResized};
+use bevy_app::{App, Plugin};
 
+#[derive(Default)]
 pub struct WindowPlugin {
     pub descriptor: WindowDescriptor,
 }
 
-impl Default for WindowPlugin {
-    fn default() -> Self {
-        Self {
-            descriptor: WindowDescriptor::default(),
-        }
-    }
-}
 
 impl Plugin for WindowPlugin {
     fn build(&self, app: &mut App) {
@@ -26,9 +20,9 @@ impl Plugin for WindowPlugin {
 
 #[cfg(test)]
 mod tests {
-    use bsengine_app::new_app;
     use crate::{WindowClosed, WindowCreated, WindowDescriptor, WindowPlugin, WindowResized};
     use bevy_ecs::event::Events;
+    use bsengine_app::new_app;
 
     #[test]
     fn window_plugin_registers_descriptor_resource() {
@@ -43,8 +37,14 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(WindowPlugin::default());
         // Events<T> resources should exist after plugin build
-        assert!(app.world().get_resource::<Events<WindowCreated>>().is_some());
-        assert!(app.world().get_resource::<Events<WindowResized>>().is_some());
+        assert!(app
+            .world()
+            .get_resource::<Events<WindowCreated>>()
+            .is_some());
+        assert!(app
+            .world()
+            .get_resource::<Events<WindowResized>>()
+            .is_some());
         assert!(app.world().get_resource::<Events<WindowClosed>>().is_some());
     }
 

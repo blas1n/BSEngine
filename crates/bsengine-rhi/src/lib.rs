@@ -1,2 +1,2 @@
 pub mod traits;
-pub use traits::{RHI, RHIMesh, RHIShader, RHITexture};
+pub use traits::{RHIMesh, RHIShader, RHITexture, RHI};

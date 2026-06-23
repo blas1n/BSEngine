@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+#[derive(Debug)]
 pub struct McpToolOutput {
     pub content: Value,
     pub error: Option<String>,

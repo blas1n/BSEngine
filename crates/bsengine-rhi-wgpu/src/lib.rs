@@ -1,1 +1,2 @@
-// bsengine-rhi-wgpu
+pub mod rhi;
+pub use rhi::WgpuRHI;

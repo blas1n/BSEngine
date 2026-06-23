@@ -16,11 +16,13 @@ BSEngine은 Unity 컴포넌트 시스템 + Unreal RHI 추상화를 결합한 C++
 
 | 목표 | 방법 |
 |------|------|
-| 게임을 만들 수 있는 엔진 | 인프라보다 AI native 레이어에 집중 |
+| 게임을 만들 수 있는 엔진 | 견고한 인프라와 아키텍처 — 유지보수성과 확장성의 기반 |
 | AI로 게임 만들기 편함 (Goal B) | MCP 서버 + 타입 안전 TypeScript API |
 | AI friendly 엔진 개발 (Method A) | 명확한 크레이트 경계, bevy_ecs 패턴 |
 | 메모리 안전성 | Rust borrow checker + bevy_ecs 스케줄러 |
 | 그래픽 API 교체 가능 | RHI trait 추상화, wgpu가 기본 구현 |
+
+AI Native는 견고한 인프라 위에 올라가는 레이어. 둘은 트레이드오프 관계가 아님.
 
 ---
 

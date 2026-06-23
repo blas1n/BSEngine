@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/bsengine-core",
+    "crates/bsengine-ecs",
+    "crates/bsengine-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["blas1n"]
+license = "MIT"
+
+[workspace.dependencies]
+bsengine-core = { path = "crates/bsengine-core" }
+bsengine-ecs  = { path = "crates/bsengine-ecs" }
+bevy_app      = { version = "0.14", default-features = false }
+bevy_ecs      = { version = "0.14", default-features = false }
+tracing       = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

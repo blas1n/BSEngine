@@ -13,6 +13,7 @@ members = [
     "crates/bsengine-asset",
     "crates/bsengine-scripting",
     "crates/bsengine-plugin",
+    "crates/bsengine-mcp",
 ]
 
 [workspace.package]
@@ -34,6 +35,7 @@ bsengine-scene    = { path = "crates/bsengine-scene" }
 bsengine-asset    = { path = "crates/bsengine-asset" }
 bsengine-scripting = { path = "crates/bsengine-scripting" }
 bsengine-plugin   = { path = "crates/bsengine-plugin" }
+bsengine-mcp      = { path = "crates/bsengine-mcp" }
 toml              = "0.8"
 deno_core         = "0.404.0"
 serde_json        = "1.0"

@@ -6,6 +6,9 @@ members = [
     "crates/bsengine-app",
     "crates/bsengine-window",
     "crates/bsengine-input",
+    "crates/bsengine-rhi",
+    "crates/bsengine-rhi-wgpu",
+    "crates/bsengine-render",
 ]
 
 [workspace.package]
@@ -15,13 +18,18 @@ authors = ["blas1n"]
 license = "MIT"
 
 [workspace.dependencies]
-bsengine-core   = { path = "crates/bsengine-core" }
-bsengine-ecs    = { path = "crates/bsengine-ecs" }
-bsengine-app    = { path = "crates/bsengine-app" }
-bsengine-window = { path = "crates/bsengine-window" }
-bsengine-input  = { path = "crates/bsengine-input" }
-bevy_app        = { version = "0.14", default-features = false }
-bevy_ecs        = { version = "0.14", default-features = false }
-tracing         = "0.1"
+bsengine-core     = { path = "crates/bsengine-core" }
+bsengine-ecs      = { path = "crates/bsengine-ecs" }
+bsengine-app      = { path = "crates/bsengine-app" }
+bsengine-window   = { path = "crates/bsengine-window" }
+bsengine-input    = { path = "crates/bsengine-input" }
+bsengine-rhi      = { path = "crates/bsengine-rhi" }
+bsengine-rhi-wgpu = { path = "crates/bsengine-rhi-wgpu" }
+bsengine-render   = { path = "crates/bsengine-render" }
+bevy_app          = { version = "0.14", default-features = false }
+bevy_ecs          = { version = "0.14", default-features = false }
+tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-winit           = "0.30"
+winit             = "0.30"
+wgpu              = "22"
+pollster          = "0.3"

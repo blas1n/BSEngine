@@ -32,6 +32,10 @@ jobs:
           # Cache key includes OS so Windows/Linux don't share V8 artifacts
           key: ${{ matrix.os }}
 
+      - name: Install Vulkan software driver (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y mesa-vulkan-drivers
+
       - name: Format check
         run: cargo fmt --all -- --check
 

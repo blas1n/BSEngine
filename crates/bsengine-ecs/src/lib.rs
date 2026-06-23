@@ -3,7 +3,7 @@ pub use bevy_ecs::prelude::{
     Query, Res, ResMut, Resource, With, Without, World,
 };
 pub use bevy_ecs::schedule::{
-    IntoSystemConfigs, Schedule, ScheduleLabel, SystemSet,
+    IntoSystemConfigs, IntoSystemSetConfigs, Schedule, ScheduleLabel, SystemSet,
 };
 pub use bevy_ecs::system::IntoSystem;
 

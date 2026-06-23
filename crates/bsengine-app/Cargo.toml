@@ -11,3 +11,7 @@ path = "src/main.rs"
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bevy_app.workspace = true
+
+[dev-dependencies]
+bsengine-ecs.workspace = true
+bevy_ecs.workspace = true

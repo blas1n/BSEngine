@@ -58,6 +58,40 @@ impl ApplicationHandler for BsWinitApp {
                     height: size.height,
                 });
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                use bsengine_input::convert::{convert_element_state, convert_key_code};
+                use bsengine_input::KeyInput;
+                use bevy_ecs::event::Events;
+                let key_code = convert_key_code(event.physical_key);
+                let state = convert_element_state(event.state);
+                if let Some(mut events) = self.ecs_app.world_mut().get_resource_mut::<Events<KeyInput>>() {
+                    events.send(KeyInput { key_code, state });
+                }
+            }
+            WindowEvent::MouseInput { button, state, .. } => {
+                use bsengine_input::{MouseButton, MouseInput};
+                use bsengine_input::convert::convert_element_state;
+                use winit::event::MouseButton as WinitBtn;
+                use bevy_ecs::event::Events;
+                let btn = match button {
+                    WinitBtn::Left => MouseButton::Left,
+                    WinitBtn::Right => MouseButton::Right,
+                    WinitBtn::Middle => MouseButton::Middle,
+                    WinitBtn::Other(n) => MouseButton::Other(n),
+                    _ => return,
+                };
+                let state = convert_element_state(state);
+                if let Some(mut events) = self.ecs_app.world_mut().get_resource_mut::<Events<MouseInput>>() {
+                    events.send(MouseInput { button: btn, state });
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                use bsengine_input::CursorMoved;
+                use bevy_ecs::event::Events;
+                if let Some(mut events) = self.ecs_app.world_mut().get_resource_mut::<Events<CursorMoved>>() {
+                    events.send(CursorMoved { x: position.x, y: position.y });
+                }
+            }
             WindowEvent::RedrawRequested => {
                 self.ecs_app.update();
                 if let Some(w) = &self.window {

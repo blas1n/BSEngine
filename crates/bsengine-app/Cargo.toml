@@ -28,3 +28,5 @@ bsengine-scene.workspace = true
 bsengine-asset.workspace = true
 bsengine-scripting.workspace = true
 bsengine-plugin.workspace = true
+bsengine-mcp.workspace = true
+serde_json.workspace = true

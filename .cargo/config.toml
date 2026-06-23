@@ -1,0 +1,5 @@
+[build]
+# Place target directory on C:\ so v8/rusty_v8 build script symlink
+# (which requires out-dir and cargo-registry to be on the same drive) works
+# without SeCreateSymbolicLinkPrivilege or Developer Mode.
+target-dir = "C:\\BSEngine-target"

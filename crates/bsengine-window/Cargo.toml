@@ -6,9 +6,10 @@ edition.workspace = true
 [dependencies]
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
+bsengine-input.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 winit.workspace = true
 
 [dev-dependencies]
-bsengine-app = { path = "../bsengine-app" }
+bsengine-app.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "bsengine-window"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bsengine-core.workspace = true
+bsengine-ecs.workspace = true
+bevy_app.workspace = true
+winit.workspace = true

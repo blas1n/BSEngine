@@ -430,7 +430,7 @@ docs/
 
 # Rust
 target/
-Cargo.lock
+
 
 # Visual studio sln, proj file
 *.sln

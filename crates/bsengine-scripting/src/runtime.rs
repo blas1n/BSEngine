@@ -12,6 +12,14 @@ impl ScriptRuntime {
         Self { runtime }
     }
 
+    pub fn new_with_ops() -> Self {
+        let runtime = JsRuntime::new(RuntimeOptions {
+            extensions: vec![crate::ops::bsengine_ops::init()],
+            ..Default::default()
+        });
+        Self { runtime }
+    }
+
     pub fn eval(&mut self, src: &str) -> Result<String, String> {
         let result = self
             .runtime

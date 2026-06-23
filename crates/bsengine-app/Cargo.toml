@@ -24,3 +24,5 @@ bsengine-window.workspace = true
 bsengine-rhi.workspace = true
 bsengine-rhi-wgpu.workspace = true
 bsengine-render.workspace = true
+bsengine-scene.workspace = true
+bsengine-asset.workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "bsengine-app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bsengine"
+path = "src/main.rs"
+
+[dependencies]
+bsengine-core.workspace = true
+bsengine-ecs.workspace = true
+bevy_app.workspace = true

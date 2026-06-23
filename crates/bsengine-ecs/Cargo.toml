@@ -1,0 +1,8 @@
+[package]
+name = "bsengine-ecs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bsengine-core.workspace = true
+bevy_ecs.workspace = true

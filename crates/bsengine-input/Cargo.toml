@@ -7,3 +7,4 @@ edition.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bevy_app.workspace = true
+bevy_ecs.workspace = true

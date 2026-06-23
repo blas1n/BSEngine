@@ -7,7 +7,6 @@ pub struct WindowPlugin {
     pub descriptor: WindowDescriptor,
 }
 
-
 impl Plugin for WindowPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.descriptor.clone())

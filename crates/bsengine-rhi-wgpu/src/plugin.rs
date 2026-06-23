@@ -20,7 +20,7 @@ impl Plugin for WgpuRHIPlugin {
 #[cfg(test)]
 mod tests {
     use super::{RhiResource, WgpuRHIPlugin};
-    
+
     use bsengine_app::new_app;
 
     #[test]

@@ -7,18 +7,27 @@ pub struct Handle<T> {
 
 impl<T> Handle<T> {
     pub fn new(id: u64) -> Self {
-        Self { id, _phantom: PhantomData }
+        Self {
+            id,
+            _phantom: PhantomData,
+        }
     }
-    pub fn id(&self) -> u64 { self.id }
+    pub fn id(&self) -> u64 {
+        self.id
+    }
 }
 
 impl<T> PartialEq for Handle<T> {
-    fn eq(&self, other: &Self) -> bool { self.id == other.id }
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 impl<T> Eq for Handle<T> {}
 
 impl<T> Clone for Handle<T> {
-    fn clone(&self) -> Self { Self::new(self.id) }
+    fn clone(&self) -> Self {
+        Self::new(self.id)
+    }
 }
 
 impl<T> std::fmt::Debug for Handle<T> {

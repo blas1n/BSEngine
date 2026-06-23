@@ -15,15 +15,23 @@ fn scene_and_asset_plugins_work_together() {
 
     let mut app = new_app();
     app.add_plugins(AssetPlugin)
-       .add_plugins(ScenePlugin::from_file(&path));
+        .add_plugins(ScenePlugin::from_file(&path));
     app.update();
 
     assert!(app.world().get_resource::<AssetServerResource>().is_some());
 
     let mut q = app.world_mut().query::<&Name>();
     let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
-    assert!(names.contains(&"Hero".to_string()), "Hero missing: {:?}", names);
-    assert!(names.contains(&"Villain".to_string()), "Villain missing: {:?}", names);
+    assert!(
+        names.contains(&"Hero".to_string()),
+        "Hero missing: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Villain".to_string()),
+        "Villain missing: {:?}",
+        names
+    );
 }
 
 #[test]

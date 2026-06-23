@@ -1,8 +1,8 @@
+use bevy_app::Update;
 use bsengine_app::new_app;
 use bsengine_ecs::{ResMut, Resource};
 use bsengine_render::RenderPlugin;
 use bsengine_rhi_wgpu::{RhiResource, WgpuRHIPlugin};
-use bevy_app::Update;
 
 #[derive(Resource, Default)]
 struct FrameCount(u32);
@@ -29,8 +29,7 @@ fn render_pipeline_runs_multiple_frames() {
 #[test]
 fn rhi_resource_accessible_after_plugin() {
     let mut app = new_app();
-    app.add_plugins(WgpuRHIPlugin)
-        .add_plugins(RenderPlugin);
+    app.add_plugins(WgpuRHIPlugin).add_plugins(RenderPlugin);
 
     app.update();
 

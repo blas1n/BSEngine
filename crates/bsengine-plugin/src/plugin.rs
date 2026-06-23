@@ -1,6 +1,6 @@
+use crate::registry::PluginRegistry;
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
-use crate::registry::PluginRegistry;
 
 #[derive(Resource)]
 pub struct PluginRegistryResource(pub PluginRegistry);
@@ -15,14 +15,17 @@ impl Plugin for PluginSystemPlugin {
 
 #[cfg(test)]
 mod tests {
+    use super::{PluginRegistryResource, PluginSystemPlugin};
     use bsengine_app::new_app;
-    use super::{PluginSystemPlugin, PluginRegistryResource};
 
     #[test]
     fn plugin_system_registers_registry() {
         let mut app = new_app();
         app.add_plugins(PluginSystemPlugin);
-        assert!(app.world().get_resource::<PluginRegistryResource>().is_some());
+        assert!(app
+            .world()
+            .get_resource::<PluginRegistryResource>()
+            .is_some());
     }
 
     #[test]

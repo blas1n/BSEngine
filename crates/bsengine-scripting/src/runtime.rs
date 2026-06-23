@@ -54,7 +54,10 @@ mod tests {
         let mut rt = ScriptRuntime::new();
         let result = rt.eval(r#""hello" + " world""#).expect("eval failed");
         // Result may be quoted or unquoted depending on value type
-        assert!(result.contains("hello world"), "Expected 'hello world' in: {result}");
+        assert!(
+            result.contains("hello world"),
+            "Expected 'hello world' in: {result}"
+        );
     }
 
     #[test]

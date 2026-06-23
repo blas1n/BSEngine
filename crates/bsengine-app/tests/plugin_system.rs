@@ -1,7 +1,5 @@
 use bsengine_app::new_app;
-use bsengine_plugin::{
-    PluginDescriptor, PluginLoader, PluginRegistryResource, PluginSystemPlugin,
-};
+use bsengine_plugin::{PluginLoader, PluginRegistryResource, PluginSystemPlugin};
 
 #[test]
 fn full_plugin_system_integration() {
@@ -12,7 +10,8 @@ fn full_plugin_system_integration() {
     std::fs::write(
         plugin_dir.join("plugin.toml"),
         "name = \"integ-plugin\"\nversion = \"1.0.0\"\ndescription = \"Integration test plugin\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut app = new_app();
     app.add_plugins(PluginSystemPlugin);

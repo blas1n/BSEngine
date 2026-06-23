@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::descriptor::PluginDescriptor;
+use std::collections::HashMap;
 
 pub struct PluginRegistry {
     plugins: HashMap<String, PluginDescriptor>,
@@ -7,7 +7,9 @@ pub struct PluginRegistry {
 
 impl PluginRegistry {
     pub fn new() -> Self {
-        Self { plugins: HashMap::new() }
+        Self {
+            plugins: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, desc: PluginDescriptor) {
@@ -24,7 +26,9 @@ impl PluginRegistry {
 }
 
 impl Default for PluginRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

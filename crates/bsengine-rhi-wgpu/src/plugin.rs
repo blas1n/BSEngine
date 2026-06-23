@@ -1,8 +1,8 @@
+use crate::rhi::WgpuRHI;
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
 use bsengine_rhi::RHI;
 use std::sync::Arc;
-use crate::rhi::WgpuRHI;
 
 #[derive(Resource)]
 pub struct RhiResource(pub Arc<dyn RHI>);
@@ -11,17 +11,17 @@ pub struct WgpuRHIPlugin;
 
 impl Plugin for WgpuRHIPlugin {
     fn build(&self, app: &mut App) {
-        let rhi = pollster::block_on(WgpuRHI::new_headless())
-            .expect("Failed to initialize WgpuRHI");
+        let rhi =
+            pollster::block_on(WgpuRHI::new_headless()).expect("Failed to initialize WgpuRHI");
         app.insert_resource(RhiResource(Arc::new(rhi)));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bsengine_app::new_app;
     use super::{RhiResource, WgpuRHIPlugin};
-    use bevy_app::Plugin;
+    
+    use bsengine_app::new_app;
 
     #[test]
     fn wgpu_rhi_plugin_registers_rhi_resource() {

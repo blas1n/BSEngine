@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde_json::Value;
 use crate::tool::{McpTool, McpToolOutput};
+use serde_json::Value;
+use std::collections::HashMap;
 
 pub struct McpToolRegistry {
     tools: HashMap<String, McpTool>,
@@ -8,7 +8,9 @@ pub struct McpToolRegistry {
 
 impl McpToolRegistry {
     pub fn new() -> Self {
-        Self { tools: HashMap::new() }
+        Self {
+            tools: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, tool: McpTool) {
@@ -20,21 +22,25 @@ impl McpToolRegistry {
     }
 
     pub fn execute(&self, name: &str, input: Value) -> Result<McpToolOutput, String> {
-        let tool = self.tools.get(name)
+        let tool = self
+            .tools
+            .get(name)
             .ok_or_else(|| format!("Tool '{name}' not found"))?;
         Ok((tool.handler)(input))
     }
 }
 
 impl Default for McpToolRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::tool::{McpTool, McpToolOutput};
+    use serde_json::json;
 
     fn make_echo_tool() -> McpTool {
         McpTool {

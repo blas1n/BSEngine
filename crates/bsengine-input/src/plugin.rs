@@ -1,5 +1,5 @@
-use bevy_app::{App, Plugin};
 use crate::types::{CursorMoved, KeyInput, MouseInput};
+use bevy_app::{App, Plugin};
 
 pub struct InputPlugin;
 
@@ -13,9 +13,9 @@ impl Plugin for InputPlugin {
 
 #[cfg(test)]
 mod tests {
-    use bsengine_app::new_app;
+    use crate::{CursorMoved, InputPlugin, KeyInput, MouseInput};
     use bevy_ecs::event::Events;
-    use crate::{InputPlugin, KeyInput, MouseInput, CursorMoved};
+    use bsengine_app::new_app;
 
     #[test]
     fn input_plugin_registers_key_events() {

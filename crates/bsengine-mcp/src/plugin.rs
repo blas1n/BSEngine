@@ -1,8 +1,8 @@
+use crate::registry::McpToolRegistry;
+use crate::tool::{McpTool, McpToolOutput};
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
 use serde_json::json;
-use crate::registry::McpToolRegistry;
-use crate::tool::{McpTool, McpToolOutput};
 
 #[derive(Resource)]
 pub struct McpRegistryResource(pub McpToolRegistry);
@@ -40,9 +40,9 @@ impl Plugin for McpPlugin {
 
 #[cfg(test)]
 mod tests {
+    use super::{McpPlugin, McpRegistryResource};
     use bsengine_app::new_app;
     use serde_json::json;
-    use super::{McpPlugin, McpRegistryResource};
 
     #[test]
     fn mcp_plugin_registers_registry() {
@@ -56,7 +56,9 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
         let reg = &app.world().resource::<McpRegistryResource>().0;
-        let result = reg.execute("get_world_state", json!({})).expect("tool not found");
+        let result = reg
+            .execute("get_world_state", json!({}))
+            .expect("tool not found");
         assert!(result.is_ok());
         assert!(result.content.get("entity_count").is_some());
     }
@@ -66,7 +68,9 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
         let reg = &app.world().resource::<McpRegistryResource>().0;
-        let result = reg.execute("list_plugins", json!({})).expect("tool not found");
+        let result = reg
+            .execute("list_plugins", json!({}))
+            .expect("tool not found");
         assert!(result.is_ok());
         assert!(result.content.get("plugins").is_some());
     }

@@ -8,7 +8,9 @@ pub struct AssetServer {
 
 impl AssetServer {
     pub fn new() -> Self {
-        Self { cache: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            cache: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn load_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
@@ -16,15 +18,16 @@ impl AssetServer {
         if let Some(cached) = cache.get(path) {
             return Ok(cached.clone());
         }
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("Failed to load {path}: {e}"))?;
+        let bytes = std::fs::read(path).map_err(|e| format!("Failed to load {path}: {e}"))?;
         cache.insert(path.to_string(), bytes.clone());
         Ok(bytes)
     }
 }
 
 impl Default for AssetServer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

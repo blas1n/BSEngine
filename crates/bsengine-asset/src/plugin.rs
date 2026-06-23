@@ -1,6 +1,6 @@
+use crate::server::AssetServer;
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
-use crate::server::AssetServer;
 
 #[derive(Resource, Clone)]
 pub struct AssetServerResource(pub AssetServer);
@@ -15,8 +15,8 @@ impl Plugin for AssetPlugin {
 
 #[cfg(test)]
 mod tests {
-    use bsengine_app::new_app;
     use super::{AssetPlugin, AssetServerResource};
+    use bsengine_app::new_app;
 
     #[test]
     fn asset_plugin_registers_server_resource() {

@@ -1,5 +1,5 @@
-use bevy_app::{App, Plugin};
 use crate::runtime::ScriptRuntime;
+use bevy_app::{App, Plugin};
 
 pub struct ScriptRuntimeResource(pub ScriptRuntime);
 
@@ -7,22 +7,23 @@ pub struct ScriptingPlugin;
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_non_send_resource(ScriptRuntimeResource(
-            ScriptRuntime::new_with_ops(),
-        ));
+        app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{ScriptRuntimeResource, ScriptingPlugin};
     use bsengine_app::new_app;
-    use super::{ScriptingPlugin, ScriptRuntimeResource};
 
     #[test]
     fn scripting_plugin_registers_runtime() {
         let mut app = new_app();
         app.add_plugins(ScriptingPlugin);
-        assert!(app.world().get_non_send_resource::<ScriptRuntimeResource>().is_some());
+        assert!(app
+            .world()
+            .get_non_send_resource::<ScriptRuntimeResource>()
+            .is_some());
     }
 
     #[test]

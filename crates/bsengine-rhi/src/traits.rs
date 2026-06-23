@@ -14,9 +14,15 @@ mod tests {
 
     struct MockRHI;
     impl RHI for MockRHI {
-        fn create_mesh(&self) -> Box<dyn RHIMesh> { Box::new(MockMesh) }
-        fn create_shader(&self, _src: &str) -> Box<dyn RHIShader> { Box::new(MockShader) }
-        fn create_texture(&self) -> Box<dyn RHITexture> { Box::new(MockTexture) }
+        fn create_mesh(&self) -> Box<dyn RHIMesh> {
+            Box::new(MockMesh)
+        }
+        fn create_shader(&self, _src: &str) -> Box<dyn RHIShader> {
+            Box::new(MockShader)
+        }
+        fn create_texture(&self) -> Box<dyn RHITexture> {
+            Box::new(MockTexture)
+        }
     }
 
     struct MockMesh;

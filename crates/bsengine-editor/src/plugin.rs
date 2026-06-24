@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_count_by_tag
+            let snap_gectag = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_count_by_tag".to_string(),
+                description: "Return the number of entities that have a specific tag".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_gectag.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.contains(&tag)).count() as u64;
+                    McpToolOutput::success(json!({"tag": tag, "count": count}))
+                }),
+            });
+
+            // get_selected_entity_names
+            let snap_gsen = snapshot.clone();
+            let sel_gsen = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selected_entity_names".to_string(),
+                description: "Return the names of all currently selected entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsen.lock().unwrap();
+                    let sel = sel_gsen.lock().unwrap();
+                    let names: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| sel.contains(&e.id))
+                        .map(|e| json!(e.name.as_deref().unwrap_or("")))
+                        .collect();
+                    McpToolOutput::success(json!({"names": names}))
+                }),
+            });
+
             // get_visible_entity_count
             let snap_gvec = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5684,6 +5725,162 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_count_by_tag_returns_matching_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "TagA1"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "TagA2"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "NoTag"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (a1, a2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let e1 = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagA1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let e2 = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagA2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (e1, e2)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": a1, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": a2, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_count_by_tag", json!({"tag": "enemy"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let count = out.content["count"].as_u64().unwrap();
+        assert_eq!(count, 2, "2 entities tagged enemy");
+
+        let out_none = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_count_by_tag", json!({"tag": "boss"}))
+            .unwrap();
+        assert_eq!(
+            out_none.content["count"].as_u64().unwrap(),
+            0,
+            "no boss-tagged entities"
+        );
+    }
+
+    #[test]
+    fn mcp_get_selected_entity_names_returns_names_of_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "SelName1"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "SelName2"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Unselected"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (sn1, sn2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let e1 = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SelName1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let e2 = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SelName2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (e1, e2)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": sn1}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": sn2}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selected_entity_names", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n.as_str())
+            .collect();
+        assert!(names.contains(&"SelName1"), "SelName1 in selection names");
+        assert!(names.contains(&"SelName2"), "SelName2 in selection names");
+        assert!(!names.contains(&"Unselected"), "Unselected not in names");
     }
 
     #[test]

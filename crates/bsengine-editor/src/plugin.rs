@@ -678,6 +678,27 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // get_scene_stats
+            let snap_stats = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_stats".to_string(),
+                description: "Return aggregate counts for the current scene".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let s = snap_stats.lock().unwrap();
+                    let total = s.entities.len();
+                    let light_count = s.entities.iter().filter(|e| e.light_type.is_some()).count();
+                    let mesh_count = s.entities.iter().filter(|e| e.mesh_id.is_some()).count();
+                    let named_count = s.entities.iter().filter(|e| e.name.is_some()).count();
+                    McpToolOutput::success(json!({
+                        "total_entities": total,
+                        "light_count": light_count,
+                        "mesh_count": mesh_count,
+                        "named_count": named_count,
+                    }))
+                }),
+            });
         }
     }
 }
@@ -979,6 +1000,31 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_get_scene_stats_returns_counts() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn(bsengine_scene::Name("A".to_string()));
+        app.world_mut().spawn(bsengine_core::PointLight::default());
+        app.world_mut()
+            .spawn(bsengine_render::MeshRenderer { mesh_id: 1 });
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_stats", json!({}))
+            .expect("get_scene_stats not found");
+        assert!(result.is_ok(), "{:?}", result.error);
+        assert_eq!(result.content["total_entities"], 3);
+        assert_eq!(result.content["light_count"], 1);
+        assert_eq!(result.content["mesh_count"], 1);
+        assert_eq!(result.content["named_count"], 1);
     }
 
     #[test]

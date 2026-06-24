@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_light_range
+            let snap_gesrange = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_light_range".to_string(),
+                description: "Return all light entities sorted by range ascending".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesrange.lock().unwrap();
+                    let mut lights: Vec<&crate::snapshot::EntityInfo> = s.entities.iter()
+                        .filter(|e| e.light_range.is_some())
+                        .collect();
+                    lights.sort_by(|a, b| {
+                        let ar = a.light_range.unwrap_or(0.0);
+                        let br = b.light_range.unwrap_or(0.0);
+                        ar.partial_cmp(&br).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let entities: Vec<serde_json::Value> = lights.iter()
+                        .map(|e| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "light_range": e.light_range}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_grouped_by_light_type
+            let snap_geglt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_grouped_by_light_type".to_string(),
+                description: "Return a map of light_type → list of entity IDs".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_geglt.lock().unwrap();
+                    let mut groups: std::collections::HashMap<String, Vec<u64>> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(lt) = &e.light_type {
+                            groups.entry(lt.clone()).or_default().push(e.id);
+                        }
+                    }
+                    let groups_json: serde_json::Map<String, serde_json::Value> = groups
+                        .into_iter()
+                        .map(|(k, v)| {
+                            (
+                                k,
+                                serde_json::Value::Array(
+                                    v.into_iter().map(|id| json!(id)).collect(),
+                                ),
+                            )
+                        })
+                        .collect();
+                    McpToolOutput::success(
+                        json!({"groups": serde_json::Value::Object(groups_json)}),
+                    )
+                }),
+            });
+
             // get_entities_with_all_of_tags
             let snap_gewaalt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7823,6 +7878,80 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_light_range_returns_lights_in_ascending_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 30.0, "position": [2.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 20.0, "position": [1.0,0.0,0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_light_range", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 3);
+        let ranges: Vec<f64> = ents
+            .iter()
+            .map(|e| e["light_range"].as_f64().unwrap())
+            .collect();
+        assert!(
+            ranges[0] <= ranges[1] && ranges[1] <= ranges[2],
+            "sorted ascending by range"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_grouped_by_light_type_returns_map_of_type_to_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_directional_light", json!({"direction": [0.0,-1.0,0.0], "color": [1.0,1.0,1.0], "ambient": [0.1,0.1,0.1]})).unwrap();
+            m.execute("spawn_spot_light", json!({"color": [1.0,1.0,1.0], "intensity": 200.0, "range": 15.0, "inner_angle": 10.0, "outer_angle": 25.0, "position": [1.0,5.0,0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_grouped_by_light_type", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let groups = &out.content["groups"];
+        assert_eq!(
+            groups["point"].as_array().unwrap().len(),
+            1,
+            "1 point light"
+        );
+        assert_eq!(
+            groups["directional"].as_array().unwrap().len(),
+            1,
+            "1 directional light"
+        );
+        assert_eq!(groups["spot"].as_array().unwrap().len(), 1, "1 spot light");
     }
 
     #[test]

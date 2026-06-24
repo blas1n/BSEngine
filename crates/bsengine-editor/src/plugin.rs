@@ -1647,6 +1647,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_scale
+            let snap_gews = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale".to_string(),
+                description: "Return all entities that have an explicit scale set".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gews.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.scale.is_some())
+                        .map(|e| json!({"id": e.id, "name": e.name, "scale": e.scale}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_rotation
+            let snap_gewr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation".to_string(),
+                description: "Return all entities that have an explicit rotation set".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.rotation.is_some())
+                        .map(|e| json!({"id": e.id, "name": e.name, "rotation": e.rotation}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_position
             let snap_gewpos = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7237,6 +7273,130 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_scale_returns_entities_with_explicit_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "HasPos", "position": [0.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+            m.execute("spawn_entity", json!({"name": "NoPos"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let has_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasPos"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": has_id, "sx": 2.0, "sy": 2.0, "sz": 2.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_scale", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only HasPos has an explicit scale");
+        assert_eq!(ents[0]["name"].as_str(), Some("HasPos"));
+    }
+
+    #[test]
+    fn mcp_get_entities_with_rotation_returns_entities_with_explicit_rotation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "HasPos", "position": [0.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+            m.execute("spawn_entity", json!({"name": "NoPos"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let has_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasPos"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": has_id, "rx": 45.0, "ry": 0.0, "rz": 0.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_rotation", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only HasPos has an explicit rotation");
+        assert_eq!(ents[0]["name"].as_str(), Some("HasPos"));
     }
 
     #[test]

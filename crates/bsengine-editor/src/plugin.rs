@@ -1647,6 +1647,60 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_non_default_rotation
+            let snap_gewndr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_non_default_rotation".to_string(),
+                description: "Return entities whose rotation is not (0,0,0) — any component differs from zero by more than 0.001 degrees".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewndr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| {
+                            e.rotation.map(|r| {
+                                r[0].abs() > 0.001 || r[1].abs() > 0.001 || r[2].abs() > 0.001
+                            }).unwrap_or(false)
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name, "rotation": e.rotation}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_matching_regex
+            let snap_gemr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_matching_regex".to_string(),
+                description: "Return entities whose name matches a simple pattern: '^x' = starts with, 'x$' = ends with, '^x$' = exact, otherwise contains".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "pattern": { "type": "string" } },
+                    "required": ["pattern"]
+                })),
+                handler: Box::new(move |input| {
+                    let pattern = input["pattern"].as_str().unwrap_or("").to_string();
+                    let anchored_start = pattern.starts_with('^');
+                    let anchored_end = pattern.ends_with('$') && pattern.len() > 1;
+                    let core = pattern
+                        .trim_start_matches('^')
+                        .trim_end_matches('$');
+                    let s = snap_gemr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| {
+                            let name = e.name.as_deref().unwrap_or("");
+                            match (anchored_start, anchored_end) {
+                                (true, true) => name == core,
+                                (true, false) => name.starts_with(core),
+                                (false, true) => name.ends_with(core),
+                                (false, false) => name.contains(core),
+                            }
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_light_count_by_type
             let snap_glcbt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8772,6 +8826,115 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_non_default_rotation_returns_rotated_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "Rotated", "position": [0.0, 0.0, 0.0]},
+                            {"name": "Default", "position": [1.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (rot_id, def_id) = (id_of("Rotated"), id_of("Default"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": rot_id, "rx": 0.0, "ry": 45.0, "rz": 0.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_non_default_rotation", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&rot_id), "Rotated (ry=45) included");
+        assert!(!ids.contains(&def_id), "Default (0,0,0) excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_matching_regex_filters_by_name_pattern() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Enemy_Goblin"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Enemy_Orc"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Player"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_matching_regex", json!({"pattern": "^Enemy_"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 2, "two enemies matched");
+        let names: Vec<&str> = ents.iter().map(|e| e["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"Enemy_Goblin"));
+        assert!(names.contains(&"Enemy_Orc"));
+        assert!(!names.contains(&"Player"));
     }
 
     #[test]

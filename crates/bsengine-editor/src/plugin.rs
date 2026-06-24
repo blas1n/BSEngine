@@ -27,12 +27,8 @@ fn update_editor_snapshot(
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
-        .map(|(e, name, transform, mesh, pt, dir, spot)| EntityInfo {
-            id: e.index() as u64,
-            name: name.map(|n| n.0.clone()),
-            position: transform.map(|t| t.translation.to_array()),
-            mesh_id: mesh.map(|m| m.mesh_id),
-            light_type: if pt.is_some() {
+        .map(|(e, name, transform, mesh, pt, dir, spot)| {
+            let light_type = if pt.is_some() {
                 Some("point".to_string())
             } else if dir.is_some() {
                 Some("directional".to_string())
@@ -40,7 +36,25 @@ fn update_editor_snapshot(
                 Some("spot".to_string())
             } else {
                 None
-            },
+            };
+            let light_color = pt
+                .map(|l| l.color.to_array())
+                .or_else(|| dir.map(|l| l.color.to_array()))
+                .or_else(|| spot.map(|l| l.color.to_array()));
+            let light_intensity = pt
+                .map(|l| l.intensity)
+                .or_else(|| spot.map(|l| l.intensity));
+            let light_range = pt.map(|l| l.range).or_else(|| spot.map(|l| l.range));
+            EntityInfo {
+                id: e.index() as u64,
+                name: name.map(|n| n.0.clone()),
+                position: transform.map(|t| t.translation.to_array()),
+                mesh_id: mesh.map(|m| m.mesh_id),
+                light_type,
+                light_color,
+                light_intensity,
+                light_range,
+            }
         })
         .collect();
 }
@@ -302,6 +316,9 @@ impl Plugin for EditorPlugin {
                             "position": e.position,
                             "mesh_id": e.mesh_id,
                             "light_type": e.light_type,
+                            "light_color": e.light_color,
+                            "light_intensity": e.light_intensity,
+                            "light_range": e.light_range,
                         })).collect::<Vec<_>>()
                     }))
                 }),
@@ -330,6 +347,9 @@ impl Plugin for EditorPlugin {
                             "position": e.position,
                             "mesh_id": e.mesh_id,
                             "light_type": e.light_type,
+                            "light_color": e.light_color,
+                            "light_intensity": e.light_intensity,
+                            "light_range": e.light_range,
                         })),
                         None => McpToolOutput::error("entity not found"),
                     }
@@ -1209,6 +1229,65 @@ mod tests {
         assert!(
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
+        );
+    }
+
+    #[test]
+    fn list_entities_includes_light_props_for_point_light() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn(bsengine_core::PointLight {
+            color: glam::Vec3::new(0.5, 0.5, 0.5),
+            intensity: 3.5,
+            range: 12.0,
+        });
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap();
+        let e = &result.content["entities"].as_array().unwrap()[0];
+        assert!((e["light_intensity"].as_f64().unwrap() - 3.5).abs() < 1e-3);
+        assert!((e["light_range"].as_f64().unwrap() - 12.0).abs() < 1e-3);
+        let color = e["light_color"].as_array().unwrap();
+        assert!((color[0].as_f64().unwrap() - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn get_entity_includes_light_props_for_directional_light() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_core::DirectionalLight {
+                color: glam::Vec3::new(0.8, 0.8, 0.8),
+                ..Default::default()
+            })
+            .id();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .unwrap();
+        let color = result.content["light_color"].as_array().unwrap();
+        assert!((color[0].as_f64().unwrap() - 0.8).abs() < 1e-3);
+        assert!(
+            result.content["light_intensity"].is_null(),
+            "directional has no intensity"
+        );
+        assert!(
+            result.content["light_range"].is_null(),
+            "directional has no range"
         );
     }
 

@@ -8,7 +8,7 @@ pub mod transform;
 
 pub use camera::Camera;
 pub use global_transform::GlobalTransform;
-pub use light::{DirectionalLight, PointLight};
+pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;
 pub use material::Material;
 pub use parent::Parent;

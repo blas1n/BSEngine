@@ -1,11 +1,12 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, Without};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, Material, Parent, PointLight, Transform,
+    Camera, DirectionalLight, GlobalTransform, Material, Parent, PointLight, SpotLight, Transform,
 };
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{
-    GpuMeshRegistry, GpuTextureRegistry, LightData, PointLightEntry, WgpuSurfaceResource,
+    GpuMeshRegistry, GpuTextureRegistry, LightData, PointLightEntry, SpotLightEntry,
+    WgpuSurfaceResource,
 };
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3};
@@ -90,6 +91,7 @@ fn render_frame(
     )>,
     light_query: Query<&DirectionalLight>,
     point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
+    spot_light_query: Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
 ) {
     let (Some(surface), Some(registry)) = (surface, registry) else {
         return;
@@ -138,16 +140,39 @@ fn render_frame(
         })
         .collect();
 
+    let collected_spot_lights: Vec<SpotLightEntry> = spot_light_query
+        .iter()
+        .map(|(sl, gt, t)| {
+            let pos = gt
+                .map(|g| g.to_matrix().w_axis.truncate())
+                .unwrap_or(t.translation);
+            let dir = gt
+                .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
+                .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
+            SpotLightEntry {
+                position: pos,
+                direction: dir,
+                color: sl.color,
+                intensity: sl.intensity,
+                range: sl.range,
+                inner_angle: sl.inner_angle,
+                outer_angle: sl.outer_angle,
+            }
+        })
+        .collect();
+
     let light = if let Some(l) = light_query.iter().next() {
         LightData {
             direction: l.direction,
             color: l.color,
             ambient: l.ambient,
             point_lights: collected_point_lights,
+            spot_lights: collected_spot_lights,
         }
     } else {
         LightData {
             point_lights: collected_point_lights,
+            spot_lights: collected_spot_lights,
             ..Default::default()
         }
     };
@@ -244,6 +269,24 @@ mod tests {
                 range: 5.0,
             },
             Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
+        ));
+        app.update();
+    }
+
+    #[test]
+    fn render_plugin_accepts_spot_lights() {
+        use bsengine_core::SpotLight;
+        let mut app = new_app();
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut().spawn((
+            SpotLight {
+                color: Vec3::new(0.9, 0.9, 1.0),
+                intensity: 3.0,
+                range: 12.0,
+                ..Default::default()
+            },
+            Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
         ));
         app.update();
     }

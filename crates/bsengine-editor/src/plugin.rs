@@ -172,6 +172,12 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::RenameEntity { entity_id, name } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).insert(Name(name));
+                }
+            }
             EditorCommand::LoadScene(path) => {
                 let content = match std::fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -642,6 +648,36 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // rename_entity
+            let queue12 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "rename_entity".to_string(),
+                description: "Rename an entity by ID (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" },
+                        "name":      { "type": "string", "description": "New name" }
+                    },
+                    "required": ["entity_id", "name"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    let name = match input["name"].as_str() {
+                        Some(n) => n.to_string(),
+                        None => return McpToolOutput::error("missing string 'name' field"),
+                    };
+                    queue12
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::RenameEntity { entity_id, name });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -943,6 +979,51 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_rename_entity_changes_name() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("OldName".to_string()))
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "rename_entity",
+                    json!({"entity_id": eid.index() as u64, "name": "NewName"}),
+                )
+                .expect("rename_entity not found");
+        }
+        app.update(); // process_editor_commands renames
+        app.update(); // update_editor_snapshot captures new name
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let names: Vec<_> = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|e| e["name"].as_str())
+                .collect();
+            assert!(names.contains(&"NewName"), "NewName not found: {:?}", names);
+            assert!(!names.contains(&"OldName"), "OldName still present");
+        }
     }
 
     #[test]

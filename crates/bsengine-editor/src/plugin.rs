@@ -1647,6 +1647,82 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // mirror_entity
+            let snap_mir = snapshot.clone();
+            let queue_mir = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "mirror_entity".to_string(),
+                description: "Negate the entity's position along the given axis (x, y, or z), applied next frame".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "axis": { "type": "string", "enum": ["x", "y", "z"] }
+                    },
+                    "required": ["entity_id", "axis"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let axis = match input["axis"].as_str() {
+                        Some(a) => a.to_string(),
+                        None => return McpToolOutput::error("missing axis"),
+                    };
+                    let s = snap_mir.lock().unwrap();
+                    let pos = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => match e.position {
+                            Some(p) => p,
+                            None => return McpToolOutput::error("entity has no position"),
+                        },
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    drop(s);
+                    let mirrored = match axis.as_str() {
+                        "x" => [-pos[0], pos[1], pos[2]],
+                        "y" => [pos[0], -pos[1], pos[2]],
+                        "z" => [pos[0], pos[1], -pos[2]],
+                        _ => return McpToolOutput::error("axis must be x, y, or z"),
+                    };
+                    queue_mir.lock().unwrap().push(EditorCommand::SetEntityTransform {
+                        entity_id,
+                        position: Some(mirrored),
+                        rotation: None,
+                        scale: None,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "mirrored_position": mirrored}))
+                }),
+            });
+
+            // get_entity_children_count
+            let snap_gcc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_children_count".to_string(),
+                description: "Return the number of direct children of an entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gcc.lock().unwrap();
+                    if s.entities.iter().find(|e| e.id == entity_id).is_none() {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id == Some(entity_id))
+                        .count();
+                    McpToolOutput::success(json!({"count": count, "entity_id": entity_id}))
+                }),
+            });
+
             // select_entities_in_range
             let snap_sir = snapshot.clone();
             let sel_sir = selection.clone();
@@ -3199,6 +3275,175 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_mirror_entity_flips_position_on_axis() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "MirrorMe", "position": [3.0, 5.0, 7.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("MirrorMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "mirror_entity",
+                    json!({"entity_id": entity_id, "axis": "x"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let e = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let pos = &e.content["entity"]["position"];
+        assert!(
+            (pos[0].as_f64().unwrap() - (-3.0)).abs() < 1e-4,
+            "x should be negated"
+        );
+        assert!((pos[1].as_f64().unwrap() - 5.0).abs() < 1e-4, "y unchanged");
+        assert!((pos[2].as_f64().unwrap() - 7.0).abs() < 1e-4, "z unchanged");
+    }
+
+    #[test]
+    fn mcp_get_entity_children_count_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "CCParent"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let parent_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CCParent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "CCChild1"}))
+                .unwrap();
+            mcp.execute("spawn_entity", json!({"name": "CCChild2"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (c1_id, c2_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let c1 = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CCChild1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c2 = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CCChild2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (c1, c2)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute(
+                "set_parent",
+                json!({"entity_id": c1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            mcp.execute(
+                "set_parent",
+                json!({"entity_id": c2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mcp = mcp.0.lock().unwrap();
+
+        let out = mcp
+            .execute("get_entity_children_count", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert_eq!(out.content["count"], 2, "parent should have 2 children");
+
+        let leaf = mcp
+            .execute("get_entity_children_count", json!({"entity_id": c1_id}))
+            .unwrap();
+        assert_eq!(leaf.content["count"], 0, "child should have 0 children");
     }
 
     #[test]

@@ -25,6 +25,13 @@ pub enum EditorCommand {
         entity_id: u64,
     },
     LoadScene(String),
+    AttachMeshRenderer {
+        entity_id: u64,
+        mesh_id: u64,
+    },
+    DetachMeshRenderer {
+        entity_id: u64,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

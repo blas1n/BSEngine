@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_untagged_entities
+            let snap_sue = snapshot.clone();
+            let sel_sue = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_untagged_entities".to_string(),
+                description: "Add all entities that have no tags to the selection".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sue.lock().unwrap();
+                    let mut sel = sel_sue.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter().filter(|e| e.tags.is_empty()) {
+                        sel.insert(e.id);
+                        count += 1;
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // get_entities_sorted_by_y
+            let snap_gesby = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_y".to_string(),
+                description: "Return all entities sorted by Y position (ascending), entities without position come last".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesby.lock().unwrap();
+                    let mut with_pos: Vec<(&crate::snapshot::EntityInfo, f32)> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, ey, _]| (e, ey)))
+                        .collect();
+                    with_pos.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    let entities: Vec<serde_json::Value> = with_pos.iter()
+                        .map(|(e, ey)| json!({"id": e.id, "name": e.name, "position": [e.position.map(|p| p[0]).unwrap_or(0.0), ey, e.position.map(|p| p[2]).unwrap_or(0.0)]}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_below_y
             let snap_geby = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6213,6 +6251,140 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_untagged_entities_selects_only_untagged() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Untagged1"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Untagged2"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Tagged"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let tagged_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Tagged"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": tagged_id, "tag": "role"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_untagged_entities", json!({}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected_ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(
+            !selected_ids.contains(&tagged_id),
+            "tagged entity not selected"
+        );
+        assert!(
+            selected_ids.len() >= 2,
+            "at least 2 untagged entities selected"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_y_returns_ascending_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SortC", "position": [0.0, 10.0, 0.0]},
+                        {"name": "SortA", "position": [0.0, 1.0, 0.0]},
+                        {"name": "SortB", "position": [0.0, 5.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_y", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let positions: Vec<f64> = entities
+            .iter()
+            .filter_map(|e| e["position"][1].as_f64())
+            .collect();
+        // verify ascending order
+        for i in 1..positions.len() {
+            assert!(
+                positions[i] >= positions[i - 1],
+                "entities sorted ascending by Y"
+            );
+        }
+        // SortA (1) should come before SortC (10)
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        let a_pos = names
+            .iter()
+            .position(|&n| n == "SortA")
+            .unwrap_or(usize::MAX);
+        let c_pos = names
+            .iter()
+            .position(|&n| n == "SortC")
+            .unwrap_or(usize::MAX);
+        assert!(a_pos < c_pos, "SortA (y=1) before SortC (y=10)");
     }
 
     #[test]

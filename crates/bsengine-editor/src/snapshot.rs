@@ -7,6 +7,7 @@ pub struct EntityInfo {
     pub name: Option<String>,
     pub position: Option<[f32; 3]>,
     pub mesh_id: Option<u64>,
+    pub light_type: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -75,6 +76,7 @@ mod tests {
             name: Some("Player".to_string()),
             position: Some([1.0, 2.0, 3.0]),
             mesh_id: None,
+            light_type: None,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -87,6 +89,7 @@ mod tests {
             id: 1,
             name: None,
             mesh_id: None,
+            light_type: None,
             position: None,
         };
         assert!(e.position.is_none());

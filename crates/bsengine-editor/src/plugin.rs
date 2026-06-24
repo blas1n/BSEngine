@@ -1286,6 +1286,56 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // get_components
+            let snap_comp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_components".to_string(),
+                description: "List which components are attached to a specific entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let snapshot = snap_comp.lock().unwrap();
+                    let info = snapshot.entities.iter().find(|e| e.id == entity_id);
+                    match info {
+                        None => McpToolOutput::error("entity not found"),
+                        Some(e) => {
+                            let mut components: Vec<&str> = Vec::new();
+                            if e.name.is_some() {
+                                components.push("Name");
+                            }
+                            if e.position.is_some() {
+                                components.push("Transform");
+                            }
+                            if e.mesh_id.is_some() {
+                                components.push("MeshRenderer");
+                            }
+                            if e.light_type.as_deref() == Some("point") {
+                                components.push("PointLight");
+                            } else if e.light_type.as_deref() == Some("directional") {
+                                components.push("DirectionalLight");
+                            } else if e.light_type.as_deref() == Some("spot") {
+                                components.push("SpotLight");
+                            }
+                            if e.camera_fov.is_some() {
+                                components.push("Camera");
+                            }
+                            McpToolOutput::success(
+                                json!({"entity_id": entity_id, "components": components}),
+                            )
+                        }
+                    }
+                }),
+            });
         }
     }
 }
@@ -1587,6 +1637,64 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_get_components_returns_component_list() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn camera (has Name, Transform, Camera)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["camera_fov"].is_number())
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_components", json!({"entity_id": entity_id}))
+                .unwrap();
+            assert!(result.is_ok());
+            let comps: Vec<String> = result.content["components"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
+            assert!(comps.contains(&"Transform".to_string()));
+            assert!(comps.contains(&"Camera".to_string()));
+        }
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{EventReader, Query};
-use bsengine_core::{Camera, DirectionalLight, Transform};
+use bsengine_core::{Camera, DirectionalLight, Material, Transform};
 use bsengine_ecs::Res;
-use bsengine_rhi_wgpu::{GpuMeshRegistry, LightData, WgpuSurfaceResource};
+use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry, LightData, WgpuSurfaceResource};
 use bsengine_window::WindowResized;
 use glam::Mat4;
 
@@ -11,8 +11,9 @@ use crate::components::MeshRenderer;
 fn render_frame(
     surface: Option<Res<WgpuSurfaceResource>>,
     registry: Option<Res<GpuMeshRegistry>>,
+    tex_registry: Option<Res<GpuTextureRegistry>>,
     camera_query: Query<(&Camera, &Transform)>,
-    mesh_query: Query<(&MeshRenderer, &Transform)>,
+    mesh_query: Query<(&MeshRenderer, &Transform, Option<&Material>)>,
     light_query: Query<&DirectionalLight>,
 ) {
     let (Some(surface), Some(registry)) = (surface, registry) else {
@@ -25,9 +26,12 @@ fn render_frame(
         .map(|(cam, t)| cam.projection_matrix() * t.view_matrix())
         .unwrap_or(Mat4::IDENTITY);
 
-    let draw_calls: Vec<(u64, Mat4)> = mesh_query
+    let draw_calls: Vec<(u64, Mat4, Option<u64>)> = mesh_query
         .iter()
-        .map(|(mr, t)| (mr.mesh_id, t.to_matrix()))
+        .map(|(mr, t, mat)| {
+            let tex_id = mat.and_then(|m| m.texture_id);
+            (mr.mesh_id, t.to_matrix(), tex_id)
+        })
         .collect();
 
     let light = light_query
@@ -40,9 +44,11 @@ fn render_frame(
         })
         .unwrap_or_default();
 
+    let tex_reg_ref = tex_registry.as_deref();
+
     if let Err(e) = surface
         .0
-        .render_frame(view_proj, &draw_calls, &registry, light)
+        .render_frame(view_proj, &draw_calls, &registry, light, tex_reg_ref)
     {
         tracing::warn!("render_frame error: {e}");
     }

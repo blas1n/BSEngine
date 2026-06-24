@@ -471,9 +471,10 @@ impl WgpuSurface {
     pub fn render_frame(
         &self,
         view_proj: Mat4,
-        draw_calls: &[(u64, Mat4)],
+        draw_calls: &[(u64, Mat4, Option<u64>)],
         registry: &GpuMeshRegistry,
         light: LightData,
+        tex_registry: Option<&crate::texture::GpuTextureRegistry>,
     ) -> Result<(), String> {
         let camera_data: [[f32; 4]; 4] = view_proj.to_cols_array_2d();
         self.queue
@@ -490,7 +491,7 @@ impl WgpuSurface {
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));
 
-        for (i, (_, model)) in draw_calls.iter().enumerate() {
+        for (i, (_, model, _)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
             }
@@ -545,17 +546,20 @@ impl WgpuSurface {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
-            pass.set_bind_group(3, &self.default_texture_bind_group, &[]);
 
-            for (i, (mesh_id, _)) in draw_calls.iter().enumerate() {
+            for (i, (mesh_id, _, tex_id)) in draw_calls.iter().enumerate() {
                 if i >= MAX_OBJECTS {
                     break;
                 }
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
+                let tex_bg = tex_id
+                    .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
+                    .unwrap_or(&self.default_texture_bind_group);
                 let offset = (i as u64 * MODEL_STRIDE) as u32;
                 pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                pass.set_bind_group(3, tex_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);

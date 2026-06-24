@@ -67,6 +67,7 @@ pub enum EditorCommand {
         entity_id: u64,
         name: String,
     },
+    ClearScene,
     SpawnSpotLight {
         color: [f32; 3],
         intensity: f32,

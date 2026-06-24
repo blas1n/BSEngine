@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_tag
+            let snap_gewt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag".to_string(),
+                description: "Return all entities that have the specified tag".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_gewt.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.iter().any(|t| t == &tag))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // count_entities
+            let snap_ce = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities".to_string(),
+                description: "Return the total number of entities in the scene".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_ce.lock().unwrap();
+                    McpToolOutput::success(json!({"count": s.entities.len()}))
+                }),
+            });
+
             // get_hidden_entities
             let snap_ghe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3682,6 +3720,147 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_with_tag_filters_by_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "TaggedA"},
+                    {"name": "TaggedB"},
+                    {"name": "Untagged"}
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (tagged_a_id, tagged_b_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TaggedA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TaggedB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "tag_entity",
+                json!({"entity_id": tagged_a_id, "tag": "enemy"}),
+            )
+            .unwrap();
+        }
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "tag_entity",
+                json!({"entity_id": tagged_b_id, "tag": "enemy"}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_tag", json!({"tag": "enemy"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&tagged_a_id), "TaggedA should have enemy tag");
+        assert!(ids.contains(&tagged_b_id), "TaggedB should have enemy tag");
+        assert_eq!(ids.len(), 2, "exactly 2 entities with enemy tag");
+    }
+
+    #[test]
+    fn mcp_count_entities_returns_total() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let before = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("count_entities", json!({}))
+                .unwrap()
+                .content["count"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "CntA"}, {"name": "CntB"}, {"name": "CntC"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let after = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities", json!({}))
+            .unwrap()
+            .content["count"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(
+            after,
+            before + 3,
+            "count should increase by 3 after batch_spawn"
+        );
     }
 
     #[test]

@@ -1,18 +1,19 @@
 use bevy_app::{App, Plugin, PostUpdate};
 use bsengine_ecs::Res;
-use bsengine_rhi_wgpu::RhiResource;
+use bsengine_rhi_wgpu::WgpuSurfaceResource;
 
-fn clear_pass(_rhi: Option<Res<RhiResource>>) {
-    let Some(_rhi) = _rhi else { return };
-    // Placeholder: real surface clear will be added in Phase 4
-    // when wgpu Surface is wired from the winit window handle.
+fn render_frame(surface: Option<Res<WgpuSurfaceResource>>) {
+    let Some(surface) = surface else { return };
+    if let Err(e) = surface.0.render_frame() {
+        tracing::warn!("render_frame error: {e}");
+    }
 }
 
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, clear_pass);
+        app.add_systems(PostUpdate, render_frame);
     }
 }
 
@@ -24,14 +25,13 @@ mod tests {
 
     #[test]
     fn render_plugin_runs_without_rhi() {
-        // RenderPlugin must not panic when RhiResource is absent
         let mut app = new_app();
         app.add_plugins(RenderPlugin);
         app.update();
     }
 
     #[test]
-    fn render_plugin_runs_with_rhi() {
+    fn render_plugin_runs_with_rhi_headless() {
         let mut app = new_app();
         app.add_plugins(WgpuRHIPlugin);
         app.add_plugins(RenderPlugin);

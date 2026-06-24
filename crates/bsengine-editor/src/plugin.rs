@@ -1647,6 +1647,39 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_by_tag
+            let snap_cebt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_tag".to_string(),
+                description: "Return the count of entities that have a specific tag".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_cebt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.contains(&tag)).count() as u64;
+                    McpToolOutput::success(json!({"tag": tag, "count": count}))
+                }),
+            });
+
+            // count_selected_entities
+            let sel_cse = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_selected_entities".to_string(),
+                description: "Return the number of currently selected entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let count = sel_cse.lock().unwrap().len() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_parent
             let snap_gewp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6511,6 +6544,142 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_by_tag_returns_count_of_matching_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": ids[0], "tag": "hero"}))
+                .unwrap();
+            m.execute("tag_entity", json!({"entity_id": ids[1], "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_by_tag", json!({"tag": "hero"}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["count"].as_u64().unwrap(),
+            2,
+            "2 entities tagged 'hero'"
+        );
+
+        let out_miss = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_by_tag", json!({"tag": "villain"}))
+            .unwrap();
+        assert_eq!(
+            out_miss.content["count"].as_u64().unwrap(),
+            0,
+            "0 entities tagged 'villain'"
+        );
+    }
+
+    #[test]
+    fn mcp_count_selected_entities_returns_selection_size() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Sel1"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Sel2"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Sel3"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let count0 = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_selected_entities", json!({}))
+                .unwrap();
+            assert_eq!(
+                count0.content["count"].as_u64().unwrap(),
+                0,
+                "no selection initially"
+            );
+        }
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": ids[0]}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": ids[1]}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_selected_entities", json!({}))
+            .unwrap();
+        assert_eq!(
+            out.content["count"].as_u64().unwrap(),
+            2,
+            "2 entities selected"
+        );
     }
 
     #[test]

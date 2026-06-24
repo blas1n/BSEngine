@@ -1647,6 +1647,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_in_x_range
+            let snap_geixr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_x_range".to_string(),
+                description: "Return entities whose X position is within [min_x, max_x]"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" },
+                        "max_x": { "type": "number" }
+                    },
+                    "required": ["min_x", "max_x"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_geixr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map_or(false, |p| p[0] >= min_x && p[0] <= max_x))
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_in_z_range
+            let snap_geizr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_z_range".to_string(),
+                description: "Return entities whose Z position is within [min_z, max_z]"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_z": { "type": "number" },
+                        "max_z": { "type": "number" }
+                    },
+                    "required": ["min_z", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_z = input["min_z"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_geizr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map_or(false, |p| p[2] >= min_z && p[2] <= max_z))
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_within_distance
             let snap_gewd = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7381,6 +7437,84 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_in_x_range_returns_entities_within_x_bounds() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InRange",  "position": [5.0, 0.0, 0.0]},
+                        {"name": "OutRange", "position": [50.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_x_range",
+                json!({"min_x": 0.0, "max_x": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only InRange is within x [0,10]");
+        assert_eq!(ents[0]["name"].as_str(), Some("InRange"));
+    }
+
+    #[test]
+    fn mcp_get_entities_in_z_range_returns_entities_within_z_bounds() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InRange",  "position": [0.0, 0.0, 3.0]},
+                        {"name": "OutRange", "position": [0.0, 0.0, 30.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_z_range",
+                json!({"min_z": 0.0, "max_z": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only InRange is within z [0,10]");
+        assert_eq!(ents[0]["name"].as_str(), Some("InRange"));
     }
 
     #[test]

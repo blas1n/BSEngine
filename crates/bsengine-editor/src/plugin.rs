@@ -1647,6 +1647,78 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_near_position
+            let snap_genp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_near_position".to_string(),
+                description: "Return all entities within a given radius of a world position"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let x = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let y = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let z = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let radius = match input["radius"].as_f64() {
+                        Some(r) => r as f32,
+                        None => return McpToolOutput::error("missing radius"),
+                    };
+                    let r2 = radius * radius;
+                    let s = snap_genp.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            let [ex, ey, ez] = e.position?;
+                            let dx = ex - x;
+                            let dy = ey - y;
+                            let dz = ez - z;
+                            if dx * dx + dy * dy + dz * dz <= r2 {
+                                Some(json!({"id": e.id, "name": e.name}))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // find_entity_by_name
+            let snap_febn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "find_entity_by_name".to_string(),
+                description: "Find the first entity whose name exactly matches the given string"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "name": { "type": "string" } },
+                    "required": ["name"]
+                })),
+                handler: Box::new(move |input| {
+                    let name = match input["name"].as_str() {
+                        Some(n) => n.to_string(),
+                        None => return McpToolOutput::error("missing name"),
+                    };
+                    let s = snap_febn.lock().unwrap();
+                    match s.entities.iter().find(|e| e.name.as_deref() == Some(&name)) {
+                        Some(e) => McpToolOutput::success(json!({
+                            "found": true,
+                            "entity": {"id": e.id, "name": e.name}
+                        })),
+                        None => McpToolOutput::success(json!({"found": false, "entity": null})),
+                    }
+                }),
+            });
+
             // copy_tags_from_entity
             let snap_cte = snapshot.clone();
             let queue30 = cmd_queue.clone();
@@ -5934,6 +6006,88 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_near_position_returns_within_radius() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NearA", "position": [1.0, 0.0, 0.0]},
+                        {"name": "NearB", "position": [2.0, 0.0, 0.0]},
+                        {"name": "FarC",  "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_near_position",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "radius": 5.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"NearA"), "NearA within radius");
+        assert!(names.contains(&"NearB"), "NearB within radius");
+        assert!(!names.contains(&"FarC"), "FarC outside radius excluded");
+    }
+
+    #[test]
+    fn mcp_find_entity_by_name_returns_matching_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "FindMe"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "NotMe"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("find_entity_by_name", json!({"name": "FindMe"}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(out.content["found"].as_bool().unwrap(), "entity found");
+        assert_eq!(out.content["entity"]["name"].as_str().unwrap(), "FindMe");
+
+        let out_miss = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("find_entity_by_name", json!({"name": "NoSuchEntity"}))
+            .unwrap();
+        assert!(out_miss.is_ok());
+        assert!(
+            !out_miss.content["found"].as_bool().unwrap(),
+            "missing entity not found"
+        );
     }
 
     #[test]

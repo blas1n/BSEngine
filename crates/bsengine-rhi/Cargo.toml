@@ -1,0 +1,7 @@
+[package]
+name = "bsengine-rhi"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bsengine-ecs.workspace = true

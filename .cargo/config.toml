@@ -1,0 +1,6 @@
+[build]
+# Local Windows workaround: place target dir on C:\ so that deno_core/V8's
+# build script symlink works when the cargo registry (C:\) and source (F:\)
+# are on different drives (requires same-drive for symlink without admin rights).
+# CI overrides this via CARGO_TARGET_DIR env var in the workflow.
+target-dir = "C:\\BSEngine-target"

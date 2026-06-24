@@ -1647,6 +1647,90 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // copy_transform
+            let snap_ct = snapshot.clone();
+            let queue_ct = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "copy_transform".to_string(),
+                description: "Copy position, rotation, and scale from one entity to another (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "from_entity_id": { "type": "integer" },
+                        "to_entity_id": { "type": "integer" }
+                    },
+                    "required": ["from_entity_id", "to_entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let from_id = match input["from_entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing from_entity_id"),
+                    };
+                    let to_id = match input["to_entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing to_entity_id"),
+                    };
+                    let s = snap_ct.lock().unwrap();
+                    let src = match s.entities.iter().find(|e| e.id == from_id) {
+                        Some(e) => e.clone(),
+                        None => return McpToolOutput::error("source entity not found"),
+                    };
+                    if s.entities.iter().find(|e| e.id == to_id).is_none() {
+                        return McpToolOutput::error("target entity not found");
+                    }
+                    drop(s);
+                    queue_ct.lock().unwrap().push(EditorCommand::SetEntityTransform {
+                        entity_id: to_id,
+                        position: src.position,
+                        rotation: src.rotation,
+                        scale: src.scale,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "from": from_id, "to": to_id}))
+                }),
+            });
+
+            // get_entities_in_range
+            let snap_range = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_range".to_string(),
+                description: "Return entities whose position is within radius of the given point"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "cx": { "type": "number" },
+                        "cy": { "type": "number" },
+                        "cz": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["cx", "cy", "cz", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let cx = input["cx"].as_f64().unwrap_or(0.0) as f32;
+                    let cy = input["cy"].as_f64().unwrap_or(0.0) as f32;
+                    let cz = input["cz"].as_f64().unwrap_or(0.0) as f32;
+                    let radius = input["radius"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_range.lock().unwrap();
+                    let r2 = radius * radius;
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            let [px, py, pz] = e.position?;
+                            let dx = px - cx;
+                            let dy = py - cy;
+                            let dz = pz - cz;
+                            if dx * dx + dy * dy + dz * dz <= r2 {
+                                Some(json!({"id": e.id, "name": e.name, "position": e.position}))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // has_component
             let snap_hc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2947,6 +3031,133 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_copy_transform_copies_position_to_target() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Source", "position": [5.0, 10.0, 15.0]},
+                        {"name": "Target", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (source_id, target_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let s = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Source"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let t = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Target"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (s, t)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "copy_transform",
+                    json!({"from_entity_id": source_id, "to_entity_id": target_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let t = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": target_id}))
+            .unwrap();
+        let pos = &t.content["entity"]["position"];
+        assert!(
+            (pos[0].as_f64().unwrap() - 5.0).abs() < 1e-4,
+            "x should match source"
+        );
+        assert!(
+            (pos[1].as_f64().unwrap() - 10.0).abs() < 1e-4,
+            "y should match source"
+        );
+        assert!(
+            (pos[2].as_f64().unwrap() - 15.0).abs() < 1e-4,
+            "z should match source"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_in_range_returns_nearby_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",   "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_range",
+                json!({"cx": 0.0, "cy": 0.0, "cz": 0.0, "radius": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(names.contains(&"Near"), "Near should be within range");
+        assert!(!names.contains(&"Far"), "Far should be outside range");
     }
 
     #[test]

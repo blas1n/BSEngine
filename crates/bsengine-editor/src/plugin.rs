@@ -1647,6 +1647,55 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_all_cameras
+            let snap_gac = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_all_cameras".to_string(),
+                description: "Return all entities that have a camera component (camera_fov is set)"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gac.lock().unwrap();
+                    let cams: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.camera_fov.is_some())
+                        .map(|e| json!({"id": e.id, "name": e.name, "camera_fov": e.camera_fov}))
+                        .collect();
+                    McpToolOutput::success(json!({"cameras": cams}))
+                }),
+            });
+
+            // get_total_light_count
+            let snap_gtlc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_total_light_count".to_string(),
+                description:
+                    "Return total light count broken down by type (point, directional, spot)"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gtlc.lock().unwrap();
+                    let mut point = 0u64;
+                    let mut directional = 0u64;
+                    let mut spot = 0u64;
+                    for e in &s.entities {
+                        match e.light_type.as_deref() {
+                            Some("point") => point += 1,
+                            Some("directional") => directional += 1,
+                            Some("spot") => spot += 1,
+                            _ => {}
+                        }
+                    }
+                    McpToolOutput::success(json!({
+                        "total": point + directional + spot,
+                        "point": point,
+                        "directional": directional,
+                        "spot": spot,
+                    }))
+                }),
+            });
+
             // get_entity_child_count
             let snap_gecc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5130,6 +5179,85 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_all_cameras_returns_camera_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 5.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 45.0, "position": [10.0, 5.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute("spawn_entity", json!({"name": "NotCamera"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_all_cameras", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let cams = out.content["cameras"].as_array().unwrap();
+        assert_eq!(cams.len(), 2, "two cameras spawned");
+        for c in cams {
+            assert!(
+                c["camera_fov"].as_f64().is_some(),
+                "camera entry has camera_fov"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_get_total_light_count_sums_all_light_types() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":100.0,"range":10.0,"position":[0.0,0.0,0.0]})).unwrap();
+            m.execute(
+                "spawn_directional_light",
+                json!({"direction":[0.0,-1.0,0.0],"color":[1.0,1.0,1.0],"ambient":[0.1,0.1,0.1]}),
+            )
+            .unwrap();
+            m.execute("spawn_spot_light", json!({"color":[1.0,1.0,1.0],"intensity":200.0,"range":15.0,"inner_angle":10.0,"outer_angle":30.0,"position":[0.0,3.0,0.0]})).unwrap();
+            m.execute("spawn_entity", json!({"name": "NoLight"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_total_light_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["total"].as_u64().unwrap(), 3, "3 lights total");
+        assert_eq!(out.content["point"].as_u64().unwrap(), 1);
+        assert_eq!(out.content["directional"].as_u64().unwrap(), 1);
+        assert_eq!(out.content["spot"].as_u64().unwrap(), 1);
     }
 
     #[test]

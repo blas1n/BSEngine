@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_total_camera_count
+            let snap_gtcc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_total_camera_count".to_string(),
+                description: "Return the total number of camera entities in the scene".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gtcc.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_in_x_range
+            let snap_seixr = snapshot.clone();
+            let sel_seixr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_x_range".to_string(),
+                description:
+                    "Add to selection all entities whose X position is within [min_x, max_x]"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" },
+                        "max_x": { "type": "number" }
+                    },
+                    "required": ["min_x", "max_x"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_seixr.lock().unwrap();
+                    let mut sel = sel_seixr.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            if p[0] >= min_x && p[0] <= max_x {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_sorted_by_x
             let snap_gesbx = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7614,6 +7661,111 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_total_camera_count_returns_count_of_camera_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute("spawn_entity", json!({"name": "NotCamera"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_total_camera_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"].as_u64().unwrap(), 2, "2 cameras");
+    }
+
+    #[test]
+    fn mcp_select_entities_in_x_range_selects_entities_in_x_bounds() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InX",  "position": [5.0, 0.0, 0.0]},
+                        {"name": "OutX", "position": [50.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let inx_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InX"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "select_entities_in_x_range",
+                json!({"min_x": 0.0, "max_x": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&inx_id));
+        assert_eq!(ids.len(), 1);
     }
 
     #[test]

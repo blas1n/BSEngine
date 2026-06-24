@@ -1647,6 +1647,83 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // move_selection_by
+            let sel_msb = selection.clone();
+            let queue40 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "move_selection_by".to_string(),
+                description: "Move all selected entities by (dx, dy, dz)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "dx": { "type": "number" },
+                        "dy": { "type": "number" },
+                        "dz": { "type": "number" }
+                    },
+                    "required": ["dx", "dy", "dz"]
+                })),
+                handler: Box::new(move |input| {
+                    let dx = input["dx"].as_f64().unwrap_or(0.0) as f32;
+                    let dy = input["dy"].as_f64().unwrap_or(0.0) as f32;
+                    let dz = input["dz"].as_f64().unwrap_or(0.0) as f32;
+                    let sel = sel_msb.lock().unwrap();
+                    let mut q = queue40.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        q.push(crate::snapshot::EditorCommand::MoveEntity {
+                            entity_id,
+                            dx,
+                            dy,
+                            dz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"moved_count": count}))
+                }),
+            });
+
+            // scale_selection_by
+            let snap_ssb = snapshot.clone();
+            let sel_ssb = selection.clone();
+            let queue41 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "scale_selection_by".to_string(),
+                description: "Multiply the scale of all selected entities by (sx, sy, sz)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "sx": { "type": "number" },
+                        "sy": { "type": "number" },
+                        "sz": { "type": "number" }
+                    },
+                    "required": ["sx", "sy", "sz"]
+                })),
+                handler: Box::new(move |input| {
+                    let sx = input["sx"].as_f64().unwrap_or(1.0) as f32;
+                    let sy = input["sy"].as_f64().unwrap_or(1.0) as f32;
+                    let sz = input["sz"].as_f64().unwrap_or(1.0) as f32;
+                    let sel = sel_ssb.lock().unwrap();
+                    let s = snap_ssb.lock().unwrap();
+                    let mut q = queue41.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        let current_scale = s
+                            .entities
+                            .iter()
+                            .find(|e| e.id == entity_id)
+                            .and_then(|e| e.scale)
+                            .unwrap_or([1.0, 1.0, 1.0]);
+                        q.push(crate::snapshot::EditorCommand::SetScale {
+                            entity_id,
+                            sx: current_scale[0] * sx,
+                            sy: current_scale[1] * sy,
+                            sz: current_scale[2] * sz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"scaled_count": count}))
+                }),
+            });
+
             // add_tag_to_selection
             let sel_atts = selection.clone();
             let queue38 = cmd_queue.clone();
@@ -8084,6 +8161,243 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_move_selection_by_moves_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [0.0, 0.0, 0.0]},
+                            {"name": "B", "position": [10.0, 0.0, 0.0]},
+                            {"name": "C", "position": [20.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let find_id = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (id_a, id_b, id_c) = (find_id("A"), find_id("B"), find_id("C"));
+
+        // Select A and B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "move_selection_by",
+                    json!({"dx": 5.0, "dy": 0.0, "dz": 0.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["moved_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let pos_of = |id: u64| {
+            ents.iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .and_then(|e| e["position"].as_array())
+                .map(|p| p[0].as_f64().unwrap())
+                .unwrap_or(f64::NAN)
+        };
+        assert!(
+            (pos_of(id_a) - 5.0).abs() < 0.01,
+            "A moved to 5, got {}",
+            pos_of(id_a)
+        );
+        assert!(
+            (pos_of(id_b) - 15.0).abs() < 0.01,
+            "B moved to 15, got {}",
+            pos_of(id_b)
+        );
+        assert!(
+            (pos_of(id_c) - 20.0).abs() < 0.01,
+            "C unchanged, got {}",
+            pos_of(id_c)
+        );
+    }
+
+    #[test]
+    fn mcp_scale_selection_by_scales_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [0.0, 0.0, 0.0]},
+                            {"name": "B", "position": [1.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let find_id = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (id_a, id_b) = (find_id("A"), find_id("B"));
+
+        // Set initial scale for A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": id_a, "sx": 2.0, "sy": 2.0, "sz": 2.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select A only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "scale_selection_by",
+                    json!({"sx": 3.0, "sy": 1.0, "sz": 1.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["scaled_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let scale_x_of = |id: u64| {
+            ents.iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .and_then(|e| e["scale"].as_array())
+                .map(|s| s[0].as_f64().unwrap())
+                .unwrap_or(f64::NAN)
+        };
+        // A started at (2,2,2), multiplied by (3,1,1) → (6,2,2)
+        assert!(
+            (scale_x_of(id_a) - 6.0).abs() < 0.01,
+            "A scale_x = 6, got {}",
+            scale_x_of(id_a)
+        );
+        // B untouched — batch_spawn gives default scale [1,1,1]
+        assert!(
+            (scale_x_of(id_b) - 1.0).abs() < 0.01,
+            "B scale_x unchanged, got {}",
+            scale_x_of(id_b)
+        );
     }
 
     #[test]

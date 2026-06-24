@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_rotation
+            let snap_gesbr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_rotation".to_string(),
+                description: "Return rotated entities sorted by max absolute rotation component ascending; includes max_rotation".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbr.lock().unwrap();
+                    let mut items: Vec<(&crate::snapshot::EntityInfo, f32)> = s.entities.iter()
+                        .filter_map(|e| e.rotation.map(|r| {
+                            let max = r[0].abs().max(r[1].abs()).max(r[2].abs());
+                            (e, max)
+                        }))
+                        .collect();
+                    items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    let entities: Vec<serde_json::Value> = items.iter()
+                        .map(|(e, mr)| json!({"id": e.id, "name": e.name, "rotation": e.rotation, "max_rotation": *mr}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_no_parent_and_no_children
+            let snap_gewnpnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_parent_and_no_children".to_string(),
+                description: "Return entities that have no parent and are not a parent of any other entity (isolated / leaf-root)".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewnpnc.lock().unwrap();
+                    let all_parent_ids: std::collections::HashSet<u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id)
+                        .collect();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.parent_id.is_none() && !all_parent_ids.contains(&e.id))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_position_above
             let snap_gewpa = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -9120,6 +9161,155 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_rotation_returns_ascending_by_max_abs_component() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "Big",   "position": [0.0, 0.0, 0.0]},
+                            {"name": "Small", "position": [1.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (big_id, small_id) = (id_of("Big"), id_of("Small"));
+
+        for (id, ry) in [(big_id, 90.0f64), (small_id, 10.0)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": id, "rx": 0.0, "ry": ry, "rz": 0.0}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_rotation", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        let small_pos = ids.iter().position(|&id| id == small_id).unwrap();
+        let big_pos = ids.iter().position(|&id| id == big_id).unwrap();
+        assert!(
+            small_pos < big_pos,
+            "Small (ry=10) before Big (ry=90) ascending"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_no_parent_and_no_children_returns_isolated_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Isolated"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, isolated_id) = (id_of("Root"), id_of("Child"), id_of("Isolated"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_parent_and_no_children", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(
+            ids.contains(&isolated_id),
+            "Isolated (no parent, no children) included"
+        );
+        assert!(!ids.contains(&root_id), "Root (has child) excluded");
+        assert!(!ids.contains(&child_id), "Child (has parent) excluded");
     }
 
     #[test]

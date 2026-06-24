@@ -1647,6 +1647,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_nearest_entity_to_position
+            let snap_gnetp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_nearest_entity_to_position".to_string(),
+                description: "Return the entity with position closest to (x, y, z); entities without position are skipped".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z"]
+                })),
+                handler: Box::new(move |input| {
+                    let x = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let y = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let z = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gnetp.lock().unwrap();
+                    let nearest = s.entities.iter()
+                        .filter_map(|e| {
+                            let [ex, ey, ez] = e.position?;
+                            let dx = ex - x; let dy = ey - y; let dz = ez - z;
+                            Some((e, dx*dx + dy*dy + dz*dz))
+                        })
+                        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    match nearest {
+                        Some((e, dist)) => McpToolOutput::success(json!({
+                            "found": true,
+                            "entity": {"id": e.id, "name": e.name},
+                            "distance": (dist as f64).sqrt()
+                        })),
+                        None => McpToolOutput::success(json!({"found": false, "entity": null})),
+                    }
+                }),
+            });
+
+            // select_all_lights
+            let snap_sal = snapshot.clone();
+            let sel_sal = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_all_lights".to_string(),
+                description: "Add all entities that have a light component (point, directional, or spot) to the selection".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sal.lock().unwrap();
+                    let mut sel = sel_sal.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter().filter(|e| e.light_type.is_some()) {
+                        sel.insert(e.id);
+                        count += 1;
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // select_untagged_entities
             let snap_sue = snapshot.clone();
             let sel_sue = selection.clone();
@@ -6251,6 +6307,112 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_nearest_entity_to_position_returns_closest() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",   "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_nearest_entity_to_position",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(out.content["found"].as_bool().unwrap(), "entity found");
+        assert_eq!(out.content["entity"]["name"].as_str().unwrap(), "Near");
+    }
+
+    #[test]
+    fn mcp_select_all_lights_selects_only_light_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 5.0, 0.0]})).unwrap();
+            m.execute("spawn_entity", json!({"name": "NoLight"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (light_id, plain_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let l = ents
+                .iter()
+                .find(|e| e["light_type"].as_str().is_some())
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let p = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoLight"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (l, p)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all_lights", json!({}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&light_id), "light entity selected");
+        assert!(!ids.contains(&plain_id), "non-light not selected");
     }
 
     #[test]

@@ -1647,6 +1647,67 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_in_box
+            let snap_geib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_box".to_string(),
+                description: "Return entities whose position is within an axis-aligned bounding box".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" }, "min_y": { "type": "number" }, "min_z": { "type": "number" },
+                        "max_x": { "type": "number" }, "max_y": { "type": "number" }, "max_z": { "type": "number" }
+                    },
+                    "required": ["min_x", "min_y", "min_z", "max_x", "max_y", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_geib.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|p| (e, p)))
+                        .filter(|(_, p)| p[0] >= min_x && p[0] <= max_x && p[1] >= min_y && p[1] <= max_y && p[2] >= min_z && p[2] <= max_z)
+                        .map(|(e, p)| json!({"id": e.id, "name": e.name, "position": p}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_tag_count
+            let snap_sewtc = snapshot.clone();
+            let sel_sewtc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_tag_count".to_string(),
+                description: "Add to selection all entities whose tag count is within [min, max]"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "integer" },
+                        "max": { "type": "integer" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min"].as_u64().unwrap_or(0) as usize;
+                    let max = input["max"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let s = snap_sewtc.lock().unwrap();
+                    let mut sel = sel_sewtc.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.tags.len() >= min && e.tags.len() <= max {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_sorted_by_tag_count
             let snap_gestc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6878,6 +6939,148 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_in_box_returns_entities_within_aabb() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Inside", "position": [1.0, 1.0, 1.0]},
+                        {"name": "Outside", "position": [10.0, 10.0, 10.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_box",
+                json!({
+                    "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                    "max_x": 5.0, "max_y": 5.0, "max_z": 5.0
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only Inside within box");
+        assert_eq!(ents[0]["name"].as_str(), Some("Inside"));
+    }
+
+    #[test]
+    fn mcp_select_entities_with_tag_count_selects_entities_in_tag_count_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Zero"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Two"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Four"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (two_id, four_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let t = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Two"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let f = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Four"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (t, f)
+        };
+        for tag in &["a", "b"] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": two_id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+        for tag in &["a", "b", "c", "d"] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": four_id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "select_entities_with_tag_count",
+                json!({"min": 2, "max": 3}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["selected_count"].as_u64().unwrap(),
+            1,
+            "only Two (2 tags) in range 2-3"
+        );
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&two_id));
+        assert!(!ids.contains(&four_id));
     }
 
     #[test]

@@ -38,14 +38,21 @@ impl GltfLoader {
                     .map(|n| n.collect())
                     .unwrap_or_else(|| vec![[0.0, 1.0, 0.0]; positions.len()]);
 
+                let uvs: Vec<[f32; 2]> = reader
+                    .read_tex_coords(0)
+                    .map(|t| t.into_f32().collect())
+                    .unwrap_or_else(|| vec![[0.0, 0.0]; positions.len()]);
+
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
                     .zip(colors)
                     .zip(normals)
-                    .map(|((position, color), normal)| Vertex {
+                    .zip(uvs)
+                    .map(|(((position, color), normal), uv)| Vertex {
                         position,
                         color,
                         normal,
+                        uv,
                     })
                     .collect();
 

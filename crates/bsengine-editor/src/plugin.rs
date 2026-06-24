@@ -1647,6 +1647,51 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_scale
+            let snap_gesbs = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_scale".to_string(),
+                description: "Return all scaled entities sorted by max scale component ascending; includes max_scale".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbs.lock().unwrap();
+                    let mut items: Vec<(&crate::snapshot::EntityInfo, f32)> = s.entities.iter()
+                        .filter_map(|e| e.scale.map(|sc| (e, sc[0].max(sc[1]).max(sc[2]))))
+                        .collect();
+                    items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    let entities: Vec<serde_json::Value> = items.iter()
+                        .map(|(e, ms)| json!({"id": e.id, "name": e.name, "scale": e.scale, "max_scale": *ms}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_uniform_scale
+            let snap_gewus = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_uniform_scale".to_string(),
+                description:
+                    "Return entities whose scale components are all equal (within 0.001 epsilon)"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewus.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.scale
+                                .map(|sc| {
+                                    (sc[0] - sc[1]).abs() < 0.001 && (sc[1] - sc[2]).abs() < 0.001
+                                })
+                                .unwrap_or(false)
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name, "scale": e.scale}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_scale_above
             let snap_gewsa = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8634,6 +8679,175 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_scale_returns_ascending_by_max_component() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "Big",    "position": [0.0, 0.0, 0.0]},
+                            {"name": "Medium", "position": [1.0, 0.0, 0.0]},
+                            {"name": "Small",  "position": [2.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (big_id, med_id, small_id) = (id_of("Big"), id_of("Medium"), id_of("Small"));
+
+        for (id, s) in [(big_id, 5.0f64), (med_id, 2.0), (small_id, 1.0)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": id, "sx": s, "sy": s, "sz": s}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_scale", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        // Only entities with scale are returned; ascending by max component
+        for i in 0..ents.len().saturating_sub(1) {
+            let a = ents[i]["max_scale"].as_f64().unwrap();
+            let b = ents[i + 1]["max_scale"].as_f64().unwrap();
+            assert!(a <= b, "ascending: {} <= {}", a, b);
+        }
+        assert_eq!(ents.first().and_then(|e| e["name"].as_str()), Some("Small"));
+        assert_eq!(ents.last().and_then(|e| e["name"].as_str()), Some("Big"));
+    }
+
+    #[test]
+    fn mcp_get_entities_with_uniform_scale_returns_entities_with_equal_components() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "Uniform",    "position": [0.0, 0.0, 0.0]},
+                            {"name": "NonUniform", "position": [1.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (uni_id, non_id) = (id_of("Uniform"), id_of("NonUniform"));
+
+        // Uniform: (3,3,3); NonUniform: (1,2,3)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": uni_id, "sx": 3.0, "sy": 3.0, "sz": 3.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": non_id, "sx": 1.0, "sy": 2.0, "sz": 3.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_uniform_scale", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&uni_id), "Uniform (3,3,3) included");
+        assert!(!ids.contains(&non_id), "NonUniform (1,2,3) excluded");
     }
 
     #[test]

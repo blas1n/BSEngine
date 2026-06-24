@@ -1647,6 +1647,24 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_visible_entities
+            let snap_gve = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_visible_entities".to_string(),
+                description: "Return all entities whose visible flag is true".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gve.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.visible)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_by_name_pattern
             let snap_sep = snapshot.clone();
             let sel_sep = selection.clone();
@@ -3628,6 +3646,75 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_visible_entities_returns_only_visible() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "VisA"},
+                    {"name": "VisB"},
+                    {"name": "VisC"}
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let hide_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("VisB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hide_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_visible_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(names.contains(&"VisA"), "VisA should be visible");
+        assert!(!names.contains(&"VisB"), "VisB should be hidden");
+        assert!(names.contains(&"VisC"), "VisC should be visible");
     }
 
     #[test]

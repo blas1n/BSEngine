@@ -4,9 +4,11 @@ use glam::{Mat4, Vec3};
 use std::sync::Arc;
 
 const MAX_POINT_LIGHTS: usize = 8;
+const MAX_SPOT_LIGHTS: usize = 8;
 
 const MESH_WGSL: &str = r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
+const MAX_SPOT_LIGHTS: u32 = 8u;
 struct CameraUniform {
     view_proj: mat4x4<f32>,
     light_view_proj: mat4x4<f32>,
@@ -24,6 +26,18 @@ struct PointLightEntry {
     _pad2: f32,
     _pad3: f32,
 };
+struct SpotLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    direction: vec3<f32>,
+    inner_cos: f32,
+    color: vec3<f32>,
+    outer_cos: f32,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+};
 struct LightUniform {
     direction: vec3<f32>,
     _pad0: f32,
@@ -32,6 +46,11 @@ struct LightUniform {
     ambient: vec3<f32>,
     num_point_lights: u32,
     point_lights: array<PointLightEntry, 8>,
+    num_spot_lights: u32,
+    _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
+    spot_lights: array<SpotLightEntry, 8>,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
@@ -102,6 +121,23 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
         }
     }
 
+    for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
+        let sl = light.spot_lights[j];
+        let to_light = sl.position - in.world_pos;
+        let dist = length(to_light);
+        if dist < sl.range {
+            let light_dir = normalize(to_light);
+            let cos_angle = dot(-light_dir, sl.direction);
+            let spot_factor = smoothstep(sl.outer_cos, sl.inner_cos, cos_angle);
+            if spot_factor > 0.0 {
+                let t = 1.0 - dist / sl.range;
+                let attenuation = t * t;
+                let diff_sl = max(dot(n, light_dir), 0.0);
+                radiance += tex_color * in.col * diff_sl * sl.color * sl.intensity * attenuation * spot_factor;
+            }
+        }
+    }
+
     return vec4<f32>(radiance, 1.0);
 }
 "#;
@@ -137,8 +173,9 @@ const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
 // view_proj(64) + light_view_proj(64) = 128
 const CAMERA_UNIFORM_SIZE: u64 = 128;
-// direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48) = 432
-const LIGHT_UNIFORM_SIZE: u64 = 432;
+// direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
+// num_spot+pad(16) + 8×SpotLightGpu(64=512) = 960
+const LIGHT_UNIFORM_SIZE: u64 = 960;
 // Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
 const VERTEX_STRIDE: u64 = 44;
 const SHADOW_MAP_SIZE: u32 = 2048;
@@ -158,12 +195,24 @@ pub struct PointLightEntry {
     pub range: f32,
 }
 
+/// A single spot light entry for the GPU buffer.
+pub struct SpotLightEntry {
+    pub position: Vec3,
+    pub direction: Vec3,
+    pub color: Vec3,
+    pub intensity: f32,
+    pub range: f32,
+    pub inner_angle: f32,
+    pub outer_angle: f32,
+}
+
 /// Light parameters passed per frame.
 pub struct LightData {
     pub direction: Vec3,
     pub color: Vec3,
     pub ambient: Vec3,
     pub point_lights: Vec<PointLightEntry>,
+    pub spot_lights: Vec<SpotLightEntry>,
 }
 
 impl Default for LightData {
@@ -173,6 +222,7 @@ impl Default for LightData {
             color: Vec3::ONE,
             ambient: Vec3::splat(0.15),
             point_lights: Vec::new(),
+            spot_lights: Vec::new(),
         }
     }
 }
@@ -192,6 +242,21 @@ struct PointLightGpu {
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct SpotLightGpu {
+    position: [f32; 3],
+    _pad0: f32,
+    direction: [f32; 3],
+    inner_cos: f32,
+    color: [f32; 3],
+    outer_cos: f32,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct LightUniformData {
     direction: [f32; 3],
     _pad0: f32,
@@ -200,6 +265,11 @@ struct LightUniformData {
     ambient: [f32; 3],
     num_point_lights: u32,
     point_lights: [PointLightGpu; 8],
+    num_spot_lights: u32,
+    _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
+    spot_lights: [SpotLightGpu; 8],
 }
 
 pub struct WgpuSurface {
@@ -722,6 +792,33 @@ impl WgpuSurface {
                 _pad3: 0.0,
             };
         }
+        let mut spot_lights_gpu = [SpotLightGpu {
+            position: [0.0; 3],
+            _pad0: 0.0,
+            direction: [0.0, -1.0, 0.0],
+            inner_cos: 0.0,
+            color: [0.0; 3],
+            outer_cos: 0.0,
+            intensity: 0.0,
+            range: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
+        }; 8];
+        let num_spot_lights = light.spot_lights.len().min(MAX_SPOT_LIGHTS) as u32;
+        for (i, sl) in light.spot_lights.iter().enumerate().take(MAX_SPOT_LIGHTS) {
+            spot_lights_gpu[i] = SpotLightGpu {
+                position: sl.position.to_array(),
+                _pad0: 0.0,
+                direction: sl.direction.normalize().to_array(),
+                inner_cos: sl.inner_angle.cos(),
+                color: sl.color.to_array(),
+                outer_cos: sl.outer_angle.cos(),
+                intensity: sl.intensity,
+                range: sl.range,
+                _pad1: 0.0,
+                _pad2: 0.0,
+            };
+        }
         let light_data = LightUniformData {
             direction: light.direction.normalize().to_array(),
             _pad0: 0.0,
@@ -730,6 +827,11 @@ impl WgpuSurface {
             ambient: light.ambient.to_array(),
             num_point_lights,
             point_lights: point_lights_gpu,
+            num_spot_lights,
+            _pad2: 0.0,
+            _pad3: 0.0,
+            _pad4: 0.0,
+            spot_lights: spot_lights_gpu,
         };
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));

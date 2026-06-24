@@ -1568,6 +1568,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_all
+            let sel5 = selection.clone();
+            let snap_sel = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_all".to_string(),
+                description: "Select all entities in the scene (immediate)".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let ids: Vec<u64> = snap_sel
+                        .lock()
+                        .unwrap()
+                        .entities
+                        .iter()
+                        .map(|e| e.id)
+                        .collect();
+                    let count = ids.len();
+                    let mut sel = sel5.lock().unwrap();
+                    for id in ids {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"status": "selected", "count": count}))
+                }),
+            });
+
+            // deselect_all
+            let sel6 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_all".to_string(),
+                description: "Deselect all entities (immediate)".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    sel6.lock().unwrap().clear();
+                    McpToolOutput::success(json!({"status": "cleared"}))
+                }),
+            });
+
             // hide_entity
             let queue27 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2164,6 +2200,73 @@ mod tests {
                 !ids.contains(&serde_json::json!(entity_id)),
                 "entity should be deselected"
             );
+        }
+    }
+
+    #[test]
+    fn mcp_select_all_and_deselect_all() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            mcp.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select_all
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selection", json!({}))
+                .unwrap();
+            let ids = out.content["selected_ids"].as_array().unwrap();
+            assert!(
+                ids.len() >= 2,
+                "select_all should select at least 2 entities"
+            );
+        }
+
+        // deselect_all
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_all", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selection", json!({}))
+                .unwrap();
+            let ids = out.content["selected_ids"].as_array().unwrap();
+            assert!(ids.is_empty(), "deselect_all should clear selection");
         }
     }
 

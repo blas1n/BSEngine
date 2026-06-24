@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_distance
+            let snap_dist = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_distance".to_string(),
+                description: "Return the Euclidean distance between two entities' positions"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id_a": { "type": "integer" },
+                        "entity_id_b": { "type": "integer" }
+                    },
+                    "required": ["entity_id_a", "entity_id_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let id_a = match input["entity_id_a"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id_a"),
+                    };
+                    let id_b = match input["entity_id_b"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id_b"),
+                    };
+                    let s = snap_dist.lock().unwrap();
+                    let pos_a = match s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == id_a)
+                        .and_then(|e| e.position)
+                    {
+                        Some(p) => p,
+                        None => return McpToolOutput::error("entity_a has no position"),
+                    };
+                    let pos_b = match s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == id_b)
+                        .and_then(|e| e.position)
+                    {
+                        Some(p) => p,
+                        None => return McpToolOutput::error("entity_b has no position"),
+                    };
+                    let dx = pos_a[0] - pos_b[0];
+                    let dy = pos_a[1] - pos_b[1];
+                    let dz = pos_a[2] - pos_b[2];
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                    McpToolOutput::success(json!({"distance": dist}))
+                }),
+            });
+
             // get_scene_bounds
             let snap_bounds = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2394,6 +2444,72 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_get_entity_distance_returns_correct_value() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "P1", "position": [0.0, 0.0, 0.0]},
+                        {"name": "P2", "position": [3.0, 4.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id1, id2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let id1 = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("P1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id2 = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("P2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id1, id2)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_distance",
+                json!({"entity_id_a": id1, "entity_id_b": id2}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!(
+            (dist - 5.0).abs() < 1e-3,
+            "distance should be 5 (3-4-5 triangle), got {}",
+            dist
+        );
     }
 
     #[test]

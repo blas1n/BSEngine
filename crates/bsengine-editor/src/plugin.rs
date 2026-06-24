@@ -1647,6 +1647,28 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_camera
+            let snap_sewcam = snapshot.clone();
+            let sel_sewcam = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_camera".to_string(),
+                description: "Add all entities that have a camera component to the selection"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewcam.lock().unwrap();
+                    let mut sel = sel_sewcam.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.camera_fov.is_some() {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entity_descendants
             let snap_ged = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5467,6 +5489,175 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_path_returns_slash_separated_names() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "PathRoot"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "PathMid"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "PathLeaf"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (root_id, mid_id, leaf_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let r = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("PathRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let m = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("PathMid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let l = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("PathLeaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (r, m, l)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": mid_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": leaf_id, "parent_id": mid_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_path", json!({"entity_id": leaf_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let path = out.content["path"].as_array().unwrap();
+        let names: Vec<&str> = path.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"PathRoot"), "path includes root");
+        assert!(names.contains(&"PathMid"), "path includes mid");
+        assert!(names.contains(&"PathLeaf"), "path includes leaf");
+        // verify order: root → mid → leaf
+        let root_pos = names.iter().position(|&n| n == "PathRoot").unwrap();
+        let leaf_pos = names.iter().position(|&n| n == "PathLeaf").unwrap();
+        assert!(root_pos < leaf_pos, "root comes before leaf");
+    }
+
+    #[test]
+    fn mcp_select_entities_with_camera_selects_only_cameras() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 5.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute("spawn_entity", json!({"name": "NotCam"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (cam_id, plain_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let c = ents
+                .iter()
+                .find(|e| e["camera_fov"].as_f64().is_some())
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let p = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NotCam"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (c, p)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_camera", json!({}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&cam_id), "camera selected");
+        assert!(!ids.contains(&plain_id), "non-camera not selected");
     }
 
     #[test]

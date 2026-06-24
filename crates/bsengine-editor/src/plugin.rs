@@ -19,16 +19,28 @@ fn update_editor_snapshot(
         Option<&Name>,
         Option<&Transform>,
         Option<&MeshRenderer>,
+        Option<&PointLight>,
+        Option<&DirectionalLight>,
+        Option<&SpotLight>,
     )>,
 ) {
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
-        .map(|(e, name, transform, mesh)| EntityInfo {
+        .map(|(e, name, transform, mesh, pt, dir, spot)| EntityInfo {
             id: e.index() as u64,
             name: name.map(|n| n.0.clone()),
             position: transform.map(|t| t.translation.to_array()),
             mesh_id: mesh.map(|m| m.mesh_id),
+            light_type: if pt.is_some() {
+                Some("point".to_string())
+            } else if dir.is_some() {
+                Some("directional".to_string())
+            } else if spot.is_some() {
+                Some("spot".to_string())
+            } else {
+                None
+            },
         })
         .collect();
 }
@@ -186,6 +198,7 @@ impl Plugin for EditorPlugin {
                             "name": e.name,
                             "position": e.position,
                             "mesh_id": e.mesh_id,
+                            "light_type": e.light_type,
                         })).collect::<Vec<_>>()
                     }))
                 }),
@@ -213,6 +226,7 @@ impl Plugin for EditorPlugin {
                             "name": e.name,
                             "position": e.position,
                             "mesh_id": e.mesh_id,
+                            "light_type": e.light_type,
                         })),
                         None => McpToolOutput::error("entity not found"),
                     }
@@ -816,6 +830,77 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn list_entities_includes_light_type_point() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn(bsengine_core::PointLight::default());
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap();
+        let entities = result.content["entities"].as_array().unwrap();
+        let light_types: Vec<_> = entities
+            .iter()
+            .filter_map(|e| e["light_type"].as_str())
+            .collect();
+        assert!(light_types.contains(&"point"), "expected light_type=point");
+    }
+
+    #[test]
+    fn list_entities_no_light_type_for_plain_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut()
+            .spawn(bsengine_scene::Name("Cube".to_string()));
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap();
+        let entities = result.content["entities"].as_array().unwrap();
+        let cube = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Cube"))
+            .unwrap();
+        assert!(
+            cube["light_type"].is_null(),
+            "plain entity should have null light_type"
+        );
+    }
+
+    #[test]
+    fn get_entity_includes_light_type_directional() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_core::DirectionalLight::default())
+            .id();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .unwrap();
+        assert_eq!(result.content["light_type"], "directional");
     }
 
     #[test]

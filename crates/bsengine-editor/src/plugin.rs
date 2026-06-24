@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // mirror_selected_on_axis
+            let snap_msoa = snapshot.clone();
+            let sel_msoa = selection.clone();
+            let queue_msoa = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "mirror_selected_on_axis".to_string(),
+                description: "Negate the specified axis (x/y/z) of all selected entities (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "axis": { "type": "string", "enum": ["x", "y", "z"] } },
+                    "required": ["axis"]
+                })),
+                handler: Box::new(move |input| {
+                    let axis = match input["axis"].as_str() {
+                        Some(a) => a.to_string(),
+                        None => return McpToolOutput::error("missing axis"),
+                    };
+                    let selected: Vec<u64> = sel_msoa.lock().unwrap().iter().cloned().collect();
+                    let s = snap_msoa.lock().unwrap();
+                    let mut q = queue_msoa.lock().unwrap();
+                    let mut count = 0u64;
+                    for &entity_id in &selected {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == entity_id) {
+                            let [mut x, mut y, mut z] = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                            match axis.as_str() {
+                                "x" => x = -x,
+                                "y" => y = -y,
+                                "z" => z = -z,
+                                _ => {}
+                            }
+                            q.push(EditorCommand::SetPosition { entity_id, x, y, z });
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"mirrored_count": count, "axis": axis}))
+                }),
+            });
+
+            // get_entities_sorted_by_name
+            let snap_gesbn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_name".to_string(),
+                description: "Return all entities sorted alphabetically by name".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbn.lock().unwrap();
+                    let mut entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    entities.sort_by(|a, b| {
+                        let na = a["name"].as_str().unwrap_or("");
+                        let nb = b["name"].as_str().unwrap_or("");
+                        na.cmp(nb)
+                    });
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entity_subtree_size
             let snap_gests = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4559,6 +4619,146 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_mirror_selected_on_axis_negates_axis_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "MirrorA", "position": [5.0, 2.0, 3.0]},
+                        {"name": "MirrorB", "position": [10.0, 4.0, 6.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("MirrorA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("MirrorB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("mirror_selected_on_axis", json!({"axis": "x"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pa = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_a}))
+            .unwrap();
+        let pb = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(
+            (pa.content["position"][0].as_f64().unwrap() - (-5.0)).abs() < 1e-3,
+            "MirrorA x should be -5"
+        );
+        assert!(
+            (pa.content["position"][1].as_f64().unwrap() - 2.0).abs() < 1e-3,
+            "MirrorA y unchanged"
+        );
+        assert!(
+            (pb.content["position"][0].as_f64().unwrap() - (-10.0)).abs() < 1e-3,
+            "MirrorB x should be -10"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_name_returns_alpha_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Zebra"},
+                        {"name": "Apple"},
+                        {"name": "Mango"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        let apple_pos = names.iter().position(|&n| n == "Apple").unwrap();
+        let mango_pos = names.iter().position(|&n| n == "Mango").unwrap();
+        let zebra_pos = names.iter().position(|&n| n == "Zebra").unwrap();
+        assert!(apple_pos < mango_pos, "Apple before Mango");
+        assert!(mango_pos < zebra_pos, "Mango before Zebra");
     }
 
     #[test]

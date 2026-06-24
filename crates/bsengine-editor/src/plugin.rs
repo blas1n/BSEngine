@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_child_count
+            let snap_gewcc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_child_count".to_string(),
+                description: "Return entities that have exactly n direct children".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "n": { "type": "integer" } },
+                    "required": ["n"]
+                })),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0);
+                    let s = snap_gewcc.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, u64> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(pid) = e.parent_id {
+                            *child_counts.entry(pid).or_insert(0) += 1;
+                        }
+                    }
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| child_counts.get(&e.id).copied().unwrap_or(0) == n)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_on_ground_level
+            let snap_geogr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_on_ground_level".to_string(),
+                description:
+                    "Return entities whose Y position is within tolerance of 0 (ground plane)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tolerance": { "type": "number" } },
+                    "required": ["tolerance"]
+                })),
+                handler: Box::new(move |input| {
+                    let tolerance = input["tolerance"].as_f64().unwrap_or(0.01) as f32;
+                    let s = snap_geogr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map_or(false, |p| p[1].abs() <= tolerance))
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // expand_selection_to_children
             let snap_estc = snapshot.clone();
             let sel_estc = selection.clone();
@@ -9551,6 +9606,159 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_child_count_filters_by_exact_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            // A has 2 children (B, C), D has 1 child (E), F has 0 children
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "D"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "E"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "F"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id, d_id, e_id) =
+            (id_of("A"), id_of("B"), id_of("C"), id_of("D"), id_of("E"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("set_parent", json!({"entity_id": b_id, "parent_id": a_id}))
+                .unwrap();
+            m.execute("set_parent", json!({"entity_id": c_id, "parent_id": a_id}))
+                .unwrap();
+            m.execute("set_parent", json!({"entity_id": e_id, "parent_id": d_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_child_count", json!({"n": 2}))
+            .unwrap();
+        assert!(out2.is_ok());
+        let ids2: Vec<u64> = out2.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids2.contains(&a_id), "A has 2 children");
+        assert!(!ids2.contains(&d_id), "D has only 1 child");
+
+        let out1 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_child_count", json!({"n": 1}))
+            .unwrap();
+        assert!(out1.is_ok());
+        let ids1: Vec<u64> = out1.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids1.contains(&d_id), "D has exactly 1 child");
+        assert!(!ids1.contains(&a_id), "A has 2 children, not 1");
+    }
+
+    #[test]
+    fn mcp_get_entities_on_ground_level_filters_by_y_tolerance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "OnGround", "position": [0.0, 0.0, 0.0]},
+                    {"name": "NearGround", "position": [0.0, 0.3, 0.0]},
+                    {"name": "AboveGround", "position": [0.0, 2.0, 0.0]},
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (on_id, near_id, above_id) =
+            (id_of("OnGround"), id_of("NearGround"), id_of("AboveGround"));
+
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_on_ground_level", json!({"tolerance": 0.5}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&on_id), "OnGround (Y=0) included");
+        assert!(
+            ids.contains(&near_id),
+            "NearGround (Y=0.3) within tolerance 0.5"
+        );
+        assert!(!ids.contains(&above_id), "AboveGround (Y=2.0) excluded");
     }
 
     #[test]

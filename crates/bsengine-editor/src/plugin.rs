@@ -1647,6 +1647,51 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_invisible_entities
+            let snap_die = snapshot.clone();
+            let sel_die = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_invisible_entities".to_string(),
+                description:
+                    "Remove invisible entities from the current selection; returns deselected_count"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_die.lock().unwrap();
+                    let mut sel = sel_die.lock().unwrap();
+                    let invisible: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.visible && sel.contains(&e.id))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = invisible.len() as u64;
+                    for id in invisible {
+                        sel.remove(&id);
+                    }
+                    McpToolOutput::success(json!({"deselected_count": count}))
+                }),
+            });
+
+            // clone_selection
+            let sel_csel = selection.clone();
+            let queue50 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "clone_selection".to_string(),
+                description: "Duplicate all selected entities; returns duplicated_count"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let sel = sel_csel.lock().unwrap();
+                    let mut q = queue50.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        q.push(crate::snapshot::EditorCommand::DuplicateEntity { entity_id });
+                    }
+                    McpToolOutput::success(json!({"duplicated_count": count}))
+                }),
+            });
+
             // get_entities_with_fewer_than_n_tags
             let snap_gewftnt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -9323,6 +9368,182 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_invisible_entities_removes_hidden_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Visible"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Hidden"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (vis_id, hid_id) = (id_of("Visible"), id_of("Hidden"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hid_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select both
+        for id in [vis_id, hid_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_invisible_entities", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["deselected_count"].as_u64().unwrap(), 1);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel_ids: Vec<u64> = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap()
+            .content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(sel_ids.contains(&vis_id), "Visible remains selected");
+        assert!(!sel_ids.contains(&hid_id), "Hidden deselected");
+    }
+
+    #[test]
+    fn mcp_clone_selection_duplicates_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let before_count = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .len()
+        };
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        for id in [id_of("A"), id_of("B")] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("clone_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["duplicated_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let after_count = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(
+            after_count,
+            before_count + 2,
+            "2 new entities after cloning 2 selected"
+        );
     }
 
     #[test]

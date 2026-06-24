@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_fewer_than_n_tags
+            let snap_gewftnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_fewer_than_n_tags".to_string(),
+                description: "Return entities whose tag count is strictly less than n".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "n": { "type": "integer" } },
+                    "required": ["n"]
+                })),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewftnt.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.len() < n)
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // center_selection
+            let snap_cs = snapshot.clone();
+            let sel_cs = selection.clone();
+            let queue49 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "center_selection".to_string(),
+                description: "Move all selected entities so their collective centroid is at the world origin (0,0,0)".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cs.lock().unwrap();
+                    let sel = sel_cs.lock().unwrap();
+                    let selected_entities: Vec<&crate::snapshot::EntityInfo> = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id) && e.position.is_some())
+                        .collect();
+                    if selected_entities.is_empty() {
+                        return McpToolOutput::success(json!({"centered_count": 0}));
+                    }
+                    let count = selected_entities.len() as f32;
+                    let cx = selected_entities.iter().map(|e| e.position.unwrap()[0]).sum::<f32>() / count;
+                    let cy = selected_entities.iter().map(|e| e.position.unwrap()[1]).sum::<f32>() / count;
+                    let cz = selected_entities.iter().map(|e| e.position.unwrap()[2]).sum::<f32>() / count;
+                    let mut q = queue49.lock().unwrap();
+                    for e in &selected_entities {
+                        let pos = e.position.unwrap();
+                        q.push(crate::snapshot::EditorCommand::SetPosition {
+                            entity_id: e.id,
+                            x: pos[0] - cx,
+                            y: pos[1] - cy,
+                            z: pos[2] - cz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"centered_count": selected_entities.len()}))
+                }),
+            });
+
             // select_visible_entities
             let snap_sve = snapshot.clone();
             let sel_sve = selection.clone();
@@ -9265,6 +9323,177 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_fewer_than_n_tags_filters_below_n() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap(); // 1 tag
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap(); // 3 tags
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap(); // 0 tags
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": a_id, "tag": "t1"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        for tag in ["t1", "t2", "t3"] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": b_id, "tag": tag}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_fewer_than_n_tags", json!({"n": 2}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&a_id), "A (1 tag) < 2 included");
+        assert!(ids.contains(&c_id), "C (0 tags) < 2 included");
+        assert!(!ids.contains(&b_id), "B (3 tags) >= 2 excluded");
+    }
+
+    #[test]
+    fn mcp_center_selection_moves_entities_to_origin() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn two entities at (2,0,0) and (-2,0,0) — centroid is (0,0,0)
+        // After centering, each moves by -(centroid) = (0,0,0), so positions remain
+        // Let's use (4,0,0) and (2,0,0) — centroid is (3,0,0)
+        // After centering: (4-3,0,0)=(1,0,0) and (2-3,0,0)=(-1,0,0)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [4.0, 0.0, 0.0]},
+                            {"name": "B", "position": [2.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        for id in [a_id, b_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("center_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let pos_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["position"].clone()
+        };
+        let ax = pos_of(a_id)[0].as_f64().unwrap();
+        let bx = pos_of(b_id)[0].as_f64().unwrap();
+        assert!(
+            (ax - 1.0).abs() < 0.01,
+            "A x should be 1.0 after center, got {}",
+            ax
+        );
+        assert!(
+            (bx - (-1.0)).abs() < 0.01,
+            "B x should be -1.0 after center, got {}",
+            bx
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use bevy_ecs::prelude::Component;
 use bsengine_ecs::Resource;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[derive(Component, Clone, Default)]
@@ -30,6 +31,7 @@ pub struct EntityInfo {
     pub parent_id: Option<u64>,
     pub tags: Vec<String>,
     pub visible: bool,
+    pub selected: bool,
 }
 
 #[derive(Clone, Default)]
@@ -158,12 +160,16 @@ pub enum EditorCommand {
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;
 pub type SharedCommandQueue = Arc<Mutex<Vec<EditorCommand>>>;
+pub type SharedSelection = Arc<Mutex<HashSet<u64>>>;
 
 #[derive(Resource)]
 pub struct EditorSnapshotResource(pub SharedSnapshot);
 
 #[derive(Resource)]
 pub struct EditorCommandQueueResource(pub SharedCommandQueue);
+
+#[derive(Resource)]
+pub struct EditorSelectionResource(pub SharedSelection);
 
 #[cfg(test)]
 mod tests {
@@ -192,6 +198,7 @@ mod tests {
             parent_id: None,
             tags: vec![],
             visible: true,
+            selected: false,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -214,6 +221,7 @@ mod tests {
             parent_id: None,
             tags: vec![],
             visible: true,
+            selected: false,
             position: None,
         };
         assert!(e.position.is_none());

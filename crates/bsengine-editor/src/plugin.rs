@@ -1,6 +1,7 @@
 use crate::snapshot::{
-    EditorCommand, EditorCommandQueueResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
-    SharedCommandQueue, SharedSnapshot, Tags, Visible,
+    EditorCommand, EditorCommandQueueResource, EditorSelectionResource, EditorSnapshot,
+    EditorSnapshotResource, EntityInfo, SharedCommandQueue, SharedSelection, SharedSnapshot, Tags,
+    Visible,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
@@ -16,6 +17,7 @@ use std::sync::{Arc, Mutex};
 
 fn update_editor_snapshot(
     snapshot_res: Res<EditorSnapshotResource>,
+    selection_res: Res<EditorSelectionResource>,
     query: Query<(
         Entity,
         Option<&Name>,
@@ -30,6 +32,7 @@ fn update_editor_snapshot(
         Option<&Visible>,
     )>,
 ) {
+    let selection = selection_res.0.lock().unwrap().clone();
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
@@ -70,6 +73,7 @@ fn update_editor_snapshot(
                     parent_id: parent.map(|p| p.0.index() as u64),
                     tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
                     visible: vis.map(|v| v.0).unwrap_or(true),
+                    selected: selection.contains(&(e.index() as u64)),
                 }
             },
         )
@@ -475,9 +479,11 @@ impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         let snapshot: SharedSnapshot = Arc::new(Mutex::new(EditorSnapshot::default()));
         let cmd_queue: SharedCommandQueue = Arc::new(Mutex::new(Vec::new()));
+        let selection: SharedSelection = Arc::new(Mutex::new(std::collections::HashSet::new()));
 
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
+        app.insert_resource(EditorSelectionResource(selection.clone()));
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, process_editor_commands);
 
@@ -501,6 +507,7 @@ impl Plugin for EditorPlugin {
                             "parent_id": e.parent_id,
                             "tags": e.tags,
                             "visible": e.visible,
+                            "selected": e.selected,
                             "light_type": e.light_type,
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
@@ -1489,6 +1496,71 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entity
+            let sel1 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entity".to_string(),
+                description: "Add an entity to the editor selection set (immediate)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    sel1.lock().unwrap().insert(entity_id);
+                    McpToolOutput::success(json!({"status": "selected", "entity_id": entity_id}))
+                }),
+            });
+
+            // deselect_entity
+            let sel2 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entity".to_string(),
+                description: "Remove an entity from the editor selection set (immediate)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    sel2.lock().unwrap().remove(&entity_id);
+                    McpToolOutput::success(json!({"status": "deselected", "entity_id": entity_id}))
+                }),
+            });
+
+            // get_selection
+            let sel3 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selection".to_string(),
+                description: "Return the list of currently selected entity IDs".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let ids: Vec<u64> = sel3.lock().unwrap().iter().copied().collect();
+                    McpToolOutput::success(json!({"selected_ids": ids}))
+                }),
+            });
+
+            // clear_selection
+            let sel4 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "clear_selection".to_string(),
+                description: "Clear all selected entities (immediate)".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    sel4.lock().unwrap().clear();
+                    McpToolOutput::success(json!({"status": "cleared"}))
+                }),
+            });
+
             // hide_entity
             let queue27 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -1902,6 +1974,128 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Selected"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Selected"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        // default: not selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entity = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Selected"))
+                .unwrap();
+            assert_eq!(entity["selected"], false);
+        }
+
+        // select
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+        }
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selection", json!({}))
+                .unwrap();
+            let ids = out.content["selected_ids"].as_array().unwrap();
+            assert!(
+                ids.contains(&serde_json::json!(entity_id)),
+                "entity should be selected"
+            );
+
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entity = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Selected"))
+                .unwrap();
+            assert_eq!(
+                entity["selected"], true,
+                "list_entities.selected should be true"
+            );
+        }
+
+        // deselect
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("deselect_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+        }
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selection", json!({}))
+                .unwrap();
+            let ids = out.content["selected_ids"].as_array().unwrap();
+            assert!(
+                !ids.contains(&serde_json::json!(entity_id)),
+                "entity should be deselected"
+            );
+        }
     }
 
     #[test]

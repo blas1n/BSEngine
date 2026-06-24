@@ -8,6 +8,9 @@ pub struct EntityInfo {
     pub position: Option<[f32; 3]>,
     pub mesh_id: Option<u64>,
     pub light_type: Option<String>,
+    pub light_color: Option<[f32; 3]>,
+    pub light_intensity: Option<f32>,
+    pub light_range: Option<f32>,
 }
 
 #[derive(Clone, Default)]
@@ -109,6 +112,9 @@ mod tests {
             position: Some([1.0, 2.0, 3.0]),
             mesh_id: None,
             light_type: None,
+            light_color: None,
+            light_intensity: None,
+            light_range: None,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -122,6 +128,9 @@ mod tests {
             name: None,
             mesh_id: None,
             light_type: None,
+            light_color: None,
+            light_intensity: None,
+            light_range: None,
             position: None,
         };
         assert!(e.position.is_none());

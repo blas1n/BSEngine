@@ -1647,6 +1647,63 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_in_box
+            let snap_seib = snapshot.clone();
+            let sel_seib = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_box".to_string(),
+                description: "Add to selection all entities whose position is within an AABB".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" }, "min_y": { "type": "number" }, "min_z": { "type": "number" },
+                        "max_x": { "type": "number" }, "max_y": { "type": "number" }, "max_z": { "type": "number" }
+                    },
+                    "required": ["min_x", "min_y", "min_z", "max_x", "max_y", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_seib.lock().unwrap();
+                    let mut sel = sel_seib.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            if p[0] >= min_x && p[0] <= max_x && p[1] >= min_y && p[1] <= max_y && p[2] >= min_z && p[2] <= max_z {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // select_entities_with_light
+            let snap_sewl = snapshot.clone();
+            let sel_sewl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_light".to_string(),
+                description: "Add all light entities to the current selection".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewl.lock().unwrap();
+                    let mut sel = sel_sewl.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.light_type.is_some() {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_spot_lights
             let snap_gsl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7141,6 +7198,118 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_in_box_selects_entities_within_aabb() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InBox", "position": [1.0, 1.0, 1.0]},
+                        {"name": "OutBox", "position": [20.0, 20.0, 20.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let in_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InBox"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "select_entities_in_box",
+                json!({
+                    "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                    "max_x": 5.0, "max_y": 5.0, "max_z": 5.0
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&in_id), "InBox selected");
+        assert_eq!(ids.len(), 1, "OutBox not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_with_light_selects_all_light_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+            m.execute("spawn_entity", json!({"name": "NoLight"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_entities_with_light", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["selected_count"].as_u64().unwrap(),
+            2,
+            "2 lights selected"
+        );
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        assert_eq!(sel.content["selected_ids"].as_array().unwrap().len(), 2);
     }
 
     #[test]

@@ -521,6 +521,7 @@ dependencies = [
  "bsengine-ecs",
  "bsengine-rhi",
  "bsengine-rhi-wgpu",
+ "bsengine-window",
  "glam",
  "tracing",
 ]

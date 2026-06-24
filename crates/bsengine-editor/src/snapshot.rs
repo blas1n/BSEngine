@@ -24,6 +24,7 @@ pub enum EditorCommand {
     Despawn {
         entity_id: u64,
     },
+    LoadScene(String),
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

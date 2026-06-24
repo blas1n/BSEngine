@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_has_camera
+            let snap_gehc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_has_camera".to_string(),
+                description: "Return whether an entity has a camera component".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gehc.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"entity_id": entity_id, "has_camera": e.camera_fov.is_some()}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_entity_has_light
+            let snap_gehl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_has_light".to_string(),
+                description: "Return whether an entity has a light component".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gehl.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"entity_id": entity_id, "has_light": e.light_type.is_some()}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_entity_visibility
             let snap_gev = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6401,6 +6451,137 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_has_camera_returns_bool_for_camera_presence() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "NoCam"})).unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (cam_id, no_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let c = ents.iter().find(|e| e["camera_fov"].is_number()).unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoCam"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (c, n)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_cam = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_camera", json!({"entity_id": cam_id}))
+            .unwrap();
+        assert!(
+            out_cam.content["has_camera"].as_bool().unwrap(),
+            "camera entity → true"
+        );
+
+        let out_no = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_camera", json!({"entity_id": no_id}))
+            .unwrap();
+        assert!(
+            !out_no.content["has_camera"].as_bool().unwrap(),
+            "plain entity → false"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_has_light_returns_bool_for_light_presence() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "NoLight"}))
+                .unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (light_id, no_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let l = ents.iter().find(|e| e["light_type"].is_string()).unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoLight"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (l, n)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_light = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_light", json!({"entity_id": light_id}))
+            .unwrap();
+        assert!(
+            out_light.content["has_light"].as_bool().unwrap(),
+            "light entity → true"
+        );
+
+        let out_no = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_light", json!({"entity_id": no_id}))
+            .unwrap();
+        assert!(
+            !out_no.content["has_light"].as_bool().unwrap(),
+            "plain entity → false"
+        );
     }
 
     #[test]

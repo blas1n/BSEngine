@@ -29,6 +29,7 @@ impl McpToolOutput {
 pub struct McpTool {
     pub name: String,
     pub description: String,
+    pub input_schema: Option<Value>,
     pub handler: Box<dyn Fn(Value) -> McpToolOutput + Send + Sync>,
 }
 
@@ -56,6 +57,7 @@ mod tests {
         let tool = McpTool {
             name: "get_world_state".to_string(),
             description: "Returns current ECS world state".to_string(),
+            input_schema: None,
             handler: Box::new(|_input| McpToolOutput::success(json!({}))),
         };
         assert_eq!(tool.name, "get_world_state");
@@ -67,6 +69,7 @@ mod tests {
         let tool = McpTool {
             name: "echo".to_string(),
             description: "Echoes input".to_string(),
+            input_schema: None,
             handler: Box::new(|input| McpToolOutput::success(json!({"echo": input}))),
         };
         let result = (tool.handler)(json!({"msg": "hello"}));

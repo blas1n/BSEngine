@@ -46,6 +46,7 @@ mod tests {
         McpTool {
             name: "echo".to_string(),
             description: "Echoes input".to_string(),
+            input_schema: None,
             handler: Box::new(|input| McpToolOutput::success(json!({"echo": input}))),
         }
     }
@@ -83,6 +84,7 @@ mod tests {
         reg.register(McpTool {
             name: "version".to_string(),
             description: "Returns version".to_string(),
+            input_schema: None,
             handler: Box::new(|_| McpToolOutput::success(json!({"version": "0.1.0"}))),
         });
         assert_eq!(reg.list_tools().len(), 2);

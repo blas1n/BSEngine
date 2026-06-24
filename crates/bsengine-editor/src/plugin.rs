@@ -119,6 +119,7 @@ impl Plugin for EditorPlugin {
             mcp.0.lock().unwrap().register(McpTool {
                 name: "list_entities".to_string(),
                 description: "List all entities with their IDs, names, and positions".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
                 handler: Box::new(move |_input| {
                     let s = snap.lock().unwrap();
                     McpToolOutput::success(json!({
@@ -136,6 +137,11 @@ impl Plugin for EditorPlugin {
             mcp.0.lock().unwrap().register(McpTool {
                 name: "get_entity".to_string(),
                 description: "Get detailed info for a specific entity by ID".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "id": { "type": "number", "description": "Entity ID" } },
+                    "required": ["id"]
+                })),
                 handler: Box::new(move |input| {
                     let id = match input["id"].as_u64() {
                         Some(v) => v,
@@ -158,6 +164,11 @@ impl Plugin for EditorPlugin {
             mcp.0.lock().unwrap().register(McpTool {
                 name: "spawn_entity".to_string(),
                 description: "Spawn a new named entity (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "name": { "type": "string", "description": "Entity name" } },
+                    "required": ["name"]
+                })),
                 handler: Box::new(move |input| {
                     let name = input["name"].as_str().unwrap_or("Entity").to_string();
                     queue
@@ -174,6 +185,16 @@ impl Plugin for EditorPlugin {
                 name: "set_transform".to_string(),
                 description: "Set the world position of an entity by ID (applied next frame)"
                     .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "number", "description": "Entity ID" },
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["id", "x", "y", "z"]
+                })),
                 handler: Box::new(move |input| {
                     let id = match input["id"].as_u64() {
                         Some(v) => v,
@@ -199,6 +220,11 @@ impl Plugin for EditorPlugin {
             mcp.0.lock().unwrap().register(McpTool {
                 name: "despawn_entity".to_string(),
                 description: "Despawn an entity by ID (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "id": { "type": "number", "description": "Entity ID" } },
+                    "required": ["id"]
+                })),
                 handler: Box::new(move |input| {
                     let id = match input["id"].as_u64() {
                         Some(v) => v,
@@ -217,6 +243,11 @@ impl Plugin for EditorPlugin {
             mcp.0.lock().unwrap().register(McpTool {
                 name: "save_scene".to_string(),
                 description: "Serialize current named entities to a RON scene file".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "path": { "type": "string", "description": "Destination file path (.ron)" } },
+                    "required": ["path"]
+                })),
                 handler: Box::new(move |input| {
                     let path = match input["path"].as_str() {
                         Some(p) => p.to_string(),
@@ -264,6 +295,11 @@ impl Plugin for EditorPlugin {
                 name: "load_scene".to_string(),
                 description: "Load and spawn entities from a RON scene file (applied next frame)"
                     .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "path": { "type": "string", "description": "Source file path (.ron)" } },
+                    "required": ["path"]
+                })),
                 handler: Box::new(move |input| {
                     let path = match input["path"].as_str() {
                         Some(p) => p.to_string(),

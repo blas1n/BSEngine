@@ -5,6 +5,15 @@ use std::sync::{Arc, Mutex};
 #[derive(Component, Clone, Default)]
 pub struct Tags(pub Vec<String>);
 
+#[derive(Component, Clone)]
+pub struct Visible(pub bool);
+
+impl Default for Visible {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct EntityInfo {
     pub id: u64,
@@ -20,6 +29,7 @@ pub struct EntityInfo {
     pub camera_fov: Option<f32>,
     pub parent_id: Option<u64>,
     pub tags: Vec<String>,
+    pub visible: bool,
 }
 
 #[derive(Clone, Default)]
@@ -77,6 +87,10 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    SetVisible {
+        entity_id: u64,
+        visible: bool,
+    },
     TagEntity {
         entity_id: u64,
         tag: String,
@@ -177,6 +191,7 @@ mod tests {
             camera_fov: None,
             parent_id: None,
             tags: vec![],
+            visible: true,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -198,6 +213,7 @@ mod tests {
             camera_fov: None,
             parent_id: None,
             tags: vec![],
+            visible: true,
             position: None,
         };
         assert!(e.position.is_none());

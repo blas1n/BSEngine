@@ -1647,6 +1647,33 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_camera_info
+            let snap_geci = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_camera_info".to_string(),
+                description: "Return camera details (fov_y_degrees) for the specified entity"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_geci.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(json!({
+                            "entity_id": entity_id,
+                            "fov_y_degrees": e.camera_fov,
+                        })),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_entity_light_info
             let snap_geli = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4208,6 +4235,157 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_camera_info_returns_fov() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({"fov_y_degrees": 75.0, "position": [0.0, 0.0, 10.0]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let cam_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| !e["camera_fov"].is_null())
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_camera_info", json!({"entity_id": cam_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(
+            (out.content["fov_y_degrees"].as_f64().unwrap() - 75.0).abs() < 1.0,
+            "fov should be ~75"
+        );
+    }
+
+    #[test]
+    fn mcp_move_selected_entities_offsets_positions() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "MoveSelA", "position": [0.0, 0.0, 0.0]},
+                        {"name": "MoveSelB", "position": [5.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("MoveSelA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("MoveSelB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "move_selected_entities",
+                    json!({"dx": 0.0, "dy": 3.0, "dz": 0.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pa = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_a}))
+            .unwrap();
+        let pb = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(
+            (pa.content["position"][1].as_f64().unwrap() - 3.0).abs() < 1e-3,
+            "MoveSelA y should be 3"
+        );
+        assert!(
+            (pb.content["position"][1].as_f64().unwrap() - 3.0).abs() < 1e-3,
+            "MoveSelB y should be 3"
+        );
+        assert!(
+            (pb.content["position"][0].as_f64().unwrap() - 5.0).abs() < 1e-3,
+            "MoveSelB x should still be 5"
+        );
     }
 
     #[test]

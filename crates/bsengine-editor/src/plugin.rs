@@ -193,6 +193,12 @@ fn process_editor_commands(
                     commands.entity(entity).insert(Name(name));
                 }
             }
+            EditorCommand::ClearScene => {
+                let entities: Vec<_> = params.p0().iter().collect();
+                for entity in entities {
+                    commands.entity(entity).despawn();
+                }
+            }
             EditorCommand::SpawnSpotLight {
                 color,
                 intensity,
@@ -929,6 +935,18 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // clear_scene
+            let queue15 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "clear_scene".to_string(),
+                description: "Despawn all entities in the scene (applied next frame)".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    queue15.lock().unwrap().push(EditorCommand::ClearScene);
+                    McpToolOutput::success(json!({"status": "queued"}))
+                }),
+            });
         }
     }
 }
@@ -1230,6 +1248,39 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_clear_scene_removes_all_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn(bsengine_scene::Name("A".to_string()));
+        app.world_mut().spawn(bsengine_scene::Name("B".to_string()));
+        app.world_mut().spawn(bsengine_core::PointLight::default());
+        app.update(); // snapshot: 3 entities
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("clear_scene", json!({}))
+                .expect("clear_scene not found");
+            assert!(result.is_ok());
+        }
+        app.update(); // process: all despawned
+        app.update(); // snapshot: empty
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let stats = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_stats", json!({}))
+            .unwrap();
+        assert_eq!(stats.content["total_entities"], 0);
     }
 
     #[test]

@@ -1647,6 +1647,37 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_light_info
+            let snap_geli = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_light_info".to_string(),
+                description:
+                    "Return light details (type, color, intensity, range) for the specified entity"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_geli.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(json!({
+                            "entity_id": entity_id,
+                            "light_type": e.light_type,
+                            "light_color": e.light_color,
+                            "intensity": e.light_intensity,
+                            "range": e.light_range,
+                        })),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_entity_children
             let snap_gec = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4177,6 +4208,136 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_light_info_returns_light_details() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 0.5, 0.0],
+                        "intensity": 200.0,
+                        "range": 15.0,
+                        "position": [0.0, 3.0, 0.0]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let light_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| !e["light_type"].is_null())
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_light_info", json!({"entity_id": light_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["light_type"].as_str().unwrap(), "point");
+        assert!((out.content["intensity"].as_f64().unwrap() - 200.0).abs() < 1.0);
+        assert!((out.content["range"].as_f64().unwrap() - 15.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn mcp_get_selected_entity_count_reflects_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SelCountA"},
+                        {"name": "SelCountB"},
+                        {"name": "SelCountC"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SelCountA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SelCountB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selected_entity_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["count"].as_u64().unwrap(),
+            2,
+            "2 entities selected"
+        );
     }
 
     #[test]

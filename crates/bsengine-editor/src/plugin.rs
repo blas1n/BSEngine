@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_descendants
+            let snap_ged = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_descendants".to_string(),
+                description:
+                    "Return all descendants (children, grandchildren, etc.) of an entity via BFS"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_ged.lock().unwrap();
+                    if !s.entities.iter().any(|e| e.id == entity_id) {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let mut result = Vec::new();
+                    let mut queue = std::collections::VecDeque::new();
+                    queue.push_back(entity_id);
+                    while let Some(current) = queue.pop_front() {
+                        for e in s.entities.iter().filter(|e| e.parent_id == Some(current)) {
+                            result.push(json!({"id": e.id, "name": e.name}));
+                            queue.push_back(e.id);
+                            if result.len() >= 10_000 {
+                                break;
+                            }
+                        }
+                        if result.len() >= 10_000 {
+                            break;
+                        }
+                    }
+                    McpToolOutput::success(json!({"entity_id": entity_id, "entities": result}))
+                }),
+            });
+
             // get_entities_with_children
             let snap_gewc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5427,6 +5467,183 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_scale_selected_entities_sets_scale_on_all_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "ScaleA", "position": [0.0, 0.0, 0.0]},
+                        {"name": "ScaleB", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ScaleA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ScaleB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "scale_selected_entities",
+                    json!({"sx": 2.0, "sy": 3.0, "sz": 0.5}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_a = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_scale", json!({"entity_id": id_a}))
+            .unwrap();
+        let s = &out_a.content["scale"];
+        assert!((s[0].as_f64().unwrap() - 2.0).abs() < 1e-3, "ScaleA sx=2");
+        assert!((s[1].as_f64().unwrap() - 3.0).abs() < 1e-3, "ScaleA sy=3");
+        assert!((s[2].as_f64().unwrap() - 0.5).abs() < 1e-3, "ScaleA sz=0.5");
+    }
+
+    #[test]
+    fn mcp_get_entity_descendants_returns_all_levels() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Grandparent"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Parent"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (gp_id, p_id, c_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let gp = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Grandparent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let p = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (gp, p, c)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("set_parent", json!({"entity_id": p_id, "parent_id": gp_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("set_parent", json!({"entity_id": c_id, "parent_id": p_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_descendants", json!({"entity_id": gp_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&p_id), "Parent is a descendant");
+        assert!(ids.contains(&c_id), "Child is a descendant");
+        assert!(
+            !ids.contains(&gp_id),
+            "Grandparent itself not in descendants"
+        );
     }
 
     #[test]

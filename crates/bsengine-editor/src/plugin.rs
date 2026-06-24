@@ -1647,6 +1647,57 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_all_of_tags
+            let snap_gewaalt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_all_of_tags".to_string(),
+                description: "Return entities that have ALL of the given tags".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tags: Vec<&str> = input["tags"]
+                        .as_array()
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                        .unwrap_or_default();
+                    let s = snap_gewaalt.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| tags.iter().all(|t| e.tags.iter().any(|et| et == t)))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_sorted_by_light_intensity
+            let snap_gesli = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_light_intensity".to_string(),
+                description: "Return all light entities sorted by intensity ascending".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesli.lock().unwrap();
+                    let mut lights: Vec<&crate::snapshot::EntityInfo> = s.entities.iter()
+                        .filter(|e| e.light_intensity.is_some())
+                        .collect();
+                    lights.sort_by(|a, b| {
+                        let ai = a.light_intensity.unwrap_or(0.0);
+                        let bi = b.light_intensity.unwrap_or(0.0);
+                        ai.partial_cmp(&bi).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let entities: Vec<serde_json::Value> = lights.iter()
+                        .map(|e| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "light_intensity": e.light_intensity}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_any_of_tags
             let snap_gewaot = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7772,6 +7823,117 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_all_of_tags_returns_entities_with_all_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b, id_c) = (ids[0], ids[1], ids[2]);
+
+        // A gets both tags
+        for tag in ["hero", "elite"] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": tag}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+        // B gets only one tag
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        // C gets no tags
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_all_of_tags",
+                json!({"tags": ["hero", "elite"]}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only A has both 'hero' and 'elite'");
+        assert_eq!(ents[0]["id"].as_u64().unwrap(), id_a);
+        let _ = id_b;
+        let _ = id_c;
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_light_intensity_returns_lights_ascending() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 300.0, "range": 10.0, "position": [2.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 200.0, "range": 10.0, "position": [1.0,0.0,0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_light_intensity", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 3);
+        let intensities: Vec<f64> = ents
+            .iter()
+            .map(|e| e["light_intensity"].as_f64().unwrap())
+            .collect();
+        assert!(
+            intensities[0] <= intensities[1] && intensities[1] <= intensities[2],
+            "sorted ascending"
+        );
     }
 
     #[test]

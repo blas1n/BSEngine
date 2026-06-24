@@ -9,9 +9,11 @@ license.workspace = true
 bsengine-ecs    = { workspace = true }
 bsengine-mcp    = { workspace = true }
 bsengine-scene  = { workspace = true }
+bsengine-core   = { workspace = true }
 bevy_app        = { workspace = true }
 bevy_ecs        = { workspace = true }
 serde_json      = { workspace = true }
+glam            = { workspace = true }
 
 [dev-dependencies]
 bsengine-app = { workspace = true }

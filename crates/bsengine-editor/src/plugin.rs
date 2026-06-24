@@ -1647,6 +1647,72 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // despawn_selected
+            let sel_despawn = selection.clone();
+            let queue_despawn = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "despawn_selected".to_string(),
+                description:
+                    "Despawn all selected entities and clear selection (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let mut sel = sel_despawn.lock().unwrap();
+                    let ids: Vec<u64> = sel.iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_despawn.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::Despawn { entity_id });
+                    }
+                    sel.clear();
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
+            // hide_selected
+            let sel_hide = selection.clone();
+            let queue_hide = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "hide_selected".to_string(),
+                description: "Hide all selected entities (visible=false, applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let ids: Vec<u64> = sel_hide.lock().unwrap().iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_hide.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::SetVisible {
+                            entity_id,
+                            visible: false,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
+            // show_selected
+            let sel_show = selection.clone();
+            let queue_show = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "show_selected".to_string(),
+                description: "Show all selected entities (visible=true, applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let ids: Vec<u64> = sel_show.lock().unwrap().iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_show.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::SetVisible {
+                            entity_id,
+                            visible: true,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
             // find_nearest_entity
             let snap_nearest = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2518,6 +2584,155 @@ mod tests {
                 !ids.contains(&serde_json::json!(entity_id)),
                 "entity should be deselected"
             );
+        }
+    }
+
+    #[test]
+    fn mcp_despawn_selected_removes_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "ToDelete"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ToDelete"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+            mcp.execute("despawn_selected", json!({})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let list = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap();
+        let found = list.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"].as_str() == Some("ToDelete"));
+        assert!(!found, "ToDelete should be removed after despawn_selected");
+    }
+
+    #[test]
+    fn mcp_hide_selected_and_show_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "ToggleVis"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ToggleVis"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+            mcp.execute("hide_selected", json!({})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let e = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ToggleVis"))
+                .unwrap();
+            assert_eq!(e["visible"], false, "should be hidden after hide_selected");
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("show_selected", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let e = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ToggleVis"))
+                .unwrap();
+            assert_eq!(e["visible"], true, "should be visible after show_selected");
         }
     }
 

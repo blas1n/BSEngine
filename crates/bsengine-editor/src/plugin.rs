@@ -1647,6 +1647,74 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // rotate_selected_entities
+            let sel_rotate = selection.clone();
+            let queue_rotate = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "rotate_selected_entities".to_string(),
+                description:
+                    "Set rotation (Euler degrees) for all selected entities (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "rx": { "type": "number" },
+                        "ry": { "type": "number" },
+                        "rz": { "type": "number" }
+                    },
+                    "required": ["rx", "ry", "rz"]
+                })),
+                handler: Box::new(move |input| {
+                    let rx = input["rx"].as_f64().unwrap_or(0.0) as f32;
+                    let ry = input["ry"].as_f64().unwrap_or(0.0) as f32;
+                    let rz = input["rz"].as_f64().unwrap_or(0.0) as f32;
+                    let ids: Vec<u64> = sel_rotate.lock().unwrap().iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_rotate.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::SetRotation {
+                            entity_id,
+                            rx,
+                            ry,
+                            rz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
+            // get_sibling_entities
+            let snap_sib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_sibling_entities".to_string(),
+                description:
+                    "Return entities that share the same parent as the given entity (excludes self)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_sib.lock().unwrap();
+                    let parent_id = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => e.parent_id,
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    let siblings: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.id != entity_id && e.parent_id == parent_id)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": siblings}))
+                }),
+            });
+
             // scale_selected_entities
             let sel_scale = selection.clone();
             let queue_scale = cmd_queue.clone();
@@ -2684,6 +2752,175 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_rotate_selected_entities_applies_rotation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "RotateMe", "position": [0.0, 0.0, 0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("RotateMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+            mcp.execute(
+                "rotate_selected_entities",
+                json!({"rx": 45.0, "ry": 0.0, "rz": 0.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let e = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let rot = &e.content["entity"]["rotation"];
+        assert!(
+            (rot[0].as_f64().unwrap() - 45.0).abs() < 1e-3,
+            "rotation.x should be ~45 degrees"
+        );
+    }
+
+    #[test]
+    fn mcp_get_sibling_entities_returns_same_parent_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn parent + two children
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Parent"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let parent_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "SibA"}))
+                .unwrap();
+            mcp.execute("spawn_entity", json!({"name": "SibB"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (sib_a, sib_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SibA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SibB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute(
+                "set_parent",
+                json!({"entity_id": sib_a, "parent_id": parent_id}),
+            )
+            .unwrap();
+            mcp.execute(
+                "set_parent",
+                json!({"entity_id": sib_b, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_sibling_entities", json!({"entity_id": sib_a}))
+            .unwrap();
+        assert!(out.is_ok());
+        let siblings = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = siblings.iter().filter_map(|e| e["id"].as_u64()).collect();
+        assert!(ids.contains(&sib_b), "SibB should be a sibling of SibA");
+        assert!(
+            !ids.contains(&sib_a),
+            "SibA should not be listed as own sibling"
+        );
     }
 
     #[test]

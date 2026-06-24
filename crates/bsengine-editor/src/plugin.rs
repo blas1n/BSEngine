@@ -1647,6 +1647,59 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_within_z_range
+            let snap_sewzr = snapshot.clone();
+            let sel_sewzr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_within_z_range".to_string(),
+                description: "Add to selection all entities whose Z position is between min and max (inclusive); returns selected_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "number" },
+                        "max": { "type": "number" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max = input["max"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_sewzr.lock().unwrap();
+                    let mut sel = sel_sewzr.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter() {
+                        if let Some(pos) = e.position {
+                            if pos[2] >= min && pos[2] <= max {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // get_entities_name_contains
+            let snap_genc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_name_contains".to_string(),
+                description: "Return entity IDs whose name contains the given substring (case-sensitive); returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "substring": { "type": "string" } },
+                    "required": ["substring"]
+                })),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_genc.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.contains(&sub[..])).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_entities_within_x_range
             let snap_sewxr = snapshot.clone();
             let sel_sewxr = selection.clone();
@@ -10185,6 +10238,143 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_within_z_range_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [0.0, 0.0,  2.0]},
+                        {"name": "Mid",  "position": [0.0, 0.0,  7.0]},
+                        {"name": "Far",  "position": [0.0, 0.0, 30.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_within_z_range",
+                    json!({"min": 0.0, "max": 10.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(selected.contains(&id_of("Near")), "Near(z=2) selected");
+        assert!(selected.contains(&id_of("Mid")), "Mid(z=7) selected");
+        assert!(!selected.contains(&id_of("Far")), "Far(z=30) not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_name_contains_returns_matching_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "EnemySoldier", "position": [0.0, 0.0, 0.0]},
+                        {"name": "EnemyArcher",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "PlayerHero",   "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_name_contains", json!({"substring": "Enemy"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "EnemySoldier and EnemyArcher match");
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let player_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("PlayerHero"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(
+            !ids.contains(&player_id),
+            "PlayerHero does not match 'Enemy'"
+        );
     }
 
     #[test]

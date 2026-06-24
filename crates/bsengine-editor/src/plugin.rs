@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // add_tag_to_selection
+            let sel_atts = selection.clone();
+            let queue38 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "add_tag_to_selection".to_string(),
+                description: "Add a tag to all currently selected entities".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = input["tag"].as_str().unwrap_or("").to_string();
+                    let sel = sel_atts.lock().unwrap();
+                    let mut q = queue38.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        q.push(crate::snapshot::EditorCommand::TagEntity {
+                            entity_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                    McpToolOutput::success(json!({"tagged_count": count}))
+                }),
+            });
+
+            // remove_tag_from_selection
+            let sel_rtfs = selection.clone();
+            let queue39 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "remove_tag_from_selection".to_string(),
+                description: "Remove a tag from all currently selected entities".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = input["tag"].as_str().unwrap_or("").to_string();
+                    let sel = sel_rtfs.lock().unwrap();
+                    let mut q = queue39.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        q.push(crate::snapshot::EditorCommand::UntagEntity {
+                            entity_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                    McpToolOutput::success(json!({"untagged_count": count}))
+                }),
+            });
+
             // get_entities_with_exactly_n_tags
             let snap_gewent = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8032,6 +8084,214 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_add_tag_to_selection_tags_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b, id_c) = (ids[0], ids[1], ids[2]);
+
+        // Select A and B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+
+        // Add tag to all selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("add_tag_to_selection", json!({"tag": "hero"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["tagged_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let snap = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": id_a}))
+            .unwrap();
+        assert!(
+            snap.content["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "A tagged"
+        );
+        let snap_b = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(
+            snap_b.content["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "B tagged"
+        );
+        let snap_c = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": id_c}))
+            .unwrap();
+        assert!(
+            !snap_c.content["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "C not tagged"
+        );
+    }
+
+    #[test]
+    fn mcp_remove_tag_from_selection_untags_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b) = (ids[0], ids[1]);
+
+        // Tag both entities
+        for id in [id_a, id_b] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+        // Select A only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+        // Remove tag from selection
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("remove_tag_from_selection", json!({"tag": "hero"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["untagged_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let snap_a = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": id_a}))
+            .unwrap();
+        assert!(
+            !snap_a.content["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "A untagged"
+        );
+        let snap_b = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(
+            snap_b.content["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "B still tagged"
+        );
     }
 
     #[test]

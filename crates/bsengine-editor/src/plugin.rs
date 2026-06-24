@@ -14,15 +14,21 @@ use std::sync::{Arc, Mutex};
 
 fn update_editor_snapshot(
     snapshot_res: Res<EditorSnapshotResource>,
-    query: Query<(Entity, Option<&Name>, Option<&Transform>)>,
+    query: Query<(
+        Entity,
+        Option<&Name>,
+        Option<&Transform>,
+        Option<&MeshRenderer>,
+    )>,
 ) {
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
-        .map(|(e, name, transform)| EntityInfo {
+        .map(|(e, name, transform, mesh)| EntityInfo {
             id: e.index() as u64,
             name: name.map(|n| n.0.clone()),
             position: transform.map(|t| t.translation.to_array()),
+            mesh_id: mesh.map(|m| m.mesh_id),
         })
         .collect();
 }
@@ -142,6 +148,7 @@ impl Plugin for EditorPlugin {
                             "id": e.id,
                             "name": e.name,
                             "position": e.position,
+                            "mesh_id": e.mesh_id,
                         })).collect::<Vec<_>>()
                     }))
                 }),
@@ -168,6 +175,7 @@ impl Plugin for EditorPlugin {
                             "id": e.id,
                             "name": e.name,
                             "position": e.position,
+                            "mesh_id": e.mesh_id,
                         })),
                         None => McpToolOutput::error("entity not found"),
                     }
@@ -591,6 +599,62 @@ mod tests {
             .iter(app.world())
             .any(|(n, m)| n.0 == "Cube" && m.mesh_id == 42);
         assert!(found, "MeshRenderer not attached");
+    }
+
+    #[test]
+    fn list_entities_includes_mesh_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn((
+            Name("Renderable".to_string()),
+            Transform::from_translation(Vec3::ZERO),
+            bsengine_render::MeshRenderer { mesh_id: 99 },
+            bsengine_core::GlobalTransform::default(),
+        ));
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .expect("list_entities not found");
+        assert!(result.is_ok());
+        let entities = result.content["entities"].as_array().unwrap();
+        let entity = entities
+            .iter()
+            .find(|e| e["name"] == "Renderable")
+            .expect("Renderable not found");
+        assert_eq!(entity["mesh_id"], 99);
+    }
+
+    #[test]
+    fn get_entity_includes_mesh_id_when_present() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("WithMesh".to_string()),
+                Transform::from_translation(Vec3::ZERO),
+                bsengine_render::MeshRenderer { mesh_id: 55 },
+                bsengine_core::GlobalTransform::default(),
+            ))
+            .id();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .expect("get_entity not found");
+        assert!(result.is_ok());
+        assert_eq!(result.content["mesh_id"], 55);
     }
 
     #[test]

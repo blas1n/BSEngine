@@ -6,6 +6,7 @@ pub struct EntityInfo {
     pub id: u64,
     pub name: Option<String>,
     pub position: Option<[f32; 3]>,
+    pub mesh_id: Option<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -59,6 +60,7 @@ mod tests {
             id: 42,
             name: Some("Player".to_string()),
             position: Some([1.0, 2.0, 3.0]),
+            mesh_id: None,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -70,6 +72,7 @@ mod tests {
         let e = EntityInfo {
             id: 1,
             name: None,
+            mesh_id: None,
             position: None,
         };
         assert!(e.position.is_none());

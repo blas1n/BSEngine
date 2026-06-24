@@ -427,6 +427,7 @@ dependencies = [
  "bsengine-scene",
  "bsengine-scripting",
  "bsengine-window",
+ "glam",
  "serde_json",
 ]
 

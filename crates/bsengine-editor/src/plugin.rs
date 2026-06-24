@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_point_light
+            let snap_gewpl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_point_light".to_string(),
+                description: "Return entity IDs that have a point light; returns entity_ids"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewpl.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.as_deref() == Some("point"))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_light_intensity_above
+            let snap_gewlia = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_intensity_above".to_string(),
+                description: "Return entity IDs whose light intensity is strictly above the threshold; returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlia.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_intensity.map(|i| i > threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_without_camera
             let snap_gewoc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10973,6 +11013,147 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_point_light_returns_point_lights_only() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "Plain", "position": [0.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [5.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let plain_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Plain"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let point_id = all
+            .iter()
+            .find(|e| e["light_type"].as_str() == Some("point"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let dir_id = all
+            .iter()
+            .find(|e| e["light_type"].as_str() == Some("directional"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_point_light", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&point_id), "Point light entity included");
+        assert!(!ids.contains(&dir_id), "Directional light excluded");
+        assert!(!ids.contains(&plain_id), "Plain entity excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_light_intensity_above_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 500.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 50.0,  "range": 5.0,  "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let bright_id = all
+            .iter()
+            .find(|e| {
+                e["light_intensity"]
+                    .as_f64()
+                    .map(|v| v > 400.0)
+                    .unwrap_or(false)
+            })
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let dim_id = all
+            .iter()
+            .find(|e| {
+                e["light_intensity"]
+                    .as_f64()
+                    .map(|v| v < 100.0)
+                    .unwrap_or(false)
+            })
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_light_intensity_above",
+                json!({"threshold": 200.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&bright_id), "Bright(500) above threshold 200");
+        assert!(!ids.contains(&dim_id), "Dim(50) not above threshold 200");
     }
 
     #[test]

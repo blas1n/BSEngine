@@ -1647,6 +1647,80 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // offset_selected_positions
+            let snap_osp = snapshot.clone();
+            let sel_osp = selection.clone();
+            let queue_osp = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "offset_selected_positions".to_string(),
+                description: "Move all currently selected entities by (dx, dy, dz)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "dx": {"type": "number"},
+                        "dy": {"type": "number"},
+                        "dz": {"type": "number"}
+                    },
+                    "required": ["dx", "dy", "dz"]
+                })),
+                handler: Box::new(move |input| {
+                    let get = |k: &str| input[k].as_f64().map(|v| v as f32);
+                    let (dx, dy, dz) = match (get("dx"), get("dy"), get("dz")) {
+                        (Some(a), Some(b), Some(c)) => (a, b, c),
+                        _ => return McpToolOutput::error("missing dx/dy/dz"),
+                    };
+                    let ids: Vec<u64> = {
+                        let sel = sel_osp.lock().unwrap();
+                        sel.iter().copied().collect()
+                    };
+                    let existing: std::collections::HashSet<u64> = {
+                        let s = snap_osp.lock().unwrap();
+                        s.entities.iter().map(|e| e.id).collect()
+                    };
+                    let count = ids.len() as u64;
+                    let mut q = queue_osp.lock().unwrap();
+                    for id in ids {
+                        if existing.contains(&id) {
+                            q.push(crate::snapshot::EditorCommand::MoveEntity {
+                                entity_id: id,
+                                dx,
+                                dy,
+                                dz,
+                            });
+                        }
+                    }
+                    McpToolOutput::success(json!({"moved_count": count}))
+                }),
+            });
+
+            // get_scene_entity_count_by_type
+            let snap_gsecbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_entity_count_by_type".to_string(),
+                description: "Return entity counts broken down by type: cameras, lights, mesh_entities, plain".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsecbt.lock().unwrap();
+                    let mut cameras = 0u64;
+                    let mut lights = 0u64;
+                    let mut mesh_entities = 0u64;
+                    let mut plain = 0u64;
+                    for e in &s.entities {
+                        if e.camera_fov.is_some() { cameras += 1; }
+                        else if e.light_type.is_some() { lights += 1; }
+                        else if e.mesh_id.is_some() { mesh_entities += 1; }
+                        else { plain += 1; }
+                    }
+                    McpToolOutput::success(json!({
+                        "total": cameras + lights + mesh_entities + plain,
+                        "cameras": cameras,
+                        "lights": lights,
+                        "mesh_entities": mesh_entities,
+                        "plain": plain,
+                    }))
+                }),
+            });
+
             // get_entities_with_all_tags
             let snap_gewat = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5285,6 +5359,159 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_offset_selected_positions_moves_all_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "OffA", "position": [1.0, 0.0, 0.0]},
+                        {"name": "OffB", "position": [2.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("OffA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("OffB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "offset_selected_positions",
+                    json!({"dx": 5.0, "dy": 2.0, "dz": -1.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pa = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_a}))
+            .unwrap();
+        let pb = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(
+            (pa.content["position"][0].as_f64().unwrap() - 6.0).abs() < 1e-3,
+            "OffA x = 1+5 = 6"
+        );
+        assert!(
+            (pb.content["position"][0].as_f64().unwrap() - 7.0).abs() < 1e-3,
+            "OffB x = 2+5 = 7"
+        );
+    }
+
+    #[test]
+    fn mcp_get_scene_entity_count_by_type_breaks_down_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Plain"})).unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0,5.0,0.0]}),
+            )
+            .unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":100.0,"range":10.0,"position":[0.0,0.0,0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+        let plain_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Plain"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": plain_id, "mesh_id": 1}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_entity_count_by_type", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["cameras"].as_u64().unwrap(), 1);
+        assert_eq!(out.content["lights"].as_u64().unwrap(), 1);
+        assert_eq!(out.content["mesh_entities"].as_u64().unwrap(), 1);
     }
 
     #[test]

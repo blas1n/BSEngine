@@ -5,8 +5,8 @@ use bsengine_core::{
 };
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{
-    GpuMeshRegistry, GpuTextureRegistry, LightData, PointLightEntry, SpotLightEntry,
-    WgpuSurfaceResource,
+    GpuMeshRegistry, GpuTextureRegistry, LightData, MaterialParams, PointLightEntry,
+    SpotLightEntry, WgpuSurfaceResource,
 };
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3};
@@ -97,13 +97,13 @@ fn render_frame(
         return;
     };
 
-    let view_proj = camera_query
+    let (view_proj, cam_pos) = camera_query
         .iter()
         .next()
-        .map(|(cam, t)| cam.projection_matrix() * t.view_matrix())
-        .unwrap_or(Mat4::IDENTITY);
+        .map(|(cam, t)| (cam.projection_matrix() * t.view_matrix(), t.translation))
+        .unwrap_or((Mat4::IDENTITY, Vec3::ZERO));
 
-    let draw_calls: Vec<(u64, Mat4, Option<u64>)> = mesh_query
+    let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams)> = mesh_query
         .iter()
         .filter_map(|(mr, t, gt, mat)| {
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
@@ -121,7 +121,14 @@ fn render_frame(
                 }
             }
             let tex_id = mat.and_then(|m| m.texture_id);
-            Some((mr.mesh_id, model, tex_id))
+            let mat_params = mat
+                .map(|m| MaterialParams {
+                    metallic: m.metallic,
+                    roughness: m.roughness,
+                    emissive: m.emissive,
+                })
+                .unwrap_or_default();
+            Some((mr.mesh_id, model, tex_id, mat_params))
         })
         .collect();
 
@@ -182,6 +189,7 @@ fn render_frame(
 
     if let Err(e) = surface.0.render_frame(
         view_proj,
+        cam_pos,
         light_view_proj,
         &draw_calls,
         &registry,
@@ -216,8 +224,9 @@ impl Plugin for RenderPlugin {
 #[cfg(test)]
 mod tests {
     use super::RenderPlugin;
+    use crate::components::MeshRenderer;
     use bsengine_app::new_app;
-    use bsengine_core::{Camera, PointLight, Transform};
+    use bsengine_core::{Camera, Material, PointLight, SpotLight, Transform};
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
     use bsengine_window::WindowResized;
     use glam::Vec3;
@@ -269,6 +278,24 @@ mod tests {
                 range: 5.0,
             },
             Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
+        ));
+        app.update();
+    }
+
+    #[test]
+    fn render_plugin_uses_pbr_material() {
+        let mut app = new_app();
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut().spawn((
+            MeshRenderer { mesh_id: 999 },
+            Transform::from_translation(Vec3::ZERO),
+            Material {
+                metallic: 0.8,
+                roughness: 0.2,
+                emissive: Vec3::new(0.1, 0.0, 0.0),
+                ..Default::default()
+            },
         ));
         app.update();
     }

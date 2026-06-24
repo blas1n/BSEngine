@@ -9,12 +9,21 @@ const MAX_SPOT_LIGHTS: usize = 8;
 const MESH_WGSL: &str = r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
+const PI: f32 = 3.14159265358979323846;
 struct CameraUniform {
     view_proj: mat4x4<f32>,
     light_view_proj: mat4x4<f32>,
+    cam_pos: vec3<f32>,
+    _pad: f32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
+    metallic: f32,
+    roughness: f32,
+    _pad0: f32,
+    _pad1: f32,
+    emissive: vec3<f32>,
+    _pad2: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -100,27 +109,67 @@ fn shadow_factor(lsp: vec4<f32>) -> f32 {
     }
     return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
 }
+fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    return a2 / (PI * denom * denom);
+}
+fn geometry_schlick_ggx(ndotx: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = r * r / 8.0;
+    return ndotx / (ndotx * (1.0 - k) + k);
+}
+fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
+    return geometry_schlick_ggx(n_dot_v, roughness) * geometry_schlick_ggx(n_dot_l, roughness);
+}
+fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0, 1.0, 1.0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
-    let tex_color = textureSample(t_diffuse, s_diffuse, in.uv).rgb;
-
+    let v = normalize(camera.cam_pos - in.world_pos);
+    let albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col;
+    let metallic = model_data.metallic;
+    let roughness = max(model_data.roughness, 0.04);
+    let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
+    let n_dot_v = max(dot(n, v), 0.0001);
     let lit = shadow_factor(in.light_space_pos);
-    let diff_dir = max(dot(n, -light.direction), 0.0);
-    var radiance = tex_color * in.col * (light.ambient + diff_dir * light.color * lit);
 
+    var lo = vec3<f32>(0.0, 0.0, 0.0);
+    {
+        let l = normalize(-light.direction);
+        let h = normalize(v + l);
+        let n_dot_l = max(dot(n, l), 0.0);
+        let n_dot_h = max(dot(n, h), 0.0);
+        let h_dot_v = max(dot(h, v), 0.0);
+        let ndf = distribution_ggx(n_dot_h, roughness);
+        let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+        let f = fresnel_schlick(h_dot_v, f0);
+        let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+        let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+        lo += (kd * albedo / PI + specular) * light.color * n_dot_l * lit;
+    }
     for (var i: u32 = 0u; i < light.num_point_lights; i++) {
         let pl = light.point_lights[i];
         let to_light = pl.position - in.world_pos;
         let dist = length(to_light);
         if dist < pl.range {
+            let l = normalize(to_light);
+            let h = normalize(v + l);
+            let n_dot_l = max(dot(n, l), 0.0);
+            let n_dot_h = max(dot(n, h), 0.0);
+            let h_dot_v = max(dot(h, v), 0.0);
             let t = 1.0 - dist / pl.range;
-            let attenuation = t * t;
-            let diff_pl = max(dot(n, normalize(to_light)), 0.0);
-            radiance += tex_color * in.col * diff_pl * pl.color * pl.intensity * attenuation;
+            let ndf = distribution_ggx(n_dot_h, roughness);
+            let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+            let f = fresnel_schlick(h_dot_v, f0);
+            let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+            let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l;
         }
     }
-
     for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
         let sl = light.spot_lights[j];
         let to_light = sl.position - in.world_pos;
@@ -130,15 +179,23 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
             let cos_angle = dot(-light_dir, sl.direction);
             let spot_factor = smoothstep(sl.outer_cos, sl.inner_cos, cos_angle);
             if spot_factor > 0.0 {
+                let l = light_dir;
+                let h = normalize(v + l);
+                let n_dot_l = max(dot(n, l), 0.0);
+                let n_dot_h = max(dot(n, h), 0.0);
+                let h_dot_v = max(dot(h, v), 0.0);
                 let t = 1.0 - dist / sl.range;
-                let attenuation = t * t;
-                let diff_sl = max(dot(n, light_dir), 0.0);
-                radiance += tex_color * in.col * diff_sl * sl.color * sl.intensity * attenuation * spot_factor;
+                let ndf = distribution_ggx(n_dot_h, roughness);
+                let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+                let f = fresnel_schlick(h_dot_v, f0);
+                let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+                let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+                lo += (kd * albedo / PI + specular) * sl.color * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
-
-    return vec4<f32>(radiance, 1.0);
+    let color = light.ambient * albedo + lo + model_data.emissive;
+    return vec4<f32>(color, 1.0);
 }
 "#;
 
@@ -171,8 +228,8 @@ fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
-// view_proj(64) + light_view_proj(64) = 128
-const CAMERA_UNIFORM_SIZE: u64 = 128;
+// view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
+const CAMERA_UNIFORM_SIZE: u64 = 144;
 // direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
 // num_spot+pad(16) + 8×SpotLightGpu(64=512) = 960
 const LIGHT_UNIFORM_SIZE: u64 = 960;
@@ -185,6 +242,37 @@ const SHADOW_MAP_SIZE: u32 = 2048;
 struct CameraUniformData {
     view_proj: [[f32; 4]; 4],
     light_view_proj: [[f32; 4]; 4],
+    cam_pos: [f32; 3],
+    _pad: f32,
+}
+
+/// Material parameters uploaded per draw call.
+pub struct MaterialParams {
+    pub metallic: f32,
+    pub roughness: f32,
+    pub emissive: Vec3,
+}
+
+impl Default for MaterialParams {
+    fn default() -> Self {
+        Self {
+            metallic: 0.0,
+            roughness: 0.5,
+            emissive: Vec3::ZERO,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ModelUniformData {
+    model: [[f32; 4]; 4],
+    metallic: f32,
+    roughness: f32,
+    _pad0: f32,
+    _pad1: f32,
+    emissive: [f32; 3],
+    _pad2: f32,
 }
 
 /// A single point light entry for the GPU buffer.
@@ -366,7 +454,7 @@ impl WgpuSurface {
             label: Some("camera bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -398,7 +486,7 @@ impl WgpuSurface {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(64),
+                    min_binding_size: wgpu::BufferSize::new(96),
                 },
                 count: None,
             }],
@@ -756,8 +844,9 @@ impl WgpuSurface {
     pub fn render_frame(
         &self,
         view_proj: Mat4,
+        cam_pos: Vec3,
         light_view_proj: Mat4,
-        draw_calls: &[(u64, Mat4, Option<u64>)],
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams)],
         registry: &GpuMeshRegistry,
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
@@ -765,6 +854,8 @@ impl WgpuSurface {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
+            cam_pos: cam_pos.to_array(),
+            _pad: 0.0,
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_data]));
@@ -836,15 +927,23 @@ impl WgpuSurface {
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));
 
-        for (i, (_, model, _)) in draw_calls.iter().enumerate() {
+        for (i, (_, model, _, mat)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
             }
-            let data: [[f32; 4]; 4] = model.to_cols_array_2d();
+            let data = ModelUniformData {
+                model: model.to_cols_array_2d(),
+                metallic: mat.metallic,
+                roughness: mat.roughness,
+                _pad0: 0.0,
+                _pad1: 0.0,
+                emissive: mat.emissive.to_array(),
+                _pad2: 0.0,
+            };
             self.queue.write_buffer(
                 &self.model_buffer,
                 i as u64 * MODEL_STRIDE,
-                bytemuck::cast_slice(&data),
+                bytemuck::cast_slice(&[data]),
             );
         }
 
@@ -879,7 +978,7 @@ impl WgpuSurface {
             });
             shadow_pass.set_pipeline(&self.shadow_pipeline);
             shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            for (i, (mesh_id, _, _)) in draw_calls.iter().enumerate() {
+            for (i, (mesh_id, _, _, _)) in draw_calls.iter().enumerate() {
                 if i >= MAX_OBJECTS {
                     break;
                 }
@@ -928,7 +1027,7 @@ impl WgpuSurface {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            for (i, (mesh_id, _, tex_id)) in draw_calls.iter().enumerate() {
+            for (i, (mesh_id, _, tex_id, _)) in draw_calls.iter().enumerate() {
                 if i >= MAX_OBJECTS {
                     break;
                 }

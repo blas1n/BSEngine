@@ -28,16 +28,25 @@ impl GltfLoader {
                     .into_u32()
                     .collect();
 
-                // Use vertex colors if available, otherwise default gray
                 let colors: Vec<[f32; 3]> = reader
                     .read_colors(0)
                     .map(|c| c.into_rgb_f32().collect())
                     .unwrap_or_else(|| vec![[0.8, 0.8, 0.8]; positions.len()]);
 
+                let normals: Vec<[f32; 3]> = reader
+                    .read_normals()
+                    .map(|n| n.collect())
+                    .unwrap_or_else(|| vec![[0.0, 1.0, 0.0]; positions.len()]);
+
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
-                    .zip(colors.into_iter())
-                    .map(|(position, color)| Vertex { position, color })
+                    .zip(colors)
+                    .zip(normals)
+                    .map(|((position, color), normal)| Vertex {
+                        position,
+                        color,
+                        normal,
+                    })
                     .collect();
 
                 result.push(MeshData {

@@ -1647,6 +1647,71 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_by_name_prefix
+            let snap_sebnp = snapshot.clone();
+            let sel_sebnp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_name_prefix".to_string(),
+                description:
+                    "Add all entities whose name starts with prefix to the current selection"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing prefix"),
+                    };
+                    let s = snap_sebnp.lock().unwrap();
+                    let mut sel = sel_sebnp.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.name
+                            .as_deref()
+                            .map(|n| n.starts_with(&prefix))
+                            .unwrap_or(false)
+                        {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"prefix": prefix, "selected_count": count}))
+                }),
+            });
+
+            // toggle_entity_visibility
+            let snap_tev = snapshot.clone();
+            let queue34 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "toggle_entity_visibility".to_string(),
+                description: "Toggle the visible state of an entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_tev.lock().unwrap();
+                    let visible = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => e.visible,
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    drop(s);
+                    queue34.lock().unwrap().push(EditorCommand::SetVisible {
+                        entity_id,
+                        visible: !visible,
+                    });
+                    McpToolOutput::success(json!({"entity_id": entity_id, "new_visible": !visible}))
+                }),
+            });
+
             // move_entity_to_origin
             let queue33 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6709,6 +6774,139 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_by_name_prefix_selects_matching_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Enemy_001"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Enemy_002"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Player"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_by_name_prefix", json!({"prefix": "Enemy"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(
+                out.content["selected_count"].as_u64().unwrap(),
+                2,
+                "2 enemies selected"
+            );
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "exactly 2 in selection");
+    }
+
+    #[test]
+    fn mcp_toggle_entity_visibility_flips_visible_state() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Toggler"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Toggler"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("toggle_entity_visibility", json!({"entity_id": eid}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let v1 = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entity_visibility", json!({"entity_id": eid}))
+                .unwrap();
+            assert!(
+                !v1.content["visible"].as_bool().unwrap(),
+                "after first toggle: hidden"
+            );
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("toggle_entity_visibility", json!({"entity_id": eid}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let v2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_visibility", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(
+            v2.content["visible"].as_bool().unwrap(),
+            "after second toggle: visible again"
+        );
     }
 
     #[test]

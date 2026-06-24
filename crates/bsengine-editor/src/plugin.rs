@@ -1647,6 +1647,69 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // delete_selected_entities
+            let sel_dse = selection.clone();
+            let queue_dse = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "delete_selected_entities".to_string(),
+                description: "Despawn all currently selected entities and clear the selection"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let ids: Vec<u64> = {
+                        let s = sel_dse.lock().unwrap();
+                        s.iter().copied().collect()
+                    };
+                    let count = ids.len() as u64;
+                    {
+                        let mut q = queue_dse.lock().unwrap();
+                        for id in &ids {
+                            q.push(crate::snapshot::EditorCommand::Despawn { entity_id: *id });
+                        }
+                    }
+                    sel_dse.lock().unwrap().clear();
+                    McpToolOutput::success(json!({"deleted_count": count}))
+                }),
+            });
+
+            // get_entity_component_list
+            let snap_gecl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_component_list".to_string(),
+                description: "Return which logical components an entity has (mesh_renderer, point_light, etc.)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gecl.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => {
+                            let mut comps: Vec<&str> = vec!["entity"];
+                            if e.position.is_some() { comps.push("transform"); }
+                            if e.mesh_id.is_some() { comps.push("mesh_renderer"); }
+                            if e.camera_fov.is_some() { comps.push("camera"); }
+                            if let Some(ref lt) = e.light_type {
+                                match lt.as_str() {
+                                    "point" => comps.push("point_light"),
+                                    "directional" => comps.push("directional_light"),
+                                    "spot" => comps.push("spot_light"),
+                                    _ => comps.push("light"),
+                                }
+                            }
+                            if !e.tags.is_empty() { comps.push("tags"); }
+                            McpToolOutput::success(json!({"entity_id": entity_id, "components": comps}))
+                        }
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_entity_average_position
             let snap_geap = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4717,6 +4780,160 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_delete_selected_entities_despawns_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "DelSelA"},
+                        {"name": "DelSelB"},
+                        {"name": "DelSelKeep"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DelSelA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DelSelB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("delete_selected_entities", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(!ids.contains(&id_a), "DelSelA should be deleted");
+        assert!(!ids.contains(&id_b), "DelSelB should be deleted");
+        assert!(
+            ents.iter()
+                .any(|e| e["name"].as_str() == Some("DelSelKeep")),
+            "DelSelKeep should remain"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_component_list_reflects_attached_components() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "CompListEnt"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CompListEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": eid, "mesh_id": 5}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_component_list", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let comps: Vec<&str> = out.content["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c.as_str())
+            .collect();
+        assert!(
+            comps.contains(&"mesh_renderer"),
+            "should list mesh_renderer after attach_mesh"
+        );
+        assert!(!comps.contains(&"camera"), "should not list camera");
     }
 
     #[test]

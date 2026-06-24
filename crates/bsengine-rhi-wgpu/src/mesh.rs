@@ -1,4 +1,5 @@
 use bsengine_ecs::Resource;
+use glam::Vec3;
 use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -12,10 +13,29 @@ pub struct Vertex {
     pub uv: [f32; 2],
 }
 
+/// Computes a bounding sphere (center, radius) in local mesh space.
+pub fn compute_bounding_sphere(vertices: &[Vertex]) -> (Vec3, f32) {
+    if vertices.is_empty() {
+        return (Vec3::ZERO, 0.0);
+    }
+    let center = vertices
+        .iter()
+        .map(|v| Vec3::from(v.position))
+        .fold(Vec3::ZERO, |a, p| a + p)
+        / vertices.len() as f32;
+    let radius = vertices
+        .iter()
+        .map(|v| (Vec3::from(v.position) - center).length())
+        .fold(0.0_f32, f32::max);
+    (center, radius)
+}
+
 pub struct GpuMesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
+    /// Local-space bounding sphere (center, radius).
+    pub bounds: (Vec3, f32),
 }
 
 #[derive(Resource)]
@@ -53,12 +73,14 @@ impl GpuMeshRegistry {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
+        let bounds = compute_bounding_sphere(vertices);
         self.meshes.insert(
             id,
             GpuMesh {
                 vertex_buffer,
                 index_buffer,
                 index_count: indices.len() as u32,
+                bounds,
             },
         );
         id
@@ -66,6 +88,10 @@ impl GpuMeshRegistry {
 
     pub fn get(&self, id: u64) -> Option<&GpuMesh> {
         self.meshes.get(&id)
+    }
+
+    pub fn get_bounds(&self, id: u64) -> Option<(Vec3, f32)> {
+        self.meshes.get(&id).map(|m| m.bounds)
     }
 }
 
@@ -186,5 +212,56 @@ mod tests {
                 v.uv[1]
             );
         }
+    }
+
+    fn make_vert(pos: [f32; 3]) -> Vertex {
+        Vertex {
+            position: pos,
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.0; 2],
+        }
+    }
+
+    #[test]
+    fn bounding_sphere_center_is_centroid() {
+        let verts = vec![
+            make_vert([1.0, 0.0, 0.0]),
+            make_vert([-1.0, 0.0, 0.0]),
+            make_vert([0.0, 0.0, 0.0]),
+        ];
+        let (center, _) = compute_bounding_sphere(&verts);
+        assert!(
+            center.length() < 1e-5,
+            "center should be origin, got {:?}",
+            center
+        );
+    }
+
+    #[test]
+    fn bounding_sphere_radius_covers_all_verts() {
+        let verts = vec![
+            make_vert([2.0, 0.0, 0.0]),
+            make_vert([-2.0, 0.0, 0.0]),
+            make_vert([0.0, 0.0, 0.0]),
+        ];
+        let (center, radius) = compute_bounding_sphere(&verts);
+        for v in &verts {
+            let d = (Vec3::from(v.position) - center).length();
+            assert!(
+                d <= radius + 1e-5,
+                "vertex outside sphere: d={d} radius={radius}"
+            );
+        }
+    }
+
+    #[test]
+    fn cube_bounding_sphere_center_near_origin() {
+        let (verts, _) = cube_vertices();
+        let (center, radius) = compute_bounding_sphere(&verts);
+        assert!(center.length() < 1e-4, "cube center should be origin");
+        assert!(radius > 0.0, "radius should be positive");
+        // cube goes from -0.5 to 0.5, max distance is sqrt(3)*0.5 ≈ 0.866
+        assert!(radius < 1.0, "radius for unit cube should be < 1.0");
     }
 }

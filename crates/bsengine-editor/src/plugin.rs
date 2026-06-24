@@ -4,7 +4,9 @@ use crate::snapshot::{
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, PointLight, SpotLight, Transform};
+use bsengine_core::{
+    Camera, DirectionalLight, GlobalTransform, Parent, PointLight, SpotLight, Transform,
+};
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
 use bsengine_render::MeshRenderer;
@@ -23,12 +25,13 @@ fn update_editor_snapshot(
         Option<&DirectionalLight>,
         Option<&SpotLight>,
         Option<&Camera>,
+        Option<&Parent>,
     )>,
 ) {
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
-        .map(|(e, name, transform, mesh, pt, dir, spot, cam)| {
+        .map(|(e, name, transform, mesh, pt, dir, spot, cam, parent)| {
             let light_type = if pt.is_some() {
                 Some("point".to_string())
             } else if dir.is_some() {
@@ -61,6 +64,7 @@ fn update_editor_snapshot(
                 light_intensity,
                 light_range,
                 camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
+                parent_id: parent.map(|p| p.0.index() as u64),
             }
         })
         .collect();
@@ -272,6 +276,22 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::SetParent {
+                entity_id,
+                parent_id,
+            } => {
+                let parent_entity = params.p0().iter().find(|e| e.index() as u64 == parent_id);
+                let child_entity = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let (Some(child), Some(parent)) = (child_entity, parent_entity) {
+                    commands.entity(child).insert(Parent(parent));
+                }
+            }
+            EditorCommand::RemoveParent { entity_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).remove::<Parent>();
+                }
+            }
             EditorCommand::SetRotation {
                 entity_id,
                 rx,
@@ -439,6 +459,7 @@ impl Plugin for EditorPlugin {
                             "mesh_id": e.mesh_id,
                             "rotation": e.rotation,
                             "scale": e.scale,
+                            "parent_id": e.parent_id,
                             "light_type": e.light_type,
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
@@ -1336,6 +1357,67 @@ impl Plugin for EditorPlugin {
                     }
                 }),
             });
+
+            // set_parent
+            let queue23 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_parent".to_string(),
+                description:
+                    "Set the parent of an entity to establish a hierarchy (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "parent_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id", "parent_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let parent_id = match input["parent_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing parent_id"),
+                    };
+                    queue23.lock().unwrap().push(EditorCommand::SetParent {
+                        entity_id,
+                        parent_id,
+                    });
+                    McpToolOutput::success(
+                        json!({"status": "queued", "entity_id": entity_id, "parent_id": parent_id}),
+                    )
+                }),
+            });
+
+            // remove_parent
+            let queue24 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "remove_parent".to_string(),
+                description:
+                    "Remove the parent of an entity, making it a root entity (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue24
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::RemoveParent { entity_id });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -1637,6 +1719,91 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_set_parent_records_hierarchy() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "Child"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (parent_id, child_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let pid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let cid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (pid, cid)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+            assert!(result.is_ok());
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let child = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap();
+            assert_eq!(
+                child["parent_id"].as_u64(),
+                Some(parent_id),
+                "child.parent_id should be {parent_id}"
+            );
+        }
     }
 
     #[test]

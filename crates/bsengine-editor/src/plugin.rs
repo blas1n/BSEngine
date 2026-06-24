@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_selection_average_position
+            let snap_gsap = snapshot.clone();
+            let sel_gsap = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selection_average_position".to_string(),
+                description: "Return the average (centroid) position of all selected entities that have a position".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsap.lock().unwrap();
+                    let sel = sel_gsap.lock().unwrap();
+                    let positions: Vec<[f32; 3]> = sel.iter()
+                        .filter_map(|&id| s.entities.iter().find(|e| e.id == id))
+                        .filter_map(|e| e.position)
+                        .collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::success(json!({"x": 0.0, "y": 0.0, "z": 0.0, "count": 0}));
+                    }
+                    let n = positions.len() as f32;
+                    let x = positions.iter().map(|p| p[0]).sum::<f32>() / n;
+                    let y = positions.iter().map(|p| p[1]).sum::<f32>() / n;
+                    let z = positions.iter().map(|p| p[2]).sum::<f32>() / n;
+                    McpToolOutput::success(json!({"x": x, "y": y, "z": z, "count": positions.len()}))
+                }),
+            });
+
+            // align_selection_to_x
+            let snap_astx = snapshot.clone();
+            let sel_astx = selection.clone();
+            let queue60 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "align_selection_to_x".to_string(),
+                description: "Set the X position of all selected entities to x while preserving Y and Z; returns aligned_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "x": { "type": "number" } },
+                    "required": ["x"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_x = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_astx.lock().unwrap();
+                    let sel = sel_astx.lock().unwrap();
+                    let mut q = queue60.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some(pos) = e.position {
+                                q.push(crate::snapshot::EditorCommand::SetPosition {
+                                    entity_id: id,
+                                    x: target_x,
+                                    y: pos[1],
+                                    z: pos[2],
+                                });
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"aligned_count": count}))
+                }),
+            });
+
             // get_entities_with_name_longer_than
             let snap_gewnlt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -9829,6 +9889,180 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_selection_average_position_computes_centroid() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [4.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 6.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Select A and B only (not C)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+        let _ = c_id; // unused, just for clarity
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection_average_position", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        // A(0,0,0) + B(4,0,0) → centroid = (2,0,0)
+        let x = out.content["x"].as_f64().unwrap() as f32;
+        let y = out.content["y"].as_f64().unwrap() as f32;
+        assert!((x - 2.0).abs() < 0.01, "average x = 2.0, got {}", x);
+        assert!((y).abs() < 0.01, "average y = 0.0");
+    }
+
+    #[test]
+    fn mcp_align_selection_to_x_sets_same_x_for_all_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "P", "position": [1.0, 2.0, 3.0]},
+                        {"name": "Q", "position": [5.0, 4.0, 6.0]},
+                        {"name": "R", "position": [9.0, 0.0, 1.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (p_id, q_id, r_id) = (id_of("P"), id_of("Q"), id_of("R"));
+
+        // Select P and Q (not R)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": p_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": q_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("align_selection_to_x", json!({"x": 0.0}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["aligned_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let pos_of = |id: u64| {
+            let arr = ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["position"]
+                .as_array()
+                .unwrap()
+                .clone();
+            [
+                arr[0].as_f64().unwrap() as f32,
+                arr[1].as_f64().unwrap() as f32,
+                arr[2].as_f64().unwrap() as f32,
+            ]
+        };
+        let p_pos = pos_of(p_id);
+        let q_pos = pos_of(q_id);
+        let r_pos = pos_of(r_id);
+        assert!((p_pos[0]).abs() < 0.01, "P.x aligned to 0");
+        assert!((p_pos[1] - 2.0).abs() < 0.01, "P.y unchanged");
+        assert!((q_pos[0]).abs() < 0.01, "Q.x aligned to 0");
+        assert!(
+            (r_pos[0] - 9.0).abs() < 0.01,
+            "R.x unchanged (not selected)"
+        );
     }
 
     #[test]

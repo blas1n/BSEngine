@@ -1647,6 +1647,70 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // reset_transform
+            let queue_rt = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "reset_transform".to_string(),
+                description: "Reset position to [0,0,0], rotation to [0,0,0], and scale to [1,1,1] (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue_rt.lock().unwrap().push(EditorCommand::SetEntityTransform {
+                        entity_id,
+                        position: Some([0.0, 0.0, 0.0]),
+                        rotation: Some([0.0, 0.0, 0.0]),
+                        scale: Some([1.0, 1.0, 1.0]),
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // get_entity_full_name
+            let snap_gfn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_full_name".to_string(),
+                description: "Return the full path name from root to entity joined by '/'"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gfn.lock().unwrap();
+                    if s.entities.iter().find(|e| e.id == entity_id).is_none() {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let mut parts: Vec<String> = Vec::new();
+                    let mut current_id = entity_id;
+                    for _ in 0..32 {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
+                            parts.push(e.name.clone().unwrap_or_else(|| format!("#{}", e.id)));
+                            match e.parent_id {
+                                Some(pid) => current_id = pid,
+                                None => break,
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    parts.reverse();
+                    let full_name = parts.join("/");
+                    McpToolOutput::success(json!({"full_name": full_name, "entity_id": entity_id}))
+                }),
+            });
+
             // translate_selected_entities
             let sel_tse = selection.clone();
             let queue_tse = cmd_queue.clone();
@@ -3477,6 +3541,179 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_reset_transform_returns_entity_to_identity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "ResetMe", "position": [50.0, 30.0, 10.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ResetMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("reset_transform", json!({"entity_id": entity_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let e = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let pos = &e.content["entity"]["position"];
+        assert!(
+            (pos[0].as_f64().unwrap()).abs() < 1e-4,
+            "x should be 0 after reset"
+        );
+        assert!(
+            (pos[1].as_f64().unwrap()).abs() < 1e-4,
+            "y should be 0 after reset"
+        );
+        assert!(
+            (pos[2].as_f64().unwrap()).abs() < 1e-4,
+            "z should be 0 after reset"
+        );
+        let scale = &e.content["entity"]["scale"];
+        assert!(
+            (scale[0].as_f64().unwrap() - 1.0).abs() < 1e-4,
+            "scale.x should be 1 after reset"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_full_name_returns_path_string() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "FNRoot"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("FNRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "FNChild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("FNChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_full_name", json!({"entity_id": child_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let full_name = out.content["full_name"].as_str().unwrap();
+        assert!(
+            full_name.contains("FNRoot"),
+            "full name should contain parent"
+        );
+        assert!(
+            full_name.contains("FNChild"),
+            "full name should contain child"
+        );
+        assert!(full_name.contains('/'), "full name should use / separator");
     }
 
     #[test]

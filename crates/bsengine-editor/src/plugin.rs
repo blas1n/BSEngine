@@ -1647,6 +1647,74 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // batch_tag_entities
+            let queue36 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "batch_tag_entities".to_string(),
+                description: "Add a tag to multiple entities at once".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_ids": { "type": "array", "items": { "type": "integer" } },
+                        "tag": { "type": "string" }
+                    },
+                    "required": ["entity_ids", "tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let ids: Vec<u64> = match input["entity_ids"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|v| v.as_u64()).collect(),
+                        None => return McpToolOutput::error("missing entity_ids"),
+                    };
+                    let count = ids.len() as u64;
+                    let mut q = queue36.lock().unwrap();
+                    for entity_id in ids {
+                        q.push(EditorCommand::TagEntity {
+                            entity_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                    McpToolOutput::success(json!({"tagged_count": count}))
+                }),
+            });
+
+            // batch_untag_entities
+            let queue37 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "batch_untag_entities".to_string(),
+                description: "Remove a tag from multiple entities at once".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_ids": { "type": "array", "items": { "type": "integer" } },
+                        "tag": { "type": "string" }
+                    },
+                    "required": ["entity_ids", "tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let ids: Vec<u64> = match input["entity_ids"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|v| v.as_u64()).collect(),
+                        None => return McpToolOutput::error("missing entity_ids"),
+                    };
+                    let count = ids.len() as u64;
+                    let mut q = queue37.lock().unwrap();
+                    for entity_id in ids {
+                        q.push(EditorCommand::UntagEntity {
+                            entity_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                    McpToolOutput::success(json!({"untagged_count": count}))
+                }),
+            });
+
             // get_entities_with_tag_any
             let snap_gewta = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6993,6 +7061,155 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_batch_tag_entities_adds_tag_to_multiple_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_tag_entities",
+                    json!({"entity_ids": [ids[0], ids[1]], "tag": "group"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["tagged_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let tagged: Vec<u64> = ents
+            .iter()
+            .filter(|e| {
+                e["tags"]
+                    .as_array()
+                    .map(|t| t.iter().any(|v| v.as_str() == Some("group")))
+                    .unwrap_or(false)
+            })
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(tagged.len(), 2, "A and B tagged with 'group'");
+    }
+
+    #[test]
+    fn mcp_batch_untag_entities_removes_tag_from_multiple_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "X"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Y"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        for &eid in &ids {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": eid, "tag": "remove_me"}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_untag_entities",
+                    json!({"entity_ids": [ids[0], ids[1]], "tag": "remove_me"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["untagged_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for e in &ents {
+            let tags = e["tags"].as_array().unwrap();
+            assert!(
+                !tags.iter().any(|t| t.as_str() == Some("remove_me")),
+                "tag removed from all entities"
+            );
+        }
     }
 
     #[test]

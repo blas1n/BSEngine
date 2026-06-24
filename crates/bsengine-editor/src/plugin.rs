@@ -1647,6 +1647,67 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // scale_selected_entities
+            let sel_scale = selection.clone();
+            let queue_scale = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "scale_selected_entities".to_string(),
+                description: "Set scale for all selected entities (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "sx": { "type": "number" },
+                        "sy": { "type": "number" },
+                        "sz": { "type": "number" }
+                    },
+                    "required": ["sx", "sy", "sz"]
+                })),
+                handler: Box::new(move |input| {
+                    let sx = input["sx"].as_f64().unwrap_or(1.0) as f32;
+                    let sy = input["sy"].as_f64().unwrap_or(1.0) as f32;
+                    let sz = input["sz"].as_f64().unwrap_or(1.0) as f32;
+                    let ids: Vec<u64> = sel_scale.lock().unwrap().iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_scale.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::SetScale {
+                            entity_id,
+                            sx,
+                            sy,
+                            sz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
+            // toggle_visible
+            let snap_toggle = snapshot.clone();
+            let queue_toggle = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "toggle_visible".to_string(),
+                description: "Toggle the visible state of an entity (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let current = snap_toggle.lock().unwrap()
+                        .entities.iter()
+                        .find(|e| e.id == entity_id)
+                        .map(|e| e.visible)
+                        .unwrap_or(true);
+                    queue_toggle.lock().unwrap()
+                        .push(EditorCommand::SetVisible { entity_id, visible: !current });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id, "new_visible": !current}))
+                }),
+            });
+
             // get_entity_path
             let snap_path = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2622,6 +2683,166 @@ mod tests {
                 !ids.contains(&serde_json::json!(entity_id)),
                 "entity should be deselected"
             );
+        }
+    }
+
+    #[test]
+    fn mcp_scale_selected_entities_applies_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "ScaleMe", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ScaleMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+            mcp.execute(
+                "scale_selected_entities",
+                json!({"sx": 3.0, "sy": 3.0, "sz": 3.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let e = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let scale = &e.content["entity"]["scale"];
+        assert!(
+            (scale[0].as_f64().unwrap() - 3.0).abs() < 1e-4,
+            "scale.x should be 3"
+        );
+    }
+
+    #[test]
+    fn mcp_toggle_visible_flips_state() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Flipper"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Flipper"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        // toggle once: true → false
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("toggle_visible", json!({"entity_id": entity_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let e = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Flipper"))
+                .unwrap();
+            assert_eq!(e["visible"], false, "should be hidden after first toggle");
+        }
+
+        // toggle again: false → true
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("toggle_visible", json!({"entity_id": entity_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let e = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Flipper"))
+                .unwrap();
+            assert_eq!(e["visible"], true, "should be visible after second toggle");
         }
     }
 

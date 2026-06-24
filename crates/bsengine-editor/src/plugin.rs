@@ -1647,6 +1647,69 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // copy_transform_from_entity / paste_transform_to_selection (shared clipboard)
+            let transform_clipboard: std::sync::Arc<Mutex<Option<([f32; 3], [f32; 3], [f32; 3])>>> =
+                std::sync::Arc::new(Mutex::new(None));
+
+            let snap_ctfe = snapshot.clone();
+            let clipboard_copy = transform_clipboard.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "copy_transform_from_entity".to_string(),
+                description: "Copy position, rotation, and scale from the given entity into the transform clipboard; returns {position, rotation, scale}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("entity_id required"),
+                    };
+                    let s = snap_ctfe.lock().unwrap();
+                    let e = match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => e,
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    let pos = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                    let rot = e.rotation.unwrap_or([0.0, 0.0, 0.0]);
+                    let sc  = e.scale.unwrap_or([1.0, 1.0, 1.0]);
+                    *clipboard_copy.lock().unwrap() = Some((pos, rot, sc));
+                    McpToolOutput::success(json!({
+                        "position": pos,
+                        "rotation": rot,
+                        "scale": sc,
+                    }))
+                }),
+            });
+
+            let clipboard_paste = transform_clipboard.clone();
+            let sel_ptts = selection.clone();
+            let queue67 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "paste_transform_to_selection".to_string(),
+                description: "Apply the copied transform (position, rotation, scale) to all currently selected entities; returns {affected_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let (pos, rot, sc) = match *clipboard_paste.lock().unwrap() {
+                        Some(t) => t,
+                        None => return McpToolOutput::error("no transform in clipboard"),
+                    };
+                    let selected: Vec<u64> = sel_ptts.lock().unwrap().iter().cloned().collect();
+                    let count = selected.len() as u64;
+                    let mut q = queue67.lock().unwrap();
+                    for id in selected {
+                        q.push(crate::snapshot::EditorCommand::SetEntityTransform {
+                            entity_id: id,
+                            position: Some(pos),
+                            rotation: Some(rot),
+                            scale: Some(sc),
+                        });
+                    }
+                    McpToolOutput::success(json!({"affected_count": count}))
+                }),
+            });
+
             // get_common_parent_of_selection
             let snap_gcpos = snapshot.clone();
             let sel_gcpos = selection.clone();
@@ -10709,6 +10772,133 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_copy_transform_then_paste_to_selection_applies_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Source", "position": [10.0, 20.0, 30.0]},
+                        {"name": "TargA",  "position": [0.0,  0.0,  0.0]},
+                        {"name": "TargB",  "position": [1.0,  0.0,  0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (src_id, targ_a, targ_b) = (id_of("Source"), id_of("TargA"), id_of("TargB"));
+
+        // Set rotation and scale on source
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_rotation",
+                json!({"entity_id": src_id, "rx": 45.0, "ry": 0.0, "rz": 0.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": src_id, "sx": 3.0, "sy": 2.0, "sz": 1.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Copy transform from source
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("copy_transform_from_entity", json!({"entity_id": src_id}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(out.content["position"].is_array());
+        }
+
+        // Select targets
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": targ_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": targ_b}))
+                .unwrap();
+        }
+
+        // Paste transform to selection
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("paste_transform_to_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["affected_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        // Verify targets have source transform
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for &tid in &[targ_a, targ_b] {
+            let e = entities
+                .iter()
+                .find(|e| e["id"].as_u64().unwrap() == tid)
+                .unwrap();
+            let pos = e["position"].as_array().unwrap();
+            assert!((pos[0].as_f64().unwrap() - 10.0).abs() < 0.01, "x copied");
+            assert!((pos[1].as_f64().unwrap() - 20.0).abs() < 0.01, "y copied");
+            assert!((pos[2].as_f64().unwrap() - 30.0).abs() < 0.01, "z copied");
+            let sc = e["scale"].as_array().unwrap();
+            assert!((sc[0].as_f64().unwrap() - 3.0).abs() < 0.01, "sx copied");
+        }
     }
 
     #[test]

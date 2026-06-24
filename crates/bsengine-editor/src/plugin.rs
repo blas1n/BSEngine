@@ -1647,6 +1647,92 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // align_entities_to_selection_pivot
+            let snap_aetsp = snapshot.clone();
+            let sel_aetsp = selection.clone();
+            let queue68 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "align_entities_to_selection_pivot".to_string(),
+                description: "Align all selected entities' position along the given axis to match the first selected entity (pivot); axis: 'x'|'y'|'z'; returns {affected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "axis": { "type": "string", "enum": ["x", "y", "z"] } },
+                    "required": ["axis"]
+                })),
+                handler: Box::new(move |input| {
+                    let axis = input["axis"].as_str().unwrap_or("x");
+                    let selected: Vec<u64> = sel_aetsp.lock().unwrap().iter().cloned().collect();
+                    if selected.is_empty() {
+                        return McpToolOutput::success(json!({"affected_count": 0}));
+                    }
+                    let s = snap_aetsp.lock().unwrap();
+                    let pivot_id = selected[0];
+                    let pivot_pos = match s.entities.iter().find(|e| e.id == pivot_id).and_then(|e| e.position) {
+                        Some(p) => p,
+                        None => return McpToolOutput::error("pivot entity has no position"),
+                    };
+                    let axis_idx = match axis { "y" => 1, "z" => 2, _ => 0 };
+                    let mut affected = 0u64;
+                    let mut q = queue68.lock().unwrap();
+                    for &id in selected.iter().skip(1) {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some(mut pos) = e.position {
+                                pos[axis_idx] = pivot_pos[axis_idx];
+                                q.push(crate::snapshot::EditorCommand::SetPosition {
+                                    entity_id: id,
+                                    x: pos[0],
+                                    y: pos[1],
+                                    z: pos[2],
+                                });
+                                affected += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"affected_count": affected}))
+                }),
+            });
+
+            // distribute_entities_evenly
+            let snap_dee = snapshot.clone();
+            let sel_dee = selection.clone();
+            let queue69 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "distribute_entities_evenly".to_string(),
+                description: "Distribute selected entities at equal intervals along the given axis (min/max preserved); axis: 'x'|'y'|'z'; returns {affected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "axis": { "type": "string", "enum": ["x", "y", "z"] } },
+                    "required": ["axis"]
+                })),
+                handler: Box::new(move |input| {
+                    let axis = input["axis"].as_str().unwrap_or("x");
+                    let axis_idx = match axis { "y" => 1, "z" => 2, _ => 0 };
+                    let selected: Vec<u64> = sel_dee.lock().unwrap().iter().cloned().collect();
+                    let s = snap_dee.lock().unwrap();
+                    let mut items: Vec<(u64, [f32; 3])> = selected.iter()
+                        .filter_map(|&id| s.entities.iter().find(|e| e.id == id).and_then(|e| e.position).map(|p| (id, p)))
+                        .collect();
+                    if items.len() < 2 {
+                        return McpToolOutput::success(json!({"affected_count": 0}));
+                    }
+                    items.sort_by(|a, b| a.1[axis_idx].partial_cmp(&b.1[axis_idx]).unwrap_or(std::cmp::Ordering::Equal));
+                    let min_v = items.first().unwrap().1[axis_idx];
+                    let max_v = items.last().unwrap().1[axis_idx];
+                    let n = (items.len() - 1) as f32;
+                    let mut q = queue69.lock().unwrap();
+                    for (i, (id, mut pos)) in items.into_iter().enumerate() {
+                        pos[axis_idx] = min_v + (max_v - min_v) * (i as f32) / n;
+                        q.push(crate::snapshot::EditorCommand::SetPosition {
+                            entity_id: id,
+                            x: pos[0],
+                            y: pos[1],
+                            z: pos[2],
+                        });
+                    }
+                    McpToolOutput::success(json!({"affected_count": selected.len() as u64}))
+                }),
+            });
+
             // copy_transform_from_entity / paste_transform_to_selection (shared clipboard)
             let transform_clipboard: std::sync::Arc<Mutex<Option<([f32; 3], [f32; 3], [f32; 3])>>> =
                 std::sync::Arc::new(Mutex::new(None));
@@ -10772,6 +10858,215 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_align_entities_to_selection_pivot_aligns_x_axis() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Pivot", "position": [5.0, 1.0, 2.0]},
+                        {"name": "Other", "position": [9.0, 3.0, 4.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (pivot_id, other_id) = (id_of("Pivot"), id_of("Other"));
+
+        // Select pivot first, then other (pivot is the reference)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": pivot_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": other_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("align_entities_to_selection_pivot", json!({"axis": "x"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(out.content["affected_count"].as_u64().unwrap() >= 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let other = entities
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == other_id)
+            .unwrap();
+        let pos = other["position"].as_array().unwrap();
+        // Other's X should be aligned to pivot's X = 5.0; Y and Z unchanged
+        assert!(
+            (pos[0].as_f64().unwrap() - 5.0).abs() < 0.01,
+            "X aligned to pivot"
+        );
+        assert!((pos[1].as_f64().unwrap() - 3.0).abs() < 0.01, "Y unchanged");
+    }
+
+    #[test]
+    fn mcp_distribute_entities_evenly_distributes_along_x() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [5.0, 0.0, 0.0]},
+                        {"name": "C", "position": [10.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Manually set positions so middle is off-center
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_transform",
+                json!({"id": a_id, "x": 0.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_transform",
+                json!({"id": b_id, "x": 2.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_transform",
+                json!({"id": c_id, "x": 6.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select all three
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": c_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("distribute_entities_evenly", json!({"axis": "x"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["affected_count"].as_u64().unwrap(), 3);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        // min=0, max=6 → middle entity should be at x=3
+        let b = entities
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == b_id)
+            .unwrap();
+        let bx = b["position"][0].as_f64().unwrap();
+        assert!(
+            (bx - 3.0).abs() < 0.01,
+            "middle entity distributed to x=3, got {bx}"
+        );
     }
 
     #[test]

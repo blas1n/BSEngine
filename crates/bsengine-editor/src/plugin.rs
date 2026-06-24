@@ -1647,6 +1647,78 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // rotate_selection_by
+            let snap_rsb = snapshot.clone();
+            let sel_rsb = selection.clone();
+            let queue42 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "rotate_selection_by".to_string(),
+                description:
+                    "Add Euler-angle delta (degrees) to the rotation of all selected entities"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "drx": { "type": "number" },
+                        "dry": { "type": "number" },
+                        "drz": { "type": "number" }
+                    },
+                    "required": ["drx", "dry", "drz"]
+                })),
+                handler: Box::new(move |input| {
+                    let drx = input["drx"].as_f64().unwrap_or(0.0) as f32;
+                    let dry = input["dry"].as_f64().unwrap_or(0.0) as f32;
+                    let drz = input["drz"].as_f64().unwrap_or(0.0) as f32;
+                    let sel = sel_rsb.lock().unwrap();
+                    let s = snap_rsb.lock().unwrap();
+                    let mut q = queue42.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        let current = s
+                            .entities
+                            .iter()
+                            .find(|e| e.id == entity_id)
+                            .and_then(|e| e.rotation)
+                            .unwrap_or([0.0, 0.0, 0.0]);
+                        q.push(crate::snapshot::EditorCommand::SetRotation {
+                            entity_id,
+                            rx: current[0] + drx,
+                            ry: current[1] + dry,
+                            rz: current[2] + drz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"rotated_count": count}))
+                }),
+            });
+
+            // get_entities_with_children_count_above
+            let snap_gewcca = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_children_count_above".to_string(),
+                description: "Return entities whose number of direct children exceeds min_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_count": { "type": "integer" } },
+                    "required": ["min_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_count = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewcca.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        child_counts.entry(e.id).or_insert(0);
+                        if let Some(pid) = e.parent_id {
+                            *child_counts.entry(pid).or_insert(0) += 1;
+                        }
+                    }
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| *child_counts.get(&e.id).unwrap_or(&0) > min_count)
+                        .map(|e| json!({"id": e.id, "name": e.name, "children_count": child_counts.get(&e.id).copied().unwrap_or(0)}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_by_name_contains
             let snap_sebnc = snapshot.clone();
             let sel_sebnc = selection.clone();
@@ -8210,6 +8282,188 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_rotate_selection_by_rotates_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [0.0, 0.0, 0.0]},
+                            {"name": "B", "position": [1.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let find_id = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (id_a, id_b) = (find_id("A"), find_id("B"));
+
+        // Select A only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "rotate_selection_by",
+                    json!({"drx": 0.0, "dry": 45.0, "drz": 0.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["rotated_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let rot_y_of = |id: u64| {
+            ents.iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .and_then(|e| e["rotation"].as_array())
+                .map(|r| r[1].as_f64().unwrap())
+                .unwrap_or(f64::NAN)
+        };
+        assert!(
+            (rot_y_of(id_a) - 45.0).abs() < 0.1,
+            "A rotated 45° on Y, got {}",
+            rot_y_of(id_a)
+        );
+        assert!(
+            (rot_y_of(id_b) - 0.0).abs() < 0.1,
+            "B rotation unchanged, got {}",
+            rot_y_of(id_b)
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_children_count_above_filters_by_child_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Mid"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C1"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C2"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C3"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, mid_id, c1_id, c2_id, c3_id) = (
+            id_of("Root"),
+            id_of("Mid"),
+            id_of("C1"),
+            id_of("C2"),
+            id_of("C3"),
+        );
+
+        // Root ← C1, C2, C3 (3 children); Mid ← nothing (0 children)
+        for child in [c1_id, c2_id, c3_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child, "parent_id": root_id}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_children_count_above",
+                json!({"min_count": 2}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&root_id), "Root has 3 children > 2");
+        assert!(!ids.contains(&mid_id), "Mid has 0 children");
+        let _ = (c1_id, c2_id, c3_id);
     }
 
     #[test]

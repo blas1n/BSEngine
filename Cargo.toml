@@ -48,3 +48,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 winit             = "0.30"
 wgpu              = "22"
 pollster          = "0.3"
+bytemuck          = { version = "1", features = ["derive"] }

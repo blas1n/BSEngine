@@ -6,7 +6,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowResized};
+use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized};
 
 struct BsWinitApp {
     ecs_app: App,
@@ -36,6 +36,9 @@ impl ApplicationHandler for BsWinitApp {
                 .expect("Failed to create window"),
         );
         self.window = Some(window.clone());
+        self.ecs_app
+            .world_mut()
+            .insert_resource(WindowHandle(window.clone()));
         window.request_redraw();
 
         {

@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_by_exact_name
+            let snap_geben = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_by_exact_name".to_string(),
+                description: "Return entity IDs whose name exactly matches the given name (case-sensitive); returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "name": { "type": "string" } },
+                    "required": ["name"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["name"].as_str().unwrap_or("").to_string();
+                    let s = snap_geben.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref() == Some(&target[..]))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_empty_name
+            let snap_gewen = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_empty_name".to_string(),
+                description:
+                    "Return entity IDs whose name is an empty string or None; returns entity_ids"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewen.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.is_empty()).unwrap_or(true))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_entities_name_contains
             let snap_senc = snapshot.clone();
             let sel_senc = selection.clone();
@@ -10379,6 +10420,128 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_by_exact_name_returns_single_match() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Hero",    "position": [0.0, 0.0, 0.0]},
+                        {"name": "HeroAlt", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Villain", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_by_exact_name", json!({"name": "Hero"}))
+            .unwrap();
+        assert!(out.is_ok());
+        // Should return exactly one entity with name "Hero"
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 1, "Exactly one entity named 'Hero'");
+
+        // Verify it's the correct one (not HeroAlt or Villain)
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let hero_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Hero"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(ids[0], hero_id, "Returned entity is 'Hero'");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_empty_name_returns_unnamed_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn one named and use spawn_named for an unnamed (empty string name)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            // batch_spawn with empty name gives name ""
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "",       "position": [0.0, 0.0, 0.0]},
+                        {"name": "",       "position": [1.0, 0.0, 0.0]},
+                        {"name": "Named",  "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_empty_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "Two entities with empty name");
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let named_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Named"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(!ids.contains(&named_id), "Named entity excluded");
     }
 
     #[test]

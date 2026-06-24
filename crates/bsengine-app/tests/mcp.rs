@@ -10,8 +10,9 @@ fn mcp_full_tool_workflow() {
 
     // Verify built-in tools exist
     {
-        let reg = &app.world().resource::<McpRegistryResource>().0;
-        let tools = reg.list_tools();
+        let reg = app.world().resource::<McpRegistryResource>().0.clone();
+        let locked = reg.lock().unwrap();
+        let tools = locked.list_tools();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(
             names.contains(&"get_world_state"),
@@ -27,8 +28,8 @@ fn mcp_full_tool_workflow() {
 
     // Register custom tool at runtime
     {
-        let mut reg = app.world_mut().resource_mut::<McpRegistryResource>();
-        reg.0.register(McpTool {
+        let reg = app.world().resource::<McpRegistryResource>().0.clone();
+        reg.lock().unwrap().register(McpTool {
             name: "custom_tool".to_string(),
             description: "A custom game tool".to_string(),
             handler: Box::new(|_| McpToolOutput::success(json!({"status": "custom_ok"}))),
@@ -37,8 +38,10 @@ fn mcp_full_tool_workflow() {
 
     // Execute custom tool
     {
-        let reg = &app.world().resource::<McpRegistryResource>().0;
+        let reg = app.world().resource::<McpRegistryResource>().0.clone();
         let result = reg
+            .lock()
+            .unwrap()
             .execute("custom_tool", json!({}))
             .expect("custom tool not found");
         assert!(result.is_ok());

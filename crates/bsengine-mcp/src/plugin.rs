@@ -3,9 +3,10 @@ use crate::tool::{McpTool, McpToolOutput};
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
 use serde_json::json;
+use std::sync::{Arc, Mutex};
 
-#[derive(Resource)]
-pub struct McpRegistryResource(pub McpToolRegistry);
+#[derive(Resource, Clone)]
+pub struct McpRegistryResource(pub Arc<Mutex<McpToolRegistry>>);
 
 pub struct McpPlugin;
 
@@ -34,7 +35,7 @@ impl Plugin for McpPlugin {
             }),
         });
 
-        app.insert_resource(McpRegistryResource(registry));
+        app.insert_resource(McpRegistryResource(Arc::new(Mutex::new(registry))));
     }
 }
 
@@ -55,8 +56,10 @@ mod tests {
     fn mcp_plugin_has_builtin_get_world_state() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
-        let reg = &app.world().resource::<McpRegistryResource>().0;
+        let reg = app.world().resource::<McpRegistryResource>().0.clone();
         let result = reg
+            .lock()
+            .unwrap()
             .execute("get_world_state", json!({}))
             .expect("tool not found");
         assert!(result.is_ok());
@@ -67,8 +70,10 @@ mod tests {
     fn mcp_plugin_has_builtin_list_plugins() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
-        let reg = &app.world().resource::<McpRegistryResource>().0;
+        let reg = app.world().resource::<McpRegistryResource>().0.clone();
         let result = reg
+            .lock()
+            .unwrap()
             .execute("list_plugins", json!({}))
             .expect("tool not found");
         assert!(result.is_ok());

@@ -1647,6 +1647,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // replace_tag_on_selection
+            let snap_rtos = snapshot.clone();
+            let sel_rtos = selection.clone();
+            let queue53 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "replace_tag_on_selection".to_string(),
+                description: "On selected entities that have old_tag, remove it and add new_tag; returns replaced_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "old_tag": { "type": "string" },
+                        "new_tag": { "type": "string" }
+                    },
+                    "required": ["old_tag", "new_tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let old_tag = input["old_tag"].as_str().unwrap_or("").to_string();
+                    let new_tag = input["new_tag"].as_str().unwrap_or("").to_string();
+                    let s = snap_rtos.lock().unwrap();
+                    let sel = sel_rtos.lock().unwrap();
+                    let mut q = queue53.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if e.tags.contains(&old_tag) {
+                                q.push(crate::snapshot::EditorCommand::UntagEntity { entity_id: id, tag: old_tag.clone() });
+                                q.push(crate::snapshot::EditorCommand::TagEntity { entity_id: id, tag: new_tag.clone() });
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"replaced_count": count}))
+                }),
+            });
+
+            // clear_tags_on_selection
+            let snap_ctos = snapshot.clone();
+            let sel_ctos = selection.clone();
+            let queue54 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "clear_tags_on_selection".to_string(),
+                description: "Remove all tags from all selected entities; returns cleared_count (number of entities whose tags were cleared)".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_ctos.lock().unwrap();
+                    let sel = sel_ctos.lock().unwrap();
+                    let mut q = queue54.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if !e.tags.is_empty() {
+                                for tag in &e.tags {
+                                    q.push(crate::snapshot::EditorCommand::UntagEntity { entity_id: id, tag: tag.clone() });
+                                }
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"cleared_count": count}))
+                }),
+            });
+
             // add_prefix_to_selection
             let snap_apts = snapshot.clone();
             let sel_apts = selection.clone();
@@ -9436,6 +9498,219 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_replace_tag_on_selection_swaps_tag_on_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Tag A and B with "old_tag", C with "other"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": a_id, "tag": "old_tag"}))
+                .unwrap();
+            m.execute("tag_entity", json!({"entity_id": b_id, "tag": "old_tag"}))
+                .unwrap();
+            m.execute("tag_entity", json!({"entity_id": c_id, "tag": "other"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select A and C (not B)
+        for id in [a_id, c_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "replace_tag_on_selection",
+                    json!({"old_tag": "old_tag", "new_tag": "new_tag"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            // Only A is selected AND has "old_tag"
+            assert_eq!(out.content["replaced_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let tags_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            tags_of(a_id).contains(&"new_tag".to_string()),
+            "A should have new_tag"
+        );
+        assert!(
+            !tags_of(a_id).contains(&"old_tag".to_string()),
+            "A should not have old_tag"
+        );
+        assert!(
+            tags_of(b_id).contains(&"old_tag".to_string()),
+            "B (unselected) unchanged"
+        );
+        assert!(
+            tags_of(c_id).contains(&"other".to_string()),
+            "C other tag unchanged"
+        );
+    }
+
+    #[test]
+    fn mcp_clear_tags_on_selection_removes_all_tags_from_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "X"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Y"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (x_id, y_id) = (id_of("X"), id_of("Y"));
+
+        // Tag X with two tags
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": x_id, "tag": "alpha"}))
+                .unwrap();
+            m.execute("tag_entity", json!({"entity_id": x_id, "tag": "beta"}))
+                .unwrap();
+            m.execute("tag_entity", json!({"entity_id": y_id, "tag": "gamma"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select only X
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": x_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("clear_tags_on_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["cleared_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let tags_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(tags_of(x_id).is_empty(), "X tags cleared");
+        assert!(tags_of(y_id).contains(&"gamma".to_string()), "Y unchanged");
     }
 
     #[test]

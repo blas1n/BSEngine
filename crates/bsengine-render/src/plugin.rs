@@ -34,10 +34,7 @@ fn render_frame(
     }
 }
 
-fn update_camera_aspect(
-    mut events: EventReader<WindowResized>,
-    mut cameras: Query<&mut Camera>,
-) {
+fn update_camera_aspect(mut events: EventReader<WindowResized>, mut cameras: Query<&mut Camera>) {
     for ev in events.read() {
         for mut cam in cameras.iter_mut() {
             cam.update_aspect_ratio(ev.width, ev.height);
@@ -88,8 +85,10 @@ mod tests {
 
         let cam_entity = app.world_mut().spawn(Camera::default()).id();
         // 800x600 (4:3) is different from the default 16:9
-        app.world_mut()
-            .send_event(WindowResized { width: 800, height: 600 });
+        app.world_mut().send_event(WindowResized {
+            width: 800,
+            height: 600,
+        });
         app.update();
 
         let cam = app.world().get::<Camera>(cam_entity).unwrap();

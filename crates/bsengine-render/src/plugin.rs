@@ -1,8 +1,9 @@
-use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::prelude::Query;
+use bevy_app::{App, Plugin, PostUpdate, Update};
+use bevy_ecs::prelude::{EventReader, Query};
 use bsengine_core::{Camera, Transform};
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, WgpuSurfaceResource};
+use bsengine_window::WindowResized;
 use glam::Mat4;
 
 use crate::components::MeshRenderer;
@@ -33,10 +34,20 @@ fn render_frame(
     }
 }
 
+fn update_camera_aspect(mut events: EventReader<WindowResized>, mut cameras: Query<&mut Camera>) {
+    for ev in events.read() {
+        for mut cam in cameras.iter_mut() {
+            cam.update_aspect_ratio(ev.width, ev.height);
+        }
+    }
+}
+
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
+        app.add_event::<WindowResized>();
+        app.add_systems(Update, update_camera_aspect);
         app.add_systems(PostUpdate, render_frame);
     }
 }
@@ -45,7 +56,9 @@ impl Plugin for RenderPlugin {
 mod tests {
     use super::RenderPlugin;
     use bsengine_app::new_app;
+    use bsengine_core::Camera;
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
+    use bsengine_window::WindowResized;
 
     #[test]
     fn render_plugin_runs_without_surface() {
@@ -62,5 +75,24 @@ mod tests {
         app.update();
         app.update();
         app.update();
+    }
+
+    #[test]
+    fn camera_aspect_updates_on_window_resize() {
+        let mut app = new_app();
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+
+        let cam_entity = app.world_mut().spawn(Camera::default()).id();
+        // 800x600 (4:3) is different from the default 16:9
+        app.world_mut().send_event(WindowResized {
+            width: 800,
+            height: 600,
+        });
+        app.update();
+
+        let cam = app.world().get::<Camera>(cam_entity).unwrap();
+        let expected = 800.0_f32 / 600.0_f32;
+        assert!((cam.aspect_ratio - expected).abs() < 1e-4);
     }
 }

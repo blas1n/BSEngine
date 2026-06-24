@@ -1,6 +1,7 @@
 use crate::mesh::GpuMeshRegistry;
 use crate::rhi::WgpuRHI;
 use crate::surface::{WgpuSurface, WgpuSurfaceResource};
+use crate::texture::GpuTextureRegistry;
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_ecs::prelude::{EventReader, ResMut, World};
 use bsengine_ecs::Resource;
@@ -30,9 +31,12 @@ fn create_surface_system(world: &mut World) {
         match pollster::block_on(WgpuSurface::new(handle.0)) {
             Ok(surface) => {
                 let registry = GpuMeshRegistry::new(surface.device.clone());
+                let tex_registry =
+                    GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
                 world.insert_resource(WgpuSurfaceResource(surface));
                 world.insert_resource(registry);
-                tracing::info!("wgpu surface and mesh registry ready");
+                world.insert_resource(tex_registry);
+                tracing::info!("wgpu surface, mesh registry, and texture registry ready");
             }
             Err(e) => {
                 tracing::warn!("wgpu surface not created: {e}");

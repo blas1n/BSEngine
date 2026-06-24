@@ -546,6 +546,7 @@ dependencies = [
  "bsengine-window",
  "bytemuck",
  "glam",
+ "image",
  "pollster",
  "tracing",
  "wgpu",

@@ -1,3 +1,4 @@
+use crate::mesh::GpuMeshRegistry;
 use crate::rhi::WgpuRHI;
 use crate::surface::{WgpuSurface, WgpuSurfaceResource};
 use bevy_app::{App, Plugin, Startup, Update};
@@ -28,8 +29,10 @@ fn create_surface_system(world: &mut World) {
     if let Some(handle) = handle {
         match pollster::block_on(WgpuSurface::new(handle.0)) {
             Ok(surface) => {
+                let registry = GpuMeshRegistry::new(surface.device.clone());
                 world.insert_resource(WgpuSurfaceResource(surface));
-                tracing::info!("wgpu surface ready");
+                world.insert_resource(registry);
+                tracing::info!("wgpu surface and mesh registry ready");
             }
             Err(e) => {
                 tracing::warn!("wgpu surface not created: {e}");
@@ -54,7 +57,6 @@ fn handle_window_resize(
 #[cfg(test)]
 mod tests {
     use super::{RhiResource, WgpuRHIPlugin};
-
     use bsengine_app::new_app;
 
     #[test]

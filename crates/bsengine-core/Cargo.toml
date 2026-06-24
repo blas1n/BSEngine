@@ -7,3 +7,4 @@ edition.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 bevy_ecs.workspace = true
+glam.workspace = true

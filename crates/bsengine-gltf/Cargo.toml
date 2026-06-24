@@ -1,18 +1,12 @@
 [package]
-name = "bsengine-render"
+name = "bsengine-gltf"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 bsengine-core.workspace = true
-bsengine-ecs.workspace = true
-bsengine-rhi.workspace = true
 bsengine-rhi-wgpu.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
-glam.workspace = true
+gltf.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-bsengine-app.workspace = true
-bsengine-rhi-wgpu.workspace = true

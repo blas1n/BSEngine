@@ -1647,6 +1647,72 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_in_radius
+            let snap_geir = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_radius".to_string(),
+                description:
+                    "Return entities within Euclidean distance 'radius' of point (cx,cy,cz)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "cx": { "type": "number" },
+                        "cy": { "type": "number" },
+                        "cz": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["cx", "cy", "cz", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let cx = input["cx"].as_f64().unwrap_or(0.0) as f32;
+                    let cy = input["cy"].as_f64().unwrap_or(0.0) as f32;
+                    let cz = input["cz"].as_f64().unwrap_or(0.0) as f32;
+                    let radius = input["radius"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_geir.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            let [x, y, z] = e.position?;
+                            let dx = x - cx;
+                            let dy = y - cy;
+                            let dz = z - cz;
+                            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                            if dist <= radius {
+                                Some(json!({"id": e.id, "name": e.name, "distance": dist}))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // reset_entity_transform
+            let queue_ret = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "reset_entity_transform".to_string(),
+                description: "Reset position to (0,0,0), rotation to (0,0,0), and scale to (1,1,1) (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let mut q = queue_ret.lock().unwrap();
+                    q.push(EditorCommand::SetPosition { entity_id, x: 0.0, y: 0.0, z: 0.0 });
+                    q.push(EditorCommand::SetRotation { entity_id, rx: 0.0, ry: 0.0, rz: 0.0 });
+                    q.push(EditorCommand::SetScale { entity_id, sx: 1.0, sy: 1.0, sz: 1.0 });
+                    McpToolOutput::success(json!({"entity_id": entity_id}))
+                }),
+            });
+
             // scale_entity_uniform
             let queue_seu = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4282,6 +4348,173 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_in_radius_filters_by_distance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (near_id, far_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Near"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let f = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Far"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (n, f)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_radius",
+                json!({"cx": 0.0, "cy": 0.0, "cz": 0.0, "radius": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&near_id),
+            "Near (dist=1) should be in radius 10"
+        );
+        assert!(
+            !ids.contains(&far_id),
+            "Far (dist=100) should not be in radius 10"
+        );
+    }
+
+    #[test]
+    fn mcp_reset_entity_transform_restores_identity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "ResetTarget", "position": [5.0, 5.0, 5.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ResetTarget"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": eid, "rx": 45.0, "ry": 45.0, "rz": 0.0}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": eid, "sx": 2.0, "sy": 2.0, "sz": 2.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("reset_entity_transform", json!({"entity_id": eid}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pos = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": eid}))
+            .unwrap();
+        let p = &pos.content["position"];
+        assert!((p[0].as_f64().unwrap()).abs() < 1e-3, "x=0");
+        assert!((p[1].as_f64().unwrap()).abs() < 1e-3, "y=0");
+        assert!((p[2].as_f64().unwrap()).abs() < 1e-3, "z=0");
+        let sc = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_scale", json!({"entity_id": eid}))
+            .unwrap();
+        let s = &sc.content["scale"];
+        assert!((s[0].as_f64().unwrap() - 1.0).abs() < 1e-3, "sx=1");
+        assert!((s[1].as_f64().unwrap() - 1.0).abs() < 1e-3, "sy=1");
+        assert!((s[2].as_f64().unwrap() - 1.0).abs() < 1e-3, "sz=1");
     }
 
     #[test]

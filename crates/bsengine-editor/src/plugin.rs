@@ -1647,6 +1647,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_common_parent_of_selection
+            let snap_gcpos = snapshot.clone();
+            let sel_gcpos = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_common_parent_of_selection".to_string(),
+                description: "Return the common parent entity ID of all currently selected entities, if all share the same parent; returns parent_id (null if no common parent)".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let selected = sel_gcpos.lock().unwrap().clone();
+                    if selected.is_empty() {
+                        return McpToolOutput::success(json!({"parent_id": null}));
+                    }
+                    let s = snap_gcpos.lock().unwrap();
+                    let mut common: Option<Option<u64>> = None;
+                    for &id in &selected {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            let pid = e.parent_id;
+                            match common {
+                                None => common = Some(pid),
+                                Some(prev) if prev == pid => {}
+                                _ => return McpToolOutput::success(json!({"parent_id": null})),
+                            }
+                        }
+                    }
+                    match common {
+                        Some(Some(pid)) => McpToolOutput::success(json!({"parent_id": pid})),
+                        _ => McpToolOutput::success(json!({"parent_id": null})),
+                    }
+                }),
+            });
+
+            // select_siblings_of_selection
+            let snap_ssos = snapshot.clone();
+            let sel_ssos = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_siblings_of_selection".to_string(),
+                description: "Add all siblings (same parent) of each selected entity to the selection; returns added_count".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let selected_now = sel_ssos.lock().unwrap().clone();
+                    let s = snap_ssos.lock().unwrap();
+                    let mut to_add: Vec<u64> = Vec::new();
+                    for &id in &selected_now {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some(pid) = e.parent_id {
+                                for sib in s.entities.iter().filter(|sib| sib.parent_id == Some(pid) && sib.id != id) {
+                                    if !selected_now.contains(&sib.id) && !to_add.contains(&sib.id) {
+                                        to_add.push(sib.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let added = to_add.len() as u64;
+                    let mut sel = sel_ssos.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": added}))
+                }),
+            });
+
             // get_entities_with_no_rotation
             let snap_gewnr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10647,6 +10709,210 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_common_parent_of_selection_returns_shared_parent() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Create parent and two children
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Child1", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Child2", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, child1_id, child2_id) = (id_of("Parent"), id_of("Child1"), id_of("Child2"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": child1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": child2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select both children
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": child1_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": child2_id}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_common_parent_of_selection", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["parent_id"].as_u64().unwrap(),
+            parent_id,
+            "Common parent is Parent"
+        );
+    }
+
+    #[test]
+    fn mcp_select_siblings_of_selection_adds_same_parent_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent", "position": [0.0, 0.0, 0.0]},
+                        {"name": "SibA",   "position": [1.0, 0.0, 0.0]},
+                        {"name": "SibB",   "position": [2.0, 0.0, 0.0]},
+                        {"name": "SibC",   "position": [3.0, 0.0, 0.0]},
+                        {"name": "Loner",  "position": [4.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, sib_a, sib_b, sib_c, loner_id) = (
+            id_of("Parent"),
+            id_of("SibA"),
+            id_of("SibB"),
+            id_of("SibC"),
+            id_of("Loner"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": sib_a, "parent_id": parent_id}),
+            )
+            .unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": sib_b, "parent_id": parent_id}),
+            )
+            .unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": sib_c, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select only SibA — siblings SibB and SibC should be added
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": sib_a}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_siblings_of_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            // SibB and SibC added
+            assert!(out.content["added_count"].as_u64().unwrap() >= 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(selected.contains(&sib_b), "SibB added as sibling");
+        assert!(selected.contains(&sib_c), "SibC added as sibling");
+        assert!(!selected.contains(&loner_id), "Loner (no parent) not added");
     }
 
     #[test]

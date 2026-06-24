@@ -1568,6 +1568,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_by_type
+            let snap_type = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_type".to_string(),
+                description: "Filter entities by type: light, mesh, camera, or plain".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_type": {
+                            "type": "string",
+                            "enum": ["light", "mesh", "camera", "plain"]
+                        }
+                    },
+                    "required": ["entity_type"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_type = match input["entity_type"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing entity_type"),
+                    };
+                    let s = snap_type.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| match entity_type.as_str() {
+                            "light" => e.light_type.is_some(),
+                            "mesh" => e.mesh_id.is_some(),
+                            "camera" => e.camera_fov.is_some(),
+                            "plain" => {
+                                e.light_type.is_none()
+                                    && e.mesh_id.is_none()
+                                    && e.camera_fov.is_none()
+                            }
+                            _ => false,
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_root_entities
             let snap_roots = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2245,6 +2286,72 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_get_entities_by_type_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn plain entity, point light, camera
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "Plain"}))
+                .unwrap();
+            mcp.execute(
+                "spawn_point_light",
+                json!({
+                    "color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0,
+                    "position": [0.0, 0.0, 0.0]
+                }),
+            )
+            .unwrap();
+            mcp.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mcp = mcp.0.lock().unwrap();
+
+        let lights = mcp
+            .execute("get_entities_by_type", json!({"entity_type": "light"}))
+            .unwrap();
+        assert!(lights.is_ok());
+        assert!(
+            lights.content["entities"].as_array().unwrap().len() >= 1,
+            "at least 1 light"
+        );
+
+        let cameras = mcp
+            .execute("get_entities_by_type", json!({"entity_type": "camera"}))
+            .unwrap();
+        assert!(cameras.is_ok());
+        assert!(
+            cameras.content["entities"].as_array().unwrap().len() >= 1,
+            "at least 1 camera"
+        );
+
+        let plains = mcp
+            .execute("get_entities_by_type", json!({"entity_type": "plain"}))
+            .unwrap();
+        assert!(plains.is_ok());
+        let plain_names: Vec<&str> = plains.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(
+            plain_names.contains(&"Plain"),
+            "Plain entity should be in plain type"
+        );
     }
 
     #[test]

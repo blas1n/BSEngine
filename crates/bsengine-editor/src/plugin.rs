@@ -113,10 +113,10 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, process_editor_commands);
 
-        if let Some(mut mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
+        if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
             // list_entities
             let snap = snapshot.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "list_entities".to_string(),
                 description: "List all entities with their IDs, names, and positions".to_string(),
                 handler: Box::new(move |_input| {
@@ -133,7 +133,7 @@ impl Plugin for EditorPlugin {
 
             // get_entity
             let snap2 = snapshot.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "get_entity".to_string(),
                 description: "Get detailed info for a specific entity by ID".to_string(),
                 handler: Box::new(move |input| {
@@ -155,7 +155,7 @@ impl Plugin for EditorPlugin {
 
             // spawn_entity
             let queue = cmd_queue.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "spawn_entity".to_string(),
                 description: "Spawn a new named entity (applied next frame)".to_string(),
                 handler: Box::new(move |input| {
@@ -170,7 +170,7 @@ impl Plugin for EditorPlugin {
 
             // set_transform
             let queue2 = cmd_queue.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "set_transform".to_string(),
                 description: "Set the world position of an entity by ID (applied next frame)"
                     .to_string(),
@@ -196,7 +196,7 @@ impl Plugin for EditorPlugin {
 
             // despawn_entity
             let queue3 = cmd_queue.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "despawn_entity".to_string(),
                 description: "Despawn an entity by ID (applied next frame)".to_string(),
                 handler: Box::new(move |input| {
@@ -214,7 +214,7 @@ impl Plugin for EditorPlugin {
 
             // save_scene
             let snap3 = snapshot.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "save_scene".to_string(),
                 description: "Serialize current named entities to a RON scene file".to_string(),
                 handler: Box::new(move |input| {
@@ -260,7 +260,7 @@ impl Plugin for EditorPlugin {
 
             // load_scene
             let queue4 = cmd_queue.clone();
-            mcp.0.register(McpTool {
+            mcp.0.lock().unwrap().register(McpTool {
                 name: "load_scene".to_string(),
                 description: "Load and spawn entities from a RON scene file (applied next frame)"
                     .to_string(),
@@ -362,6 +362,8 @@ mod tests {
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
         let result = mcp
             .0
+            .lock()
+            .unwrap()
             .execute("list_entities", json!({}))
             .expect("list_entities not found");
         assert!(result.is_ok());
@@ -378,6 +380,8 @@ mod tests {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let result = mcp
                 .0
+                .lock()
+                .unwrap()
                 .execute("spawn_entity", json!({"name": "Sword"}))
                 .expect("spawn_entity not found");
             assert!(result.is_ok());
@@ -408,6 +412,8 @@ mod tests {
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
         let result = mcp
             .0
+            .lock()
+            .unwrap()
             .execute("get_entity", json!({"id": eid.index() as u64}))
             .expect("get_entity not found");
         assert!(result.is_ok(), "error: {:?}", result.error);
@@ -427,6 +433,8 @@ mod tests {
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             mcp.0
+                .lock()
+                .unwrap()
                 .execute("despawn_entity", json!({"id": eid.index() as u64}))
                 .expect("despawn_entity not found");
         }
@@ -455,6 +463,8 @@ mod tests {
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
         let result = mcp
             .0
+            .lock()
+            .unwrap()
             .execute("save_scene", json!({"path": path}))
             .expect("save_scene not found");
         assert!(result.is_ok(), "save error: {:?}", result.error);
@@ -481,7 +491,12 @@ mod tests {
             ));
             app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let r = mcp.0.execute("save_scene", json!({"path": path})).unwrap();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("save_scene", json!({"path": path}))
+                .unwrap();
             assert!(r.is_ok(), "{:?}", r.error);
         }
 
@@ -493,6 +508,8 @@ mod tests {
             {
                 let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
                 mcp.0
+                    .lock()
+                    .unwrap()
                     .execute("load_scene", json!({"path": path}))
                     .expect("load_scene not found");
             }
@@ -528,6 +545,8 @@ mod tests {
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             mcp.0
+                .lock()
+                .unwrap()
                 .execute(
                     "set_transform",
                     json!({"id": eid.index() as u64, "x": 10.0, "y": 0.0, "z": 0.0}),

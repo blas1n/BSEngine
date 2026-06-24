@@ -1,8 +1,10 @@
 use bevy_app::PostStartup;
 use bsengine_app::new_app;
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Parent, PointLight, Transform};
-use bsengine_ecs::{Commands, ResMut};
+use bsengine_ecs::{Commands, Res, ResMut};
+use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
+use bsengine_mcp::{McpPlugin, McpRegistryResource, McpServer};
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{cube_vertices, GpuMeshRegistry, WgpuRHIPlugin};
 use bsengine_window::WindowPlugin;
@@ -14,8 +16,17 @@ fn main() {
         .add_plugins(WindowPlugin::default())
         .add_plugins(InputPlugin)
         .add_plugins(RenderPlugin)
-        .add_systems(PostStartup, setup)
+        .add_plugins(McpPlugin)
+        .add_plugins(EditorPlugin)
+        .add_systems(PostStartup, (setup, start_mcp_server))
         .run();
+}
+
+fn start_mcp_server(registry: Res<McpRegistryResource>) {
+    let arc = registry.0.clone();
+    std::thread::spawn(move || {
+        McpServer::new(arc).run_stdio();
+    });
 }
 
 fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {

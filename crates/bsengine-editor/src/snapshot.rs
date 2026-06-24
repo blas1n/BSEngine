@@ -14,6 +14,7 @@ pub struct EntityInfo {
     pub light_intensity: Option<f32>,
     pub light_range: Option<f32>,
     pub camera_fov: Option<f32>,
+    pub parent_id: Option<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -71,6 +72,13 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    SetParent {
+        entity_id: u64,
+        parent_id: u64,
+    },
+    RemoveParent {
+        entity_id: u64,
+    },
     SetRotation {
         entity_id: u64,
         rx: f32,
@@ -154,6 +162,7 @@ mod tests {
             light_intensity: None,
             light_range: None,
             camera_fov: None,
+            parent_id: None,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -173,6 +182,7 @@ mod tests {
             light_intensity: None,
             light_range: None,
             camera_fov: None,
+            parent_id: None,
             position: None,
         };
         assert!(e.position.is_none());

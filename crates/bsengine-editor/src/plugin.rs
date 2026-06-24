@@ -1647,6 +1647,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_rotation_y_above
+            let snap_gewrya = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_y_above".to_string(),
+                description: "Return entity IDs whose Y rotation (degrees) is strictly above the threshold; returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewrya.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.rotation.map(|r| r[1] > threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_y_above
+            let snap_gewsya = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_y_above".to_string(),
+                description: "Return entity IDs whose Y scale is strictly above the threshold; returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsya.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.scale.map(|sc| sc[1] > threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_rotation_x_above
             let snap_gewrxa = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10521,6 +10563,171 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_rotation_y_above_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            // Use ry values within [-90, 90] range to avoid arcsin ambiguity in XYZ Euler extraction
+            m.execute(
+                "set_rotation",
+                json!({"entity_id": a_id, "rx": 0.0, "ry": 80.0, "rz": 0.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_rotation",
+                json!({"entity_id": b_id, "rx": 0.0, "ry": 30.0, "rz": 0.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_rotation_y_above",
+                json!({"threshold": 60.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&a_id), "A(ry=80) above threshold 60");
+        assert!(!ids.contains(&b_id), "B(ry=30) not above threshold 60");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_scale_y_above_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Tall",  "position": [0.0, 0.0, 0.0]},
+                        {"name": "Short", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (tall_id, short_id) = (id_of("Tall"), id_of("Short"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": tall_id,  "sx": 1.0, "sy": 4.0, "sz": 1.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": short_id, "sx": 1.0, "sy": 0.5, "sz": 1.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_scale_y_above", json!({"threshold": 2.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&tall_id), "Tall(sy=4) above threshold 2");
+        assert!(
+            !ids.contains(&short_id),
+            "Short(sy=0.5) not above threshold 2"
+        );
     }
 
     #[test]

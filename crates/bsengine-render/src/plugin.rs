@@ -1,8 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{EventReader, Query};
-use bsengine_core::{Camera, Transform};
+use bsengine_core::{Camera, DirectionalLight, Transform};
 use bsengine_ecs::Res;
-use bsengine_rhi_wgpu::{GpuMeshRegistry, WgpuSurfaceResource};
+use bsengine_rhi_wgpu::{GpuMeshRegistry, LightData, WgpuSurfaceResource};
 use bsengine_window::WindowResized;
 use glam::Mat4;
 
@@ -13,6 +13,7 @@ fn render_frame(
     registry: Option<Res<GpuMeshRegistry>>,
     camera_query: Query<(&Camera, &Transform)>,
     mesh_query: Query<(&MeshRenderer, &Transform)>,
+    light_query: Query<&DirectionalLight>,
 ) {
     let (Some(surface), Some(registry)) = (surface, registry) else {
         return;
@@ -29,7 +30,20 @@ fn render_frame(
         .map(|(mr, t)| (mr.mesh_id, t.to_matrix()))
         .collect();
 
-    if let Err(e) = surface.0.render_frame(view_proj, &draw_calls, &registry) {
+    let light = light_query
+        .iter()
+        .next()
+        .map(|l| LightData {
+            direction: l.direction,
+            color: l.color,
+            ambient: l.ambient,
+        })
+        .unwrap_or_default();
+
+    if let Err(e) = surface
+        .0
+        .render_frame(view_proj, &draw_calls, &registry, light)
+    {
         tracing::warn!("render_frame error: {e}");
     }
 }

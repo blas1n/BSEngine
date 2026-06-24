@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_mesh_id
+            let snap_gemi = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_mesh_id".to_string(),
+                description: "Return the mesh_id of the specified entity, or null if none"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gemi.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"mesh_id": e.mesh_id, "entity_id": entity_id}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // detach_all_meshes
+            let snap_dam = snapshot.clone();
+            let queue_dam = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "detach_all_meshes".to_string(),
+                description:
+                    "Remove mesh renderers from all entities that have one (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dam.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.mesh_id.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = ids.len() as u64;
+                    let mut q = queue_dam.lock().unwrap();
+                    for entity_id in ids {
+                        q.push(EditorCommand::DetachMeshRenderer { entity_id });
+                    }
+                    McpToolOutput::success(json!({"detached_count": count}))
+                }),
+            });
+
             // get_entities_by_mesh_id
             let snap_gebm = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4051,6 +4103,158 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_mesh_id_returns_mesh_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "MeshIdEnt"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("MeshIdEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": eid, "mesh_id": 77}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_mesh_id", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["mesh_id"].as_u64().unwrap(),
+            77,
+            "mesh_id should be 77"
+        );
+    }
+
+    #[test]
+    fn mcp_detach_all_meshes_removes_mesh_renderers() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "DetachA"},
+                        {"name": "DetachB"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DetachA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DetachB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": id_a, "mesh_id": 1}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": id_b, "mesh_id": 2}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("detach_all_meshes", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_mesh", json!({}))
+            .unwrap();
+        let meshed_ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(
+            !meshed_ids.contains(&id_a),
+            "DetachA should have no mesh after detach_all"
+        );
+        assert!(
+            !meshed_ids.contains(&id_b),
+            "DetachB should have no mesh after detach_all"
+        );
     }
 
     #[test]

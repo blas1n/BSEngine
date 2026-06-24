@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // copy_entity_transform
+            let snap_cet = snapshot.clone();
+            let queue_cet = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "copy_entity_transform".to_string(),
+                description: "Copy the position, rotation, and scale from source_entity_id to target_entity_id".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "source_entity_id": { "type": "integer" },
+                        "target_entity_id": { "type": "integer" }
+                    },
+                    "required": ["source_entity_id", "target_entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let src_id = match input["source_entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing source_entity_id"),
+                    };
+                    let tgt_id = match input["target_entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing target_entity_id"),
+                    };
+                    let (pos, rot, scale) = {
+                        let s = snap_cet.lock().unwrap();
+                        match s.entities.iter().find(|e| e.id == src_id) {
+                            Some(e) => (e.position, e.rotation, e.scale),
+                            None => return McpToolOutput::error("source entity not found"),
+                        }
+                    };
+                    let mut q = queue_cet.lock().unwrap();
+                    q.push(crate::snapshot::EditorCommand::SetEntityTransform {
+                        entity_id: tgt_id,
+                        position: pos,
+                        rotation: rot,
+                        scale,
+                    });
+                    McpToolOutput::success(json!({"source_entity_id": src_id, "target_entity_id": tgt_id}))
+                }),
+            });
+
             // get_all_cameras
             let snap_gac = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5179,6 +5220,151 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_copy_entity_transform_copies_position_to_target() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Src", "position": [7.0, 3.0, -2.0]},
+                        {"name": "Dst", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (src_id, dst_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let s = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Src"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let d = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Dst"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (s, d)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "copy_entity_transform",
+                    json!({"source_entity_id": src_id, "target_entity_id": dst_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pos = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": dst_id}))
+            .unwrap();
+        let p = &pos.content["position"];
+        assert!((p[0].as_f64().unwrap() - 7.0).abs() < 1e-3, "x=7 copied");
+        assert!((p[1].as_f64().unwrap() - 3.0).abs() < 1e-3, "y=3 copied");
+        assert!(
+            (p[2].as_f64().unwrap() - (-2.0)).abs() < 1e-3,
+            "z=-2 copied"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_without_mesh_excludes_meshed() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "HasMesh"},
+                        {"name": "NoMesh1"},
+                        {"name": "NoMesh2"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let meshed_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": meshed_id, "mesh_id": 3}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_mesh", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = ents.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"NoMesh1"), "NoMesh1 in result");
+        assert!(names.contains(&"NoMesh2"), "NoMesh2 in result");
+        assert!(!names.contains(&"HasMesh"), "HasMesh excluded");
     }
 
     #[test]

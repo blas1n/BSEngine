@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_name_starts_with
+            let snap_sensw = snapshot.clone();
+            let sel_sensw = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_name_starts_with".to_string(),
+                description: "Add to selection all entities whose name starts with the given prefix (case-sensitive); returns selected_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_sensw.lock().unwrap();
+                    let mut sel = sel_sensw.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter() {
+                        if e.name.as_deref().map(|n| n.starts_with(&prefix[..])).unwrap_or(false) {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // select_entities_name_ends_with
+            let snap_senew = snapshot.clone();
+            let sel_senew = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_name_ends_with".to_string(),
+                description: "Add to selection all entities whose name ends with the given suffix (case-sensitive); returns selected_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "suffix": { "type": "string" } },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_senew.lock().unwrap();
+                    let mut sel = sel_senew.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter() {
+                        if e.name.as_deref().map(|n| n.ends_with(&suffix[..])).unwrap_or(false) {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_name_starts_with
             let snap_gensw = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10280,6 +10332,162 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_name_starts_with_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Npc_Guard",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "Npc_Vendor",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "Player_Hero", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_name_starts_with",
+                    json!({"prefix": "Npc_"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(selected.contains(&id_of("Npc_Guard")), "Npc_Guard selected");
+        assert!(
+            selected.contains(&id_of("Npc_Vendor")),
+            "Npc_Vendor selected"
+        );
+        assert!(
+            !selected.contains(&id_of("Player_Hero")),
+            "Player_Hero not selected"
+        );
+    }
+
+    #[test]
+    fn mcp_select_entities_name_ends_with_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Door_Red",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "Wall_Red",   "position": [1.0, 0.0, 0.0]},
+                        {"name": "Door_Blue",  "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_name_ends_with", json!({"suffix": "_Red"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(selected.contains(&id_of("Door_Red")), "Door_Red selected");
+        assert!(selected.contains(&id_of("Wall_Red")), "Wall_Red selected");
+        assert!(
+            !selected.contains(&id_of("Door_Blue")),
+            "Door_Blue not selected"
+        );
     }
 
     #[test]

@@ -63,6 +63,7 @@ fn update_editor_snapshot(
 
 fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
+    snapshot_res: Res<EditorSnapshotResource>,
     mut params: ParamSet<(
         Query<Entity>,
         Query<(Entity, &mut Transform)>,
@@ -222,6 +223,34 @@ fn process_editor_commands(
                             cam.fov_y_radians = fov.to_radians();
                         }
                         break;
+                    }
+                }
+            }
+            EditorCommand::DuplicateEntity { entity_id } => {
+                let info = {
+                    let snapshot = snapshot_res.0.lock().unwrap();
+                    snapshot
+                        .entities
+                        .iter()
+                        .find(|e| e.id == entity_id)
+                        .cloned()
+                };
+                if let Some(info) = info {
+                    let mut entity = commands.spawn_empty();
+                    if let Some(name) = info.name {
+                        entity.insert(Name(format!("{name} (copy)")));
+                    }
+                    if let Some([x, y, z]) = info.position {
+                        entity.insert((
+                            Transform::from_translation(glam::Vec3::new(x, y, z)),
+                            GlobalTransform::default(),
+                        ));
+                    }
+                    if let Some(mesh_id) = info.mesh_id {
+                        entity.insert(MeshRenderer { mesh_id });
+                    }
+                    if let Some(fov) = info.camera_fov {
+                        entity.insert(Camera::perspective(fov, 16.0 / 9.0));
                     }
                 }
             }
@@ -1081,6 +1110,31 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // duplicate_entity
+            let queue19 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "duplicate_entity".to_string(),
+                description: "Duplicate an entity, copying its name, transform, mesh, and camera components (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue19
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::DuplicateEntity { entity_id });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -1382,6 +1436,78 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_duplicate_entity_creates_copy() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn an entity with name+position via batch_spawn
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "Original", "position": [2.0, 0.0, 0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update(); // process_editor_commands spawns entity
+        app.update(); // update_editor_snapshot captures it
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Original"))
+                .expect("Original not in snapshot")["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        // duplicate
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("duplicate_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+            assert!(result.is_ok());
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            assert_eq!(entities.len(), 2, "expected 2 entities after duplicate");
+            let copy = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Original (copy)"))
+                .expect("copy entity not found");
+            let pos = copy["position"].as_array().unwrap();
+            assert!((pos[0].as_f64().unwrap() - 2.0).abs() < 1e-4);
+        }
     }
 
     #[test]

@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_light_count_by_type
+            let snap_glcbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_light_count_by_type".to_string(),
+                description: "Return count of lights grouped by type (point, directional, spot)"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_glcbt.lock().unwrap();
+                    let mut point = 0u64;
+                    let mut directional = 0u64;
+                    let mut spot = 0u64;
+                    for e in &s.entities {
+                        match e.light_type.as_deref() {
+                            Some("point") => point += 1,
+                            Some("directional") => directional += 1,
+                            Some("spot") => spot += 1,
+                            _ => {}
+                        }
+                    }
+                    McpToolOutput::success(
+                        json!({"point": point, "directional": directional, "spot": spot}),
+                    )
+                }),
+            });
+
+            // get_entities_with_intensity_below
+            let snap_gewib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_intensity_below".to_string(),
+                description: "Return light entities whose intensity is less than max_intensity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "max_intensity": { "type": "number" } },
+                    "required": ["max_intensity"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_intensity = input["max_intensity"].as_f64().unwrap_or(f64::MAX) as f32;
+                    let s = snap_gewib.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.light_intensity.map(|i| i < max_intensity).unwrap_or(false))
+                        .map(|e| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "light_intensity": e.light_intensity}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // set_selection_parent
             let sel_ssp = selection.clone();
             let queue43 = cmd_queue.clone();
@@ -8725,6 +8772,110 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_light_count_by_type_returns_counts_per_type() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_point_light",
+                json!({
+                    "color": [1.0, 1.0, 1.0], "intensity": 100.0,
+                    "range": 10.0, "position": [0.0, 0.0, 0.0]
+                }),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_point_light",
+                json!({
+                    "color": [1.0, 0.0, 0.0], "intensity": 200.0,
+                    "range": 5.0, "position": [1.0, 0.0, 0.0]
+                }),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_directional_light",
+                json!({
+                    "direction": [0.0, -1.0, 0.0],
+                    "color": [1.0, 1.0, 0.8],
+                    "ambient": [0.1, 0.1, 0.1]
+                }),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_light_count_by_type", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["point"].as_u64().unwrap(), 2, "2 point lights");
+        assert_eq!(
+            out.content["directional"].as_u64().unwrap(),
+            1,
+            "1 directional light"
+        );
+        assert_eq!(
+            out.content["spot"].as_u64().unwrap_or(0),
+            0,
+            "0 spot lights"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_intensity_below_returns_dim_lights() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_point_light",
+                json!({
+                    "color": [1.0, 1.0, 1.0], "intensity": 50.0,
+                    "range": 10.0, "position": [0.0, 0.0, 0.0]
+                }),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_point_light",
+                json!({
+                    "color": [1.0, 1.0, 1.0], "intensity": 500.0,
+                    "range": 10.0, "position": [1.0, 0.0, 0.0]
+                }),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_intensity_below",
+                json!({"max_intensity": 100.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only 1 dim light");
+        assert_eq!(ents[0]["light_intensity"].as_f64().unwrap(), 50.0);
     }
 
     #[test]

@@ -33,6 +33,20 @@ pub enum EditorCommand {
     DetachMeshRenderer {
         entity_id: u64,
     },
+    SpawnPointLight {
+        color: [f32; 3],
+        intensity: f32,
+        range: f32,
+        position: [f32; 3],
+    },
+    SpawnDirectionalLight {
+        direction: [f32; 3],
+        color: [f32; 3],
+        ambient: [f32; 3],
+    },
+    RemoveLight {
+        entity_id: u64,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

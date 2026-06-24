@@ -1647,6 +1647,84 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // find_entities_by_name_prefix
+            let snap_febnp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "find_entities_by_name_prefix".to_string(),
+                description: "Return all entities whose name starts with the given prefix"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing prefix"),
+                    };
+                    let s = snap_febnp.lock().unwrap();
+                    let ents: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.starts_with(&*prefix))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": ents}))
+                }),
+            });
+
+            // rename_entities_with_prefix
+            let snap_rewp = snapshot.clone();
+            let queue_rewp = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "rename_entities_with_prefix".to_string(),
+                description: "Rename all entities whose name starts with old_prefix by replacing it with new_prefix".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "old_prefix": { "type": "string" },
+                        "new_prefix": { "type": "string" }
+                    },
+                    "required": ["old_prefix", "new_prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let old_p = match input["old_prefix"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing old_prefix"),
+                    };
+                    let new_p = match input["new_prefix"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing new_prefix"),
+                    };
+                    let renames: Vec<(u64, String)> = {
+                        let s = snap_rewp.lock().unwrap();
+                        s.entities.iter()
+                            .filter_map(|e| {
+                                let name = e.name.as_deref()?;
+                                if name.starts_with(&*old_p) {
+                                    let new_name = format!("{}{}", new_p, &name[old_p.len()..]);
+                                    Some((e.id, new_name))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    };
+                    let count = renames.len() as u64;
+                    let mut q = queue_rewp.lock().unwrap();
+                    for (id, name) in renames {
+                        q.push(crate::snapshot::EditorCommand::RenameEntity { entity_id: id, name });
+                    }
+                    McpToolOutput::success(json!({"renamed_count": count}))
+                }),
+            });
+
             // set_all_visible
             let snap_sav = snapshot.clone();
             let queue_sav = cmd_queue.clone();
@@ -5000,6 +5078,103 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_find_entities_by_name_prefix_filters_names() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "Enemy_01"},
+                    {"name": "Enemy_02"},
+                    {"name": "Player"},
+                    {"name": "Enemy_Boss"}
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("find_entities_by_name_prefix", json!({"prefix": "Enemy"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 3, "3 entities start with 'Enemy'");
+        assert!(
+            !ents.iter().any(|e| e["name"].as_str() == Some("Player")),
+            "Player excluded"
+        );
+    }
+
+    #[test]
+    fn mcp_rename_entities_with_prefix_renames_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "OldA"},
+                        {"name": "OldB"},
+                        {"name": "Keep"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "rename_entities_with_prefix",
+                    json!({"old_prefix": "Old", "new_prefix": "New"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let names: Vec<&str> = ents.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"NewA"), "OldA renamed to NewA");
+        assert!(names.contains(&"NewB"), "OldB renamed to NewB");
+        assert!(names.contains(&"Keep"), "Keep unchanged");
+        assert!(
+            !names.iter().any(|n| n.starts_with("Old")),
+            "no Old* names remain"
+        );
     }
 
     #[test]

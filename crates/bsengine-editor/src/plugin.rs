@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_name_longer_than
+            let snap_gewnlt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_longer_than".to_string(),
+                description:
+                    "Return entities whose name length is strictly greater than min_length"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_length": { "type": "integer" } },
+                    "required": ["min_length"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewnlt.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // number_selection
+            let snap_ns = snapshot.clone();
+            let sel_ns = selection.clone();
+            let queue59 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "number_selection".to_string(),
+                description: "Rename selected entities to prefix_1, prefix_2, … in id order; returns renamed_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("Entity").to_string();
+                    let s = snap_ns.lock().unwrap();
+                    let sel = sel_ns.lock().unwrap();
+                    let mut ids: Vec<u64> = sel.iter().copied().filter(|&id| s.entities.iter().any(|e| e.id == id)).collect();
+                    ids.sort();
+                    let mut q = queue59.lock().unwrap();
+                    let count = ids.len() as u64;
+                    for (i, entity_id) in ids.into_iter().enumerate() {
+                        q.push(crate::snapshot::EditorCommand::RenameEntity {
+                            entity_id,
+                            name: format!("{}_{}", prefix, i + 1),
+                        });
+                    }
+                    McpToolOutput::success(json!({"renamed_count": count}))
+                }),
+            });
+
             // reset_selection_scale
             let snap_rss = snapshot.clone();
             let sel_rss = selection.clone();
@@ -9774,6 +9829,153 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_name_longer_than_filters_by_name_length() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "AB"})).unwrap(); // len 2
+            m.execute("spawn_entity", json!({"name": "ABCDE"})).unwrap(); // len 5
+            m.execute("spawn_entity", json!({"name": "X"})).unwrap(); // len 1
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (ab_id, long_id, x_id) = (id_of("AB"), id_of("ABCDE"), id_of("X"));
+
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_name_longer_than",
+                json!({"min_length": 2}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&long_id), "ABCDE (len=5) included");
+        assert!(
+            !ids.contains(&ab_id),
+            "AB (len=2) excluded (not strictly longer)"
+        );
+        assert!(!ids.contains(&x_id), "X (len=1) excluded");
+    }
+
+    #[test]
+    fn mcp_number_selection_renames_with_sequential_index() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        // Select A and B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("number_selection", json!({"prefix": "Item"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["renamed_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let names: Vec<String> = ents
+            .iter()
+            .filter(|e| {
+                let id = e["id"].as_u64().unwrap();
+                id == a_id || id == b_id
+            })
+            .filter_map(|e| e["name"].as_str().map(|s| s.to_string()))
+            .collect();
+        assert!(
+            names.contains(&"Item_1".to_string()) || names.contains(&"Item_2".to_string()),
+            "At least one entity renamed to Item_N pattern"
+        );
+        assert_eq!(names.len(), 2, "Both selected entities were renamed");
     }
 
     #[test]

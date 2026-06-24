@@ -4,9 +4,10 @@ use crate::snapshot::{
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
-use bsengine_core::Transform;
+use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
+use bsengine_render::MeshRenderer;
 use bsengine_scene::{EntityDescriptor, Name, SceneDescriptor};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -53,6 +54,20 @@ fn process_editor_commands(
                         t.translation = glam::Vec3::new(x, y, z);
                         break;
                     }
+                }
+            }
+            EditorCommand::AttachMeshRenderer { entity_id, mesh_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .insert((MeshRenderer { mesh_id }, GlobalTransform::default()));
+                }
+            }
+            EditorCommand::DetachMeshRenderer { entity_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).remove::<MeshRenderer>();
                 }
             }
             EditorCommand::LoadScene(path) => {
@@ -312,6 +327,65 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "path": path}))
                 }),
             });
+
+            // attach_mesh
+            let queue5 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "attach_mesh".to_string(),
+                description: "Attach a MeshRenderer to an entity by ID (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" },
+                        "mesh_id":   { "type": "number", "description": "Registered mesh ID" }
+                    },
+                    "required": ["entity_id", "mesh_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    let mesh_id = match input["mesh_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'mesh_id' field"),
+                    };
+                    queue5
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::AttachMeshRenderer { entity_id, mesh_id });
+                    McpToolOutput::success(
+                        json!({"status": "queued", "entity_id": entity_id, "mesh_id": mesh_id}),
+                    )
+                }),
+            });
+
+            // detach_mesh
+            let queue6 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "detach_mesh".to_string(),
+                description: "Remove MeshRenderer from an entity by ID (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    queue6
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::DetachMeshRenderer { entity_id });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -479,6 +553,77 @@ mod tests {
         let mut q = app.world_mut().query::<&Name>();
         let names: Vec<_> = q.iter(app.world()).map(|n| n.0.as_str()).collect();
         assert!(!names.contains(&"Temp"), "Temp still alive: {:?}", names);
+    }
+
+    #[test]
+    fn mcp_attach_mesh_adds_mesh_renderer() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("Cube".to_string()),
+                Transform::from_translation(Vec3::ZERO),
+            ))
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "attach_mesh",
+                    json!({"entity_id": eid.index() as u64, "mesh_id": 42u64}),
+                )
+                .expect("attach_mesh not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_render::MeshRenderer)>();
+        let found = q
+            .iter(app.world())
+            .any(|(n, m)| n.0 == "Cube" && m.mesh_id == 42);
+        assert!(found, "MeshRenderer not attached");
+    }
+
+    #[test]
+    fn mcp_detach_mesh_removes_mesh_renderer() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("Sphere".to_string()),
+                Transform::from_translation(Vec3::ZERO),
+                bsengine_render::MeshRenderer { mesh_id: 7 },
+                bsengine_core::GlobalTransform::default(),
+            ))
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("detach_mesh", json!({"entity_id": eid.index() as u64}))
+                .expect("detach_mesh not found");
+        }
+        app.update();
+
+        let mut q = app.world_mut().query::<&bsengine_render::MeshRenderer>();
+        assert!(
+            q.iter(app.world()).next().is_none(),
+            "MeshRenderer still present after detach"
+        );
     }
 
     #[test]

@@ -1647,6 +1647,52 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_selected_entity_count
+            let sel_gsec = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selected_entity_count".to_string(),
+                description: "Return the number of currently selected entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let count = sel_gsec.lock().unwrap().len();
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_entities_sorted_by_distance
+            let snap_gesd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_distance".to_string(),
+                description: "Return all entities with a transform sorted by ascending distance from the given point".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gesd.lock().unwrap();
+                    let mut items: Vec<(f32, &crate::snapshot::EntityInfo)> = s.entities.iter()
+                        .filter_map(|e| {
+                            let [ex, ey, ez] = e.position?;
+                            let dx = ex-px; let dy = ey-py; let dz = ez-pz;
+                            Some((dx*dx + dy*dy + dz*dz, e))
+                        })
+                        .collect();
+                    items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    let entities: Vec<serde_json::Value> = items.iter()
+                        .map(|(dist_sq, e)| json!({"id": e.id, "name": e.name, "distance": (*dist_sq as f64).sqrt()}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_farthest_entity
             let snap_gfe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3842,6 +3888,121 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_selected_entity_count_returns_selection_size() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SelCnt1"},
+                        {"name": "SelCnt2"},
+                        {"name": "SelCnt3"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id1, id2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SelCnt1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SelCnt2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id1}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id2}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selected_entity_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "two entities selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_distance_returns_ascending_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SortFar",  "position": [50.0, 0.0, 0.0]},
+                        {"name": "SortMid",  "position": [10.0, 0.0, 0.0]},
+                        {"name": "SortNear", "position": [1.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_sorted_by_distance",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        let near_idx = names.iter().position(|&n| n == "SortNear").unwrap();
+        let mid_idx = names.iter().position(|&n| n == "SortMid").unwrap();
+        let far_idx = names.iter().position(|&n| n == "SortFar").unwrap();
+        assert!(near_idx < mid_idx, "SortNear should come before SortMid");
+        assert!(mid_idx < far_idx, "SortMid should come before SortFar");
     }
 
     #[test]

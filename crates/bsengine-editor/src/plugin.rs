@@ -1647,6 +1647,77 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_in_range
+            let snap_sir = snapshot.clone();
+            let sel_sir = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_range".to_string(),
+                description:
+                    "Add all entities within radius of a point to the selection (immediate)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "cx": { "type": "number" },
+                        "cy": { "type": "number" },
+                        "cz": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["cx", "cy", "cz", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let cx = input["cx"].as_f64().unwrap_or(0.0) as f32;
+                    let cy = input["cy"].as_f64().unwrap_or(0.0) as f32;
+                    let cz = input["cz"].as_f64().unwrap_or(0.0) as f32;
+                    let radius = input["radius"].as_f64().unwrap_or(0.0) as f32;
+                    let r2 = radius * radius;
+                    let s = snap_sir.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            let [px, py, pz] = e.position?;
+                            let dx = px - cx;
+                            let dy = py - cy;
+                            let dz = pz - cz;
+                            if dx * dx + dy * dy + dz * dz <= r2 {
+                                Some(e.id)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    drop(s);
+                    let count = ids.len();
+                    let mut sel = sel_sir.lock().unwrap();
+                    for id in ids {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"status": "ok", "added": count}))
+                }),
+            });
+
+            // invert_selection
+            let snap_inv = snapshot.clone();
+            let sel_inv = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "invert_selection".to_string(),
+                description: "Invert the selection: deselect selected entities, select unselected ones (immediate)".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_inv.lock().unwrap();
+                    let all_ids: Vec<u64> = s.entities.iter().map(|e| e.id).collect();
+                    drop(s);
+                    let mut sel = sel_inv.lock().unwrap();
+                    let mut new_sel = std::collections::HashSet::new();
+                    for id in all_ids {
+                        if !sel.contains(&id) { new_sel.insert(id); }
+                    }
+                    *sel = new_sel;
+                    McpToolOutput::success(json!({"status": "ok", "count": sel.len()}))
+                }),
+            });
+
             // snap_to_grid
             let snap_sg = snapshot.clone();
             let queue_sg = cmd_queue.clone();
@@ -3128,6 +3199,179 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_select_entities_in_range_selects_nearby() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "RNear", "position": [2.0, 0.0, 0.0]},
+                        {"name": "RFar",  "position": [50.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (near_id, far_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let n = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("RNear"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let f = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("RFar"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (n, f)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_in_range",
+                    json!({"cx": 0.0, "cy": 0.0, "cz": 0.0, "radius": 10.0}),
+                )
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mcp = mcp.0.lock().unwrap();
+        let sel = mcp.execute("get_selection", json!({})).unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        assert!(selected.contains(&near_id), "RNear should be selected");
+        assert!(!selected.contains(&far_id), "RFar should not be selected");
+    }
+
+    #[test]
+    fn mcp_invert_selection_flips_all() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InvA", "position": [0.0,0.0,0.0]},
+                        {"name": "InvB", "position": [1.0,0.0,0.0]},
+                        {"name": "InvC", "position": [2.0,0.0,0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InvA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InvB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InvC"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b, c)
+        };
+
+        // select only A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+
+        // invert → A deselected, B+C selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("invert_selection", json!({}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        assert!(
+            !selected.contains(&id_a),
+            "A should be deselected after invert"
+        );
+        assert!(
+            selected.contains(&id_b),
+            "B should be selected after invert"
+        );
+        assert!(
+            selected.contains(&id_c),
+            "C should be selected after invert"
+        );
     }
 
     #[test]

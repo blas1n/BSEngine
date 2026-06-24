@@ -1,6 +1,6 @@
 use bevy_app::PostStartup;
 use bsengine_app::new_app;
-use bsengine_core::{Camera, DirectionalLight, Transform};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Parent, Transform};
 use bsengine_ecs::{Commands, ResMut};
 use bsengine_input::InputPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
@@ -28,6 +28,21 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     let Some(mut registry) = registry else { return };
     let (verts, indices) = cube_vertices();
     let cube_id = registry.register(&verts, &indices);
-    commands.spawn((MeshRenderer { mesh_id: cube_id }, Transform::default()));
+
+    let parent = commands
+        .spawn((
+            MeshRenderer { mesh_id: cube_id },
+            Transform::from_translation(Vec3::new(-1.2, 0.0, 0.0)),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    commands.spawn((
+        MeshRenderer { mesh_id: cube_id },
+        Transform::from_translation(Vec3::new(1.2, 0.0, 0.0)),
+        GlobalTransform::default(),
+        Parent(parent),
+    ));
+
     commands.spawn(DirectionalLight::default());
 }

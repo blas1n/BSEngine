@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_count_by_type
+            let snap_gect = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_count_by_type".to_string(),
+                description: "Return entity counts broken down by type: mesh, camera, light, generic, and total".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gect.lock().unwrap();
+                    let mut mesh = 0u64;
+                    let mut camera = 0u64;
+                    let mut light = 0u64;
+                    let mut generic = 0u64;
+                    for e in &s.entities {
+                        if e.camera_fov.is_some() { camera += 1; }
+                        else if e.light_type.is_some() { light += 1; }
+                        else if e.mesh_id.is_some() { mesh += 1; }
+                        else { generic += 1; }
+                    }
+                    McpToolOutput::success(json!({"mesh": mesh, "camera": camera, "light": light, "generic": generic, "total": s.entities.len()}))
+                }),
+            });
+
+            // search_entities
+            let snap_se = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "search_entities".to_string(),
+                description: "Search entities by name (substring) or tag (exact match); returns union of matches".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "query": { "type": "string" } },
+                    "required": ["query"]
+                })),
+                handler: Box::new(move |input| {
+                    let query = match input["query"].as_str() {
+                        Some(q) => q.to_string(),
+                        None => return McpToolOutput::error("missing query"),
+                    };
+                    let s = snap_se.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| {
+                            let name_match = e.name.as_deref().map(|n| n.contains(&*query)).unwrap_or(false);
+                            let tag_match = e.tags.iter().any(|t| t == &query);
+                            name_match || tag_match
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_tag
             let snap_gewt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3720,6 +3770,156 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_count_by_type_returns_breakdown() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "TypeGeneric"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let generic_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TypeGeneric"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "attach_mesh",
+                json!({"entity_id": generic_id, "mesh_id": 1}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 5.0]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_count_by_type", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(
+            out.content["mesh"].as_u64().unwrap() >= 1,
+            "at least 1 mesh entity"
+        );
+        assert!(
+            out.content["camera"].as_u64().unwrap() >= 1,
+            "at least 1 camera entity"
+        );
+        assert!(out.content["total"].as_u64().unwrap() >= 2, "total >= 2");
+    }
+
+    #[test]
+    fn mcp_search_entities_finds_by_name_and_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "SearchByName"},
+                    {"name": "TagMatch"},
+                    {"name": "Neither"}
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let tag_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagMatch"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "tag_entity",
+                    json!({"entity_id": tag_id, "tag": "searchable"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("search_entities", json!({"query": "searchable"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(
+            names.contains(&"SearchByName") || names.contains(&"TagMatch"),
+            "should find by name or tag"
+        );
+        assert!(!names.contains(&"Neither"), "Neither should not match");
     }
 
     #[test]

@@ -1647,6 +1647,78 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_by_light_type
+            let snap_geblt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_light_type".to_string(),
+                description: "Return all entities whose light_type matches the given value (point, directional, spot)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "light_type": { "type": "string" } },
+                    "required": ["light_type"]
+                })),
+                handler: Box::new(move |input| {
+                    let lt = match input["light_type"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing light_type"),
+                    };
+                    let s = snap_geblt.lock().unwrap();
+                    let ents: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some(lt.as_str()))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": ents}))
+                }),
+            });
+
+            // snap_entity_to_grid
+            let snap_setg = snapshot.clone();
+            let queue_setg = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "snap_entity_to_grid".to_string(),
+                description:
+                    "Round each axis of the entity's position to the nearest grid_size multiple"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "grid_size": { "type": "number" }
+                    },
+                    "required": ["entity_id", "grid_size"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let grid = match input["grid_size"].as_f64() {
+                        Some(g) if g > 0.0 => g as f32,
+                        _ => return McpToolOutput::error("grid_size must be a positive number"),
+                    };
+                    let s = snap_setg.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => {
+                            let [x, y, z] = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                            let snap = |v: f32| (v / grid).round() * grid;
+                            let (sx, sy, sz) = (snap(x), snap(y), snap(z));
+                            queue_setg.lock().unwrap().push(
+                                crate::snapshot::EditorCommand::SetPosition {
+                                    entity_id,
+                                    x: sx,
+                                    y: sy,
+                                    z: sz,
+                                },
+                            );
+                            McpToolOutput::success(
+                                json!({"entity_id": entity_id, "position": [sx, sy, sz]}),
+                            )
+                        }
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // delete_selected_entities
             let sel_dse = selection.clone();
             let queue_dse = cmd_queue.clone();
@@ -4780,6 +4852,120 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_by_light_type_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 200.0, "range": 20.0, "position": [1.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_directional_light", json!({"direction": [0.0,-1.0,0.0], "color": [1.0,1.0,1.0], "ambient": [0.1,0.1,0.1]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_by_light_type", json!({"light_type": "point"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 2, "two point lights");
+
+        let out_dir = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_by_light_type",
+                json!({"light_type": "directional"}),
+            )
+            .unwrap();
+        let dir_ents = out_dir.content["entities"].as_array().unwrap();
+        assert_eq!(dir_ents.len(), 1, "one directional light");
+    }
+
+    #[test]
+    fn mcp_snap_entity_to_grid_rounds_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SnapEnt", "position": [1.3, 2.7, -0.6]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SnapEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "snap_entity_to_grid",
+                    json!({"entity_id": eid, "grid_size": 1.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pos_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": eid}))
+            .unwrap();
+        let p = &pos_out.content["position"];
+        assert!(
+            (p[0].as_f64().unwrap() - 1.0).abs() < 1e-3,
+            "x snapped to 1.0"
+        );
+        assert!(
+            (p[1].as_f64().unwrap() - 3.0).abs() < 1e-3,
+            "y snapped to 3.0"
+        );
+        assert!(
+            (p[2].as_f64().unwrap() - (-1.0)).abs() < 1e-3,
+            "z snapped to -1.0"
+        );
     }
 
     #[test]

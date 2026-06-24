@@ -1647,6 +1647,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // rename_selection_replace
+            let snap_rsr2 = snapshot.clone();
+            let sel_rsr2 = selection.clone();
+            let queue66 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "rename_selection_replace".to_string(),
+                description: "For each selected entity, replace all occurrences of 'from' with 'to' in its name; returns renamed_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "from": { "type": "string" },
+                        "to":   { "type": "string" }
+                    },
+                    "required": ["from", "to"]
+                })),
+                handler: Box::new(move |input| {
+                    let from = input["from"].as_str().unwrap_or("").to_string();
+                    let to   = input["to"].as_str().unwrap_or("").to_string();
+                    let s = snap_rsr2.lock().unwrap();
+                    let sel = sel_rsr2.lock().unwrap();
+                    let mut q = queue66.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some(name) = &e.name {
+                                let new_name = name.replace(&from[..], &to[..]);
+                                if new_name != *name {
+                                    q.push(crate::snapshot::EditorCommand::RenameEntity { entity_id: id, name: new_name });
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"renamed_count": count}))
+                }),
+            });
+
+            // get_entities_with_duplicate_names
+            let snap_gewdn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_duplicate_names".to_string(),
+                description: "Return entity IDs that share a name with at least one other entity; returns entity_ids".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewdn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+                    for e in s.entities.iter() {
+                        if let Some(name) = e.name.as_deref() {
+                            *name_counts.entry(name).or_insert(0) += 1;
+                        }
+                    }
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| name_counts.get(n).copied().unwrap_or(0) > 1).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entity_by_exact_name
             let snap_geben = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10420,6 +10479,161 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_rename_selection_replace_substitutes_substring_in_name() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "OldHero",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "OldVillan", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Unrelated", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (old_hero, old_villan) = (id_of("OldHero"), id_of("OldVillan"));
+
+        // Select OldHero and OldVillan (not Unrelated)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": old_hero}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": old_villan}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "rename_selection_replace",
+                    json!({"from": "Old", "to": "New"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["renamed_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let name_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["name"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(name_of(old_hero), "NewHero", "OldHero → NewHero");
+        assert_eq!(name_of(old_villan), "NewVillan", "OldVillan → NewVillan");
+
+        let unrelated_id = id_of("Unrelated");
+        assert_eq!(name_of(unrelated_id), "Unrelated", "Unrelated unchanged");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_duplicate_names_returns_shared_names() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Dup",    "position": [0.0, 0.0, 0.0]},
+                        {"name": "Dup",    "position": [1.0, 0.0, 0.0]},
+                        {"name": "Unique", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_duplicate_names", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "Both 'Dup' entities are duplicates");
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let unique_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Unique"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(!ids.contains(&unique_id), "Unique not in duplicates");
     }
 
     #[test]

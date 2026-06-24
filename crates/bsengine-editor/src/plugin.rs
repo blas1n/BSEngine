@@ -1647,6 +1647,57 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_name_desc
+            let snap_gesbnd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_name_desc".to_string(),
+                description: "Return all entities sorted by name descending (Z→A); entities without names sort last".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbnd.lock().unwrap();
+                    let mut ents: Vec<&crate::snapshot::EntityInfo> = s.entities.iter().collect();
+                    ents.sort_by(|a, b| {
+                        let na = a.name.as_deref().unwrap_or("");
+                        let nb = b.name.as_deref().unwrap_or("");
+                        nb.cmp(na)
+                    });
+                    let entities: Vec<serde_json::Value> = ents.iter()
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_sorted_by_depth
+            let snap_gesbd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_depth".to_string(),
+                description: "Return all entities sorted by depth ascending (root entities first); includes depth field".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbd.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, Option<u64>> = s.entities.iter()
+                        .map(|e| (e.id, e.parent_id))
+                        .collect();
+                    let depth_of = |mut id: u64| {
+                        let mut d = 0usize;
+                        while let Some(Some(pid)) = parent_map.get(&id) {
+                            d += 1;
+                            id = *pid;
+                        }
+                        d
+                    };
+                    let mut items: Vec<(&crate::snapshot::EntityInfo, usize)> = s.entities.iter()
+                        .map(|e| (e, depth_of(e.id)))
+                        .collect();
+                    items.sort_by_key(|&(_, d)| d);
+                    let entities: Vec<serde_json::Value> = items.iter()
+                        .map(|(e, d)| json!({"id": e.id, "name": e.name, "depth": d}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_non_default_scale
             let snap_gewnds = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8952,6 +9003,121 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_name_desc_returns_z_to_a_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Alpha"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Zeta"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Mango"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_name_desc", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = ents.iter().filter_map(|e| e["name"].as_str()).collect();
+        let alpha_pos = names.iter().position(|n| *n == "Alpha").unwrap();
+        let mango_pos = names.iter().position(|n| *n == "Mango").unwrap();
+        let zeta_pos = names.iter().position(|n| *n == "Zeta").unwrap();
+        assert!(zeta_pos < mango_pos, "Zeta before Mango (desc)");
+        assert!(mango_pos < alpha_pos, "Mango before Alpha (desc)");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_depth_returns_shallowest_first() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "GrandChild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, grand_id) = (id_of("Root"), id_of("Child"), id_of("GrandChild"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": grand_id, "parent_id": child_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_depth", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        let root_pos = ids.iter().position(|&id| id == root_id).unwrap();
+        let child_pos = ids.iter().position(|&id| id == child_id).unwrap();
+        let grand_pos = ids.iter().position(|&id| id == grand_id).unwrap();
+        assert!(root_pos < child_pos, "Root before Child");
+        assert!(child_pos < grand_pos, "Child before GrandChild");
     }
 
     #[test]

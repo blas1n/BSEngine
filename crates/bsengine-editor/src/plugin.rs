@@ -525,26 +525,33 @@ impl Plugin for EditorPlugin {
                 description: "Get detailed info for a specific entity by ID".to_string(),
                 input_schema: Some(json!({
                     "type": "object",
-                    "properties": { "id": { "type": "number", "description": "Entity ID" } },
-                    "required": ["id"]
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
                 })),
                 handler: Box::new(move |input| {
-                    let id = match input["id"].as_u64() {
+                    let entity_id = match input["entity_id"].as_u64() {
                         Some(v) => v,
-                        None => return McpToolOutput::error("missing numeric 'id' field"),
+                        None => return McpToolOutput::error("missing entity_id"),
                     };
                     let s = snap2.lock().unwrap();
-                    match s.entities.iter().find(|e| e.id == id) {
-                        Some(e) => McpToolOutput::success(json!({
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(json!({ "entity": {
                             "id": e.id,
                             "name": e.name,
                             "position": e.position,
+                            "rotation": e.rotation,
+                            "scale": e.scale,
                             "mesh_id": e.mesh_id,
                             "light_type": e.light_type,
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
                             "light_range": e.light_range,
-                        })),
+                            "camera_fov": e.camera_fov,
+                            "parent_id": e.parent_id,
+                            "tags": e.tags,
+                            "visible": e.visible,
+                            "selected": e.selected,
+                        }})),
                         None => McpToolOutput::error("entity not found"),
                     }
                 }),
@@ -1823,11 +1830,11 @@ mod tests {
             .0
             .lock()
             .unwrap()
-            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .execute("get_entity", json!({"entity_id": eid.index() as u64}))
             .expect("get_entity not found");
         assert!(result.is_ok(), "error: {:?}", result.error);
-        assert_eq!(result.content["name"], "Shield");
-        let pos = &result.content["position"];
+        assert_eq!(result.content["entity"]["name"], "Shield");
+        let pos = &result.content["entity"]["position"];
         assert!((pos[0].as_f64().unwrap() - 5.0).abs() < 1e-4);
     }
 
@@ -1974,6 +1981,68 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_get_entity_returns_entity_info() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Queried"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Queried"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        assert!(out.is_ok(), "get_entity should succeed");
+        assert_eq!(out.content["entity"]["id"], entity_id, "id matches");
+        assert_eq!(out.content["entity"]["name"], "Queried", "name matches");
+    }
+
+    #[test]
+    fn mcp_get_entity_missing_returns_error() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": 9999}))
+            .unwrap();
+        assert!(!out.is_ok(), "unknown entity should return error");
     }
 
     #[test]
@@ -2881,16 +2950,16 @@ mod tests {
             .0
             .lock()
             .unwrap()
-            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .execute("get_entity", json!({"entity_id": eid.index() as u64}))
             .unwrap();
-        let color = result.content["light_color"].as_array().unwrap();
+        let color = result.content["entity"]["light_color"].as_array().unwrap();
         assert!((color[0].as_f64().unwrap() - 0.8).abs() < 1e-3);
         assert!(
-            result.content["light_intensity"].is_null(),
+            result.content["entity"]["light_intensity"].is_null(),
             "directional has no intensity"
         );
         assert!(
-            result.content["light_range"].is_null(),
+            result.content["entity"]["light_range"].is_null(),
             "directional has no range"
         );
     }
@@ -3240,9 +3309,9 @@ mod tests {
             .0
             .lock()
             .unwrap()
-            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .execute("get_entity", json!({"entity_id": eid.index() as u64}))
             .unwrap();
-        assert_eq!(result.content["light_type"], "directional");
+        assert_eq!(result.content["entity"]["light_type"], "directional");
     }
 
     #[test]
@@ -3295,10 +3364,10 @@ mod tests {
             .0
             .lock()
             .unwrap()
-            .execute("get_entity", json!({"id": eid.index() as u64}))
+            .execute("get_entity", json!({"entity_id": eid.index() as u64}))
             .expect("get_entity not found");
         assert!(result.is_ok());
-        assert_eq!(result.content["mesh_id"], 55);
+        assert_eq!(result.content["entity"]["mesh_id"], 55);
     }
 
     #[test]

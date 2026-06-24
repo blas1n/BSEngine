@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_scene_center
+            let snap_gsc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_center".to_string(),
+                description: "Return the average position of all entities that have a transform"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsc.lock().unwrap();
+                    let positions: Vec<[f32; 3]> =
+                        s.entities.iter().filter_map(|e| e.position).collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::success(
+                            json!({"center": [0.0, 0.0, 0.0], "count": 0}),
+                        );
+                    }
+                    let n = positions.len() as f32;
+                    let sum = positions.iter().fold([0.0f32; 3], |acc, &p| {
+                        [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]]
+                    });
+                    let center = [sum[0] / n, sum[1] / n, sum[2] / n];
+                    McpToolOutput::success(json!({"center": center, "count": positions.len()}))
+                }),
+            });
+
+            // get_entities_in_aabb
+            let snap_aabb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_aabb".to_string(),
+                description: "Return entities whose position falls within the given axis-aligned bounding box".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" }, "min_y": { "type": "number" }, "min_z": { "type": "number" },
+                        "max_x": { "type": "number" }, "max_y": { "type": "number" }, "max_z": { "type": "number" }
+                    },
+                    "required": ["min_x", "min_y", "min_z", "max_x", "max_y", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_aabb.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| {
+                            let [px, py, pz] = e.position?;
+                            if px >= min_x && px <= max_x && py >= min_y && py <= max_y && pz >= min_z && pz <= max_z {
+                                Some(json!({"id": e.id, "name": e.name, "position": e.position}))
+                            } else { None }
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // reset_transform
             let queue_rt = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3541,6 +3599,96 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_scene_center_returns_average_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SC1", "position": [0.0, 0.0, 0.0]},
+                        {"name": "SC2", "position": [4.0, 0.0, 0.0]},
+                        {"name": "SC3", "position": [2.0, 6.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_center", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let center = &out.content["center"];
+        assert!(
+            (center[0].as_f64().unwrap() - 2.0).abs() < 1e-3,
+            "center.x should be (0+4+2)/3=2"
+        );
+        assert!(
+            (center[1].as_f64().unwrap() - 2.0).abs() < 1e-3,
+            "center.y should be (0+0+6)/3=2"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_in_aabb_filters_by_bounding_box() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InBox",  "position": [2.0, 2.0, 2.0]},
+                        {"name": "OutBox", "position": [20.0, 20.0, 20.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_aabb",
+                json!({
+                    "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                    "max_x": 5.0, "max_y": 5.0, "max_z": 5.0
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(names.contains(&"InBox"), "InBox should be inside AABB");
+        assert!(!names.contains(&"OutBox"), "OutBox should be outside AABB");
     }
 
     #[test]

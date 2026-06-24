@@ -1647,6 +1647,60 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_tag_any
+            let snap_gewta = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag_any".to_string(),
+                description:
+                    "Return entities that have at least one of the specified tags (OR logic)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tags: Vec<String> = match input["tags"].as_array() {
+                        Some(arr) => arr
+                            .iter()
+                            .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                            .collect(),
+                        None => return McpToolOutput::error("missing tags array"),
+                    };
+                    let s = snap_gewta.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| tags.iter().any(|t| e.tags.contains(t)))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_all_cameras
+            let snap_sac = snapshot.clone();
+            let sel_sac = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_all_cameras".to_string(),
+                description: "Add all camera entities to the current selection".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sac.lock().unwrap();
+                    let mut sel = sel_sac.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.camera_fov.is_some() {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_in_box
             let snap_geib = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6939,6 +6993,148 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_tag_any_returns_entities_with_any_matching_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "HasAlpha"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "HasBeta"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "HasNeither"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (alpha_id, beta_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasAlpha"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasBeta"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": alpha_id, "tag": "alpha"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": beta_id, "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_tag_any",
+                json!({"tags": ["alpha", "beta"]}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "HasAlpha and HasBeta both match");
+        assert!(ids.contains(&alpha_id));
+        assert!(ids.contains(&beta_id));
+    }
+
+    #[test]
+    fn mcp_select_all_cameras_selects_all_camera_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute("spawn_entity", json!({"name": "NotCam"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_all_cameras", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["selected_count"].as_u64().unwrap(),
+            2,
+            "2 cameras selected"
+        );
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "exactly 2 in selection");
     }
 
     #[test]

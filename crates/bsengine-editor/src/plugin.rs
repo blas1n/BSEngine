@@ -1647,6 +1647,52 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // set_selection_parent
+            let sel_ssp = selection.clone();
+            let queue43 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_selection_parent".to_string(),
+                description: "Set the parent of all selected entities to the given parent entity"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "parent_id": { "type": "integer" } },
+                    "required": ["parent_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let parent_id = input["parent_id"].as_u64().unwrap_or(u64::MAX);
+                    let sel = sel_ssp.lock().unwrap();
+                    let mut q = queue43.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        q.push(crate::snapshot::EditorCommand::SetParent {
+                            entity_id,
+                            parent_id,
+                        });
+                    }
+                    McpToolOutput::success(json!({"parented_count": count}))
+                }),
+            });
+
+            // unparent_selection
+            let sel_ups = selection.clone();
+            let queue44 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "unparent_selection".to_string(),
+                description: "Remove the parent from all selected entities (make them root-level)"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let sel = sel_ups.lock().unwrap();
+                    let mut q = queue44.lock().unwrap();
+                    let count = sel.len() as u64;
+                    for &entity_id in sel.iter() {
+                        q.push(crate::snapshot::EditorCommand::RemoveParent { entity_id });
+                    }
+                    McpToolOutput::success(json!({"unparented_count": count}))
+                }),
+            });
+
             // get_entities_sorted_by_scale
             let snap_gesbs = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8679,6 +8725,184 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_set_selection_parent_parents_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, a_id, b_id) = (id_of("Root"), id_of("A"), id_of("B"));
+
+        // Select A and B
+        for id in [a_id, b_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("set_selection_parent", json!({"parent_id": root_id}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["parented_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let parent_of = |id: u64| {
+            ents.iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .and_then(|e| e["parent_id"].as_u64())
+        };
+        assert_eq!(parent_of(a_id), Some(root_id), "A parent = Root");
+        assert_eq!(parent_of(b_id), Some(root_id), "B parent = Root");
+        assert!(parent_of(root_id).is_none(), "Root has no parent");
+    }
+
+    #[test]
+    fn mcp_unparent_selection_removes_parent_from_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, a_id, b_id) = (id_of("Root"), id_of("A"), id_of("B"));
+
+        // Parent A and B to Root first
+        for child in [a_id, b_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child, "parent_id": root_id}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        // Select A only, then unparent
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("unparent_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["unparented_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let parent_of = |id: u64| {
+            ents.iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .and_then(|e| e["parent_id"].as_u64())
+        };
+        assert!(parent_of(a_id).is_none(), "A unparented");
+        assert_eq!(parent_of(b_id), Some(root_id), "B still has Root parent");
     }
 
     #[test]

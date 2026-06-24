@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_without_tags
+            let snap_gewot = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_without_tags".to_string(),
+                description: "Return all entities that have no tags".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewot.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.is_empty())
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_at_least_n_tags
+            let snap_gewant = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_at_least_n_tags".to_string(),
+                description: "Return entities that have at least n tags".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "n": { "type": "integer" } },
+                    "required": ["n"]
+                })),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewant.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.len() >= n)
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_with_all_of_tags
             let snap_sewalt = snapshot.clone();
             let sel_sewalt = selection.clone();
@@ -7942,6 +7983,130 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_without_tags_returns_untagged_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Tagged"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Untagged"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let tagged_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Tagged"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": tagged_id, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_tags", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only Untagged has no tags");
+        assert_eq!(ents[0]["name"].as_str(), Some("Untagged"));
+    }
+
+    #[test]
+    fn mcp_get_entities_with_at_least_n_tags_filters_by_minimum_tag_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Two"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "One"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Zero"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_two, id_one, _id_zero) = (ids[0], ids[1], ids[2]);
+
+        for tag in ["hero", "elite"] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_two, "tag": tag}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_one, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_at_least_n_tags", json!({"n": 2}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only Two has ≥2 tags");
+        assert_eq!(ents[0]["id"].as_u64().unwrap(), id_two);
     }
 
     #[test]

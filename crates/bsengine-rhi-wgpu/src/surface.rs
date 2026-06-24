@@ -1,10 +1,20 @@
+use crate::mesh::GpuMeshRegistry;
 use bsengine_ecs::Resource;
+use glam::Mat4;
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
 
-const TRIANGLE_WGSL: &str = r#"
+const MESH_WGSL: &str = r#"
+struct CameraUniform {
+    view_proj: mat4x4<f32>,
+};
+struct ModelUniform {
+    model: mat4x4<f32>,
+};
+@group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(1) @binding(0) var<uniform> model_data: ModelUniform;
+
 struct VertIn {
-    @location(0) pos: vec2<f32>,
+    @location(0) pos: vec3<f32>,
     @location(1) col: vec3<f32>,
 }
 struct VertOut {
@@ -14,7 +24,7 @@ struct VertOut {
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
     var out: VertOut;
-    out.clip_pos = vec4<f32>(in.pos, 0.0, 1.0);
+    out.clip_pos = camera.view_proj * model_data.model * vec4<f32>(in.pos, 1.0);
     out.col = in.col;
     return out;
 }
@@ -24,24 +34,23 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-// NDC triangle: top red, bottom-left green, bottom-right blue
-#[rustfmt::skip]
-const TRIANGLE_VERTS: &[f32] = &[
-     0.0,  0.5,  1.0, 0.0, 0.0,
-    -0.5, -0.5,  0.0, 1.0, 0.0,
-     0.5, -0.5,  0.0, 0.0, 1.0,
-];
-
-const VERT_STRIDE: u64 = 5 * 4;
+const MAX_OBJECTS: usize = 1024;
+// Padded to 256 bytes (typical min_uniform_buffer_offset_alignment).
+// Mat4 = 64 bytes; pad to 256 so dynamic offsets work on all devices.
+const MODEL_STRIDE: u64 = 256;
+const CAMERA_UNIFORM_SIZE: u64 = 64;
 
 pub struct WgpuSurface {
     _window: Arc<winit::window::Window>,
-    surface: wgpu::Surface<'static>,
+    pub(crate) surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub(crate) device: Arc<wgpu::Device>,
+    pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
+    model_buffer: wgpu::Buffer,
+    model_bind_group: wgpu::BindGroup,
 }
 
 impl WgpuSurface {
@@ -77,6 +86,9 @@ impl WgpuSurface {
             .await
             .map_err(|e| format!("Device request failed: {e}"))?;
 
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
+
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -98,37 +110,97 @@ impl WgpuSurface {
         };
         surface.configure(&device, &config);
 
-        let shader = Self::compile_shader(&device, TRIANGLE_WGSL);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("triangle vbo"),
-            contents: bytemuck::cast_slice(TRIANGLE_VERTS),
-            usage: wgpu::BufferUsages::VERTEX,
+        // Camera uniform buffer (group 0)
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera uniform"),
+            size: CAMERA_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let camera_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("camera bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(CAMERA_UNIFORM_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("camera bg"),
+            layout: &camera_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+
+        // Model uniform buffer with dynamic offsets (group 1)
+        let model_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("model uniform"),
+            size: MODEL_STRIDE * MAX_OBJECTS as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("model bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(64),
+                },
+                count: None,
+            }],
+        });
+        let model_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("model bg"),
+            layout: &model_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &model_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(64),
+                }),
+            }],
+        });
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("mesh shader"),
+            source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("triangle layout"),
-            bind_group_layouts: &[],
+            label: Some("mesh pipeline layout"),
+            bind_group_layouts: &[&camera_bgl, &model_bgl],
             push_constant_ranges: &[],
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("triangle pipeline"),
+            label: Some("mesh pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: VERT_STRIDE,
+                    array_stride: 24, // 6 x f32
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
                         wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x2,
+                            format: wgpu::VertexFormat::Float32x3,
                             offset: 0,
                             shader_location: 0,
                         },
                         wgpu::VertexAttribute {
                             format: wgpu::VertexFormat::Float32x3,
-                            offset: 8,
+                            offset: 12,
                             shader_location: 1,
                         },
                     ],
@@ -147,9 +219,8 @@ impl WgpuSurface {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
+                cull_mode: Some(wgpu::Face::Back),
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
                 ..Default::default()
             },
             depth_stencil: None,
@@ -165,18 +236,38 @@ impl WgpuSurface {
             device,
             queue,
             pipeline,
-            vertex_buffer,
+            camera_buffer,
+            camera_bind_group,
+            model_buffer,
+            model_bind_group,
         })
     }
 
-    pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("wgsl shader"),
-            source: wgpu::ShaderSource::Wgsl(src.into()),
-        })
-    }
+    /// Render a frame. `draw_calls` is a list of `(mesh_id, model_matrix)`.
+    pub fn render_frame(
+        &self,
+        view_proj: Mat4,
+        draw_calls: &[(u64, Mat4)],
+        registry: &GpuMeshRegistry,
+    ) -> Result<(), String> {
+        // Upload camera matrix
+        let camera_data: [[f32; 4]; 4] = view_proj.to_cols_array_2d();
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&camera_data));
 
-    pub fn render_frame(&self) -> Result<(), String> {
+        // Upload model matrices (padded to MODEL_STRIDE)
+        for (i, (_, model)) in draw_calls.iter().enumerate() {
+            if i >= MAX_OBJECTS {
+                break;
+            }
+            let data: [[f32; 4]; 4] = model.to_cols_array_2d();
+            self.queue.write_buffer(
+                &self.model_buffer,
+                i as u64 * MODEL_STRIDE,
+                bytemuck::cast_slice(&data),
+            );
+        }
+
         let output = self
             .surface
             .get_current_texture()
@@ -197,9 +288,9 @@ impl WgpuSurface {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.1,
+                            r: 0.08,
+                            g: 0.08,
+                            b: 0.08,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -209,9 +300,23 @@ impl WgpuSurface {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
             pass.set_pipeline(&self.pipeline);
-            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            pass.draw(0..3, 0..1);
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            for (i, (mesh_id, _)) in draw_calls.iter().enumerate() {
+                if i >= MAX_OBJECTS {
+                    break;
+                }
+                let Some(mesh) = registry.get(*mesh_id) else {
+                    continue;
+                };
+                let offset = (i as u64 * MODEL_STRIDE) as u32;
+                pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -226,6 +331,13 @@ impl WgpuSurface {
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
     }
+
+    pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("wgsl shader"),
+            source: wgpu::ShaderSource::Wgsl(src.into()),
+        })
+    }
 }
 
 #[derive(Resource)]
@@ -237,13 +349,8 @@ mod tests {
     use crate::rhi::WgpuRHI;
 
     #[test]
-    fn triangle_shader_compiles() {
+    fn mesh_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _module = WgpuSurface::compile_shader(&rhi.device, TRIANGLE_WGSL);
-    }
-
-    #[test]
-    fn triangle_vertex_data_has_three_verts() {
-        assert_eq!(TRIANGLE_VERTS.len(), 15);
+        let _module = WgpuSurface::compile_shader(&rhi.device, MESH_WGSL);
     }
 }

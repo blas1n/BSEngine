@@ -1647,6 +1647,70 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_within_x_range
+            let snap_sewxr = snapshot.clone();
+            let sel_sewxr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_within_x_range".to_string(),
+                description: "Add to selection all entities whose X position is between min and max (inclusive); returns selected_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "number" },
+                        "max": { "type": "number" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max = input["max"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_sewxr.lock().unwrap();
+                    let mut sel = sel_sewxr.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter() {
+                        if let Some(pos) = e.position {
+                            if pos[0] >= min && pos[0] <= max {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // select_entities_within_y_range
+            let snap_sewyr = snapshot.clone();
+            let sel_sewyr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_within_y_range".to_string(),
+                description: "Add to selection all entities whose Y position is between min and max (inclusive); returns selected_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "number" },
+                        "max": { "type": "number" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max = input["max"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_sewyr.lock().unwrap();
+                    let mut sel = sel_sewyr.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter() {
+                        if let Some(pos) = e.position {
+                            if pos[1] >= min && pos[1] <= max {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_within_y_range
             let snap_gewyr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10121,6 +10185,159 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_within_x_range_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0,  0.0, 0.0]},
+                        {"name": "B", "position": [4.0,  0.0, 0.0]},
+                        {"name": "C", "position": [9.0,  0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_within_x_range",
+                    json!({"min": 0.0, "max": 5.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(selected.contains(&id_of("A")), "A(x=1) selected");
+        assert!(selected.contains(&id_of("B")), "B(x=4) selected");
+        assert!(!selected.contains(&id_of("C")), "C(x=9) not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_within_y_range_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Low",  "position": [0.0, -2.0, 0.0]},
+                        {"name": "Mid",  "position": [0.0,  3.0, 0.0]},
+                        {"name": "High", "position": [0.0, 15.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_within_y_range",
+                    json!({"min": -5.0, "max": 5.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(selected.contains(&id_of("Low")), "Low(y=-2) selected");
+        assert!(selected.contains(&id_of("Mid")), "Mid(y=3) selected");
+        assert!(
+            !selected.contains(&id_of("High")),
+            "High(y=15) not selected"
+        );
     }
 
     #[test]

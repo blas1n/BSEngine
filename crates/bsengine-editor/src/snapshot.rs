@@ -64,6 +64,22 @@ pub enum EditorCommand {
         entity_id: u64,
         name: String,
     },
+    SpawnSpotLight {
+        color: [f32; 3],
+        intensity: f32,
+        range: f32,
+        inner_angle: f32,
+        outer_angle: f32,
+        position: [f32; 3],
+    },
+    UpdateSpotLight {
+        entity_id: u64,
+        color: Option<[f32; 3]>,
+        intensity: Option<f32>,
+        range: Option<f32>,
+        inner_angle: Option<f32>,
+        outer_angle: Option<f32>,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

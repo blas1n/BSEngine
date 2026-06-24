@@ -52,6 +52,7 @@ fn process_editor_commands(
         Query<(Entity, &mut Transform)>,
         Query<(Entity, &mut PointLight)>,
         Query<(Entity, &mut DirectionalLight)>,
+        Query<(Entity, &mut SpotLight)>,
     )>,
     mut commands: Commands,
 ) {
@@ -176,6 +177,55 @@ fn process_editor_commands(
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(Name(name));
+                }
+            }
+            EditorCommand::SpawnSpotLight {
+                color,
+                intensity,
+                range,
+                inner_angle,
+                outer_angle,
+                position,
+            } => {
+                commands.spawn((
+                    SpotLight {
+                        color: glam::Vec3::from(color),
+                        intensity,
+                        range,
+                        inner_angle,
+                        outer_angle,
+                    },
+                    Transform::from_translation(glam::Vec3::from(position)),
+                    GlobalTransform::default(),
+                ));
+            }
+            EditorCommand::UpdateSpotLight {
+                entity_id,
+                color,
+                intensity,
+                range,
+                inner_angle,
+                outer_angle,
+            } => {
+                for (e, mut light) in params.p4().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        if let Some(c) = color {
+                            light.color = glam::Vec3::from(c);
+                        }
+                        if let Some(i) = intensity {
+                            light.intensity = i;
+                        }
+                        if let Some(r) = range {
+                            light.range = r;
+                        }
+                        if let Some(a) = inner_angle {
+                            light.inner_angle = a;
+                        }
+                        if let Some(o) = outer_angle {
+                            light.outer_angle = o;
+                        }
+                        break;
+                    }
                 }
             }
             EditorCommand::LoadScene(path) => {
@@ -784,6 +834,81 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({ "entities": results }))
                 }),
             });
+
+            // spawn_spot_light
+            let queue13 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "spawn_spot_light".to_string(),
+                description: "Spawn a spot light entity at a position (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "color":       { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" },
+                        "intensity":   { "type": "number" },
+                        "range":       { "type": "number" },
+                        "inner_angle": { "type": "number", "description": "Inner cone half-angle in radians" },
+                        "outer_angle": { "type": "number", "description": "Outer cone half-angle in radians" },
+                        "position":    { "type": "array", "items": {"type":"number"}, "description": "[x,y,z]" }
+                    },
+                    "required": ["color", "intensity", "range", "inner_angle", "outer_angle", "position"]
+                })),
+                handler: Box::new(move |input| {
+                    let color = parse_vec3_input(&input["color"]).unwrap_or([1.0, 1.0, 1.0]);
+                    let intensity = input["intensity"].as_f64().unwrap_or(1.0) as f32;
+                    let range = input["range"].as_f64().unwrap_or(10.0) as f32;
+                    let inner_angle = input["inner_angle"].as_f64().unwrap_or(std::f64::consts::PI / 8.0) as f32;
+                    let outer_angle = input["outer_angle"].as_f64().unwrap_or(std::f64::consts::PI / 6.0) as f32;
+                    let position = parse_vec3_input(&input["position"]).unwrap_or([0.0, 0.0, 0.0]);
+                    queue13.lock().unwrap().push(EditorCommand::SpawnSpotLight {
+                        color,
+                        intensity,
+                        range,
+                        inner_angle,
+                        outer_angle,
+                        position,
+                    });
+                    McpToolOutput::success(json!({"status": "queued"}))
+                }),
+            });
+
+            // update_spot_light
+            let queue14 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "update_spot_light".to_string(),
+                description: "Update SpotLight properties on an entity (all fields optional, applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id":   { "type": "number" },
+                        "color":       { "type": "array", "items": {"type":"number"} },
+                        "intensity":   { "type": "number" },
+                        "range":       { "type": "number" },
+                        "inner_angle": { "type": "number" },
+                        "outer_angle": { "type": "number" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    let color = parse_vec3_input(&input["color"]);
+                    let intensity = input["intensity"].as_f64().map(|v| v as f32);
+                    let range = input["range"].as_f64().map(|v| v as f32);
+                    let inner_angle = input["inner_angle"].as_f64().map(|v| v as f32);
+                    let outer_angle = input["outer_angle"].as_f64().map(|v| v as f32);
+                    queue14.lock().unwrap().push(EditorCommand::UpdateSpotLight {
+                        entity_id,
+                        color,
+                        intensity,
+                        range,
+                        inner_angle,
+                        outer_angle,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -1085,6 +1210,64 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_spawn_spot_light_creates_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_spot_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0],
+                        "intensity": 3.0,
+                        "range": 15.0,
+                        "inner_angle": 0.3,
+                        "outer_angle": 0.6,
+                        "position": [0.0, 5.0, 0.0]
+                    }),
+                )
+                .expect("spawn_spot_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let mut q = app.world_mut().query::<&bsengine_core::SpotLight>();
+        let lights: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(lights.len(), 1);
+        assert!((lights[0].intensity - 3.0).abs() < 1e-4);
+        assert!((lights[0].inner_angle - 0.3).abs() < 1e-4);
+    }
+
+    #[test]
+    fn list_entities_spot_light_has_light_type_spot() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn(bsengine_core::SpotLight::default());
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap();
+        let entities = result.content["entities"].as_array().unwrap();
+        let light_types: Vec<_> = entities
+            .iter()
+            .filter_map(|e| e["light_type"].as_str())
+            .collect();
+        assert!(light_types.contains(&"spot"), "expected light_type=spot");
     }
 
     #[test]

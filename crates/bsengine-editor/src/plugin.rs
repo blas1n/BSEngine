@@ -1647,6 +1647,86 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_at_depth
+            let snap_sead = snapshot.clone();
+            let sel_sead = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_at_depth".to_string(),
+                description: "Select all entities at the given hierarchy depth (0=root, 1=direct children, ...)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "depth": { "type": "integer" } },
+                    "required": ["depth"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_depth = input["depth"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sead.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, Option<u64>> = s.entities.iter()
+                        .map(|e| (e.id, e.parent_id))
+                        .collect();
+                    let depth_of = |mut id: u64| -> usize {
+                        let mut d = 0usize;
+                        while let Some(Some(pid)) = parent_map.get(&id) {
+                            d += 1;
+                            id = *pid;
+                        }
+                        d
+                    };
+                    let mut sel = sel_sead.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if depth_of(e.id) == target_depth {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // get_deepest_entities
+            let snap_gde = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_deepest_entities".to_string(),
+                description:
+                    "Return all entities at the maximum hierarchy depth, including their depth"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gde.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, Option<u64>> =
+                        s.entities.iter().map(|e| (e.id, e.parent_id)).collect();
+                    let depth_of = |mut id: u64| -> u64 {
+                        let mut d = 0u64;
+                        while let Some(Some(pid)) = parent_map.get(&id) {
+                            d += 1;
+                            id = *pid;
+                        }
+                        d
+                    };
+                    let depths: Vec<(u64, u64)> =
+                        s.entities.iter().map(|e| (e.id, depth_of(e.id))).collect();
+                    let max_depth = depths.iter().map(|&(_, d)| d).max().unwrap_or(0);
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            let d = depths
+                                .iter()
+                                .find(|&&(id, _)| id == e.id)
+                                .map(|&(_, d)| d)
+                                .unwrap_or(0);
+                            if d == max_depth {
+                                Some(json!({"id": e.id, "name": e.name, "depth": d}))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities, "max_depth": max_depth}))
+                }),
+            });
+
             // deselect_entities_by_tag
             let snap_debt = snapshot.clone();
             let sel_debt = selection.clone();
@@ -8437,6 +8517,192 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_at_depth_selects_correct_hierarchy_level() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Grandchild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, gc_id) = (id_of("Root"), id_of("Child"), id_of("Grandchild"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": gc_id, "parent_id": child_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select depth=1 (Child only)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_at_depth", json!({"depth": 1}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(selected.contains(&child_id), "Child at depth 1");
+        assert!(!selected.contains(&root_id), "Root at depth 0");
+        assert!(!selected.contains(&gc_id), "Grandchild at depth 2");
+    }
+
+    #[test]
+    fn mcp_get_deepest_entities_returns_maximum_depth_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Leaf1"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Leaf2"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, l1_id, l2_id) = (
+            id_of("Root"),
+            id_of("Child"),
+            id_of("Leaf1"),
+            id_of("Leaf2"),
+        );
+
+        // Root → Child → Leaf1, Leaf2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        for leaf in [l1_id, l2_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": leaf, "parent_id": child_id}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_deepest_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&l1_id), "Leaf1 at deepest level");
+        assert!(ids.contains(&l2_id), "Leaf2 at deepest level");
+        assert!(!ids.contains(&root_id), "Root not deepest");
+        assert!(!ids.contains(&child_id), "Child not deepest");
+        let max_depth = ents[0]["depth"].as_u64().unwrap();
+        assert_eq!(max_depth, 2, "max depth = 2");
     }
 
     #[test]

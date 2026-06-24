@@ -1647,6 +1647,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_name_starts_with
+            let snap_gensw = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_name_starts_with".to_string(),
+                description: "Return entity IDs whose name starts with the given prefix (case-sensitive); returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_gensw.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.starts_with(&prefix[..])).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_name_ends_with
+            let snap_genew = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_name_ends_with".to_string(),
+                description: "Return entity IDs whose name ends with the given suffix (case-sensitive); returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "suffix": { "type": "string" } },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_genew.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.ends_with(&suffix[..])).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_entities_within_z_range
             let snap_sewzr = snapshot.clone();
             let sel_sewzr = selection.clone();
@@ -10238,6 +10280,131 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_name_starts_with_returns_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Tree_Oak",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "Tree_Pine",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "Rock_Large", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_name_starts_with", json!({"prefix": "Tree_"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "Tree_Oak and Tree_Pine match prefix 'Tree_'");
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let rock_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Rock_Large"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(!ids.contains(&rock_id), "Rock_Large does not match prefix");
+    }
+
+    #[test]
+    fn mcp_get_entities_name_ends_with_returns_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Sword_Iron",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "Shield_Iron",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "Sword_Silver", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_name_ends_with", json!({"suffix": "_Iron"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(
+            ids.len(),
+            2,
+            "Sword_Iron and Shield_Iron match suffix '_Iron'"
+        );
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let silver_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Sword_Silver"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(
+            !ids.contains(&silver_id),
+            "Sword_Silver does not match suffix"
+        );
     }
 
     #[test]

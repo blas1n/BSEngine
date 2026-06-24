@@ -1647,6 +1647,70 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_without_tag
+            let snap_gewt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_without_tag".to_string(),
+                description: "Return all entities that do NOT have a specific tag".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_gewt.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.tags.contains(&tag))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entity_ancestors
+            let snap_gea = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_ancestors".to_string(),
+                description: "Return all ancestors (parent, grandparent, etc.) of an entity, from immediate parent up to root".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gea.lock().unwrap();
+                    if !s.entities.iter().any(|e| e.id == entity_id) {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let mut ancestors = Vec::new();
+                    let mut current_id = entity_id;
+                    for _ in 0..32 {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
+                            match e.parent_id {
+                                Some(pid) => {
+                                    if let Some(parent) = s.entities.iter().find(|p| p.id == pid) {
+                                        ancestors.push(json!({"id": parent.id, "name": parent.name}));
+                                        current_id = pid;
+                                    } else { break; }
+                                }
+                                None => break,
+                            }
+                        } else { break; }
+                    }
+                    McpToolOutput::success(json!({"entity_id": entity_id, "entities": ancestors}))
+                }),
+            });
+
             // get_entity_count_by_tag
             let snap_gectag = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5725,6 +5789,160 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_without_tag_excludes_tagged() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "WithTag"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "WithoutTag"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let tagged_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("WithTag"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "tag_entity",
+                    json!({"entity_id": tagged_id, "tag": "special"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_tag", json!({"tag": "special"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"WithoutTag"), "untagged entity in result");
+        assert!(!names.contains(&"WithTag"), "tagged entity excluded");
+    }
+
+    #[test]
+    fn mcp_get_entity_ancestors_returns_parent_chain() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "AncRoot"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "AncMid"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "AncLeaf"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (root_id, mid_id, leaf_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let r = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AncRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let m = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AncMid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let l = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AncLeaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (r, m, l)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": mid_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": leaf_id, "parent_id": mid_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_ancestors", json!({"entity_id": leaf_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ancestors = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ancestors.iter().filter_map(|e| e["id"].as_u64()).collect();
+        assert!(ids.contains(&root_id), "root is ancestor of leaf");
+        assert!(ids.contains(&mid_id), "mid is ancestor of leaf");
+        assert!(!ids.contains(&leaf_id), "leaf is not its own ancestor");
     }
 
     #[test]

@@ -1568,6 +1568,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_root_entities
+            let snap_roots = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_root_entities".to_string(),
+                description: "Return all top-level entities (no parent)".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let s = snap_roots.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id.is_none())
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_children
+            let snap_children = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_children".to_string(),
+                description: "Return all direct children of an entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_children.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id == Some(entity_id))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_all
             let sel5 = selection.clone();
             let snap_sel = snapshot.clone();
@@ -2200,6 +2244,125 @@ mod tests {
                 !ids.contains(&serde_json::json!(entity_id)),
                 "entity should be deselected"
             );
+        }
+    }
+
+    #[test]
+    fn mcp_get_root_entities_and_get_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Root"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Child"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // get_root_entities: Root present, Child absent
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_root_entities", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|e| e["id"].as_u64())
+                .collect();
+            assert!(ids.contains(&root_id), "Root should be in root entities");
+            assert!(
+                !ids.contains(&child_id),
+                "Child should not be in root entities"
+            );
+        }
+
+        // get_children: Child present
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_children", json!({"entity_id": root_id}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|e| e["id"].as_u64())
+                .collect();
+            assert!(ids.contains(&child_id), "Child should be in children");
         }
     }
 

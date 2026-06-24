@@ -1647,6 +1647,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_exactly_one_child
+            let snap_geweoc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_exactly_one_child".to_string(),
+                description: "Return entities that have exactly one direct child".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_geweoc.lock().unwrap();
+                    let mut child_count: std::collections::HashMap<u64, usize> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(pid) = e.parent_id {
+                            *child_count.entry(pid).or_insert(0) += 1;
+                        }
+                    }
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| child_count.get(&e.id).copied().unwrap_or(0) == 1)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // align_selection_to_ground
+            let snap_astg = snapshot.clone();
+            let sel_astg = selection.clone();
+            let queue48 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "align_selection_to_ground".to_string(),
+                description: "Set Y position to 0 for all selected entities; returns aligned_count"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_astg.lock().unwrap();
+                    let sel = sel_astg.lock().unwrap();
+                    let mut q = queue48.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some(pos) = e.position {
+                                q.push(crate::snapshot::EditorCommand::SetPosition {
+                                    entity_id: id,
+                                    x: pos[0],
+                                    y: 0.0,
+                                    z: pos[2],
+                                });
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"aligned_count": count}))
+                }),
+            });
+
             // get_entities_sorted_by_rotation
             let snap_gesbr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -9161,6 +9217,184 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_exactly_one_child_returns_single_child_parents() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "OneChild"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "TwoChildren"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "NoChild"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child1"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child2a"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child2b"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (one_id, two_id, child1_id, child2a_id, child2b_id) = (
+            id_of("OneChild"),
+            id_of("TwoChildren"),
+            id_of("Child1"),
+            id_of("Child2a"),
+            id_of("Child2b"),
+        );
+        let no_id = id_of("NoChild");
+
+        for (child, parent) in [
+            (child1_id, one_id),
+            (child2a_id, two_id),
+            (child2b_id, two_id),
+        ] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child, "parent_id": parent}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_exactly_one_child", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&one_id), "OneChild (has 1 child) included");
+        assert!(
+            !ids.contains(&two_id),
+            "TwoChildren (has 2 children) excluded"
+        );
+        assert!(!ids.contains(&no_id), "NoChild (has 0 children) excluded");
+    }
+
+    #[test]
+    fn mcp_align_selection_to_ground_sets_y_to_zero() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [1.0, 5.0, 2.0]},
+                            {"name": "B", "position": [3.0, -3.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        for id in [a_id, b_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("align_selection_to_ground", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["aligned_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for id in [a_id, b_id] {
+            let pos = &ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["position"];
+            assert!(
+                (pos[1].as_f64().unwrap()).abs() < 0.01,
+                "Y should be 0 after aligning to ground"
+            );
+        }
     }
 
     #[test]

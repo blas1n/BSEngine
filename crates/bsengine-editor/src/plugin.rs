@@ -1647,6 +1647,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_no_rotation
+            let snap_gewnr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_rotation".to_string(),
+                description: "Return entity IDs whose rotation is identity (all degrees ≈ 0); returns entity_ids".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewnr.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_non_uniform_scale
+            let snap_gewnusc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_non_uniform_scale".to_string(),
+                description:
+                    "Return entity IDs whose scale components are not all equal; returns entity_ids"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewnusc.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.scale
+                                .map(|sc| {
+                                    (sc[0] - sc[1]).abs() > 0.0001 || (sc[1] - sc[2]).abs() > 0.0001
+                                })
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_rotation_z_above
             let snap_gewrza = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10605,6 +10647,168 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_no_rotation_returns_identity_rotation_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Flat",     "position": [0.0, 0.0, 0.0]},
+                        {"name": "Rotated",  "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (flat_id, rotated_id) = (id_of("Flat"), id_of("Rotated"));
+
+        // Rotate one entity
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": rotated_id, "rx": 45.0, "ry": 0.0, "rz": 0.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_rotation", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&flat_id),
+            "Flat(rx=0,ry=0,rz=0) has no rotation"
+        );
+        assert!(!ids.contains(&rotated_id), "Rotated(rx=45) excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_non_uniform_scale_returns_non_uniform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Uniform",     "position": [0.0, 0.0, 0.0]},
+                        {"name": "NonUniform",  "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (uniform_id, non_uniform_id) = (id_of("Uniform"), id_of("NonUniform"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": uniform_id,     "sx": 2.0, "sy": 2.0, "sz": 2.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": non_uniform_id, "sx": 2.0, "sy": 3.0, "sz": 1.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_non_uniform_scale", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&non_uniform_id),
+            "NonUniform(2,3,1) has non-uniform scale"
+        );
+        assert!(!ids.contains(&uniform_id), "Uniform(2,2,2) excluded");
     }
 
     #[test]

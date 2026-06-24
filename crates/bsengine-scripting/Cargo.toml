@@ -1,0 +1,16 @@
+[package]
+name = "bsengine-scripting"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bsengine-core.workspace = true
+bsengine-ecs.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+deno_core.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+bsengine-app.workspace = true

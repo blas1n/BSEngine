@@ -1,0 +1,13 @@
+[package]
+name = "bsengine-asset"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bsengine-core.workspace = true
+bsengine-ecs.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+
+[dev-dependencies]
+bsengine-app.workspace = true

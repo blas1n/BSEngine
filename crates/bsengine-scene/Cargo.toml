@@ -1,0 +1,15 @@
+[package]
+name = "bsengine-scene"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bsengine-core.workspace = true
+bsengine-ecs.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+ron.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+bsengine-app.workspace = true

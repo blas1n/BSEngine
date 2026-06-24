@@ -1,0 +1,32 @@
+[package]
+name = "bsengine-app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bsengine"
+path = "src/main.rs"
+
+[dependencies]
+bsengine-core.workspace = true
+bsengine-ecs.workspace = true
+bevy_app.workspace = true
+bsengine-window.workspace = true
+bsengine-input.workspace = true
+bsengine-rhi-wgpu.workspace = true
+bsengine-render.workspace = true
+
+[dev-dependencies]
+bsengine-ecs.workspace = true
+bevy_ecs.workspace = true
+bsengine-input.workspace = true
+bsengine-window.workspace = true
+bsengine-rhi.workspace = true
+bsengine-rhi-wgpu.workspace = true
+bsengine-render.workspace = true
+bsengine-scene.workspace = true
+bsengine-asset.workspace = true
+bsengine-scripting.workspace = true
+bsengine-plugin.workspace = true
+bsengine-mcp.workspace = true
+serde_json.workspace = true

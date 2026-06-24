@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/bsengine-core",
+    "crates/bsengine-ecs",
+    "crates/bsengine-app",
+    "crates/bsengine-window",
+    "crates/bsengine-input",
+    "crates/bsengine-rhi",
+    "crates/bsengine-rhi-wgpu",
+    "crates/bsengine-render",
+    "crates/bsengine-scene",
+    "crates/bsengine-asset",
+    "crates/bsengine-scripting",
+    "crates/bsengine-plugin",
+    "crates/bsengine-mcp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["blas1n"]
+license = "MIT"
+
+[workspace.dependencies]
+bsengine-core     = { path = "crates/bsengine-core" }
+bsengine-ecs      = { path = "crates/bsengine-ecs" }
+bsengine-app      = { path = "crates/bsengine-app" }
+bsengine-window   = { path = "crates/bsengine-window" }
+bsengine-input    = { path = "crates/bsengine-input" }
+bsengine-rhi      = { path = "crates/bsengine-rhi" }
+bsengine-rhi-wgpu = { path = "crates/bsengine-rhi-wgpu" }
+bsengine-render   = { path = "crates/bsengine-render" }
+bsengine-scene    = { path = "crates/bsengine-scene" }
+bsengine-asset    = { path = "crates/bsengine-asset" }
+bsengine-scripting = { path = "crates/bsengine-scripting" }
+bsengine-plugin   = { path = "crates/bsengine-plugin" }
+bsengine-mcp      = { path = "crates/bsengine-mcp" }
+toml              = "0.8"
+deno_core         = "0.404.0"
+serde_json        = "1.0"
+ron               = "0.8"
+serde             = { version = "1.0", features = ["derive"] }
+bevy_app          = { version = "0.14", default-features = false }
+bevy_ecs          = { version = "0.14", default-features = false }
+tracing           = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+winit             = "0.30"
+wgpu              = "22"
+pollster          = "0.3"

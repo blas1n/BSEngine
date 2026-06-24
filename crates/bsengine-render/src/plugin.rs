@@ -38,6 +38,21 @@ fn sphere_visible_in_frustum(view_proj: Mat4, world_center: Vec3, world_radius: 
     true
 }
 
+/// Computes an orthographic view-projection from the light's direction for shadow mapping.
+/// Uses rh_zo (0..1 depth) to match wgpu's depth buffer convention.
+fn compute_light_view_proj(light_dir: Vec3) -> Mat4 {
+    let dir = light_dir.normalize();
+    let up = if dir.y.abs() < 0.999 {
+        Vec3::Y
+    } else {
+        Vec3::Z
+    };
+    let eye = -dir * 50.0;
+    let view = Mat4::look_at_rh(eye, Vec3::ZERO, up);
+    let proj = Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 200.0);
+    proj * view
+}
+
 /// Pass 1: root entities (no Parent) get GlobalTransform = local Transform.
 fn propagate_roots(mut query: Query<(&Transform, &mut GlobalTransform), Without<Parent>>) {
     for (t, mut gt) in query.iter_mut() {
@@ -137,12 +152,17 @@ fn render_frame(
         }
     };
 
+    let light_view_proj = compute_light_view_proj(light.direction);
     let tex_reg_ref = tex_registry.as_deref();
 
-    if let Err(e) = surface
-        .0
-        .render_frame(view_proj, &draw_calls, &registry, light, tex_reg_ref)
-    {
+    if let Err(e) = surface.0.render_frame(
+        view_proj,
+        light_view_proj,
+        &draw_calls,
+        &registry,
+        light,
+        tex_reg_ref,
+    ) {
         tracing::warn!("render_frame error: {e}");
     }
 }
@@ -226,6 +246,25 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
         ));
         app.update();
+    }
+
+    #[test]
+    fn light_view_proj_is_invertible() {
+        use super::compute_light_view_proj;
+        let dir = Vec3::new(-0.4, -0.8, -0.4).normalize();
+        let vp = compute_light_view_proj(dir);
+        assert!(
+            vp.determinant().abs() > 1e-6,
+            "light VP should be invertible"
+        );
+    }
+
+    #[test]
+    fn light_view_proj_up_axis_does_not_degenerate() {
+        use super::compute_light_view_proj;
+        // straight-down light — should pick Z as up without NaN/zero-det
+        let vp = compute_light_view_proj(Vec3::new(0.0, -1.0, 0.0));
+        assert!(vp.determinant().abs() > 1e-6);
     }
 
     #[test]

@@ -1647,6 +1647,67 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_distance_from
+            let snap_gesbdf = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_distance_from".to_string(),
+                description: "Return all positioned entities sorted by distance from (x,y,z) ascending; includes distance".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z"]
+                })),
+                handler: Box::new(move |input| {
+                    let ox = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let oy = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let oz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gesbdf.lock().unwrap();
+                    let mut items: Vec<(&crate::snapshot::EntityInfo, f32)> = s.entities.iter()
+                        .filter_map(|e| {
+                            e.position.map(|p| {
+                                let dx = p[0] - ox;
+                                let dy = p[1] - oy;
+                                let dz = p[2] - oz;
+                                let dist = (dx*dx + dy*dy + dz*dz).sqrt();
+                                (e, dist)
+                            })
+                        })
+                        .collect();
+                    items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    let entities: Vec<serde_json::Value> = items.iter()
+                        .map(|(e, d)| json!({"id": e.id, "name": e.name, "distance": *d, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_selection_bounding_box
+            let snap_gsbb = snapshot.clone();
+            let sel_gsbb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selection_bounding_box".to_string(),
+                description: "Return the axis-aligned bounding box [min, max] of all selected entities that have a position".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsbb.lock().unwrap();
+                    let sel = sel_gsbb.lock().unwrap();
+                    let positions: Vec<[f32; 3]> = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id))
+                        .filter_map(|e| e.position)
+                        .collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::success(json!({"min": serde_json::Value::Null, "max": serde_json::Value::Null, "count": 0u64}));
+                    }
+                    let min = positions.iter().fold([f32::MAX; 3], |acc, p| [acc[0].min(p[0]), acc[1].min(p[1]), acc[2].min(p[2])]);
+                    let max = positions.iter().fold([f32::MIN; 3], |acc, p| [acc[0].max(p[0]), acc[1].max(p[1]), acc[2].max(p[2])]);
+                    McpToolOutput::success(json!({"min": min, "max": max, "count": positions.len() as u64}))
+                }),
+            });
+
             // select_entities_at_depth
             let snap_sead = snapshot.clone();
             let sel_sead = selection.clone();
@@ -8517,6 +8578,133 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_distance_from_returns_ascending_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "Near",   "position": [1.0, 0.0, 0.0]},
+                            {"name": "Far",    "position": [10.0, 0.0, 0.0]},
+                            {"name": "Medium", "position": [5.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_sorted_by_distance_from",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 3);
+        // Should be Near(1), Medium(5), Far(10) ascending
+        assert_eq!(ents[0]["name"].as_str().unwrap(), "Near");
+        assert_eq!(ents[1]["name"].as_str().unwrap(), "Medium");
+        assert_eq!(ents[2]["name"].as_str().unwrap(), "Far");
+        // Check distances are included and ascending
+        for i in 0..2 {
+            let d0 = ents[i]["distance"].as_f64().unwrap();
+            let d1 = ents[i + 1]["distance"].as_f64().unwrap();
+            assert!(d0 <= d1, "ascending: {} <= {}", d0, d1);
+        }
+    }
+
+    #[test]
+    fn mcp_get_selection_bounding_box_returns_min_max_of_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [0.0, 0.0, 0.0]},
+                            {"name": "B", "position": [4.0, 2.0, 6.0]},
+                            {"name": "C", "position": [10.0, 10.0, 10.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (id_a, id_b) = (id_of("A"), id_of("B"));
+
+        // Select A and B only (not C)
+        for id in [id_a, id_b] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection_bounding_box", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let min = out.content["min"].as_array().unwrap();
+        let max = out.content["max"].as_array().unwrap();
+        // A=[0,0,0], B=[4,2,6] → min=[0,0,0], max=[4,2,6]
+        assert!((min[0].as_f64().unwrap() - 0.0).abs() < 0.01, "min_x=0");
+        assert!((min[1].as_f64().unwrap() - 0.0).abs() < 0.01, "min_y=0");
+        assert!((min[2].as_f64().unwrap() - 0.0).abs() < 0.01, "min_z=0");
+        assert!((max[0].as_f64().unwrap() - 4.0).abs() < 0.01, "max_x=4");
+        assert!((max[1].as_f64().unwrap() - 2.0).abs() < 0.01, "max_y=2");
+        assert!((max[2].as_f64().unwrap() - 6.0).abs() < 0.01, "max_z=6");
     }
 
     #[test]

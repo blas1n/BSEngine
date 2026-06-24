@@ -1647,6 +1647,52 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_spot_lights
+            let snap_gsl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_spot_lights".to_string(),
+                description: "Return all entities that are spot lights".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsl.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some("spot"))
+                        .map(|e| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "intensity": e.light_intensity, "range": e.light_range}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_cameras_with_fov
+            let snap_gcwf = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_cameras_with_fov".to_string(),
+                description:
+                    "Return camera entities whose FOV is within [min_fov, max_fov] degrees"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_fov": { "type": "number" },
+                        "max_fov": { "type": "number" }
+                    },
+                    "required": ["min_fov", "max_fov"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(f32::MAX as f64) as f32;
+                    let s = snap_gcwf.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| e.camera_fov.map(|fov| (e, fov)))
+                        .filter(|(_, fov)| *fov >= min_fov && *fov <= max_fov)
+                        .map(|(e, fov)| json!({"id": e.id, "name": e.name, "camera_fov": fov}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_point_lights
             let snap_gpl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7095,6 +7141,78 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_spot_lights_returns_only_spot_light_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_spot_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 200.0, "range": 15.0, "inner_angle": 15.0, "outer_angle": 30.0, "position": [0.0, 5.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_spot_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "exactly 1 spot light");
+        assert_eq!(ents[0]["light_type"].as_str(), Some("spot"));
+    }
+
+    #[test]
+    fn mcp_get_cameras_with_fov_returns_cameras_in_fov_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 45.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 120.0, "position": [2.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_cameras_with_fov",
+                json!({"min_fov": 60.0, "max_fov": 100.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only 90° camera in range 60-100");
+        assert!((ents[0]["camera_fov"].as_f64().unwrap() - 90.0).abs() < 0.1);
     }
 
     #[test]

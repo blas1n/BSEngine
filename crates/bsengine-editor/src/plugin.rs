@@ -1647,6 +1647,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_tags
+            let snap_get = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_tags".to_string(),
+                description: "Return the list of tags attached to the specified entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_get.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => {
+                            let tags: Vec<serde_json::Value> = e
+                                .tags
+                                .iter()
+                                .map(|t| serde_json::Value::String(t.clone()))
+                                .collect();
+                            McpToolOutput::success(json!({"entity_id": entity_id, "tags": tags}))
+                        }
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_entities_with_no_tags
+            let snap_gewnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_tags".to_string(),
+                description: "Return all entities that have zero tags".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewnt.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.is_empty())
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_in_radius
             let snap_seir = snapshot.clone();
             let sel_seir = selection.clone();
@@ -4409,6 +4457,165 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_tags_returns_tag_list() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "TaggedEnt"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TaggedEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": eid, "tag": "player"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": eid, "tag": "visible"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let tags: Vec<&str> = out.content["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.as_str())
+            .collect();
+        assert!(tags.contains(&"player"), "should have player tag");
+        assert!(tags.contains(&"visible"), "should have visible tag");
+        assert_eq!(tags.len(), 2);
+    }
+
+    #[test]
+    fn mcp_get_entities_with_no_tags_filters_untagged() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NoTagEnt"},
+                        {"name": "HasTagEnt"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (no_tag_id, has_tag_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoTagEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let h = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasTagEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (n, h)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "tag_entity",
+                    json!({"entity_id": has_tag_id, "tag": "tagged"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_tags", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&no_tag_id),
+            "NoTagEnt should be in untagged list"
+        );
+        assert!(
+            !ids.contains(&has_tag_id),
+            "HasTagEnt should not be in untagged list"
+        );
     }
 
     #[test]

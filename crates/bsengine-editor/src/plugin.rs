@@ -1647,6 +1647,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_named
+            let snap_gen = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_named".to_string(),
+                description: "Return all entities whose name exactly matches the given string"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "name": { "type": "string" } },
+                    "required": ["name"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = match input["name"].as_str() {
+                        Some(n) => n.to_string(),
+                        None => return McpToolOutput::error("missing name"),
+                    };
+                    let s = snap_gen.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.as_deref() == Some(&target))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_scene_entity_names
+            let snap_gsen = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_entity_names".to_string(),
+                description: "Return a flat list of all entity names in the scene".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsen.lock().unwrap();
+                    let names: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            e.name
+                                .as_ref()
+                                .map(|n| serde_json::Value::String(n.clone()))
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"names": names}))
+                }),
+            });
+
             // get_entity_mesh_id
             let snap_gemi = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4103,6 +4151,91 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_named_returns_exact_matches() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Exactly"},
+                        {"name": "Exactly"},
+                        {"name": "ExactlyNot"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_named", json!({"name": "Exactly"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 2, "two entities named 'Exactly'");
+        assert!(
+            entities
+                .iter()
+                .all(|e| e["name"].as_str() == Some("Exactly")),
+            "all results should be named Exactly"
+        );
+    }
+
+    #[test]
+    fn mcp_get_scene_entity_names_returns_name_list() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NameListA"},
+                        {"name": "NameListB"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_entity_names", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let names = out.content["names"].as_array().unwrap();
+        let name_strs: Vec<&str> = names.iter().filter_map(|n| n.as_str()).collect();
+        assert!(
+            name_strs.contains(&"NameListA"),
+            "NameListA should be in names"
+        );
+        assert!(
+            name_strs.contains(&"NameListB"),
+            "NameListB should be in names"
+        );
     }
 
     #[test]

@@ -32,6 +32,7 @@ fn mcp_full_tool_workflow() {
         reg.lock().unwrap().register(McpTool {
             name: "custom_tool".to_string(),
             description: "A custom game tool".to_string(),
+            input_schema: None,
             handler: Box::new(|_| McpToolOutput::success(json!({"status": "custom_ok"}))),
         });
     }

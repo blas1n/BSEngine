@@ -84,10 +84,14 @@ impl McpServer {
             .list_tools()
             .iter()
             .map(|t| {
+                let schema = t
+                    .input_schema
+                    .clone()
+                    .unwrap_or_else(|| json!({ "type": "object" }));
                 json!({
                     "name": t.name,
                     "description": t.description,
-                    "inputSchema": { "type": "object" },
+                    "inputSchema": schema,
                 })
             })
             .collect();
@@ -146,6 +150,7 @@ mod tests {
         reg.register(McpTool {
             name: "ping".to_string(),
             description: "Returns pong".to_string(),
+            input_schema: None,
             handler: Box::new(|_| McpToolOutput::success(json!({"pong": true}))),
         });
         McpServer::new(Arc::new(Mutex::new(reg)))
@@ -228,6 +233,38 @@ mod tests {
             .handle_message(json!({ "jsonrpc": "2.0", "id": 6 }))
             .unwrap();
         assert_eq!(resp["error"]["code"], -32600);
+    }
+
+    #[test]
+    fn tool_with_custom_schema_reflects_in_list() {
+        let mut reg = McpToolRegistry::new();
+        reg.register(McpTool {
+            name: "add".to_string(),
+            description: "Adds two numbers".to_string(),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "a": { "type": "number" },
+                    "b": { "type": "number" }
+                },
+                "required": ["a", "b"]
+            })),
+            handler: Box::new(|input| {
+                let a = input["a"].as_f64().unwrap_or(0.0);
+                let b = input["b"].as_f64().unwrap_or(0.0);
+                McpToolOutput::success(json!({ "result": a + b }))
+            }),
+        });
+        let server = McpServer::new(Arc::new(Mutex::new(reg)));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
+            }))
+            .unwrap();
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[0]["inputSchema"]["type"], "object");
+        assert!(tools[0]["inputSchema"]["properties"]["a"].is_object());
+        assert_eq!(tools[0]["inputSchema"]["required"][0], "a");
     }
 
     #[test]

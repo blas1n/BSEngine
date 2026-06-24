@@ -17,6 +17,7 @@ impl Plugin for McpPlugin {
         registry.register(McpTool {
             name: "get_world_state".to_string(),
             description: "Returns current ECS world entity count and state summary".to_string(),
+            input_schema: None,
             handler: Box::new(|_input| {
                 McpToolOutput::success(json!({
                     "entity_count": 0,
@@ -28,6 +29,7 @@ impl Plugin for McpPlugin {
         registry.register(McpTool {
             name: "list_plugins".to_string(),
             description: "Lists all registered engine plugins".to_string(),
+            input_schema: None,
             handler: Box::new(|_input| {
                 McpToolOutput::success(json!({
                     "plugins": []

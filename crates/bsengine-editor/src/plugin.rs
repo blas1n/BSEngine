@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_rotation
+            let snap_ger = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_rotation".to_string(),
+                description:
+                    "Return the rotation [rx, ry, rz] (Euler degrees) of the specified entity"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_ger.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"rotation": e.rotation, "entity_id": entity_id}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_entity_scale
+            let snap_ges = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_scale".to_string(),
+                description: "Return the scale [sx, sy, sz] of the specified entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_ges.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"scale": e.scale, "entity_id": entity_id}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_selected_entity_count
             let sel_gsec = selection.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3888,6 +3940,150 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_rotation_returns_rotation_values() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "RotEnt", "position": [0.0,0.0,0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("RotEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": eid, "rx": 10.0, "ry": 20.0, "rz": 30.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_rotation", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let rot = &out.content["rotation"];
+        assert!(
+            (rot[0].as_f64().unwrap() - 10.0).abs() < 1e-3,
+            "rx should be 10"
+        );
+        assert!(
+            (rot[1].as_f64().unwrap() - 20.0).abs() < 1e-3,
+            "ry should be 20"
+        );
+        assert!(
+            (rot[2].as_f64().unwrap() - 30.0).abs() < 1e-3,
+            "rz should be 30"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_scale_returns_scale_values() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "ScaleEnt", "position": [0.0,0.0,0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ScaleEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": eid, "sx": 2.0, "sy": 3.0, "sz": 4.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_scale", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let scale = &out.content["scale"];
+        assert!(
+            (scale[0].as_f64().unwrap() - 2.0).abs() < 1e-3,
+            "sx should be 2"
+        );
+        assert!(
+            (scale[1].as_f64().unwrap() - 3.0).abs() < 1e-3,
+            "sy should be 3"
+        );
+        assert!(
+            (scale[2].as_f64().unwrap() - 4.0).abs() < 1e-3,
+            "sz should be 4"
+        );
     }
 
     #[test]

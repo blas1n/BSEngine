@@ -1647,6 +1647,35 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_scene_bounds
+            let snap_bounds = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_bounds".to_string(),
+                description: "Return the AABB (min/max xyz) of all positioned entities".to_string(),
+                input_schema: Some(json!({ "type": "object" })),
+                handler: Box::new(move |_input| {
+                    let s = snap_bounds.lock().unwrap();
+                    let positions: Vec<[f32; 3]> =
+                        s.entities.iter().filter_map(|e| e.position).collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::success(json!({"min": null, "max": null}));
+                    }
+                    let mut min = positions[0];
+                    let mut max = positions[0];
+                    for p in &positions[1..] {
+                        for i in 0..3 {
+                            if p[i] < min[i] {
+                                min[i] = p[i];
+                            }
+                            if p[i] > max[i] {
+                                max[i] = p[i];
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"min": min, "max": max}))
+                }),
+            });
+
             // get_entities_by_type
             let snap_type = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2365,6 +2394,53 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_get_scene_bounds_covers_all_positions() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [-5.0, 0.0, 0.0]},
+                        {"name": "B", "position": [10.0, 3.0, -2.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_bounds", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let min = &out.content["min"];
+        let max = &out.content["max"];
+        assert!(
+            (min[0].as_f64().unwrap() - (-5.0)).abs() < 1e-4,
+            "min x should be -5"
+        );
+        assert!(
+            (max[0].as_f64().unwrap() - 10.0).abs() < 1e-4,
+            "max x should be 10"
+        );
+        assert!(
+            (max[1].as_f64().unwrap() - 3.0).abs() < 1e-4,
+            "max y should be 3"
+        );
     }
 
     #[test]

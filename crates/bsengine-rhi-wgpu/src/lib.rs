@@ -5,4 +5,4 @@ pub mod surface;
 pub use mesh::{cube_vertices, triangle_vertices, GpuMeshRegistry, Vertex};
 pub use plugin::{RhiResource, WgpuRHIPlugin};
 pub use rhi::WgpuRHI;
-pub use surface::WgpuSurfaceResource;
+pub use surface::{LightData, WgpuSurfaceResource};

@@ -1,6 +1,6 @@
 use crate::mesh::GpuMeshRegistry;
 use bsengine_ecs::Resource;
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use std::sync::Arc;
 
 const MESH_WGSL: &str = r#"
@@ -10,27 +10,47 @@ struct CameraUniform {
 struct ModelUniform {
     model: mat4x4<f32>,
 };
+struct LightUniform {
+    direction: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    _pad1: f32,
+    ambient: vec3<f32>,
+    _pad2: f32,
+};
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
+@group(2) @binding(0) var<uniform> light: LightUniform;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
     @location(1) col: vec3<f32>,
+    @location(2) normal: vec3<f32>,
 }
 struct VertOut {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) col: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
     var out: VertOut;
     out.clip_pos = camera.view_proj * model_data.model * vec4<f32>(in.pos, 1.0);
     out.col = in.col;
+    let normal_matrix = mat3x3<f32>(
+        model_data.model[0].xyz,
+        model_data.model[1].xyz,
+        model_data.model[2].xyz,
+    );
+    out.world_normal = normalize(normal_matrix * in.normal);
     return out;
 }
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.col, 1.0);
+    let n = normalize(in.world_normal);
+    let diff = max(dot(n, -light.direction), 0.0);
+    let lit = in.col * (light.ambient + diff * light.color);
+    return vec4<f32>(lit, 1.0);
 }
 "#;
 
@@ -38,6 +58,35 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
 const CAMERA_UNIFORM_SIZE: u64 = 64;
+const LIGHT_UNIFORM_SIZE: u64 = 48;
+
+/// Light parameters passed per frame.
+pub struct LightData {
+    pub direction: Vec3,
+    pub color: Vec3,
+    pub ambient: Vec3,
+}
+
+impl Default for LightData {
+    fn default() -> Self {
+        Self {
+            direction: Vec3::new(-0.4, -0.8, -0.4).normalize(),
+            color: Vec3::ONE,
+            ambient: Vec3::splat(0.15),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct LightUniformData {
+    direction: [f32; 3],
+    _pad0: f32,
+    color: [f32; 3],
+    _pad1: f32,
+    ambient: [f32; 3],
+    _pad2: f32,
+}
 
 pub struct WgpuSurface {
     _window: Arc<winit::window::Window>,
@@ -52,6 +101,8 @@ pub struct WgpuSurface {
     camera_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
     model_bind_group: wgpu::BindGroup,
+    light_buffer: wgpu::Buffer,
+    light_bind_group: wgpu::BindGroup,
 }
 
 impl WgpuSurface {
@@ -174,6 +225,34 @@ impl WgpuSurface {
             }],
         });
 
+        let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("light uniform"),
+            size: LIGHT_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let light_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("light bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(LIGHT_UNIFORM_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("light bg"),
+            layout: &light_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: light_buffer.as_entire_binding(),
+            }],
+        });
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh shader"),
             source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
@@ -181,10 +260,11 @@ impl WgpuSurface {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh pipeline layout"),
-            bind_group_layouts: &[&camera_bgl, &model_bgl],
+            bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl],
             push_constant_ranges: &[],
         });
 
+        // Vertex stride: position(12) + color(12) + normal(12) = 36 bytes
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh pipeline"),
             layout: Some(&pipeline_layout),
@@ -192,7 +272,7 @@ impl WgpuSurface {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 24,
+                    array_stride: 36,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
                         wgpu::VertexAttribute {
@@ -204,6 +284,11 @@ impl WgpuSurface {
                             format: wgpu::VertexFormat::Float32x3,
                             offset: 12,
                             shader_location: 1,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: 24,
+                            shader_location: 2,
                         },
                     ],
                 }],
@@ -250,6 +335,8 @@ impl WgpuSurface {
             camera_bind_group,
             model_buffer,
             model_bind_group,
+            light_buffer,
+            light_bind_group,
         })
     }
 
@@ -281,10 +368,22 @@ impl WgpuSurface {
         view_proj: Mat4,
         draw_calls: &[(u64, Mat4)],
         registry: &GpuMeshRegistry,
+        light: LightData,
     ) -> Result<(), String> {
         let camera_data: [[f32; 4]; 4] = view_proj.to_cols_array_2d();
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&camera_data));
+
+        let light_data = LightUniformData {
+            direction: light.direction.normalize().to_array(),
+            _pad0: 0.0,
+            color: light.color.to_array(),
+            _pad1: 0.0,
+            ambient: light.ambient.to_array(),
+            _pad2: 0.0,
+        };
+        self.queue
+            .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));
 
         for (i, (_, model)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
@@ -340,6 +439,7 @@ impl WgpuSurface {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(2, &self.light_bind_group, &[]);
 
             for (i, (mesh_id, _)) in draw_calls.iter().enumerate() {
                 if i >= MAX_OBJECTS {

@@ -1647,6 +1647,32 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_visible_entity_count
+            let snap_gvec = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_visible_entity_count".to_string(),
+                description: "Return the number of entities with visible=true".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gvec.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.visible).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_hidden_entity_count
+            let snap_ghec = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_hidden_entity_count".to_string(),
+                description: "Return the number of entities with visible=false".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_ghec.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| !e.visible).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_with_camera
             let snap_sewcam = snapshot.clone();
             let sel_sewcam = selection.clone();
@@ -5658,6 +5684,130 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_visible_entity_count_returns_only_visible() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "VisA"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "VisB"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Hidden"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let hidden_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Hidden"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hidden_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_visible_entity_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let count = out.content["count"].as_u64().unwrap();
+        assert_eq!(count, 2, "only 2 entities are visible");
+    }
+
+    #[test]
+    fn mcp_get_hidden_entity_count_returns_only_hidden() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "HideMe1"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "HideMe2"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "StayVisible"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (hid1, hid2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let h1 = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HideMe1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let h2 = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HideMe2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (h1, h2)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("hide_entity", json!({"entity_id": hid1}))
+                .unwrap();
+            m.execute("hide_entity", json!({"entity_id": hid2}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_hidden_entity_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let count = out.content["count"].as_u64().unwrap();
+        assert_eq!(count, 2, "2 entities are hidden");
     }
 
     #[test]

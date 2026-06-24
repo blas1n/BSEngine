@@ -1647,6 +1647,40 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_point_lights
+            let snap_gpl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_point_lights".to_string(),
+                description: "Return all entities that are point lights".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gpl.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some("point"))
+                        .map(|e| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "intensity": e.light_intensity, "range": e.light_range}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_directional_lights
+            let snap_gdl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_directional_lights".to_string(),
+                description: "Return all entities that are directional lights".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gdl.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.as_deref() == Some("directional"))
+                        .map(|e| json!({"id": e.id, "name": e.name, "light_type": e.light_type}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // batch_tag_entities
             let queue36 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7061,6 +7095,63 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_point_lights_returns_only_point_light_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Plain"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_point_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "exactly 1 point light");
+        assert_eq!(ents[0]["light_type"].as_str(), Some("point"));
+    }
+
+    #[test]
+    fn mcp_get_directional_lights_returns_only_directional_light_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_directional_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "exactly 1 directional light");
+        assert_eq!(ents[0]["light_type"].as_str(), Some("directional"));
     }
 
     #[test]

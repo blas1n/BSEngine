@@ -699,6 +699,45 @@ impl Plugin for EditorPlugin {
                     }))
                 }),
             });
+
+            // find_entities_by_name
+            let snap_find = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "find_entities_by_name".to_string(),
+                description: "Return entities whose name contains the given query string (case-insensitive)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Substring to search for in entity names" }
+                    },
+                    "required": ["query"]
+                })),
+                handler: Box::new(move |input| {
+                    let query = match input["query"].as_str() {
+                        Some(q) => q.to_lowercase(),
+                        None => return McpToolOutput::error("missing string 'query' field"),
+                    };
+                    let s = snap_find.lock().unwrap();
+                    let matches: Vec<_> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.to_lowercase().contains(&query))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| json!({
+                            "id": e.id,
+                            "name": e.name,
+                            "position": e.position,
+                            "mesh_id": e.mesh_id,
+                            "light_type": e.light_type,
+                        }))
+                        .collect();
+                    McpToolOutput::success(json!({ "entities": matches }))
+                }),
+            });
         }
     }
 }
@@ -1000,6 +1039,35 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_find_entities_by_name_filters_case_insensitive() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut()
+            .spawn(bsengine_scene::Name("PlayerHero".to_string()));
+        app.world_mut()
+            .spawn(bsengine_scene::Name("EnemyArcher".to_string()));
+        app.world_mut()
+            .spawn(bsengine_scene::Name("PlayerMage".to_string()));
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("find_entities_by_name", json!({"query": "player"}))
+            .expect("find_entities_by_name not found");
+        assert!(result.is_ok());
+        let entities = result.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 2, "expected 2 player entities");
+        let names: Vec<_> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"PlayerHero"));
+        assert!(names.contains(&"PlayerMage"));
+        assert!(!names.contains(&"EnemyArcher"));
     }
 
     #[test]

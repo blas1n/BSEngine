@@ -1647,6 +1647,35 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_by_name_pattern
+            let snap_sep = snapshot.clone();
+            let sel_sep = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_name_pattern".to_string(),
+                description: "Select all entities whose name contains the given pattern (case-sensitive substring match); replaces current selection".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "pattern": { "type": "string" } },
+                    "required": ["pattern"]
+                })),
+                handler: Box::new(move |input| {
+                    let pattern = match input["pattern"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing pattern"),
+                    };
+                    let s = snap_sep.lock().unwrap();
+                    let matched_ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.contains(&*pattern)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let matched_count = matched_ids.len();
+                    let mut sel = sel_sep.lock().unwrap();
+                    sel.clear();
+                    for id in matched_ids { sel.insert(id); }
+                    McpToolOutput::success(json!({"matched_count": matched_count}))
+                }),
+            });
+
             // get_scene_center
             let snap_gsc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3599,6 +3628,148 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_select_entities_by_name_pattern_selects_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_01"},
+                        {"name": "Enemy_02"},
+                        {"name": "Player_01"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_by_name_pattern",
+                    json!({"pattern": "Enemy"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["matched_count"], 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids = sel.content["selected_ids"].as_array().unwrap();
+        assert_eq!(ids.len(), 2, "exactly 2 enemies selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_depth_returns_hierarchy_depth() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "DRoot"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "DChild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let root_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_depth", json!({"entity_id": root_id}))
+            .unwrap();
+        assert_eq!(root_out.content["depth"], 0, "root has depth 0");
+
+        let child_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_depth", json!({"entity_id": child_id}))
+            .unwrap();
+        assert_eq!(child_out.content["depth"], 1, "child has depth 1");
     }
 
     #[test]

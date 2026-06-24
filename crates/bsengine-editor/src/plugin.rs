@@ -1647,6 +1647,52 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_position_above
+            let snap_gewpa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_above".to_string(),
+                description: "Return entities whose Y position is greater than y_min".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y_min": { "type": "number" } },
+                    "required": ["y_min"]
+                })),
+                handler: Box::new(move |input| {
+                    let y_min = input["y_min"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpa.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map(|p| p[1] > y_min).unwrap_or(false))
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_position_below
+            let snap_gewpb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_below".to_string(),
+                description: "Return entities whose Y position is less than y_max".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y_max": { "type": "number" } },
+                    "required": ["y_max"]
+                })),
+                handler: Box::new(move |input| {
+                    let y_max = input["y_max"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpb.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map(|p| p[1] < y_max).unwrap_or(false))
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // set_selection_rotation
             let sel_ssr = selection.clone();
             let queue46 = cmd_queue.clone();
@@ -9074,6 +9120,86 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_position_above_filters_by_y_min() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "High",  "position": [0.0, 10.0, 0.0]},
+                            {"name": "Mid",   "position": [0.0,  5.0, 0.0]},
+                            {"name": "Low",   "position": [0.0, -2.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_position_above", json!({"y_min": 4.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = ents.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"High"), "High (y=10) included");
+        assert!(names.contains(&"Mid"), "Mid  (y=5)  included");
+        assert!(!names.contains(&"Low"), "Low  (y=-2) excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_position_below_filters_by_y_max() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "High",  "position": [0.0, 10.0, 0.0]},
+                            {"name": "Low",   "position": [0.0, -2.0, 0.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_position_below", json!({"y_max": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = ents.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"Low"), "Low  (y=-2) included");
+        assert!(!names.contains(&"High"), "High (y=10) excluded");
     }
 
     #[test]

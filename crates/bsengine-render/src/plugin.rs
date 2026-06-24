@@ -1,15 +1,36 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bevy_ecs::prelude::{EventReader, Query, World};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
+use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, Without};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Parent, Transform};
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry, LightData, WgpuSurfaceResource};
 use bsengine_window::WindowResized;
 use glam::Mat4;
+use std::collections::HashMap;
 
 use crate::components::MeshRenderer;
 
-fn propagate_transforms_system(world: &mut World) {
-    bsengine_core::propagate_global_transforms(world);
+/// Pass 1: root entities (no Parent) get GlobalTransform = local Transform.
+fn propagate_roots(mut query: Query<(&Transform, &mut GlobalTransform), Without<Parent>>) {
+    for (t, mut gt) in query.iter_mut() {
+        gt.0 = t.to_matrix();
+    }
+}
+
+/// Pass 2: children get GlobalTransform = parent's GT * local Transform.
+/// Uses ParamSet to safely read root GlobalTransforms and write child GlobalTransforms.
+fn propagate_children(
+    mut set: ParamSet<(
+        Query<(Entity, &GlobalTransform), Without<Parent>>,
+        Query<(&Transform, &mut GlobalTransform, &Parent)>,
+    )>,
+) {
+    let parent_mats: HashMap<Entity, Mat4> = set.p0().iter().map(|(e, gt)| (e, gt.0)).collect();
+
+    for (t, mut gt, parent) in set.p1().iter_mut() {
+        if let Some(&mat) = parent_mats.get(&parent.0) {
+            gt.0 = mat * t.to_matrix();
+        }
+    }
 }
 
 fn render_frame(
@@ -80,7 +101,7 @@ impl Plugin for RenderPlugin {
         app.add_systems(Update, update_camera_aspect);
         app.add_systems(
             PostUpdate,
-            (propagate_transforms_system, render_frame).chain(),
+            (propagate_roots, propagate_children, render_frame).chain(),
         );
     }
 }

@@ -1647,6 +1647,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_farthest_entity
+            let snap_gfe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_farthest_entity".to_string(),
+                description: "Return the entity farthest from the given world position (only considers entities with a transform)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gfe.lock().unwrap();
+                    let farthest = s.entities.iter()
+                        .filter_map(|e| {
+                            let [ex, ey, ez] = e.position?;
+                            let dx = ex - px; let dy = ey - py; let dz = ez - pz;
+                            Some((e, dx*dx + dy*dy + dz*dz))
+                        })
+                        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    match farthest {
+                        Some((e, dist_sq)) => McpToolOutput::success(json!({
+                            "entity": {"id": e.id, "name": e.name, "position": e.position},
+                            "distance": (dist_sq as f64).sqrt()
+                        })),
+                        None => McpToolOutput::error("no entities with position found"),
+                    }
+                }),
+            });
+
             // get_nearest_entity
             let snap_gne = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3806,6 +3842,130 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_farthest_entity_returns_most_distant() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "FarA", "position": [1.0, 0.0, 0.0]},
+                        {"name": "FarB", "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_farthest_entity", json!({"x": 0.0, "y": 0.0, "z": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["entity"]["name"].as_str().unwrap(),
+            "FarB",
+            "FarB at [100,0,0] is farther from origin than FarA at [1,0,0]"
+        );
+    }
+
+    #[test]
+    fn mcp_copy_transform_copies_position_rotation_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "CpySrc", "position": [7.0, 8.0, 9.0]},
+                        {"name": "CpyDst", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (src_id, dst_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let s = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CpySrc"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let d = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CpyDst"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (s, d)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "copy_transform",
+                    json!({"from_entity_id": src_id, "to_entity_id": dst_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let dst = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": dst_id}))
+            .unwrap();
+        let pos = &dst.content["entity"]["position"];
+        assert!(
+            (pos[0].as_f64().unwrap() - 7.0).abs() < 1e-3,
+            "x should be 7 after copy"
+        );
+        assert!(
+            (pos[1].as_f64().unwrap() - 8.0).abs() < 1e-3,
+            "y should be 8 after copy"
+        );
+        assert!(
+            (pos[2].as_f64().unwrap() - 9.0).abs() < 1e-3,
+            "z should be 9 after copy"
+        );
     }
 
     #[test]

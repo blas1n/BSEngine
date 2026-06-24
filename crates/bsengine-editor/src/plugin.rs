@@ -1647,6 +1647,57 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_depth
+            let snap_depth = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_depth".to_string(),
+                description: "Return the depth of an entity in the hierarchy (0 = root)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_depth.lock().unwrap();
+                    if s.entities.iter().find(|e| e.id == entity_id).is_none() {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let mut depth: u32 = 0;
+                    let mut current_id = entity_id;
+                    for _ in 0..32 {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
+                            match e.parent_id {
+                                Some(pid) => {
+                                    depth += 1;
+                                    current_id = pid;
+                                }
+                                None => break,
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    McpToolOutput::success(json!({"depth": depth, "entity_id": entity_id}))
+                }),
+            });
+
+            // count_selected
+            let sel_count = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_selected".to_string(),
+                description: "Return the number of currently selected entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let count = sel_count.lock().unwrap().len();
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // rotate_selected_entities
             let sel_rotate = selection.clone();
             let queue_rotate = cmd_queue.clone();
@@ -2751,6 +2802,211 @@ mod tests {
                 !ids.contains(&serde_json::json!(entity_id)),
                 "entity should be deselected"
             );
+        }
+    }
+
+    #[test]
+    fn mcp_get_entity_depth_returns_correct_depth() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "Root"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Child"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "GrandChild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let grandchild_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("GrandChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute(
+                "set_parent",
+                json!({"entity_id": child_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            mcp.execute(
+                "set_parent",
+                json!({"entity_id": grandchild_id, "parent_id": child_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mcp = mcp.0.lock().unwrap();
+
+        let root_depth = mcp
+            .execute("get_entity_depth", json!({"entity_id": root_id}))
+            .unwrap();
+        assert_eq!(root_depth.content["depth"], 0, "root depth should be 0");
+
+        let child_depth = mcp
+            .execute("get_entity_depth", json!({"entity_id": child_id}))
+            .unwrap();
+        assert_eq!(child_depth.content["depth"], 1, "child depth should be 1");
+
+        let gc_depth = mcp
+            .execute("get_entity_depth", json!({"entity_id": grandchild_id}))
+            .unwrap();
+        assert_eq!(gc_depth.content["depth"], 2, "grandchild depth should be 2");
+    }
+
+    #[test]
+    fn mcp_count_selected_returns_selection_size() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        // initially 0
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_selected", json!({}))
+                .unwrap();
+            assert_eq!(out.content["count"], 0);
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            mcp.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_selected", json!({}))
+                .unwrap();
+            assert_eq!(out.content["count"], 2);
         }
     }
 

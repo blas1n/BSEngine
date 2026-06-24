@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_child_count
+            let snap_gecc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_child_count".to_string(),
+                description: "Return the number of direct children of the given entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gecc.lock().unwrap();
+                    if !s.entities.iter().any(|e| e.id == entity_id) {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id == Some(entity_id))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"entity_id": entity_id, "child_count": count}))
+                }),
+            });
+
+            // clear_all_tags
+            let snap_cat = snapshot.clone();
+            let queue_cat = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "clear_all_tags".to_string(),
+                description: "Remove all tags from every entity in the scene".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let pairs: Vec<(u64, String)> = {
+                        let s = snap_cat.lock().unwrap();
+                        s.entities
+                            .iter()
+                            .flat_map(|e| e.tags.iter().map(move |t| (e.id, t.clone())))
+                            .collect()
+                    };
+                    let count = pairs.len() as u64;
+                    let mut q = queue_cat.lock().unwrap();
+                    for (id, tag) in pairs {
+                        q.push(crate::snapshot::EditorCommand::UntagEntity { entity_id: id, tag });
+                    }
+                    McpToolOutput::success(json!({"removed_tag_count": count}))
+                }),
+            });
+
             // find_entities_by_name_prefix
             let snap_febnp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -5078,6 +5130,186 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_child_count_returns_direct_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "ParentCC"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let parent_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ParentCC"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "ChildCC1"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "ChildCC2"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            for name in &["ChildCC1", "ChildCC2"] {
+                let cid = ents
+                    .iter()
+                    .find(|e| e["name"].as_str() == Some(name))
+                    .unwrap()["id"]
+                    .as_u64()
+                    .unwrap();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute(
+                        "set_parent",
+                        json!({"entity_id": cid, "parent_id": parent_id}),
+                    )
+                    .unwrap();
+            }
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_child_count", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["child_count"].as_u64().unwrap(),
+            2,
+            "ParentCC has 2 direct children"
+        );
+    }
+
+    #[test]
+    fn mcp_clear_all_tags_removes_all_tags_from_all_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "CatA"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "CatB"})).unwrap();
+        }
+        app.update();
+        app.update();
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CatA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("CatB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "ally"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("clear_all_tags", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for e in &ents {
+            let tags = e["tags"].as_array().map(|a| a.len()).unwrap_or(0);
+            assert_eq!(
+                tags,
+                0,
+                "all tags cleared on {}",
+                e["name"].as_str().unwrap_or("?")
+            );
+        }
     }
 
     #[test]

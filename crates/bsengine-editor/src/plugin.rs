@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_name_contains
+            let snap_senc = snapshot.clone();
+            let sel_senc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_name_contains".to_string(),
+                description: "Add to selection all entities whose name contains the given substring (case-sensitive); returns selected_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "substring": { "type": "string" } },
+                    "required": ["substring"]
+                })),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_senc.lock().unwrap();
+                    let mut sel = sel_senc.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in s.entities.iter() {
+                        if e.name.as_deref().map(|n| n.contains(&sub[..])).unwrap_or(false) {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // get_entities_with_name_shorter_than
+            let snap_gewnsht = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_shorter_than".to_string(),
+                description: "Return entity IDs whose name length is strictly less than max_length; returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "max_length": { "type": "integer" } },
+                    "required": ["max_length"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_len = input["max_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewnsht.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.len() < max_len).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_entities_name_starts_with
             let snap_sensw = snapshot.clone();
             let sel_sensw = selection.clone();
@@ -10332,6 +10379,153 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_name_contains_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "StoneWall",    "position": [0.0, 0.0, 0.0]},
+                        {"name": "WallTorch",    "position": [1.0, 0.0, 0.0]},
+                        {"name": "FloorStone",   "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_name_contains",
+                    json!({"substring": "Wall"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(
+            selected.contains(&id_of("StoneWall")),
+            "StoneWall contains 'Wall'"
+        );
+        assert!(
+            selected.contains(&id_of("WallTorch")),
+            "WallTorch contains 'Wall'"
+        );
+        assert!(
+            !selected.contains(&id_of("FloorStone")),
+            "FloorStone does not contain 'Wall'"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_name_shorter_than_filters_by_length() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "AB",       "position": [0.0, 0.0, 0.0]},
+                        {"name": "XYZ",      "position": [1.0, 0.0, 0.0]},
+                        {"name": "LongName", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        // names shorter than 4 characters: "AB"(2), "XYZ"(3) qualify; "LongName"(8) does not
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_name_shorter_than",
+                json!({"max_length": 4}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "AB and XYZ have names shorter than 4 chars");
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let long_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("LongName"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(!ids.contains(&long_id), "LongName excluded");
     }
 
     #[test]

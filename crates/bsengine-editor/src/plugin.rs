@@ -1647,6 +1647,55 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_exactly_n_tags
+            let snap_gewent = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_exactly_n_tags".to_string(),
+                description: "Return entities that have exactly n tags".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "n": { "type": "integer" } },
+                    "required": ["n"]
+                })),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewent.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.len() == n)
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_sorted_by_children_count
+            let snap_gescc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_children_count".to_string(),
+                description: "Return all entities sorted by number of direct children ascending, including the count".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gescc.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        child_counts.entry(e.id).or_insert(0);
+                        if let Some(pid) = e.parent_id {
+                            *child_counts.entry(pid).or_insert(0) += 1;
+                        }
+                    }
+                    let mut ents: Vec<serde_json::Value> = s.entities.iter()
+                        .map(|e| {
+                            let count = *child_counts.get(&e.id).unwrap_or(&0);
+                            json!({"id": e.id, "name": e.name, "children_count": count})
+                        })
+                        .collect();
+                    ents.sort_by_key(|e| e["children_count"].as_u64().unwrap_or(0));
+                    McpToolOutput::success(json!({"entities": ents}))
+                }),
+            });
+
             // get_entities_without_tags
             let snap_gewot = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7983,6 +8032,181 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_exactly_n_tags_filters_by_exact_tag_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Two"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "One"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Zero"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_two, id_one, _id_zero) = (ids[0], ids[1], ids[2]);
+
+        for tag in ["hero", "elite"] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_two, "tag": tag}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_one, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_exactly_n_tags", json!({"n": 1}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only One has exactly 1 tag");
+        assert_eq!(ents[0]["id"].as_u64().unwrap(), id_one);
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_children_count_returns_entities_ascending() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "MidRoot"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child1"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child2"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child3"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let find = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, mid_id, c1_id, c2_id, c3_id) = (
+            find("Root"),
+            find("MidRoot"),
+            find("Child1"),
+            find("Child2"),
+            find("Child3"),
+        );
+
+        // Root gets 3 children, MidRoot gets 1 child
+        for child in [c1_id, c2_id, c3_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child, "parent_id": root_id}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": mid_id, "parent_id": root_id}),
+                )
+                .unwrap();
+            // Actually make MidRoot have 0 children — remove it from root to reset hierarchy
+            // Instead just check root is last
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_children_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert!(!ents.is_empty());
+        // Verify ascending order
+        for i in 0..ents.len().saturating_sub(1) {
+            let a = ents[i]["children_count"].as_u64().unwrap();
+            let b = ents[i + 1]["children_count"].as_u64().unwrap();
+            assert!(a <= b, "should be ascending: {} <= {}", a, b);
+        }
+        // Root has most children (≥3)
+        let root_entry = ents
+            .iter()
+            .find(|e| e["id"].as_u64() == Some(root_id))
+            .unwrap();
+        assert!(root_entry["children_count"].as_u64().unwrap() >= 3);
+        let _ = c1_id;
+        let _ = c2_id;
+        let _ = c3_id;
+        let _ = mid_id;
     }
 
     #[test]

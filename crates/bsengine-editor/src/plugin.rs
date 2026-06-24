@@ -1647,6 +1647,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_intensity_above
+            let snap_gewia = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_intensity_above".to_string(),
+                description: "Return light entities whose intensity exceeds min_intensity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_intensity": { "type": "number" } },
+                    "required": ["min_intensity"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_intensity"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewia.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| e.light_intensity.map(|i| (e, i)))
+                        .filter(|(_, i)| *i > min)
+                        .map(|(e, i)| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "light_intensity": i}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_range_above
+            let snap_gewra = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_range_above".to_string(),
+                description: "Return light entities whose range exceeds min_range".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_range": { "type": "number" } },
+                    "required": ["min_range"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewra.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| e.light_range.map(|r| (e, r)))
+                        .filter(|(_, r)| *r > min)
+                        .map(|(e, r)| json!({"id": e.id, "name": e.name, "light_type": e.light_type, "light_range": r}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_scale
             let snap_gews = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7273,6 +7317,69 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_intensity_above_filters_by_light_intensity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 50.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 500.0, "range": 10.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_intensity_above",
+                json!({"min_intensity": 100.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(
+            ents.len(),
+            1,
+            "only the 500-intensity light passes threshold"
+        );
+        assert!((ents[0]["light_intensity"].as_f64().unwrap() - 500.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn mcp_get_entities_with_range_above_filters_by_light_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 5.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 50.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_range_above", json!({"min_range": 20.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only the range-50 light passes threshold");
+        assert!((ents[0]["light_range"].as_f64().unwrap() - 50.0).abs() < 1.0);
     }
 
     #[test]

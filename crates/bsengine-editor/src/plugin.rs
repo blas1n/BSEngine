@@ -50,6 +50,11 @@ fn update_editor_snapshot(
                 id: e.index() as u64,
                 name: name.map(|n| n.0.clone()),
                 position: transform.map(|t| t.translation.to_array()),
+                rotation: transform.map(|t| {
+                    let (rx, ry, rz) = t.rotation.to_euler(glam::EulerRot::XYZ);
+                    [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()]
+                }),
+                scale: transform.map(|t| t.scale.to_array()),
                 mesh_id: mesh.map(|m| m.mesh_id),
                 light_type,
                 light_color,
@@ -267,6 +272,37 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::SetRotation {
+                entity_id,
+                rx,
+                ry,
+                rz,
+            } => {
+                for (e, mut t) in params.p1().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        t.rotation = glam::Quat::from_euler(
+                            glam::EulerRot::XYZ,
+                            rx.to_radians(),
+                            ry.to_radians(),
+                            rz.to_radians(),
+                        );
+                        break;
+                    }
+                }
+            }
+            EditorCommand::SetScale {
+                entity_id,
+                sx,
+                sy,
+                sz,
+            } => {
+                for (e, mut t) in params.p1().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        t.scale = glam::Vec3::new(sx, sy, sz);
+                        break;
+                    }
+                }
+            }
             EditorCommand::BatchSpawn { entries } => {
                 for (name, pos) in entries {
                     if let Some([x, y, z]) = pos {
@@ -401,6 +437,8 @@ impl Plugin for EditorPlugin {
                             "name": e.name,
                             "position": e.position,
                             "mesh_id": e.mesh_id,
+                            "rotation": e.rotation,
+                            "scale": e.scale,
                             "light_type": e.light_type,
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
@@ -1179,6 +1217,75 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // set_rotation
+            let queue21 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_rotation".to_string(),
+                description:
+                    "Set an entity's rotation from Euler angles in degrees XYZ (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "rx": { "type": "number", "default": 0 },
+                        "ry": { "type": "number", "default": 0 },
+                        "rz": { "type": "number", "default": 0 }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let rx = input["rx"].as_f64().unwrap_or(0.0) as f32;
+                    let ry = input["ry"].as_f64().unwrap_or(0.0) as f32;
+                    let rz = input["rz"].as_f64().unwrap_or(0.0) as f32;
+                    queue21.lock().unwrap().push(EditorCommand::SetRotation {
+                        entity_id,
+                        rx,
+                        ry,
+                        rz,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // set_scale
+            let queue22 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_scale".to_string(),
+                description: "Set an entity's uniform or non-uniform scale (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "sx": { "type": "number", "default": 1 },
+                        "sy": { "type": "number", "default": 1 },
+                        "sz": { "type": "number", "default": 1 }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let sx = input["sx"].as_f64().unwrap_or(1.0) as f32;
+                    let sy = input["sy"].as_f64().unwrap_or(1.0) as f32;
+                    let sz = input["sz"].as_f64().unwrap_or(1.0) as f32;
+                    queue22.lock().unwrap().push(EditorCommand::SetScale {
+                        entity_id,
+                        sx,
+                        sy,
+                        sz,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -1480,6 +1587,96 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_set_rotation_and_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "Cube", "position": [0.0, 0.0, 0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Cube"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": entity_id, "rx": 0.0, "ry": 90.0, "rz": 0.0}),
+                )
+                .unwrap();
+            assert!(r.is_ok());
+            let s = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": entity_id, "sx": 2.0, "sy": 3.0, "sz": 0.5}),
+                )
+                .unwrap();
+            assert!(s.is_ok());
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entity = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Cube"))
+                .unwrap();
+            let rot = entity["rotation"].as_array().unwrap();
+            assert!(
+                (rot[1].as_f64().unwrap() - 90.0).abs() < 0.5,
+                "ry should be 90, got {}",
+                rot[1]
+            );
+            let scale = entity["scale"].as_array().unwrap();
+            assert!((scale[0].as_f64().unwrap() - 2.0).abs() < 1e-4);
+            assert!((scale[1].as_f64().unwrap() - 3.0).abs() < 1e-4);
+            assert!((scale[2].as_f64().unwrap() - 0.5).abs() < 1e-4);
+        }
     }
 
     #[test]

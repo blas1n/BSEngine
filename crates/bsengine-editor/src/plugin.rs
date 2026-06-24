@@ -1647,6 +1647,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_parent_of_selection
+            let snap_spos = snapshot.clone();
+            let sel_spos = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_parent_of_selection".to_string(),
+                description: "Replace selection with the parents of currently selected entities; entities without parents are excluded; returns selected_count".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_spos.lock().unwrap();
+                    let mut sel = sel_spos.lock().unwrap();
+                    let current: Vec<u64> = sel.iter().copied().collect();
+                    let parents: std::collections::HashSet<u64> = current.iter()
+                        .filter_map(|&id| s.entities.iter().find(|e| e.id == id))
+                        .filter_map(|e| e.parent_id)
+                        .collect();
+                    let count = parents.len() as u64;
+                    *sel = parents;
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // toggle_visibility_on_selection
+            let snap_tvos = snapshot.clone();
+            let sel_tvos = selection.clone();
+            let queue55 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "toggle_visibility_on_selection".to_string(),
+                description: "Toggle visibility (visible↔hidden) for all selected entities; returns toggled_count".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_tvos.lock().unwrap();
+                    let sel = sel_tvos.lock().unwrap();
+                    let mut q = queue55.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            q.push(crate::snapshot::EditorCommand::SetVisible { entity_id: id, visible: !e.visible });
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"toggled_count": count}))
+                }),
+            });
+
             // get_entities_with_child_count
             let snap_gewcc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -9606,6 +9650,193 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_parent_of_selection_replaces_selection_with_parents() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Parent"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Orphan"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (par_id, child_id, orphan_id) = (id_of("Parent"), id_of("Child"), id_of("Orphan"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": par_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select Child and Orphan
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": child_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": orphan_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_parent_of_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            // Child's parent = Parent (1 found); Orphan has no parent (excluded)
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel: Vec<u64> = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap()
+            .content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(sel.contains(&par_id), "Parent is in new selection");
+        assert!(!sel.contains(&child_id), "Child replaced by parent");
+        assert!(!sel.contains(&orphan_id), "Orphan excluded (no parent)");
+    }
+
+    #[test]
+    fn mcp_toggle_visibility_on_selection_flips_visible_and_hidden() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Vis"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Hidden"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (vis_id, hid_id) = (id_of("Vis"), id_of("Hidden"));
+
+        // Hide "Hidden"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hid_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": vis_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": hid_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("toggle_visibility_on_selection", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["toggled_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let vis_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["visible"]
+                .as_bool()
+                .unwrap()
+        };
+        assert!(!vis_of(vis_id), "Vis was visible, now hidden");
+        assert!(vis_of(hid_id), "Hidden was hidden, now visible");
     }
 
     #[test]

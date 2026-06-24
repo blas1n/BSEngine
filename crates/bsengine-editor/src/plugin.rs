@@ -1647,6 +1647,74 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_by_mesh_id
+            let snap_gebm = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_mesh_id".to_string(),
+                description: "Return all entities that have the specified mesh_id".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "mesh_id": { "type": "integer" } },
+                    "required": ["mesh_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let mesh_id = match input["mesh_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing mesh_id"),
+                    };
+                    let s = snap_gebm.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.mesh_id == Some(mesh_id))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // align_selected_on_axis
+            let snap_asa = snapshot.clone();
+            let sel_asa = selection.clone();
+            let queue_asa = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "align_selected_on_axis".to_string(),
+                description: "Set the specified axis (x/y/z) of all selected entities to the given value (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "axis":  { "type": "string", "enum": ["x", "y", "z"] },
+                        "value": { "type": "number" }
+                    },
+                    "required": ["axis", "value"]
+                })),
+                handler: Box::new(move |input| {
+                    let axis = match input["axis"].as_str() {
+                        Some(a) => a.to_string(),
+                        None => return McpToolOutput::error("missing axis"),
+                    };
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let selected: Vec<u64> = sel_asa.lock().unwrap().iter().cloned().collect();
+                    let s = snap_asa.lock().unwrap();
+                    let mut count = 0u64;
+                    let mut q = queue_asa.lock().unwrap();
+                    for &entity_id in &selected {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == entity_id) {
+                            let [mut x, mut y, mut z] = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                            match axis.as_str() {
+                                "x" => x = value,
+                                "y" => y = value,
+                                "z" => z = value,
+                                _ => {}
+                            }
+                            q.push(EditorCommand::SetPosition { entity_id, x, y, z });
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"aligned_count": count, "axis": axis, "value": value}))
+                }),
+            });
+
             // get_entity_position
             let snap_gep = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3983,6 +4051,201 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_by_mesh_id_filters_by_mesh_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Mesh42A"},
+                        {"name": "Mesh42B"},
+                        {"name": "Mesh99"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id42a, id42b, id99) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mesh42A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mesh42B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mesh99"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b, c)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": id42a, "mesh_id": 42}))
+                .unwrap();
+        }
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": id42b, "mesh_id": 42}))
+                .unwrap();
+        }
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": id99, "mesh_id": 99}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_by_mesh_id", json!({"mesh_id": 42}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&id42a), "Mesh42A should have mesh_id 42");
+        assert!(ids.contains(&id42b), "Mesh42B should have mesh_id 42");
+        assert!(!ids.contains(&id99), "Mesh99 has mesh_id 99, not 42");
+    }
+
+    #[test]
+    fn mcp_align_selected_on_axis_aligns_y_axis() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "AlignA", "position": [0.0, 1.0, 0.0]},
+                        {"name": "AlignB", "position": [5.0, 3.0, 2.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AlignA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AlignB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": id_b}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "align_selected_on_axis",
+                    json!({"axis": "y", "value": 10.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pa = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_a}))
+            .unwrap();
+        let pb = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(
+            (pa.content["position"][1].as_f64().unwrap() - 10.0).abs() < 1e-3,
+            "AlignA y should be 10"
+        );
+        assert!(
+            (pb.content["position"][1].as_f64().unwrap() - 10.0).abs() < 1e-3,
+            "AlignB y should be 10"
+        );
     }
 
     #[test]

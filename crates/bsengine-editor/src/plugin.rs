@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // find_nearest_entity
+            let snap_nearest = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "find_nearest_entity".to_string(),
+                description: "Return the entity closest to a given (x, y, z) position".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_nearest.lock().unwrap();
+                    let nearest = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            let [ex, ey, ez] = e.position?;
+                            let dx = ex - px;
+                            let dy = ey - py;
+                            let dz = ez - pz;
+                            Some((e, (dx * dx + dy * dy + dz * dz).sqrt()))
+                        })
+                        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    match nearest {
+                        Some((e, dist)) => McpToolOutput::success(json!({
+                            "entity": {"id": e.id, "name": e.name},
+                            "distance": dist
+                        })),
+                        None => McpToolOutput::error("no entities with positions in scene"),
+                    }
+                }),
+            });
+
             // move_selected_entities
             let sel_move = selection.clone();
             let queue_move = cmd_queue.clone();
@@ -2479,6 +2519,43 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_find_nearest_entity_returns_closest() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",   "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("find_nearest_entity", json!({"x": 0.0, "y": 0.0, "z": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["entity"]["name"], "Near",
+            "nearest entity should be Near"
+        );
     }
 
     #[test]

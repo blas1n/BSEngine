@@ -1647,6 +1647,75 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_within_distance
+            let snap_sewd = snapshot.clone();
+            let sel_sewd = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_within_distance".to_string(),
+                description: "Add to selection all entities within max_distance from the given point".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" },
+                        "max_distance": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "max_distance"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_d = input["max_distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewd.lock().unwrap();
+                    let mut sel = sel_sewd.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            let dx = p[0] - px; let dy = p[1] - py; let dz = p[2] - pz;
+                            if (dx*dx + dy*dy + dz*dz).sqrt() <= max_d {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // select_entities_in_z_range
+            let snap_seizr = snapshot.clone();
+            let sel_seizr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_z_range".to_string(),
+                description:
+                    "Add to selection all entities whose Z position is within [min_z, max_z]"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_z": { "type": "number" },
+                        "max_z": { "type": "number" }
+                    },
+                    "required": ["min_z", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_z = input["min_z"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_seizr.lock().unwrap();
+                    let mut sel = sel_seizr.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            if p[2] >= min_z && p[2] <= max_z {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // select_entities_above_y
             let snap_seay = snapshot.clone();
             let sel_seay = selection.clone();
@@ -7497,6 +7566,144 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_within_distance_selects_nearby_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [2.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [200.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let near_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Near"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "select_entities_within_distance",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "max_distance": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&near_id));
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn mcp_select_entities_in_z_range_selects_entities_in_z_bounds() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InZ",  "position": [0.0, 0.0, 5.0]},
+                        {"name": "OutZ", "position": [0.0, 0.0, 50.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let inz_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InZ"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "select_entities_in_z_range",
+                json!({"min_z": 0.0, "max_z": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&inz_id));
+        assert_eq!(ids.len(), 1);
     }
 
     #[test]

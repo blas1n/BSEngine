@@ -1647,6 +1647,87 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_bounding_box
+            let snap_gbb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_bounding_box".to_string(),
+                description:
+                    "Return the axis-aligned bounding box (min/max) of the given entity IDs"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_ids": { "type": "array", "items": { "type": "integer" } }
+                    },
+                    "required": ["entity_ids"]
+                })),
+                handler: Box::new(move |input| {
+                    let ids: Vec<u64> = match input["entity_ids"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|v| v.as_u64()).collect(),
+                        None => return McpToolOutput::error("missing entity_ids"),
+                    };
+                    let s = snap_gbb.lock().unwrap();
+                    let mut min = [f32::MAX; 3];
+                    let mut max = [f32::MIN; 3];
+                    let mut found = false;
+                    for &id in &ids {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some([x, y, z]) = e.position {
+                                min[0] = min[0].min(x);
+                                min[1] = min[1].min(y);
+                                min[2] = min[2].min(z);
+                                max[0] = max[0].max(x);
+                                max[1] = max[1].max(y);
+                                max[2] = max[2].max(z);
+                                found = true;
+                            }
+                        }
+                    }
+                    if !found {
+                        return McpToolOutput::error("no entities with positions found");
+                    }
+                    McpToolOutput::success(json!({"min": min, "max": max}))
+                }),
+            });
+
+            // select_entities_in_bounding_box
+            let snap_seibb = snapshot.clone();
+            let sel_seibb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_bounding_box".to_string(),
+                description: "Add all entities whose position is within [min_x..max_x, min_y..max_y, min_z..max_z] to selection".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": {"type": "number"}, "min_y": {"type": "number"}, "min_z": {"type": "number"},
+                        "max_x": {"type": "number"}, "max_y": {"type": "number"}, "max_z": {"type": "number"}
+                    },
+                    "required": ["min_x","min_y","min_z","max_x","max_y","max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let get = |key: &str| input[key].as_f64().map(|v| v as f32);
+                    let (mn_x, mn_y, mn_z, mx_x, mx_y, mx_z) = match (
+                        get("min_x"), get("min_y"), get("min_z"),
+                        get("max_x"), get("max_y"), get("max_z"),
+                    ) {
+                        (Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)) => (a,b,c,d,e,f),
+                        _ => return McpToolOutput::error("missing bounding box parameters"),
+                    };
+                    let s = snap_seibb.lock().unwrap();
+                    let mut sel = sel_seibb.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some([x, y, z]) = e.position {
+                            if x >= mn_x && x <= mx_x && y >= mn_y && y <= mx_y && z >= mn_z && z <= mx_z {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_by_light_type
             let snap_geblt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4852,6 +4933,154 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_bounding_box_returns_min_max() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "BBoxA", "position": [-1.0, 2.0, 0.0]},
+                        {"name": "BBoxB", "position": [3.0, -1.0, 5.0]},
+                        {"name": "BBoxC", "position": [0.0, 0.0, -2.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_bounding_box", json!({"entity_ids": ids}))
+            .unwrap();
+        assert!(out.is_ok());
+        let mn = &out.content["min"];
+        let mx = &out.content["max"];
+        assert!(
+            (mn[0].as_f64().unwrap() - (-1.0)).abs() < 1e-3,
+            "min_x = -1"
+        );
+        assert!(
+            (mn[1].as_f64().unwrap() - (-1.0)).abs() < 1e-3,
+            "min_y = -1"
+        );
+        assert!(
+            (mn[2].as_f64().unwrap() - (-2.0)).abs() < 1e-3,
+            "min_z = -2"
+        );
+        assert!((mx[0].as_f64().unwrap() - 3.0).abs() < 1e-3, "max_x = 3");
+        assert!((mx[1].as_f64().unwrap() - 2.0).abs() < 1e-3, "max_y = 2");
+        assert!((mx[2].as_f64().unwrap() - 5.0).abs() < 1e-3, "max_z = 5");
+    }
+
+    #[test]
+    fn mcp_select_entities_in_bounding_box_picks_inside() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Inside", "position": [1.0, 1.0, 1.0]},
+                        {"name": "Outside", "position": [10.0, 10.0, 10.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_in, id_out) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let i = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Inside"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let o = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Outside"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (i, o)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_in_bounding_box",
+                    json!({
+                        "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                        "max_x": 5.0, "max_y": 5.0, "max_z": 5.0
+                    }),
+                )
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&id_in), "Inside should be selected");
+        assert!(!ids.contains(&id_out), "Outside should not be selected");
     }
 
     #[test]

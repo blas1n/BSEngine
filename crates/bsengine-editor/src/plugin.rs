@@ -1647,6 +1647,74 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // add_prefix_to_selection
+            let snap_apts = snapshot.clone();
+            let sel_apts = selection.clone();
+            let queue51 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "add_prefix_to_selection".to_string(),
+                description:
+                    "Prepend prefix to the name of all selected entities; returns renamed_count"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_apts.lock().unwrap();
+                    let sel = sel_apts.lock().unwrap();
+                    let mut q = queue51.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            let new_name = format!("{}{}", prefix, e.name.as_deref().unwrap_or(""));
+                            q.push(crate::snapshot::EditorCommand::RenameEntity {
+                                entity_id: id,
+                                name: new_name,
+                            });
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"renamed_count": count}))
+                }),
+            });
+
+            // add_suffix_to_selection
+            let snap_asts = snapshot.clone();
+            let sel_asts = selection.clone();
+            let queue52 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "add_suffix_to_selection".to_string(),
+                description:
+                    "Append suffix to the name of all selected entities; returns renamed_count"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "suffix": { "type": "string" } },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_asts.lock().unwrap();
+                    let sel = sel_asts.lock().unwrap();
+                    let mut q = queue52.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            let new_name = format!("{}{}", e.name.as_deref().unwrap_or(""), suffix);
+                            q.push(crate::snapshot::EditorCommand::RenameEntity {
+                                entity_id: id,
+                                name: new_name,
+                            });
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"renamed_count": count}))
+                }),
+            });
+
             // deselect_invisible_entities
             let snap_die = snapshot.clone();
             let sel_die = selection.clone();
@@ -9368,6 +9436,168 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_add_prefix_to_selection_prepends_prefix_to_names() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Goblin"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Orc"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Unselected"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (gob_id, orc_id) = (id_of("Goblin"), id_of("Orc"));
+
+        for id in [gob_id, orc_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("add_prefix_to_selection", json!({"prefix": "Enemy_"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["renamed_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let name_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["name"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(name_of(gob_id), "Enemy_Goblin");
+        assert_eq!(name_of(orc_id), "Enemy_Orc");
+    }
+
+    #[test]
+    fn mcp_add_suffix_to_selection_appends_suffix_to_names() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Sword"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Shield"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (sword_id, shield_id) = (id_of("Sword"), id_of("Shield"));
+
+        for id in [sword_id, shield_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("add_suffix_to_selection", json!({"suffix": "_Prop"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["renamed_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let name_of = |id: u64| {
+            ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["name"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(name_of(sword_id), "Sword_Prop");
+        assert_eq!(name_of(shield_id), "Shield_Prop");
     }
 
     #[test]

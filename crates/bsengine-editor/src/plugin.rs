@@ -1647,6 +1647,73 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_average_position
+            let snap_geap = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_average_position".to_string(),
+                description: "Return the centroid (average position) of the specified entity IDs"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_ids": { "type": "array", "items": { "type": "integer" } }
+                    },
+                    "required": ["entity_ids"]
+                })),
+                handler: Box::new(move |input| {
+                    let ids: Vec<u64> = match input["entity_ids"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|v| v.as_u64()).collect(),
+                        None => return McpToolOutput::error("missing entity_ids"),
+                    };
+                    if ids.is_empty() {
+                        return McpToolOutput::error("entity_ids is empty");
+                    }
+                    let s = snap_geap.lock().unwrap();
+                    let mut sum = [0.0f32; 3];
+                    let mut count = 0u32;
+                    for &id in &ids {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == id) {
+                            if let Some([x, y, z]) = e.position {
+                                sum[0] += x;
+                                sum[1] += y;
+                                sum[2] += z;
+                                count += 1;
+                            }
+                        }
+                    }
+                    if count == 0 {
+                        return McpToolOutput::error("no entities with positions found");
+                    }
+                    let avg = [
+                        sum[0] / count as f32,
+                        sum[1] / count as f32,
+                        sum[2] / count as f32,
+                    ];
+                    McpToolOutput::success(json!({"position": avg}))
+                }),
+            });
+
+            // select_entities_with_mesh
+            let snap_sewm = snapshot.clone();
+            let sel_sewm = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_mesh".to_string(),
+                description: "Add all entities that have a mesh_id to the selection".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewm.lock().unwrap();
+                    let mut sel = sel_sewm.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.mesh_id.is_some() {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entity_distance_to_origin
             let snap_gedto = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4650,6 +4717,171 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_average_position_returns_centroid() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "AvgA", "position": [0.0, 0.0, 0.0]},
+                        {"name": "AvgB", "position": [4.0, 0.0, 0.0]},
+                        {"name": "AvgC", "position": [2.0, 6.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AvgA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AvgB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AvgC"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b, c)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_average_position",
+                json!({"entity_ids": [id_a, id_b, id_c]}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let p = &out.content["position"];
+        assert!(
+            (p[0].as_f64().unwrap() - 2.0).abs() < 1e-3,
+            "avg x = (0+4+2)/3 = 2"
+        );
+        assert!(
+            (p[1].as_f64().unwrap() - 2.0).abs() < 1e-3,
+            "avg y = (0+0+6)/3 = 2"
+        );
+        assert!((p[2].as_f64().unwrap()).abs() < 1e-3, "avg z = 0");
+    }
+
+    #[test]
+    fn mcp_select_entities_with_mesh_selects_only_meshed() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WithMesh"},
+                        {"name": "NoMesh"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (meshed_id, unmeshed_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let m = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("WithMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (m, n)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": meshed_id, "mesh_id": 1}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_mesh", json!({}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&meshed_id), "WithMesh should be selected");
+        assert!(!ids.contains(&unmeshed_id), "NoMesh should not be selected");
     }
 
     #[test]

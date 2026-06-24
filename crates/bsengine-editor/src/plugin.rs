@@ -1647,6 +1647,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_near_entity
+            let snap_gene = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_near_entity".to_string(),
+                description:
+                    "Return all entities within radius of the given entity (excluding itself)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["entity_id", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let radius = match input["radius"].as_f64() {
+                        Some(r) if r >= 0.0 => r as f32,
+                        _ => return McpToolOutput::error("radius must be a non-negative number"),
+                    };
+                    let s = snap_gene.lock().unwrap();
+                    let center = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => e.position.unwrap_or([0.0, 0.0, 0.0]),
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    let ents: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            if e.id == entity_id {
+                                return false;
+                            }
+                            let [x, y, z] = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                            let dx = x - center[0];
+                            let dy = y - center[1];
+                            let dz = z - center[2];
+                            (dx * dx + dy * dy + dz * dz).sqrt() <= radius
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": ents}))
+                }),
+            });
+
             // offset_selected_positions
             let snap_osp = snapshot.clone();
             let sel_osp = selection.clone();
@@ -5359,6 +5407,131 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_near_entity_finds_neighbors() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Center", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Near",   "position": [2.0, 0.0, 0.0]},
+                        {"name": "Far",    "position": [100.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let center_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Center"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_near_entity",
+                json!({"entity_id": center_id, "radius": 5.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let names: Vec<&str> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(names.contains(&"Near"), "Near is within radius 5");
+        assert!(!names.contains(&"Far"), "Far is outside radius 5");
+        assert!(!names.contains(&"Center"), "Center itself excluded");
+    }
+
+    #[test]
+    fn mcp_reset_entity_transform_sets_default_values() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "ResetEnt", "position": [5.0, 10.0, -3.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ResetEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("reset_entity_transform", json!({"entity_id": eid}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let pos = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": eid}))
+            .unwrap();
+        let p = &pos.content["position"];
+        assert!((p[0].as_f64().unwrap()).abs() < 1e-3, "x reset to 0");
+        assert!((p[1].as_f64().unwrap()).abs() < 1e-3, "y reset to 0");
+        assert!((p[2].as_f64().unwrap()).abs() < 1e-3, "z reset to 0");
     }
 
     #[test]

@@ -1647,6 +1647,67 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_any_of_tags
+            let snap_gewaot = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_any_of_tags".to_string(),
+                description: "Return entities that have at least one of the given tags".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tags: std::collections::HashSet<&str> = input["tags"]
+                        .as_array()
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                        .unwrap_or_default();
+                    let s = snap_gewaot.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.iter().any(|t| tags.contains(t.as_str())))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // group_entities_by_tag
+            let snap_gebt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "group_entities_by_tag".to_string(),
+                description: "Return a map of tag → list of entity IDs that have that tag"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gebt.lock().unwrap();
+                    let mut groups: std::collections::HashMap<String, Vec<u64>> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        for tag in &e.tags {
+                            groups.entry(tag.clone()).or_default().push(e.id);
+                        }
+                    }
+                    let groups_json: serde_json::Map<String, serde_json::Value> = groups
+                        .into_iter()
+                        .map(|(k, v)| {
+                            (
+                                k,
+                                serde_json::Value::Array(
+                                    v.into_iter().map(|id| json!(id)).collect(),
+                                ),
+                            )
+                        })
+                        .collect();
+                    McpToolOutput::success(
+                        json!({"groups": serde_json::Value::Object(groups_json)}),
+                    )
+                }),
+            });
+
             // get_scene_statistics
             let snap_gss = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7711,6 +7772,156 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_any_of_tags_returns_entities_matching_any_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b, id_c) = (ids[0], ids[1], ids[2]);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        // C has no tags
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_any_of_tags",
+                json!({"tags": ["hero", "enemy"]}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let returned_ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(returned_ids.contains(&id_a), "A has 'hero'");
+        assert!(returned_ids.contains(&id_b), "B has 'enemy'");
+        assert!(!returned_ids.contains(&id_c), "C has no tags");
+        assert_eq!(ents.len(), 2);
+    }
+
+    #[test]
+    fn mcp_group_entities_by_tag_returns_map_of_tag_to_entity_ids() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b) = (ids[0], ids[1]);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("group_entities_by_tag", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let groups = &out.content["groups"];
+        let hero_ids: Vec<u64> = groups["hero"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        let enemy_ids: Vec<u64> = groups["enemy"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(hero_ids.contains(&id_a));
+        assert!(enemy_ids.contains(&id_b));
     }
 
     #[test]

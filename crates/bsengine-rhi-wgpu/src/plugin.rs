@@ -1,7 +1,10 @@
 use crate::rhi::WgpuRHI;
-use bevy_app::{App, Plugin};
+use crate::surface::{WgpuSurface, WgpuSurfaceResource};
+use bevy_app::{App, Plugin, Startup, Update};
+use bevy_ecs::prelude::{EventReader, ResMut, World};
 use bsengine_ecs::Resource;
 use bsengine_rhi::RHI;
+use bsengine_window::{WindowHandle, WindowResized};
 use std::sync::Arc;
 
 #[derive(Resource)]
@@ -14,6 +17,37 @@ impl Plugin for WgpuRHIPlugin {
         let rhi =
             pollster::block_on(WgpuRHI::new_headless()).expect("Failed to initialize WgpuRHI");
         app.insert_resource(RhiResource(Arc::new(rhi)));
+        app.add_event::<WindowResized>();
+        app.add_systems(Startup, create_surface_system);
+        app.add_systems(Update, handle_window_resize);
+    }
+}
+
+fn create_surface_system(world: &mut World) {
+    let handle = world.get_resource::<WindowHandle>().cloned();
+    if let Some(handle) = handle {
+        match pollster::block_on(WgpuSurface::new(handle.0)) {
+            Ok(surface) => {
+                world.insert_resource(WgpuSurfaceResource(surface));
+                tracing::info!("wgpu surface ready");
+            }
+            Err(e) => {
+                tracing::warn!("wgpu surface not created: {e}");
+            }
+        }
+    }
+}
+
+fn handle_window_resize(
+    mut events: EventReader<WindowResized>,
+    surface: Option<ResMut<WgpuSurfaceResource>>,
+) {
+    let Some(mut surface) = surface else {
+        for _ in events.read() {}
+        return;
+    };
+    for ev in events.read() {
+        surface.0.resize(ev.width, ev.height);
     }
 }
 

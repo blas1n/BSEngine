@@ -7,10 +7,14 @@ edition.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bsengine-rhi.workspace = true
+bsengine-window.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 wgpu.workspace = true
+winit.workspace = true
+bytemuck.workspace = true
 pollster.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

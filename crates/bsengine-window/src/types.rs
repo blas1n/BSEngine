@@ -1,4 +1,9 @@
 use bsengine_ecs::{Event, Resource};
+use std::sync::Arc;
+use winit::window::Window;
+
+#[derive(Resource, Clone)]
+pub struct WindowHandle(pub Arc<Window>);
 
 #[derive(Resource, Debug, Clone)]
 pub struct WindowDescriptor {

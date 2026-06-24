@@ -7,7 +7,7 @@ use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
 use bsengine_core::Transform;
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
-use bsengine_scene::Name;
+use bsengine_scene::{EntityDescriptor, Name, SceneDescriptor};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
@@ -55,7 +55,49 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::LoadScene(path) => {
+                let content = match std::fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("load_scene: failed to read {path}: {e}");
+                        continue;
+                    }
+                };
+                let scene: SceneDescriptor = match ron::from_str(&content) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("load_scene: failed to parse {path}: {e}");
+                        continue;
+                    }
+                };
+                for entity in scene.entities {
+                    let pos = entity.components.iter().find_map(|(k, v)| {
+                        if k == "transform_position" {
+                            parse_position(v)
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some([x, y, z]) = pos {
+                        commands.spawn((
+                            Name(entity.name),
+                            Transform::from_translation(glam::Vec3::new(x, y, z)),
+                        ));
+                    } else {
+                        commands.spawn(Name(entity.name));
+                    }
+                }
+            }
         }
+    }
+}
+
+fn parse_position(s: &str) -> Option<[f32; 3]> {
+    let parts: Vec<f32> = s.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+    if parts.len() == 3 {
+        Some([parts[0], parts[1], parts[2]])
+    } else {
+        None
     }
 }
 
@@ -167,6 +209,71 @@ impl Plugin for EditorPlugin {
                         .unwrap()
                         .push(EditorCommand::Despawn { entity_id: id });
                     McpToolOutput::success(json!({"status": "queued", "id": id}))
+                }),
+            });
+
+            // save_scene
+            let snap3 = snapshot.clone();
+            mcp.0.register(McpTool {
+                name: "save_scene".to_string(),
+                description: "Serialize current named entities to a RON scene file".to_string(),
+                handler: Box::new(move |input| {
+                    let path = match input["path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing 'path' field"),
+                    };
+                    let s = snap3.lock().unwrap();
+                    let entities: Vec<EntityDescriptor> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            e.name.as_ref().map(|name| {
+                                let mut components = Vec::new();
+                                if let Some([x, y, z]) = e.position {
+                                    components.push((
+                                        "transform_position".to_string(),
+                                        format!("{x},{y},{z}"),
+                                    ));
+                                }
+                                EntityDescriptor {
+                                    name: name.clone(),
+                                    components,
+                                }
+                            })
+                        })
+                        .collect();
+                    let count = entities.len();
+                    let scene = SceneDescriptor { entities };
+                    match ron::to_string(&scene) {
+                        Ok(ron_str) => match std::fs::write(&path, &ron_str) {
+                            Ok(()) => McpToolOutput::success(json!({
+                                "status": "saved",
+                                "path": path,
+                                "entity_count": count,
+                            })),
+                            Err(e) => McpToolOutput::error(&format!("write failed: {e}")),
+                        },
+                        Err(e) => McpToolOutput::error(&format!("serialize failed: {e}")),
+                    }
+                }),
+            });
+
+            // load_scene
+            let queue4 = cmd_queue.clone();
+            mcp.0.register(McpTool {
+                name: "load_scene".to_string(),
+                description: "Load and spawn entities from a RON scene file (applied next frame)"
+                    .to_string(),
+                handler: Box::new(move |input| {
+                    let path = match input["path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing 'path' field"),
+                    };
+                    queue4
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::LoadScene(path.clone()));
+                    McpToolOutput::success(json!({"status": "queued", "path": path}))
                 }),
             });
         }
@@ -328,6 +435,80 @@ mod tests {
         let mut q = app.world_mut().query::<&Name>();
         let names: Vec<_> = q.iter(app.world()).map(|n| n.0.as_str()).collect();
         assert!(!names.contains(&"Temp"), "Temp still alive: {:?}", names);
+    }
+
+    #[test]
+    fn mcp_save_scene_writes_ron_file() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn((
+            Name("Castle".to_string()),
+            Transform::from_translation(Vec3::new(5.0, 0.0, 0.0)),
+        ));
+        app.update();
+
+        let path = std::env::temp_dir()
+            .join("bsengine_test_save.ron")
+            .to_string_lossy()
+            .to_string();
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .execute("save_scene", json!({"path": path}))
+            .expect("save_scene not found");
+        assert!(result.is_ok(), "save error: {:?}", result.error);
+        assert_eq!(result.content["status"], "saved");
+        assert_eq!(result.content["entity_count"], 1);
+        assert!(std::path::Path::new(&path).exists());
+    }
+
+    #[test]
+    fn mcp_save_load_scene_round_trip() {
+        let path = std::env::temp_dir()
+            .join("bsengine_test_roundtrip.ron")
+            .to_string_lossy()
+            .to_string();
+
+        // Save
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            app.world_mut().spawn((
+                Name("Tower".to_string()),
+                Transform::from_translation(Vec3::new(3.0, 1.0, 0.0)),
+            ));
+            app.update();
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp.0.execute("save_scene", json!({"path": path})).unwrap();
+            assert!(r.is_ok(), "{:?}", r.error);
+        }
+
+        // Load in new app
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .execute("load_scene", json!({"path": path}))
+                    .expect("load_scene not found");
+            }
+            app.update();
+
+            let mut q = app.world_mut().query::<(&Name, &Transform)>();
+            let results: Vec<_> = q
+                .iter(app.world())
+                .map(|(n, t)| (n.0.as_str(), t.translation))
+                .collect();
+            let found = results
+                .iter()
+                .find(|(name, _)| *name == "Tower")
+                .expect("Tower not found after load");
+            assert!((found.1.x - 3.0).abs() < 1e-4, "wrong x: {}", found.1.x);
+        }
     }
 
     #[test]

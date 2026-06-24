@@ -14,6 +14,9 @@ bevy_app        = { workspace = true }
 bevy_ecs        = { workspace = true }
 serde_json      = { workspace = true }
 glam            = { workspace = true }
+ron             = { workspace = true }
+serde           = { workspace = true }
+tracing         = { workspace = true }
 
 [dev-dependencies]
 bsengine-app = { workspace = true }

@@ -1,5 +1,9 @@
+use bevy_ecs::prelude::Component;
 use bsengine_ecs::Resource;
 use std::sync::{Arc, Mutex};
+
+#[derive(Component, Clone, Default)]
+pub struct Tags(pub Vec<String>);
 
 #[derive(Clone, Default)]
 pub struct EntityInfo {
@@ -15,6 +19,7 @@ pub struct EntityInfo {
     pub light_range: Option<f32>,
     pub camera_fov: Option<f32>,
     pub parent_id: Option<u64>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -72,6 +77,14 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    TagEntity {
+        entity_id: u64,
+        tag: String,
+    },
+    UntagEntity {
+        entity_id: u64,
+        tag: String,
+    },
     SetParent {
         entity_id: u64,
         parent_id: u64,
@@ -163,6 +176,7 @@ mod tests {
             light_range: None,
             camera_fov: None,
             parent_id: None,
+            tags: vec![],
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -183,6 +197,7 @@ mod tests {
             light_range: None,
             camera_fov: None,
             parent_id: None,
+            tags: vec![],
             position: None,
         };
         assert!(e.position.is_none());

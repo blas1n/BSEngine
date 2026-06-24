@@ -1,6 +1,6 @@
 use crate::snapshot::{
     EditorCommand, EditorCommandQueueResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
-    SharedCommandQueue, SharedSnapshot,
+    SharedCommandQueue, SharedSnapshot, Tags,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
@@ -26,47 +26,51 @@ fn update_editor_snapshot(
         Option<&SpotLight>,
         Option<&Camera>,
         Option<&Parent>,
+        Option<&Tags>,
     )>,
 ) {
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
-        .map(|(e, name, transform, mesh, pt, dir, spot, cam, parent)| {
-            let light_type = if pt.is_some() {
-                Some("point".to_string())
-            } else if dir.is_some() {
-                Some("directional".to_string())
-            } else if spot.is_some() {
-                Some("spot".to_string())
-            } else {
-                None
-            };
-            let light_color = pt
-                .map(|l| l.color.to_array())
-                .or_else(|| dir.map(|l| l.color.to_array()))
-                .or_else(|| spot.map(|l| l.color.to_array()));
-            let light_intensity = pt
-                .map(|l| l.intensity)
-                .or_else(|| spot.map(|l| l.intensity));
-            let light_range = pt.map(|l| l.range).or_else(|| spot.map(|l| l.range));
-            EntityInfo {
-                id: e.index() as u64,
-                name: name.map(|n| n.0.clone()),
-                position: transform.map(|t| t.translation.to_array()),
-                rotation: transform.map(|t| {
-                    let (rx, ry, rz) = t.rotation.to_euler(glam::EulerRot::XYZ);
-                    [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()]
-                }),
-                scale: transform.map(|t| t.scale.to_array()),
-                mesh_id: mesh.map(|m| m.mesh_id),
-                light_type,
-                light_color,
-                light_intensity,
-                light_range,
-                camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
-                parent_id: parent.map(|p| p.0.index() as u64),
-            }
-        })
+        .map(
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags)| {
+                let light_type = if pt.is_some() {
+                    Some("point".to_string())
+                } else if dir.is_some() {
+                    Some("directional".to_string())
+                } else if spot.is_some() {
+                    Some("spot".to_string())
+                } else {
+                    None
+                };
+                let light_color = pt
+                    .map(|l| l.color.to_array())
+                    .or_else(|| dir.map(|l| l.color.to_array()))
+                    .or_else(|| spot.map(|l| l.color.to_array()));
+                let light_intensity = pt
+                    .map(|l| l.intensity)
+                    .or_else(|| spot.map(|l| l.intensity));
+                let light_range = pt.map(|l| l.range).or_else(|| spot.map(|l| l.range));
+                EntityInfo {
+                    id: e.index() as u64,
+                    name: name.map(|n| n.0.clone()),
+                    position: transform.map(|t| t.translation.to_array()),
+                    rotation: transform.map(|t| {
+                        let (rx, ry, rz) = t.rotation.to_euler(glam::EulerRot::XYZ);
+                        [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()]
+                    }),
+                    scale: transform.map(|t| t.scale.to_array()),
+                    mesh_id: mesh.map(|m| m.mesh_id),
+                    light_type,
+                    light_color,
+                    light_intensity,
+                    light_range,
+                    camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
+                    parent_id: parent.map(|p| p.0.index() as u64),
+                    tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
+                }
+            },
+        )
         .collect();
 }
 
@@ -80,6 +84,7 @@ fn process_editor_commands(
         Query<(Entity, &mut DirectionalLight)>,
         Query<(Entity, &mut SpotLight)>,
         Query<(Entity, &mut Camera)>,
+        Query<(Entity, &mut Tags)>,
     )>,
     mut commands: Commands,
 ) {
@@ -292,6 +297,32 @@ fn process_editor_commands(
                     commands.entity(entity).remove::<Parent>();
                 }
             }
+            EditorCommand::TagEntity { entity_id, tag } => {
+                let existing = params
+                    .p6()
+                    .iter_mut()
+                    .find(|(e, _)| e.index() as u64 == entity_id)
+                    .map(|(_, mut t)| {
+                        if !t.0.contains(&tag) {
+                            t.0.push(tag.clone());
+                        }
+                        true
+                    });
+                if existing.is_none() {
+                    let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                    if let Some(entity) = target {
+                        commands.entity(entity).insert(Tags(vec![tag]));
+                    }
+                }
+            }
+            EditorCommand::UntagEntity { entity_id, tag } => {
+                for (e, mut t) in params.p6().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        t.0.retain(|s| s != &tag);
+                        break;
+                    }
+                }
+            }
             EditorCommand::SetRotation {
                 entity_id,
                 rx,
@@ -460,6 +491,7 @@ impl Plugin for EditorPlugin {
                             "rotation": e.rotation,
                             "scale": e.scale,
                             "parent_id": e.parent_id,
+                            "tags": e.tags,
                             "light_type": e.light_type,
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
@@ -1358,6 +1390,96 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // find_entities_by_tag
+            let snap_tag = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "find_entities_by_tag".to_string(),
+                description: "Find all entities that have a specific tag".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tag": { "type": "string" }
+                    },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_tag.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.iter().any(|t| t == &tag))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(
+                        json!({"tag": tag, "entity_ids": ids, "count": ids.len()}),
+                    )
+                }),
+            });
+
+            // tag_entity
+            let queue25 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "tag_entity".to_string(),
+                description: "Add a string tag to an entity (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "tag": { "type": "string" }
+                    },
+                    "required": ["entity_id", "tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    queue25
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::TagEntity { entity_id, tag });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // untag_entity
+            let queue26 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "untag_entity".to_string(),
+                description: "Remove a string tag from an entity (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "tag": { "type": "string" }
+                    },
+                    "required": ["entity_id", "tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    queue26
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::UntagEntity { entity_id, tag });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
             // set_parent
             let queue23 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -1719,6 +1841,69 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_tag_entity_and_find_by_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "Rock"}, {"name": "Tree"}, {"name": "Rock2"}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e["name"].as_str(), Some("Rock") | Some("Rock2")))
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            for &id in &ids {
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": "static"}))
+                    .unwrap();
+            }
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("find_entities_by_tag", json!({"tag": "static"}))
+                .unwrap();
+            assert!(result.is_ok());
+            assert_eq!(result.content["count"], 2);
+        }
     }
 
     #[test]

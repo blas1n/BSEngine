@@ -18,6 +18,23 @@ impl Default for DirectionalLight {
     }
 }
 
+#[derive(Component, Debug, Clone)]
+pub struct PointLight {
+    pub color: Vec3,
+    pub intensity: f32,
+    pub range: f32,
+}
+
+impl Default for PointLight {
+    fn default() -> Self {
+        Self {
+            color: Vec3::ONE,
+            intensity: 1.0,
+            range: 10.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -26,5 +43,13 @@ mod tests {
     fn default_light_direction_is_unit() {
         let light = DirectionalLight::default();
         assert!((light.direction.length() - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn point_light_default_values() {
+        let pl = PointLight::default();
+        assert_eq!(pl.color, Vec3::ONE);
+        assert!((pl.intensity - 1.0).abs() < 1e-6);
+        assert!((pl.range - 10.0).abs() < 1e-6);
     }
 }

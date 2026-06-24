@@ -3,12 +3,25 @@ use bsengine_ecs::Resource;
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
 
+const MAX_POINT_LIGHTS: usize = 8;
+
 const MESH_WGSL: &str = r#"
+const MAX_POINT_LIGHTS: u32 = 8u;
 struct CameraUniform {
     view_proj: mat4x4<f32>,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
+};
+struct PointLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
 };
 struct LightUniform {
     direction: vec3<f32>,
@@ -16,7 +29,8 @@ struct LightUniform {
     color: vec3<f32>,
     _pad1: f32,
     ambient: vec3<f32>,
-    _pad2: f32,
+    num_point_lights: u32,
+    point_lights: array<PointLightEntry, 8>,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
@@ -35,11 +49,14 @@ struct VertOut {
     @location(0) col: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) world_pos: vec3<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
     var out: VertOut;
-    out.clip_pos = camera.view_proj * model_data.model * vec4<f32>(in.pos, 1.0);
+    let world_pos4 = model_data.model * vec4<f32>(in.pos, 1.0);
+    out.clip_pos = camera.view_proj * world_pos4;
+    out.world_pos = world_pos4.xyz;
     out.col = in.col;
     let normal_matrix = mat3x3<f32>(
         model_data.model[0].xyz,
@@ -53,10 +70,24 @@ fn vs_main(in: VertIn) -> VertOut {
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
-    let diff = max(dot(n, -light.direction), 0.0);
     let tex_color = textureSample(t_diffuse, s_diffuse, in.uv).rgb;
-    let lit = tex_color * in.col * (light.ambient + diff * light.color);
-    return vec4<f32>(lit, 1.0);
+
+    let diff_dir = max(dot(n, -light.direction), 0.0);
+    var radiance = tex_color * in.col * (light.ambient + diff_dir * light.color);
+
+    for (var i: u32 = 0u; i < light.num_point_lights; i++) {
+        let pl = light.point_lights[i];
+        let to_light = pl.position - in.world_pos;
+        let dist = length(to_light);
+        if dist < pl.range {
+            let t = 1.0 - dist / pl.range;
+            let attenuation = t * t;
+            let diff_pl = max(dot(n, normalize(to_light)), 0.0);
+            radiance += tex_color * in.col * diff_pl * pl.color * pl.intensity * attenuation;
+        }
+    }
+
+    return vec4<f32>(radiance, 1.0);
 }
 "#;
 
@@ -64,15 +95,25 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
 const CAMERA_UNIFORM_SIZE: u64 = 64;
-const LIGHT_UNIFORM_SIZE: u64 = 48;
+// direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48) = 432
+const LIGHT_UNIFORM_SIZE: u64 = 432;
 // Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
 const VERTEX_STRIDE: u64 = 44;
+
+/// A single point light entry for the GPU buffer.
+pub struct PointLightEntry {
+    pub position: Vec3,
+    pub color: Vec3,
+    pub intensity: f32,
+    pub range: f32,
+}
 
 /// Light parameters passed per frame.
 pub struct LightData {
     pub direction: Vec3,
     pub color: Vec3,
     pub ambient: Vec3,
+    pub point_lights: Vec<PointLightEntry>,
 }
 
 impl Default for LightData {
@@ -81,8 +122,22 @@ impl Default for LightData {
             direction: Vec3::new(-0.4, -0.8, -0.4).normalize(),
             color: Vec3::ONE,
             ambient: Vec3::splat(0.15),
+            point_lights: Vec::new(),
         }
     }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct PointLightGpu {
+    position: [f32; 3],
+    _pad0: f32,
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
 }
 
 #[repr(C)]
@@ -93,7 +148,8 @@ struct LightUniformData {
     color: [f32; 3],
     _pad1: f32,
     ambient: [f32; 3],
-    _pad2: f32,
+    num_point_lights: u32,
+    point_lights: [PointLightGpu; 8],
 }
 
 pub struct WgpuSurface {
@@ -480,13 +536,37 @@ impl WgpuSurface {
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&camera_data));
 
+        let mut point_lights_gpu = [PointLightGpu {
+            position: [0.0; 3],
+            _pad0: 0.0,
+            color: [0.0; 3],
+            intensity: 0.0,
+            range: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
+            _pad3: 0.0,
+        }; 8];
+        let num_point_lights = light.point_lights.len().min(MAX_POINT_LIGHTS) as u32;
+        for (i, pl) in light.point_lights.iter().enumerate().take(MAX_POINT_LIGHTS) {
+            point_lights_gpu[i] = PointLightGpu {
+                position: pl.position.to_array(),
+                _pad0: 0.0,
+                color: pl.color.to_array(),
+                intensity: pl.intensity,
+                range: pl.range,
+                _pad1: 0.0,
+                _pad2: 0.0,
+                _pad3: 0.0,
+            };
+        }
         let light_data = LightUniformData {
             direction: light.direction.normalize().to_array(),
             _pad0: 0.0,
             color: light.color.to_array(),
             _pad1: 0.0,
             ambient: light.ambient.to_array(),
-            _pad2: 0.0,
+            num_point_lights,
+            point_lights: point_lights_gpu,
         };
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));

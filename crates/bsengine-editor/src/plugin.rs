@@ -1647,6 +1647,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // distribute_selection_along_x
+            let snap_dsax = snapshot.clone();
+            let sel_dsax = selection.clone();
+            let queue63 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "distribute_selection_along_x".to_string(),
+                description: "Distribute selected entities evenly along X axis with given spacing, sorted by current X; returns distributed_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "spacing": { "type": "number" } },
+                    "required": ["spacing"]
+                })),
+                handler: Box::new(move |input| {
+                    let spacing = input["spacing"].as_f64().unwrap_or(1.0) as f32;
+                    let s = snap_dsax.lock().unwrap();
+                    let sel = sel_dsax.lock().unwrap();
+                    let mut q = queue63.lock().unwrap();
+                    let mut entries: Vec<(u64, [f32; 3])> = sel.iter()
+                        .filter_map(|&id| s.entities.iter().find(|e| e.id == id))
+                        .filter_map(|e| e.position.map(|p| (e.id, p)))
+                        .collect();
+                    entries.sort_by(|a, b| a.1[0].partial_cmp(&b.1[0]).unwrap_or(std::cmp::Ordering::Equal));
+                    let count = entries.len();
+                    for (i, (id, pos)) in entries.into_iter().enumerate() {
+                        let new_x = i as f32 * spacing;
+                        q.push(crate::snapshot::EditorCommand::SetPosition { entity_id: id, x: new_x, y: pos[1], z: pos[2] });
+                    }
+                    McpToolOutput::success(json!({"distributed_count": count}))
+                }),
+            });
+
+            // distribute_selection_along_z
+            let snap_dsaz = snapshot.clone();
+            let sel_dsaz = selection.clone();
+            let queue64 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "distribute_selection_along_z".to_string(),
+                description: "Distribute selected entities evenly along Z axis with given spacing, sorted by current Z; returns distributed_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "spacing": { "type": "number" } },
+                    "required": ["spacing"]
+                })),
+                handler: Box::new(move |input| {
+                    let spacing = input["spacing"].as_f64().unwrap_or(1.0) as f32;
+                    let s = snap_dsaz.lock().unwrap();
+                    let sel = sel_dsaz.lock().unwrap();
+                    let mut q = queue64.lock().unwrap();
+                    let mut entries: Vec<(u64, [f32; 3])> = sel.iter()
+                        .filter_map(|&id| s.entities.iter().find(|e| e.id == id))
+                        .filter_map(|e| e.position.map(|p| (e.id, p)))
+                        .collect();
+                    entries.sort_by(|a, b| a.1[2].partial_cmp(&b.1[2]).unwrap_or(std::cmp::Ordering::Equal));
+                    let count = entries.len();
+                    for (i, (id, pos)) in entries.into_iter().enumerate() {
+                        let new_z = i as f32 * spacing;
+                        q.push(crate::snapshot::EditorCommand::SetPosition { entity_id: id, x: pos[0], y: pos[1], z: new_z });
+                    }
+                    McpToolOutput::success(json!({"distributed_count": count}))
+                }),
+            });
+
             // align_selection_to_y
             let snap_asty = snapshot.clone();
             let sel_asty = selection.clone();
@@ -9953,6 +10015,175 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_distribute_selection_along_x_spaces_entities_evenly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn 3 entities at random X positions; after distribution with spacing=5, they should be at 0, 5, 10
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "First",  "position": [7.0, 0.0, 0.0]},
+                        {"name": "Second", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Third",  "position": [4.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let ids_all: Vec<u64> = all.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+
+        // Select all
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            for &id in &ids_all {
+                m.execute("select_entity", json!({"entity_id": id}))
+                    .unwrap();
+            }
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("distribute_selection_along_x", json!({"spacing": 5.0}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["distributed_count"].as_u64().unwrap(), 3);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut xs: Vec<f32> = ents
+            .iter()
+            .map(|e| e["position"].as_array().unwrap()[0].as_f64().unwrap() as f32)
+            .collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // Should be [0, 5, 10] (sorted by original X: Second=1, Third=4, First=7 → spaced at 0, 5, 10)
+        assert!(
+            (xs[1] - xs[0] - 5.0).abs() < 0.01,
+            "spacing between first and second = 5"
+        );
+        assert!(
+            (xs[2] - xs[1] - 5.0).abs() < 0.01,
+            "spacing between second and third = 5"
+        );
+    }
+
+    #[test]
+    fn mcp_distribute_selection_along_z_spaces_entities_evenly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "P1", "position": [0.0, 0.0, 9.0]},
+                        {"name": "P2", "position": [0.0, 0.0, 3.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let ids_all: Vec<u64> = all.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            for &id in &ids_all {
+                m.execute("select_entity", json!({"entity_id": id}))
+                    .unwrap();
+            }
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("distribute_selection_along_z", json!({"spacing": 10.0}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["distributed_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut zs: Vec<f32> = ents
+            .iter()
+            .map(|e| e["position"].as_array().unwrap()[2].as_f64().unwrap() as f32)
+            .collect();
+        zs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((zs[1] - zs[0] - 10.0).abs() < 0.01, "Z spacing = 10");
     }
 
     #[test]

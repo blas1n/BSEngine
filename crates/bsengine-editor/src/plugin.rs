@@ -1647,6 +1647,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // set_entity_scale_uniform
+            let queue31 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_entity_scale_uniform".to_string(),
+                description: "Set uniform scale (same value for X, Y, Z) on an entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "scale": { "type": "number" }
+                    },
+                    "required": ["entity_id", "scale"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = match input["scale"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing scale"),
+                    };
+                    queue31.lock().unwrap().push(EditorCommand::SetScale {
+                        entity_id,
+                        sx: s,
+                        sy: s,
+                        sz: s,
+                    });
+                    McpToolOutput::success(
+                        json!({"status": "queued", "entity_id": entity_id, "scale": s}),
+                    )
+                }),
+            });
+
+            // get_entities_above_y
+            let snap_geay = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_above_y".to_string(),
+                description:
+                    "Return all entities whose Y position is strictly greater than the given value"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = match input["y"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing y"),
+                    };
+                    let s = snap_geay.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map(|[_, ey, _]| ey > threshold).unwrap_or(false))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_name_containing
             let snap_gewnc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6084,6 +6146,111 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_set_entity_scale_uniform_applies_same_value_to_all_axes() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Uniform", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Uniform"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_entity_scale_uniform",
+                    json!({"entity_id": entity_id, "scale": 3.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_scale", json!({"entity_id": entity_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let s = &out.content["scale"];
+        assert!((s[0].as_f64().unwrap() - 3.0).abs() < 1e-3, "sx=3");
+        assert!((s[1].as_f64().unwrap() - 3.0).abs() < 1e-3, "sy=3");
+        assert!((s[2].as_f64().unwrap() - 3.0).abs() < 1e-3, "sz=3");
+    }
+
+    #[test]
+    fn mcp_get_entities_above_y_returns_entities_with_higher_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "High", "position": [0.0, 10.0, 0.0]},
+                        {"name": "Low",  "position": [0.0,  1.0, 0.0]},
+                        {"name": "Zero", "position": [0.0,  0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_above_y", json!({"y": 5.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"High"), "High above y=5");
+        assert!(!names.contains(&"Low"), "Low below y=5");
+        assert!(!names.contains(&"Zero"), "Zero below y=5");
     }
 
     #[test]

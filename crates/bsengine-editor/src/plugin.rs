@@ -366,6 +366,32 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::SetEntityTransform {
+                entity_id,
+                position,
+                rotation,
+                scale,
+            } => {
+                for (e, mut t) in params.p1().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        if let Some([x, y, z]) = position {
+                            t.translation = glam::Vec3::new(x, y, z);
+                        }
+                        if let Some([rx, ry, rz]) = rotation {
+                            t.rotation = glam::Quat::from_euler(
+                                glam::EulerRot::XYZ,
+                                rx.to_radians(),
+                                ry.to_radians(),
+                                rz.to_radians(),
+                            );
+                        }
+                        if let Some([sx, sy, sz]) = scale {
+                            t.scale = glam::Vec3::new(sx, sy, sz);
+                        }
+                        break;
+                    }
+                }
+            }
             EditorCommand::BatchSpawn { entries } => {
                 for (name, pos) in entries {
                     if let Some([x, y, z]) = pos {
@@ -1568,6 +1594,59 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // set_entity_transform
+            let queue29 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_entity_transform".to_string(),
+                description: "Set position, rotation (degrees), and/or scale for an entity in one call (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "position": {
+                            "type": "array",
+                            "items": { "type": "number" },
+                            "minItems": 3, "maxItems": 3
+                        },
+                        "rotation": {
+                            "type": "array",
+                            "items": { "type": "number" },
+                            "minItems": 3, "maxItems": 3
+                        },
+                        "scale": {
+                            "type": "array",
+                            "items": { "type": "number" },
+                            "minItems": 3, "maxItems": 3
+                        }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let parse = |v: &serde_json::Value| -> Option<[f32; 3]> {
+                        let a = v.as_array()?;
+                        Some([
+                            a.get(0)?.as_f64()? as f32,
+                            a.get(1)?.as_f64()? as f32,
+                            a.get(2)?.as_f64()? as f32,
+                        ])
+                    };
+                    let position = parse(&input["position"]);
+                    let rotation = parse(&input["rotation"]);
+                    let scale = parse(&input["scale"]);
+                    queue29.lock().unwrap().push(EditorCommand::SetEntityTransform {
+                        entity_id,
+                        position,
+                        rotation,
+                        scale,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
             // get_entities_by_type
             let snap_type = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2286,6 +2365,85 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_set_entity_transform_applies_all_fields() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "Cube", "position": [0.0, 0.0, 0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Cube"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_entity_transform",
+                    json!({
+                        "entity_id": entity_id,
+                        "position": [5.0, 6.0, 7.0],
+                        "scale": [2.0, 2.0, 2.0]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entity = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let e = &entity.content["entity"];
+        let pos = e["position"].as_array().unwrap();
+        assert!(
+            (pos[0].as_f64().unwrap() - 5.0).abs() < 1e-4,
+            "x should be 5"
+        );
+        assert!(
+            (pos[1].as_f64().unwrap() - 6.0).abs() < 1e-4,
+            "y should be 6"
+        );
+        let scale = e["scale"].as_array().unwrap();
+        assert!(
+            (scale[0].as_f64().unwrap() - 2.0).abs() < 1e-4,
+            "scale x should be 2"
+        );
     }
 
     #[test]

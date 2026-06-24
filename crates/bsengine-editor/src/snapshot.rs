@@ -120,6 +120,12 @@ pub enum EditorCommand {
         sy: f32,
         sz: f32,
     },
+    SetEntityTransform {
+        entity_id: u64,
+        position: Option<[f32; 3]>,
+        rotation: Option<[f32; 3]>,
+        scale: Option<[f32; 3]>,
+    },
     MoveEntity {
         entity_id: u64,
         dx: f32,

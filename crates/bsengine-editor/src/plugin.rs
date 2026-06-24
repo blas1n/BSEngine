@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_scene_statistics
+            let snap_gss = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_statistics".to_string(),
+                description: "Return aggregated counts for the current scene: total entities, lights, cameras, meshes".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gss.lock().unwrap();
+                    let total = s.entities.len() as u64;
+                    let light_count = s.entities.iter().filter(|e| e.light_type.is_some()).count() as u64;
+                    let camera_count = s.entities.iter().filter(|e| e.camera_fov.is_some()).count() as u64;
+                    let mesh_count = s.entities.iter().filter(|e| e.mesh_id.is_some()).count() as u64;
+                    McpToolOutput::success(json!({
+                        "total_entities": total,
+                        "light_count": light_count,
+                        "camera_count": camera_count,
+                        "mesh_count": mesh_count
+                    }))
+                }),
+            });
+
+            // get_entities_with_same_tag_as
+            let snap_gewsta = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_same_tag_as".to_string(),
+                description: "Return entities that share at least one tag with the given entity (excluding the entity itself)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gewsta.lock().unwrap();
+                    let target_tags: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    if target_tags.is_empty() {
+                        return McpToolOutput::success(json!({"entities": []}));
+                    }
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.id != target_id)
+                        .filter(|e| e.tags.iter().any(|t| target_tags.contains(t.as_str())))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_total_camera_count
             let snap_gtcc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7661,6 +7711,110 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_scene_statistics_returns_aggregated_scene_counts() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Plain"})).unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_statistics", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["total_entities"].as_u64().unwrap(), 3);
+        assert_eq!(out.content["camera_count"].as_u64().unwrap(), 1);
+        assert_eq!(out.content["light_count"].as_u64().unwrap(), 1);
+    }
+
+    #[test]
+    fn mcp_get_entities_with_same_tag_as_returns_entities_sharing_a_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b, id_c) = (ids[0], ids[1], ids[2]);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": id_a, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": id_b, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("tag_entity", json!({"entity_id": id_c, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_same_tag_as", json!({"entity_id": id_a}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        // should return B (shares "hero") but not A itself and not C
+        assert_eq!(ents.len(), 1, "only B shares 'hero' with A");
+        assert_eq!(ents[0]["id"].as_u64().unwrap(), id_b);
     }
 
     #[test]

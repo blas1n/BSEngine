@@ -1647,6 +1647,49 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_position
+            let snap_gep = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_position".to_string(),
+                description: "Return only the position [x,y,z] of the specified entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gep.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"position": e.position, "entity_id": entity_id}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_entities_with_mesh
+            let snap_gewm = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_mesh".to_string(),
+                description: "Return all entities that have a mesh renderer attached".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewm.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.mesh_id.is_some())
+                        .map(|e| json!({"id": e.id, "name": e.name, "mesh_id": e.mesh_id}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entity_rotation
             let snap_ger = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3940,6 +3983,144 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_position_returns_position_only() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "PosOnly", "position": [5.0, 6.0, 7.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("PosOnly"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_position", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let pos = &out.content["position"];
+        assert!((pos[0].as_f64().unwrap() - 5.0).abs() < 1e-3, "x=5");
+        assert!((pos[1].as_f64().unwrap() - 6.0).abs() < 1e-3, "y=6");
+        assert!((pos[2].as_f64().unwrap() - 7.0).abs() < 1e-3, "z=7");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_mesh_returns_meshed_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WithMesh"},
+                        {"name": "NoMesh"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mesh_eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("WithMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": mesh_eid, "mesh_id": 99}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_mesh", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&mesh_eid), "WithMesh should have mesh");
+        let no_mesh_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(!ids.contains(&no_mesh_id), "NoMesh should not have mesh");
     }
 
     #[test]

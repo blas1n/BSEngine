@@ -298,15 +298,18 @@ impl WgpuSurface {
             );
         }
 
-        let output = self.surface.get_current_texture().map_err(|e| e.to_string())?;
+        let output = self
+            .surface
+            .get_current_texture()
+            .map_err(|e| e.to_string())?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder =
-            self.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render encoder"),
-                });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("render encoder"),
+            });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),

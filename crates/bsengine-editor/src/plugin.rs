@@ -738,6 +738,52 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({ "entities": matches }))
                 }),
             });
+
+            // query_entities
+            let snap_query = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "query_entities".to_string(),
+                description: "Filter entities by component presence or light type (all filters optional, AND-combined)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "has_mesh":     { "type": "boolean" },
+                        "has_light":    { "type": "boolean" },
+                        "has_position": { "type": "boolean" },
+                        "light_type":   { "type": "string", "enum": ["point", "directional", "spot"] }
+                    }
+                })),
+                handler: Box::new(move |input| {
+                    let s = snap_query.lock().unwrap();
+                    let results: Vec<_> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            if let Some(v) = input["has_mesh"].as_bool() {
+                                if e.mesh_id.is_some() != v { return false; }
+                            }
+                            if let Some(v) = input["has_light"].as_bool() {
+                                if e.light_type.is_some() != v { return false; }
+                            }
+                            if let Some(v) = input["has_position"].as_bool() {
+                                if e.position.is_some() != v { return false; }
+                            }
+                            if let Some(lt) = input["light_type"].as_str() {
+                                if e.light_type.as_deref() != Some(lt) { return false; }
+                            }
+                            true
+                        })
+                        .map(|e| json!({
+                            "id": e.id,
+                            "name": e.name,
+                            "position": e.position,
+                            "mesh_id": e.mesh_id,
+                            "light_type": e.light_type,
+                        }))
+                        .collect();
+                    McpToolOutput::success(json!({ "entities": results }))
+                }),
+            });
         }
     }
 }
@@ -1039,6 +1085,54 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_query_entities_filters_by_has_mesh() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut()
+            .spawn(bsengine_render::MeshRenderer { mesh_id: 10 });
+        app.world_mut().spawn(bsengine_core::PointLight::default());
+        app.world_mut()
+            .spawn(bsengine_scene::Name("NoMesh".to_string()));
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("query_entities", json!({"has_mesh": true}))
+            .expect("query_entities not found");
+        assert!(result.is_ok());
+        let entities = result.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1, "only 1 entity has mesh");
+        assert_eq!(entities[0]["mesh_id"], 10);
+    }
+
+    #[test]
+    fn mcp_query_entities_filters_by_light_type() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.world_mut().spawn(bsengine_core::PointLight::default());
+        app.world_mut()
+            .spawn(bsengine_core::DirectionalLight::default());
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("query_entities", json!({"light_type": "point"}))
+            .expect("query_entities not found");
+        assert!(result.is_ok());
+        let entities = result.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0]["light_type"], "point");
     }
 
     #[test]

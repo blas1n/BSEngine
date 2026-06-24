@@ -1647,6 +1647,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // expand_selection_to_siblings
+            let snap_ests = snapshot.clone();
+            let sel_ests = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "expand_selection_to_siblings".to_string(),
+                description: "Add all entities sharing the same parent as any selected entity to the selection".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_ests.lock().unwrap();
+                    let mut sel = sel_ests.lock().unwrap();
+                    let selected_ids: Vec<u64> = sel.iter().cloned().collect();
+                    let selected_parents: std::collections::HashSet<Option<u64>> = selected_ids.iter()
+                        .filter_map(|id| s.entities.iter().find(|e| e.id == *id))
+                        .map(|e| e.parent_id)
+                        .collect();
+                    let mut added = 0u64;
+                    for e in &s.entities {
+                        if selected_parents.contains(&e.parent_id) && !sel.contains(&e.id) {
+                            sel.insert(e.id);
+                            added += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"added_count": added}))
+                }),
+            });
+
+            // get_entities_at_same_level_as
+            let snap_geasla = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_at_same_level_as".to_string(),
+                description: "Return all entities at the same depth as the given entity (same number of ancestors)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(u64::MAX);
+                    let s = snap_geasla.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, Option<u64>> = s.entities.iter()
+                        .map(|e| (e.id, e.parent_id))
+                        .collect();
+                    let depth_of = |mut id: u64| {
+                        let mut d = 0usize;
+                        while let Some(Some(pid)) = parent_map.get(&id) {
+                            d += 1;
+                            id = *pid;
+                        }
+                        d
+                    };
+                    let target_depth = depth_of(target_id);
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| depth_of(e.id) == target_depth)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_non_default_rotation
             let snap_gewndr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8826,6 +8885,183 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_expand_selection_to_siblings_adds_all_same_parent_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root → [A, B, C]; Unrelated (no parent)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Unrelated"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, a_id, b_id, c_id) = (id_of("Root"), id_of("A"), id_of("B"), id_of("C"));
+
+        // Parent A, B, C under Root
+        for child in [a_id, b_id, c_id] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child, "parent_id": root_id}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        // Select A only; expand_selection_to_siblings should add B and C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("expand_selection_to_siblings", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let sel_ids: Vec<u64> = sel_out.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(sel_ids.contains(&a_id), "A in selection");
+        assert!(sel_ids.contains(&b_id), "B added as sibling");
+        assert!(sel_ids.contains(&c_id), "C added as sibling");
+    }
+
+    #[test]
+    fn mcp_get_entities_at_same_level_as_returns_same_depth_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root → [A, B]; Root2 → [C]; D (depth=0)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Root2"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "D"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, root2_id, a_id, b_id, c_id) = (
+            id_of("Root"),
+            id_of("Root2"),
+            id_of("A"),
+            id_of("B"),
+            id_of("C"),
+        );
+        let d_id = id_of("D");
+
+        for (child, parent) in [(a_id, root_id), (b_id, root_id), (c_id, root2_id)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child, "parent_id": parent}),
+                )
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        // Query at same level as A (depth=1) — should include A, B, C but not Root, Root2, D
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_at_same_level_as", json!({"entity_id": a_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&a_id), "A included");
+        assert!(ids.contains(&b_id), "B same depth");
+        assert!(ids.contains(&c_id), "C same depth");
+        assert!(!ids.contains(&root_id), "Root (depth=0) excluded");
+        assert!(!ids.contains(&root2_id), "Root2 (depth=0) excluded");
+        assert!(!ids.contains(&d_id), "D (depth=0) excluded");
     }
 
     #[test]

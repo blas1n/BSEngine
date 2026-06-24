@@ -1647,6 +1647,73 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // set_all_visible
+            let snap_sav = snapshot.clone();
+            let queue_sav = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_all_visible".to_string(),
+                description: "Set visibility of every entity in the scene".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "visible": { "type": "boolean" } },
+                    "required": ["visible"]
+                })),
+                handler: Box::new(move |input| {
+                    let visible = match input["visible"].as_bool() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing visible"),
+                    };
+                    let ids: Vec<u64> = {
+                        let s = snap_sav.lock().unwrap();
+                        s.entities.iter().map(|e| e.id).collect()
+                    };
+                    let count = ids.len() as u64;
+                    let mut q = queue_sav.lock().unwrap();
+                    for id in ids {
+                        q.push(crate::snapshot::EditorCommand::SetVisible {
+                            entity_id: id,
+                            visible,
+                        });
+                    }
+                    McpToolOutput::success(json!({"updated_count": count}))
+                }),
+            });
+
+            // get_entities_at_depth
+            let snap_gead = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_at_depth".to_string(),
+                description: "Return entities at a specific parent-chain depth (0 = root, 1 = first-level children, etc.)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "depth": { "type": "integer", "minimum": 0 } },
+                    "required": ["depth"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_depth = match input["depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_gead.lock().unwrap();
+                    let entity_depth = |id: u64| -> u64 {
+                        let mut current = id;
+                        let mut depth = 0u64;
+                        for _ in 0..64 {
+                            match s.entities.iter().find(|e| e.id == current).and_then(|e| e.parent_id) {
+                                Some(pid) => { current = pid; depth += 1; }
+                                None => break,
+                            }
+                        }
+                        depth
+                    };
+                    let ents: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| entity_depth(e.id) == target_depth)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"depth": target_depth, "entities": ents}))
+                }),
+            });
+
             // get_bounding_box
             let snap_gbb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4933,6 +5000,188 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_set_all_visible_toggles_all_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "VisA"},
+                        {"name": "VisB"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        // hide all
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("set_all_visible", json!({"visible": false}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            for e in &ents {
+                assert_eq!(
+                    e["visible"].as_bool().unwrap_or(true),
+                    false,
+                    "all should be hidden"
+                );
+            }
+        }
+        // show all
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("set_all_visible", json!({"visible": true}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for e in &ents {
+            assert_eq!(
+                e["visible"].as_bool().unwrap_or(false),
+                true,
+                "all should be visible"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_get_entities_at_depth_returns_correct_level() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+        }
+        app.update();
+        app.update();
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+        }
+        app.update();
+        app.update();
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let depth0 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_at_depth", json!({"depth": 0}))
+            .unwrap();
+        let ids0: Vec<u64> = depth0.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids0.contains(&root_id), "Root at depth 0");
+        assert!(!ids0.contains(&child_id), "Child not at depth 0");
+
+        let depth1 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_at_depth", json!({"depth": 1}))
+            .unwrap();
+        let ids1: Vec<u64> = depth1.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids1.contains(&child_id), "Child at depth 1");
+        assert!(!ids1.contains(&root_id), "Root not at depth 1");
     }
 
     #[test]

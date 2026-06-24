@@ -1647,6 +1647,63 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_world_position
+            let snap_gwp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_world_position".to_string(),
+                description: "Return the accumulated world position by summing local positions up the parent chain (translation-only approximation)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gwp.lock().unwrap();
+                    if s.entities.iter().find(|e| e.id == entity_id).is_none() {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let mut world = [0.0f32; 3];
+                    let mut current_id = entity_id;
+                    for _ in 0..32 {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
+                            if let Some([lx, ly, lz]) = e.position {
+                                world[0] += lx; world[1] += ly; world[2] += lz;
+                            }
+                            match e.parent_id {
+                                Some(pid) => current_id = pid,
+                                None => break,
+                            }
+                        } else { break; }
+                    }
+                    McpToolOutput::success(json!({"world_position": world, "entity_id": entity_id}))
+                }),
+            });
+
+            // list_tag_names
+            let snap_ltn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "list_tag_names".to_string(),
+                description: "Return all unique tag names used across all entities in the scene"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_ltn.lock().unwrap();
+                    let mut seen = std::collections::HashSet::new();
+                    let tags: Vec<&str> = s
+                        .entities
+                        .iter()
+                        .flat_map(|e| e.tags.iter().map(|t| t.as_str()))
+                        .filter(|&t| seen.insert(t))
+                        .collect();
+                    let tags_owned: Vec<String> = tags.iter().map(|&t| t.to_string()).collect();
+                    McpToolOutput::success(json!({"tags": tags_owned}))
+                }),
+            });
+
             // mirror_entity
             let snap_mir = snapshot.clone();
             let queue_mir = cmd_queue.clone();
@@ -3275,6 +3332,188 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entity_world_position_sums_parent_chain() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WPRoot", "position": [10.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("WPRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WPChild", "position": [5.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("WPChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_world_position", json!({"entity_id": child_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let wp = &out.content["world_position"];
+        assert!(
+            (wp[0].as_f64().unwrap() - 15.0).abs() < 1e-3,
+            "world x should be 10+5=15"
+        );
+    }
+
+    #[test]
+    fn mcp_list_tag_names_returns_unique_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "TagA", "position": [0.0,0.0,0.0]},
+                        {"name": "TagB", "position": [1.0,0.0,0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("tag_entity", json!({"entity_id": id_a, "tag": "enemy"}))
+                .unwrap();
+            mcp.execute("tag_entity", json!({"entity_id": id_b, "tag": "enemy"}))
+                .unwrap();
+            mcp.execute("tag_entity", json!({"entity_id": id_a, "tag": "boss"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_tag_names", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let tags: Vec<&str> = out.content["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(tags.contains(&"enemy"), "should contain enemy");
+        assert!(tags.contains(&"boss"), "should contain boss");
+        // deduplication: "enemy" appears on 2 entities but should only be listed once
+        let enemy_count = tags.iter().filter(|&&t| t == "enemy").count();
+        assert_eq!(enemy_count, 1, "enemy should appear only once");
     }
 
     #[test]

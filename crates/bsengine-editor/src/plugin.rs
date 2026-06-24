@@ -1647,6 +1647,98 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // copy_tags_from_entity
+            let snap_cte = snapshot.clone();
+            let queue30 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "copy_tags_from_entity".to_string(),
+                description: "Copy all tags from a source entity to a target entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "source_id": { "type": "integer" },
+                        "target_id": { "type": "integer" }
+                    },
+                    "required": ["source_id", "target_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let source_id = match input["source_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing source_id"),
+                    };
+                    let target_id = match input["target_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing target_id"),
+                    };
+                    let tags = {
+                        let s = snap_cte.lock().unwrap();
+                        match s.entities.iter().find(|e| e.id == source_id) {
+                            Some(e) => e.tags.clone(),
+                            None => return McpToolOutput::error("source entity not found"),
+                        }
+                    };
+                    let count = tags.len() as u64;
+                    let mut q = queue30.lock().unwrap();
+                    for tag in tags {
+                        q.push(EditorCommand::TagEntity {
+                            entity_id: target_id,
+                            tag,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "tags_copied": count}))
+                }),
+            });
+
+            // get_entity_position_distance
+            let snap_gepd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_position_distance".to_string(),
+                description: "Return the Euclidean distance between two entities' positions"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id_a": { "type": "integer" },
+                        "entity_id_b": { "type": "integer" }
+                    },
+                    "required": ["entity_id_a", "entity_id_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let id_a = match input["entity_id_a"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id_a"),
+                    };
+                    let id_b = match input["entity_id_b"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id_b"),
+                    };
+                    let s = snap_gepd.lock().unwrap();
+                    let pos_a = match s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == id_a)
+                        .and_then(|e| e.position)
+                    {
+                        Some(p) => p,
+                        None => return McpToolOutput::error("entity A has no position"),
+                    };
+                    let pos_b = match s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == id_b)
+                        .and_then(|e| e.position)
+                    {
+                        Some(p) => p,
+                        None => return McpToolOutput::error("entity B has no position"),
+                    };
+                    let dx = pos_b[0] - pos_a[0];
+                    let dy = pos_b[1] - pos_a[1];
+                    let dz = pos_b[2] - pos_a[2];
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                    McpToolOutput::success(json!({"distance": dist}))
+                }),
+            });
+
             // select_entities_with_tag
             let snap_sewt = snapshot.clone();
             let sel_sewt = selection.clone();
@@ -5842,6 +5934,158 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_copy_tags_from_entity_copies_all_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "TagSource"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "TagDest"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (src_id, dst_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let s = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagSource"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let d = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TagDest"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (s, d)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": src_id, "tag": "special"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "copy_tags_from_entity",
+                    json!({"source_id": src_id, "target_id": dst_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_tags", json!({"entity_id": dst_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let tags: Vec<&str> = out.content["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.as_str())
+            .collect();
+        assert!(tags.contains(&"special"), "special tag copied to dest");
+    }
+
+    #[test]
+    fn mcp_get_entity_position_distance_returns_euclidean() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "DistA", "position": [0.0, 0.0, 0.0]},
+                        {"name": "DistB", "position": [3.0, 4.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (da_id, db_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DistA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DistB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_position_distance",
+                json!({"entity_id_a": da_id, "entity_id_b": db_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!(
+            (dist - 5.0).abs() < 1e-3,
+            "distance should be 5.0 (3-4-5 triangle), got {dist}"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::snapshot::{
     EditorCommand, EditorCommandQueueResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
-    SharedCommandQueue, SharedSnapshot, Tags,
+    SharedCommandQueue, SharedSnapshot, Tags, Visible,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
@@ -27,13 +27,14 @@ fn update_editor_snapshot(
         Option<&Camera>,
         Option<&Parent>,
         Option<&Tags>,
+        Option<&Visible>,
     )>,
 ) {
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags)| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis)| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -68,6 +69,7 @@ fn update_editor_snapshot(
                     camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
                     parent_id: parent.map(|p| p.0.index() as u64),
                     tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
+                    visible: vis.map(|v| v.0).unwrap_or(true),
                 }
             },
         )
@@ -281,6 +283,12 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::SetVisible { entity_id, visible } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).insert(Visible(visible));
+                }
+            }
             EditorCommand::SetParent {
                 entity_id,
                 parent_id,
@@ -492,6 +500,7 @@ impl Plugin for EditorPlugin {
                             "scale": e.scale,
                             "parent_id": e.parent_id,
                             "tags": e.tags,
+                            "visible": e.visible,
                             "light_type": e.light_type,
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
@@ -1480,6 +1489,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // hide_entity
+            let queue27 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "hide_entity".to_string(),
+                description: "Mark an entity as hidden (visible=false, applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue27.lock().unwrap().push(EditorCommand::SetVisible {
+                        entity_id,
+                        visible: false,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // show_entity
+            let queue28 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "show_entity".to_string(),
+                description: "Mark an entity as visible (visible=true, applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue28.lock().unwrap().push(EditorCommand::SetVisible {
+                        entity_id,
+                        visible: true,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
             // set_parent
             let queue23 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -1841,6 +1902,88 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_hide_and_show_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Ghost"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Ghost"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        // default visible = true
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entity = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Ghost"))
+                .unwrap();
+            assert_eq!(entity["visible"], true);
+        }
+
+        // hide
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entity = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Ghost"))
+                .unwrap();
+            assert_eq!(entity["visible"], false, "entity should be hidden");
+        }
     }
 
     #[test]

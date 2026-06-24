@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_by_tag
+            let snap_debt = snapshot.clone();
+            let sel_debt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_by_tag".to_string(),
+                description: "Remove from selection all entities that have the given tag"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = input["tag"].as_str().unwrap_or("").to_string();
+                    let s = snap_debt.lock().unwrap();
+                    let mut sel = sel_debt.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| sel.contains(&e.id) && e.tags.iter().any(|t| t == &tag))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    for id in to_remove {
+                        sel.remove(&id);
+                    }
+                    McpToolOutput::success(json!({"deselected_count": count}))
+                }),
+            });
+
+            // get_entities_with_tag_prefix
+            let snap_gewtp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag_prefix".to_string(),
+                description:
+                    "Return entities that have at least one tag starting with the given prefix"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewtp.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.iter().any(|t| t.starts_with(&prefix)))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_first_entity_with_tag
             let snap_gfewt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8382,6 +8437,155 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_by_tag_removes_tagged_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b, id_c) = (ids[0], ids[1], ids[2]);
+
+        // Tag A and B with "hero"
+        for id in [id_a, id_b] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        // Select all three
+        for id in [id_a, id_b, id_c] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id}))
+                .unwrap();
+        }
+
+        // Deselect those tagged "hero"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_by_tag", json!({"tag": "hero"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["deselected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(!selected.contains(&id_a), "A deselected");
+        assert!(!selected.contains(&id_b), "B deselected");
+        assert!(selected.contains(&id_c), "C still selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_tag_prefix_returns_matching_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b, id_c) = (ids[0], ids[1], ids[2]);
+
+        // A: "team:red", B: "team:blue", C: "solo"
+        for (id, tag) in [(id_a, "team:red"), (id_b, "team:blue"), (id_c, "solo")] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_tag_prefix", json!({"prefix": "team:"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let result_ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(result_ids.contains(&id_a), "A has team: prefix");
+        assert!(result_ids.contains(&id_b), "B has team: prefix");
+        assert!(
+            !result_ids.contains(&id_c),
+            "C has solo tag, no prefix match"
+        );
     }
 
     #[test]

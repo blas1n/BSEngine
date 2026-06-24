@@ -1647,6 +1647,84 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_name_containing
+            let snap_gewnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_containing".to_string(),
+                description:
+                    "Return all entities whose name contains the given substring (case-sensitive)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "substring": { "type": "string" } },
+                    "required": ["substring"]
+                })),
+                handler: Box::new(move |input| {
+                    let sub = match input["substring"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing substring"),
+                    };
+                    let s = snap_gewnc.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.contains(&*sub))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entity_count_in_radius
+            let snap_gecir = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_count_in_radius".to_string(),
+                description:
+                    "Return the count of entities within a given radius of a world position"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let x = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let y = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let z = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let radius = match input["radius"].as_f64() {
+                        Some(r) => r as f32,
+                        None => return McpToolOutput::error("missing radius"),
+                    };
+                    let r2 = radius * radius;
+                    let s = snap_gecir.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            if let Some([ex, ey, ez]) = e.position {
+                                let dx = ex - x;
+                                let dy = ey - y;
+                                let dz = ez - z;
+                                dx * dx + dy * dy + dz * dz <= r2
+                            } else {
+                                false
+                            }
+                        })
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_near_position
             let snap_genp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6006,6 +6084,82 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_name_containing_returns_matches() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "EnemySoldier"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "EnemyArcher"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "FriendlyUnit"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_name_containing",
+                json!({"substring": "Enemy"}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"EnemySoldier"), "EnemySoldier matched");
+        assert!(names.contains(&"EnemyArcher"), "EnemyArcher matched");
+        assert!(!names.contains(&"FriendlyUnit"), "FriendlyUnit excluded");
+    }
+
+    #[test]
+    fn mcp_get_entity_count_in_radius_returns_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "RadA", "position": [1.0, 0.0, 0.0]},
+                        {"name": "RadB", "position": [2.0, 0.0, 0.0]},
+                        {"name": "RadC", "position": [50.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_count_in_radius",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "radius": 5.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let count = out.content["count"].as_u64().unwrap();
+        assert_eq!(count, 2, "2 entities within radius 5");
     }
 
     #[test]

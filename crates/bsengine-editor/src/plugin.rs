@@ -1647,6 +1647,40 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_subtree_size
+            let snap_gests = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_subtree_size".to_string(),
+                description: "Count entity + all its descendants (BFS through parent_id links)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let root_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gests.lock().unwrap();
+                    let mut queue = vec![root_id];
+                    let mut count = 0u64;
+                    while let Some(current) = queue.pop() {
+                        count += 1;
+                        for e in &s.entities {
+                            if e.parent_id == Some(current) {
+                                queue.push(e.id);
+                            }
+                        }
+                        if count > 10_000 {
+                            break;
+                        }
+                    }
+                    McpToolOutput::success(json!({"entity_id": root_id, "size": count}))
+                }),
+            });
+
             // get_entity_sibling_count
             let snap_gesc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4525,6 +4559,219 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_leaf_entities_returns_entities_with_no_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "LeafParent"},
+                        {"name": "LeafChild"},
+                        {"name": "LeafOrphan"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (parent_id, child_id, orphan_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let p = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("LeafParent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("LeafChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let o = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("LeafOrphan"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (p, c, o)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_leaf_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(
+            !ids.contains(&parent_id),
+            "LeafParent has a child → not a leaf"
+        );
+        assert!(ids.contains(&child_id), "LeafChild has no children → leaf");
+        assert!(
+            ids.contains(&orphan_id),
+            "LeafOrphan has no children → leaf"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_subtree_size_counts_self_and_descendants() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SubRoot"},
+                        {"name": "SubChildA"},
+                        {"name": "SubChildB"},
+                        {"name": "SubGrandChild"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (root_id, ca_id, cb_id, gc_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let r = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SubRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let ca = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SubChildA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let cb = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SubChildB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let gc = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SubGrandChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (r, ca, cb, gc)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": ca_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": cb_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": gc_id, "parent_id": ca_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_subtree_size", json!({"entity_id": root_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["size"].as_u64().unwrap(),
+            4,
+            "root + 2 children + 1 grandchild = 4"
+        );
     }
 
     #[test]

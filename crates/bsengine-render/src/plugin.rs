@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bevy_ecs::prelude::{EventReader, Query};
-use bsengine_core::{Camera, DirectionalLight, Material, Transform};
+use bevy_ecs::prelude::{EventReader, Query, World};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry, LightData, WgpuSurfaceResource};
 use bsengine_window::WindowResized;
@@ -8,12 +8,21 @@ use glam::Mat4;
 
 use crate::components::MeshRenderer;
 
+fn propagate_transforms_system(world: &mut World) {
+    bsengine_core::propagate_global_transforms(world);
+}
+
 fn render_frame(
     surface: Option<Res<WgpuSurfaceResource>>,
     registry: Option<Res<GpuMeshRegistry>>,
     tex_registry: Option<Res<GpuTextureRegistry>>,
     camera_query: Query<(&Camera, &Transform)>,
-    mesh_query: Query<(&MeshRenderer, &Transform, Option<&Material>)>,
+    mesh_query: Query<(
+        &MeshRenderer,
+        &Transform,
+        Option<&GlobalTransform>,
+        Option<&Material>,
+    )>,
     light_query: Query<&DirectionalLight>,
 ) {
     let (Some(surface), Some(registry)) = (surface, registry) else {
@@ -28,9 +37,10 @@ fn render_frame(
 
     let draw_calls: Vec<(u64, Mat4, Option<u64>)> = mesh_query
         .iter()
-        .map(|(mr, t, mat)| {
+        .map(|(mr, t, gt, mat)| {
+            let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
             let tex_id = mat.and_then(|m| m.texture_id);
-            (mr.mesh_id, t.to_matrix(), tex_id)
+            (mr.mesh_id, model, tex_id)
         })
         .collect();
 
@@ -68,7 +78,10 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<WindowResized>();
         app.add_systems(Update, update_camera_aspect);
-        app.add_systems(PostUpdate, render_frame);
+        app.add_systems(
+            PostUpdate,
+            (propagate_transforms_system, render_frame).chain(),
+        );
     }
 }
 
@@ -104,7 +117,6 @@ mod tests {
         app.add_plugins(RenderPlugin);
 
         let cam_entity = app.world_mut().spawn(Camera::default()).id();
-        // 800x600 (4:3) is different from the default 16:9
         app.world_mut().send_event(WindowResized {
             width: 800,
             height: 600,

@@ -1647,6 +1647,55 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_by_name_contains
+            let snap_sebnc = snapshot.clone();
+            let sel_sebnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_name_contains".to_string(),
+                description:
+                    "Select all entities whose name contains the given substring (case-sensitive)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "substring": { "type": "string" } },
+                    "required": ["substring"]
+                })),
+                handler: Box::new(move |input| {
+                    let substr = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_sebnc.lock().unwrap();
+                    let mut sel = sel_sebnc.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if e.name.as_deref().unwrap_or("").contains(&substr) {
+                            sel.insert(e.id);
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // get_entities_with_no_children
+            let snap_gewnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_children".to_string(),
+                description: "Return all entities that have no direct children (leaf nodes)"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewnc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // move_selection_by
             let sel_msb = selection.clone();
             let queue40 = cmd_queue.clone();
@@ -8161,6 +8210,165 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_by_name_contains_selects_matching_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Hero_Sword"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Hero_Shield"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Enemy_Bow"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_by_name_contains",
+                    json!({"substring": "Hero"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(
+            selected.contains(&id_of("Hero_Sword")),
+            "Hero_Sword selected"
+        );
+        assert!(
+            selected.contains(&id_of("Hero_Shield")),
+            "Hero_Shield selected"
+        );
+        assert!(
+            !selected.contains(&id_of("Enemy_Bow")),
+            "Enemy_Bow not selected"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_no_children_returns_leaf_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Root"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "Leaf"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, leaf_id) = (id_of("Root"), id_of("Child"), id_of("Leaf"));
+
+        // Root → Child, Child → Leaf (Leaf has no children)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": leaf_id, "parent_id": child_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_children", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        let ids: Vec<u64> = ents.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+        assert!(ids.contains(&leaf_id), "Leaf is childless");
+        assert!(!ids.contains(&root_id), "Root has children");
+        assert!(!ids.contains(&child_id), "Child has children");
     }
 
     #[test]

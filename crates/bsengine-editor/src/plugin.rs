@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_above_y
+            let snap_seay = snapshot.clone();
+            let sel_seay = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_above_y".to_string(),
+                description:
+                    "Add to selection all entities whose Y position is above the given threshold"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seay.lock().unwrap();
+                    let mut sel = sel_seay.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            if p[1] > threshold {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // select_entities_below_y
+            let snap_sby = snapshot.clone();
+            let sel_sby = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_below_y".to_string(),
+                description:
+                    "Add to selection all entities whose Y position is below the given threshold"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sby.lock().unwrap();
+                    let mut sel = sel_sby.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            if p[1] < threshold {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_entities_in_x_range
             let snap_geixr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7437,6 +7497,138 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_above_y_adds_entities_with_y_above_threshold() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "High",  "position": [0.0, 10.0, 0.0]},
+                        {"name": "Low",   "position": [0.0, -5.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let high_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("High"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_entities_above_y", json!({"y": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&high_id));
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn mcp_select_entities_below_y_adds_entities_with_y_below_threshold() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "High",  "position": [0.0, 10.0, 0.0]},
+                        {"name": "Low",   "position": [0.0, -5.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let low_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Low"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_entities_below_y", json!({"y": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&low_id));
+        assert_eq!(ids.len(), 1);
     }
 
     #[test]

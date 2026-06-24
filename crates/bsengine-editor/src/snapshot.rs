@@ -60,6 +60,10 @@ pub enum EditorCommand {
         color: Option<[f32; 3]>,
         ambient: Option<[f32; 3]>,
     },
+    RenameEntity {
+        entity_id: u64,
+        name: String,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

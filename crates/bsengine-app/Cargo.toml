@@ -15,6 +15,7 @@ bsengine-window.workspace = true
 bsengine-input.workspace = true
 bsengine-rhi-wgpu.workspace = true
 bsengine-render.workspace = true
+glam.workspace = true
 
 [dev-dependencies]
 bsengine-ecs.workspace = true

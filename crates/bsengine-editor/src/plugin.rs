@@ -1647,6 +1647,67 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_in_radius
+            let snap_seir = snapshot.clone();
+            let sel_seir = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_radius".to_string(),
+                description: "Add all entities within radius of (cx,cy,cz) to the selection"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "cx": { "type": "number" },
+                        "cy": { "type": "number" },
+                        "cz": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["cx", "cy", "cz", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let cx = input["cx"].as_f64().unwrap_or(0.0) as f32;
+                    let cy = input["cy"].as_f64().unwrap_or(0.0) as f32;
+                    let cz = input["cz"].as_f64().unwrap_or(0.0) as f32;
+                    let radius = input["radius"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seir.lock().unwrap();
+                    let mut sel = sel_seir.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some([x, y, z]) = e.position {
+                            let dx = x - cx;
+                            let dy = y - cy;
+                            let dz = z - cz;
+                            if (dx * dx + dy * dy + dz * dz).sqrt() <= radius {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // is_entity_selected
+            let sel_ies = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "is_entity_selected".to_string(),
+                description: "Return whether the specified entity is currently selected"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let selected = sel_ies.lock().unwrap().contains(&entity_id);
+                    McpToolOutput::success(json!({"entity_id": entity_id, "selected": selected}))
+                }),
+            });
+
             // get_entities_in_radius
             let snap_geir = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4348,6 +4409,170 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_select_entities_in_radius_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "RadSelNear", "position": [2.0, 0.0, 0.0]},
+                        {"name": "RadSelFar",  "position": [50.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (near_id, far_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("RadSelNear"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let f = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("RadSelFar"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (n, f)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_in_radius",
+                    json!({"cx": 0.0, "cy": 0.0, "cz": 0.0, "radius": 10.0}),
+                )
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&near_id), "RadSelNear should be selected");
+        assert!(!ids.contains(&far_id), "RadSelFar should not be selected");
+    }
+
+    #[test]
+    fn mcp_is_entity_selected_returns_correct_status() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "IsSelA"},
+                        {"name": "IsSelB"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("IsSelA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("IsSelB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_a = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("is_entity_selected", json!({"entity_id": id_a}))
+            .unwrap();
+        let out_b = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("is_entity_selected", json!({"entity_id": id_b}))
+            .unwrap();
+        assert!(out_a.is_ok());
+        assert_eq!(
+            out_a.content["selected"].as_bool().unwrap(),
+            true,
+            "IsSelA should be selected"
+        );
+        assert_eq!(
+            out_b.content["selected"].as_bool().unwrap(),
+            false,
+            "IsSelB should not be selected"
+        );
     }
 
     #[test]

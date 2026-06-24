@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // scale_entity_uniform
+            let queue_seu = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "scale_entity_uniform".to_string(),
+                description: "Set sx=sy=sz=factor for the entity (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "factor": { "type": "number" }
+                    },
+                    "required": ["entity_id", "factor"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let factor = input["factor"].as_f64().unwrap_or(1.0) as f32;
+                    queue_seu.lock().unwrap().push(EditorCommand::SetScale {
+                        entity_id,
+                        sx: factor,
+                        sy: factor,
+                        sz: factor,
+                    });
+                    McpToolOutput::success(json!({"entity_id": entity_id, "factor": factor}))
+                }),
+            });
+
+            // get_entities_not_visible
+            let snap_genv = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_not_visible".to_string(),
+                description: "Return all entities whose visible flag is false".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_genv.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.visible)
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entity_camera_info
             let snap_geci = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -4235,6 +4282,153 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_scale_entity_uniform_sets_equal_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "ScaleTarget", "position": [0.0,0.0,0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ScaleTarget"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "scale_entity_uniform",
+                    json!({"entity_id": eid, "factor": 3.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_scale", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let s = &out.content["scale"];
+        assert!((s[0].as_f64().unwrap() - 3.0).abs() < 1e-3, "sx=3");
+        assert!((s[1].as_f64().unwrap() - 3.0).abs() < 1e-3, "sy=3");
+        assert!((s[2].as_f64().unwrap() - 3.0).abs() < 1e-3, "sz=3");
+    }
+
+    #[test]
+    fn mcp_get_entities_not_visible_excludes_visible_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "HideMe"},
+                        {"name": "KeepMe"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (hide_id, keep_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let h = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HideMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let k = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("KeepMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (h, k)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hide_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_not_visible", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&hide_id),
+            "HideMe should be in not-visible list"
+        );
+        assert!(
+            !ids.contains(&keep_id),
+            "KeepMe should not be in not-visible list"
+        );
     }
 
     #[test]

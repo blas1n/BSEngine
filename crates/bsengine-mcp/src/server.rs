@@ -12,27 +12,36 @@ impl McpServer {
         Self { registry }
     }
 
-    pub fn handle_message(&self, request: Value) -> Value {
-        let id = request.get("id").cloned().unwrap_or(Value::Null);
+    /// Returns None for notifications (no response should be sent).
+    pub fn handle_message(&self, request: Value) -> Option<Value> {
         let method = match request.get("method").and_then(|m| m.as_str()) {
             Some(m) => m,
-            None => return self.error_response(id, -32600, "Invalid Request"),
+            None => {
+                let id = request.get("id").cloned().unwrap_or(Value::Null);
+                return Some(self.error_response(id, -32600, "Invalid Request"));
+            }
         };
 
+        // Notifications have no "id" and must not receive a response.
+        if request.get("id").is_none() || method.starts_with("notifications/") {
+            return None;
+        }
+
+        let id = request["id"].clone();
         let params = request.get("params").cloned().unwrap_or(json!({}));
 
         let result = match method {
             "initialize" => self.handle_initialize(),
             "tools/list" => self.handle_tools_list(),
             "tools/call" => self.handle_tools_call(params),
-            _ => return self.error_response(id, -32601, "Method not found"),
+            _ => return Some(self.error_response(id, -32601, "Method not found")),
         };
 
-        json!({
+        Some(json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": result,
-        })
+        }))
     }
 
     pub fn run_stdio(&self) {
@@ -54,9 +63,10 @@ impl McpServer {
                     continue;
                 }
             };
-            let response = self.handle_message(request);
-            let _ = writeln!(stdout, "{}", response);
-            let _ = stdout.flush();
+            if let Some(response) = self.handle_message(request) {
+                let _ = writeln!(stdout, "{}", response);
+                let _ = stdout.flush();
+            }
         }
     }
 
@@ -144,9 +154,11 @@ mod tests {
     #[test]
     fn initialize_returns_protocol_version() {
         let server = make_server();
-        let resp = server.handle_message(json!({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}
-        }));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}
+            }))
+            .unwrap();
         assert_eq!(resp["jsonrpc"], "2.0");
         assert_eq!(resp["id"], 1);
         assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
@@ -156,9 +168,11 @@ mod tests {
     #[test]
     fn tools_list_returns_registered_tools() {
         let server = make_server();
-        let resp = server.handle_message(json!({
-            "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}
-        }));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}
+            }))
+            .unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["name"], "ping");
@@ -169,11 +183,13 @@ mod tests {
     #[test]
     fn tools_call_executes_tool() {
         let server = make_server();
-        let resp = server.handle_message(json!({
-            "jsonrpc": "2.0", "id": 3,
-            "method": "tools/call",
-            "params": { "name": "ping", "arguments": {} }
-        }));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 3,
+                "method": "tools/call",
+                "params": { "name": "ping", "arguments": {} }
+            }))
+            .unwrap();
         assert!(resp.get("error").is_none());
         let content = resp["result"]["content"].as_array().unwrap();
         assert_eq!(content[0]["type"], "text");
@@ -183,20 +199,24 @@ mod tests {
     #[test]
     fn tools_call_missing_tool_returns_error() {
         let server = make_server();
-        let resp = server.handle_message(json!({
-            "jsonrpc": "2.0", "id": 4,
-            "method": "tools/call",
-            "params": { "name": "no_such_tool", "arguments": {} }
-        }));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 4,
+                "method": "tools/call",
+                "params": { "name": "no_such_tool", "arguments": {} }
+            }))
+            .unwrap();
         assert_eq!(resp["result"]["isError"], true);
     }
 
     #[test]
     fn unknown_method_returns_error() {
         let server = make_server();
-        let resp = server.handle_message(json!({
-            "jsonrpc": "2.0", "id": 5, "method": "unknown/method"
-        }));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 5, "method": "unknown/method"
+            }))
+            .unwrap();
         assert!(resp.get("error").is_some());
         assert_eq!(resp["error"]["code"], -32601);
     }
@@ -204,7 +224,30 @@ mod tests {
     #[test]
     fn missing_method_returns_invalid_request() {
         let server = make_server();
-        let resp = server.handle_message(json!({ "jsonrpc": "2.0", "id": 6 }));
+        let resp = server
+            .handle_message(json!({ "jsonrpc": "2.0", "id": 6 }))
+            .unwrap();
         assert_eq!(resp["error"]["code"], -32600);
+    }
+
+    #[test]
+    fn notification_initialized_returns_none() {
+        let server = make_server();
+        let resp = server.handle_message(json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }));
+        assert!(resp.is_none(), "notifications must not produce a response");
+    }
+
+    #[test]
+    fn notification_without_id_returns_none() {
+        let server = make_server();
+        let resp = server.handle_message(json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 3 }
+        }));
+        assert!(resp.is_none());
     }
 }

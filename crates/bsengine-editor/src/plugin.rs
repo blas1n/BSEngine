@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // reset_selection_scale
+            let snap_rss = snapshot.clone();
+            let sel_rss = selection.clone();
+            let queue58 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "reset_selection_scale".to_string(),
+                description: "Set scale to (1,1,1) for all selected entities; returns reset_count"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_rss.lock().unwrap();
+                    let sel = sel_rss.lock().unwrap();
+                    let mut q = queue58.lock().unwrap();
+                    let mut count = 0u64;
+                    for &id in sel.iter() {
+                        if s.entities.iter().any(|e| e.id == id && e.scale.is_some()) {
+                            q.push(crate::snapshot::EditorCommand::SetScale {
+                                entity_id: id,
+                                sx: 1.0,
+                                sy: 1.0,
+                                sz: 1.0,
+                            });
+                            count += 1;
+                        }
+                    }
+                    McpToolOutput::success(json!({"reset_count": count}))
+                }),
+            });
+
+            // get_entities_far_from_origin
+            let snap_geffo = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_far_from_origin".to_string(),
+                description:
+                    "Return entities whose distance from world origin exceeds min_distance"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_distance": { "type": "number" } },
+                    "required": ["min_distance"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_dist = input["min_distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_geffo.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.position.map_or(false, |p| {
+                                (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() > min_dist
+                            })
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // reset_selection_position
             let snap_rsp = snapshot.clone();
             let sel_rsp = selection.clone();
@@ -9716,6 +9774,188 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_reset_selection_scale_sets_scale_to_one() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Big", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Small", "position": [5.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (big_id, small_id) = (id_of("Big"), id_of("Small"));
+
+        // Scale Big to (3,3,3) and Small to (0.5,0.5,0.5)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": big_id, "sx": 3.0, "sy": 3.0, "sz": 3.0}),
+            )
+            .unwrap();
+            m.execute(
+                "set_scale",
+                json!({"entity_id": small_id, "sx": 0.5, "sy": 0.5, "sz": 0.5}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select only Big
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": big_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("reset_selection_scale", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["reset_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let scale_of = |id: u64| {
+            let arr = ents.iter().find(|e| e["id"].as_u64() == Some(id)).unwrap()["scale"]
+                .as_array()
+                .unwrap()
+                .clone();
+            [
+                arr[0].as_f64().unwrap() as f32,
+                arr[1].as_f64().unwrap() as f32,
+                arr[2].as_f64().unwrap() as f32,
+            ]
+        };
+        let big_scale = scale_of(big_id);
+        assert!(
+            (big_scale[0] - 1.0).abs() < 0.01 && (big_scale[1] - 1.0).abs() < 0.01,
+            "Big scale reset to 1"
+        );
+        let small_scale = scale_of(small_id);
+        assert!((small_scale[0] - 0.5).abs() < 0.01, "Small scale unchanged");
+    }
+
+    #[test]
+    fn mcp_get_entities_far_from_origin_filters_by_distance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                        {"name": "AtOrigin", "position": [0.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (near_id, far_id, origin_id) = (id_of("Near"), id_of("Far"), id_of("AtOrigin"));
+
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_far_from_origin",
+                json!({"min_distance": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&far_id), "Far (distance=100) included");
+        assert!(!ids.contains(&near_id), "Near (distance=1) excluded");
+        assert!(!ids.contains(&origin_id), "AtOrigin (distance=0) excluded");
     }
 
     #[test]

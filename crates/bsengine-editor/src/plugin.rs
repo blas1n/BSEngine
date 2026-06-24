@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_path
+            let snap_path = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_path".to_string(),
+                description: "Return the ancestor chain from root to the given entity (inclusive)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_path.lock().unwrap();
+                    if s.entities.iter().find(|e| e.id == entity_id).is_none() {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let mut path: Vec<serde_json::Value> = Vec::new();
+                    let mut current_id = entity_id;
+                    for _ in 0..32 {
+                        if let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
+                            path.push(json!({"id": e.id, "name": e.name}));
+                            match e.parent_id {
+                                Some(pid) => current_id = pid,
+                                None => break,
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    path.reverse();
+                    McpToolOutput::success(json!({"path": path}))
+                }),
+            });
+
             // despawn_selected
             let sel_despawn = selection.clone();
             let queue_despawn = cmd_queue.clone();
@@ -2585,6 +2623,98 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_get_entity_path_returns_ancestor_chain() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "GrandParent"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let gp_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("GrandParent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Child"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": gp_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_path", json!({"entity_id": child_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let path = out.content["path"].as_array().unwrap();
+        assert_eq!(
+            path.len(),
+            2,
+            "path should have 2 entries: GrandParent → Child"
+        );
+        assert_eq!(path[0]["name"], "GrandParent", "first in path is root");
+        assert_eq!(path[1]["name"], "Child", "last in path is leaf");
     }
 
     #[test]

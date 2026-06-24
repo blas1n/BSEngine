@@ -1647,6 +1647,67 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // translate_selected_entities
+            let sel_tse = selection.clone();
+            let queue_tse = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "translate_selected_entities".to_string(),
+                description: "Move all selected entities by a delta offset (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "dx": { "type": "number" },
+                        "dy": { "type": "number" },
+                        "dz": { "type": "number" }
+                    },
+                    "required": ["dx", "dy", "dz"]
+                })),
+                handler: Box::new(move |input| {
+                    let dx = input["dx"].as_f64().unwrap_or(0.0) as f32;
+                    let dy = input["dy"].as_f64().unwrap_or(0.0) as f32;
+                    let dz = input["dz"].as_f64().unwrap_or(0.0) as f32;
+                    let ids: Vec<u64> = sel_tse.lock().unwrap().iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_tse.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::MoveEntity {
+                            entity_id,
+                            dx,
+                            dy,
+                            dz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
+            // get_entity_is_leaf
+            let snap_gil = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_is_leaf".to_string(),
+                description: "Return whether the entity has no children".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gil.lock().unwrap();
+                    if s.entities.iter().find(|e| e.id == entity_id).is_none() {
+                        return McpToolOutput::error("entity not found");
+                    }
+                    let has_children = s.entities.iter().any(|e| e.parent_id == Some(entity_id));
+                    McpToolOutput::success(
+                        json!({"is_leaf": !has_children, "entity_id": entity_id}),
+                    )
+                }),
+            });
+
             // get_entities_with_camera
             let snap_gwc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3416,6 +3477,169 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_translate_selected_entities_moves_by_delta() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "TSelEntity", "position": [0.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("TSelEntity"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": entity_id}))
+                .unwrap();
+            mcp.execute(
+                "translate_selected_entities",
+                json!({"dx": 3.0, "dy": 0.0, "dz": 0.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let e = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let pos = &e.content["entity"]["position"];
+        assert!(
+            (pos[0].as_f64().unwrap() - 3.0).abs() < 1e-4,
+            "x should be 0+3=3"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_is_leaf_returns_correct_value() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "LeafParent"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let parent_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("LeafParent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "LeafChild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("LeafChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mcp = mcp.0.lock().unwrap();
+
+        let parent_leaf = mcp
+            .execute("get_entity_is_leaf", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert_eq!(
+            parent_leaf.content["is_leaf"], false,
+            "parent with child should not be leaf"
+        );
+
+        let child_leaf = mcp
+            .execute("get_entity_is_leaf", json!({"entity_id": child_id}))
+            .unwrap();
+        assert_eq!(
+            child_leaf.content["is_leaf"], true,
+            "child with no children should be leaf"
+        );
     }
 
     #[test]

@@ -1647,26 +1647,92 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_name_prefix
+            let snap_gewnpfx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_prefix".to_string(),
+                description:
+                    "Return entity IDs whose name starts with the given prefix; returns entity_ids"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "prefix": { "type": "string" } },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewnpfx.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.starts_with(&prefix))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_name_suffix
+            let snap_gewnsfx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_suffix".to_string(),
+                description:
+                    "Return entity IDs whose name ends with the given suffix; returns entity_ids"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "suffix": { "type": "string" } },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewnsfx.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.ends_with(&suffix))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // align_entities_to_selection_pivot
             let snap_aetsp = snapshot.clone();
             let sel_aetsp = selection.clone();
             let queue68 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
                 name: "align_entities_to_selection_pivot".to_string(),
-                description: "Align all selected entities' position along the given axis to match the first selected entity (pivot); axis: 'x'|'y'|'z'; returns {affected_count}".to_string(),
+                description: "Align all selected entities' position along the given axis to match the pivot entity; pivot_entity_id: entity whose axis value is the reference; axis: 'x'|'y'|'z'; returns {affected_count}".to_string(),
                 input_schema: Some(json!({
                     "type": "object",
-                    "properties": { "axis": { "type": "string", "enum": ["x", "y", "z"] } },
-                    "required": ["axis"]
+                    "properties": {
+                        "pivot_entity_id": { "type": "integer" },
+                        "axis": { "type": "string", "enum": ["x", "y", "z"] }
+                    },
+                    "required": ["pivot_entity_id", "axis"]
                 })),
                 handler: Box::new(move |input| {
                     let axis = input["axis"].as_str().unwrap_or("x");
+                    let pivot_id = match input["pivot_entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("pivot_entity_id required"),
+                    };
                     let selected: Vec<u64> = sel_aetsp.lock().unwrap().iter().cloned().collect();
                     if selected.is_empty() {
                         return McpToolOutput::success(json!({"affected_count": 0}));
                     }
                     let s = snap_aetsp.lock().unwrap();
-                    let pivot_id = selected[0];
                     let pivot_pos = match s.entities.iter().find(|e| e.id == pivot_id).and_then(|e| e.position) {
                         Some(p) => p,
                         None => return McpToolOutput::error("pivot entity has no position"),
@@ -1674,7 +1740,7 @@ impl Plugin for EditorPlugin {
                     let axis_idx = match axis { "y" => 1, "z" => 2, _ => 0 };
                     let mut affected = 0u64;
                     let mut q = queue68.lock().unwrap();
-                    for &id in selected.iter().skip(1) {
+                    for &id in selected.iter().filter(|&&id| id != pivot_id) {
                         if let Some(e) = s.entities.iter().find(|e| e.id == id) {
                             if let Some(mut pos) = e.position {
                                 pos[axis_idx] = pivot_pos[axis_idx];
@@ -10861,6 +10927,142 @@ mod tests {
     }
 
     #[test]
+    fn mcp_get_entities_with_name_prefix_filters_by_prefix() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_Goblin", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Enemy_Orc",    "position": [1.0, 0.0, 0.0]},
+                        {"name": "Player",       "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (goblin_id, orc_id, player_id) =
+            (id_of("Enemy_Goblin"), id_of("Enemy_Orc"), id_of("Player"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_name_prefix", json!({"prefix": "Enemy_"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&goblin_id), "Enemy_Goblin matches prefix");
+        assert!(ids.contains(&orc_id), "Enemy_Orc matches prefix");
+        assert!(!ids.contains(&player_id), "Player does not match prefix");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_name_suffix_filters_by_suffix() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Wall_Stone",  "position": [0.0, 0.0, 0.0]},
+                        {"name": "Floor_Stone", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Wall_Wood",   "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (wall_stone_id, floor_stone_id, wall_wood_id) = (
+            id_of("Wall_Stone"),
+            id_of("Floor_Stone"),
+            id_of("Wall_Wood"),
+        );
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_name_suffix", json!({"suffix": "_Stone"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&wall_stone_id), "Wall_Stone matches suffix");
+        assert!(ids.contains(&floor_stone_id), "Floor_Stone matches suffix");
+        assert!(
+            !ids.contains(&wall_wood_id),
+            "Wall_Wood does not match suffix"
+        );
+    }
+
+    #[test]
     fn mcp_align_entities_to_selection_pivot_aligns_x_axis() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -10904,13 +11106,13 @@ mod tests {
         };
         let (pivot_id, other_id) = (id_of("Pivot"), id_of("Other"));
 
-        // Select pivot first, then other (pivot is the reference)
+        // Select only "Other"; pivot specified explicitly via pivot_entity_id
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let m = mcp.0.lock().unwrap();
-            m.execute("select_entity", json!({"entity_id": pivot_id}))
-                .unwrap();
-            m.execute("select_entity", json!({"entity_id": other_id}))
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": other_id}))
                 .unwrap();
         }
 
@@ -10920,10 +11122,13 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
-                .execute("align_entities_to_selection_pivot", json!({"axis": "x"}))
+                .execute(
+                    "align_entities_to_selection_pivot",
+                    json!({"pivot_entity_id": pivot_id, "axis": "x"}),
+                )
                 .unwrap();
             assert!(out.is_ok());
-            assert!(out.content["affected_count"].as_u64().unwrap() >= 1);
+            assert_eq!(out.content["affected_count"].as_u64().unwrap(), 1);
         }
         app.update();
         app.update();

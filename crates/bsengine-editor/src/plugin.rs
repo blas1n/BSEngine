@@ -1647,6 +1647,70 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_within_distance
+            let snap_gewd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_within_distance".to_string(),
+                description: "Return entities whose position is within max_distance from the given point".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" },
+                        "max_distance": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "max_distance"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_d = input["max_distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewd.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|p| {
+                            let dx = p[0] - px; let dy = p[1] - py; let dz = p[2] - pz;
+                            let dist = (dx*dx + dy*dy + dz*dz).sqrt();
+                            (e, dist)
+                        }))
+                        .filter(|(_, d)| *d <= max_d)
+                        .map(|(e, d)| json!({"id": e.id, "name": e.name, "position": e.position, "distance": d}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_farthest_entities
+            let snap_gfe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_farthest_entities".to_string(),
+                description: "Return entities whose position is beyond min_distance from the given point".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" },
+                        "min_distance": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "min_distance"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let min_d = input["min_distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gfe.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|p| {
+                            let dx = p[0] - px; let dy = p[1] - py; let dz = p[2] - pz;
+                            let dist = (dx*dx + dy*dy + dz*dz).sqrt();
+                            (e, dist)
+                        }))
+                        .filter(|(_, d)| *d > min_d)
+                        .map(|(e, d)| json!({"id": e.id, "name": e.name, "position": e.position, "distance": d}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_intensity_above
             let snap_gewia = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -7317,6 +7381,84 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_within_distance_returns_entities_near_origin() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_within_distance",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "max_distance": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only Near is within distance 10");
+        assert_eq!(ents[0]["name"].as_str(), Some("Near"));
+    }
+
+    #[test]
+    fn mcp_get_farthest_entities_returns_entities_beyond_min_distance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [200.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_farthest_entities",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "min_distance": 50.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 1, "only Far is beyond distance 50");
+        assert_eq!(ents[0]["name"].as_str(), Some("Far"));
     }
 
     #[test]

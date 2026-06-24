@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_visibility
+            let snap_gev = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_visibility".to_string(),
+                description: "Return the visible flag for an entity".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gev.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"entity_id": entity_id, "visible": e.visible}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_entity_has_mesh
+            let snap_gehm = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_has_mesh".to_string(),
+                description: "Return whether an entity has a mesh renderer attached".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gehm.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"entity_id": entity_id, "has_mesh": e.mesh_id.is_some()}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_total_entity_count
             let snap_gtec = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6351,6 +6401,157 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_visibility_returns_visible_field() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "VisCheck"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("VisCheck"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entity_visibility", json!({"entity_id": eid}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(
+                out.content["visible"].as_bool().unwrap(),
+                "default visible=true"
+            );
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": eid}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_visibility", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(
+            !out2.content["visible"].as_bool().unwrap(),
+            "visible=false after hide"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_has_mesh_returns_bool_for_mesh_presence() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "WithMesh"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "NoMesh"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (with_id, no_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let w = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("WithMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let n = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("NoMesh"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (w, n)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": with_id, "mesh_id": 42}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_with = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_mesh", json!({"entity_id": with_id}))
+            .unwrap();
+        assert!(
+            out_with.content["has_mesh"].as_bool().unwrap(),
+            "entity with mesh → true"
+        );
+
+        let out_no = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_mesh", json!({"entity_id": no_id}))
+            .unwrap();
+        assert!(
+            !out_no.content["has_mesh"].as_bool().unwrap(),
+            "entity without mesh → false"
+        );
     }
 
     #[test]

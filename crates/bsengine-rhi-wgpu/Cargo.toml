@@ -13,6 +13,7 @@ bevy_ecs.workspace = true
 wgpu.workspace = true
 winit.workspace = true
 bytemuck.workspace = true
+glam.workspace = true
 pollster.workspace = true
 tracing.workspace = true
 

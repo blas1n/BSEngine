@@ -1647,6 +1647,73 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_below_y
+            let snap_geby = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_below_y".to_string(),
+                description:
+                    "Return all entities whose Y position is strictly less than the given value"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = match input["y"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing y"),
+                    };
+                    let s = snap_geby.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position.map(|[_, ey, _]| ey < threshold).unwrap_or(false))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_in_y_range
+            let snap_geiyr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_y_range".to_string(),
+                description:
+                    "Return all entities whose Y position is in [y_min, y_max] (inclusive)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "y_min": { "type": "number" },
+                        "y_max": { "type": "number" }
+                    },
+                    "required": ["y_min", "y_max"]
+                })),
+                handler: Box::new(move |input| {
+                    let y_min = match input["y_min"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing y_min"),
+                    };
+                    let y_max = match input["y_max"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing y_max"),
+                    };
+                    let s = snap_geiyr.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.position
+                                .map(|[_, ey, _]| ey >= y_min && ey <= y_max)
+                                .unwrap_or(false)
+                        })
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // set_entity_scale_uniform
             let queue31 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6146,6 +6213,89 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_below_y_returns_entities_with_lower_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "UnderA", "position": [0.0, -5.0, 0.0]},
+                        {"name": "UnderB", "position": [0.0, -10.0, 0.0]},
+                        {"name": "Above",  "position": [0.0, 10.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_below_y", json!({"y": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"UnderA"), "UnderA below y=0");
+        assert!(names.contains(&"UnderB"), "UnderB below y=0");
+        assert!(!names.contains(&"Above"), "Above excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_in_y_range_returns_entities_between_min_and_max() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InRange1", "position": [0.0, 3.0, 0.0]},
+                        {"name": "InRange2", "position": [0.0, 7.0, 0.0]},
+                        {"name": "TooHigh",  "position": [0.0, 15.0, 0.0]},
+                        {"name": "TooLow",   "position": [0.0, -5.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_y_range",
+                json!({"y_min": 0.0, "y_max": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entities.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"InRange1"), "InRange1 at y=3");
+        assert!(names.contains(&"InRange2"), "InRange2 at y=7");
+        assert!(!names.contains(&"TooHigh"), "TooHigh at y=15 excluded");
+        assert!(!names.contains(&"TooLow"), "TooLow at y=-5 excluded");
     }
 
     #[test]

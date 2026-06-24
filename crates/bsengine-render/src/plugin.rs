@@ -8,10 +8,35 @@ use bsengine_rhi_wgpu::{
     GpuMeshRegistry, GpuTextureRegistry, LightData, PointLightEntry, WgpuSurfaceResource,
 };
 use bsengine_window::WindowResized;
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use std::collections::HashMap;
 
 use crate::components::MeshRenderer;
+
+/// Returns false if the sphere is completely outside the view frustum.
+/// Uses Gribb-Hartmann plane extraction from the view-projection matrix
+/// (assumes perspective_rh / −1..1 clip depth convention).
+fn sphere_visible_in_frustum(view_proj: Mat4, world_center: Vec3, world_radius: f32) -> bool {
+    let r0 = view_proj.row(0);
+    let r1 = view_proj.row(1);
+    let r2 = view_proj.row(2);
+    let r3 = view_proj.row(3);
+    let planes = [
+        r3 + r0, // left
+        r3 - r0, // right
+        r3 + r1, // bottom
+        r3 - r1, // top
+        r3 + r2, // near  (perspective_rh: near maps to −1)
+        r3 - r2, // far
+    ];
+    let p = world_center.extend(1.0);
+    for plane in &planes {
+        if plane.dot(p) < -world_radius * plane.truncate().length() {
+            return false;
+        }
+    }
+    true
+}
 
 /// Pass 1: root entities (no Parent) get GlobalTransform = local Transform.
 fn propagate_roots(mut query: Query<(&Transform, &mut GlobalTransform), Without<Parent>>) {
@@ -63,10 +88,23 @@ fn render_frame(
 
     let draw_calls: Vec<(u64, Mat4, Option<u64>)> = mesh_query
         .iter()
-        .map(|(mr, t, gt, mat)| {
+        .filter_map(|(mr, t, gt, mat)| {
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
+            if let Some((local_center, local_radius)) = registry.get_bounds(mr.mesh_id) {
+                let world_center = (model * local_center.extend(1.0)).truncate();
+                let max_scale = model
+                    .x_axis
+                    .truncate()
+                    .length()
+                    .max(model.y_axis.truncate().length())
+                    .max(model.z_axis.truncate().length());
+                let world_radius = local_radius * max_scale.max(1.0);
+                if !sphere_visible_in_frustum(view_proj, world_center, world_radius) {
+                    return None;
+                }
+            }
             let tex_id = mat.and_then(|m| m.texture_id);
-            (mr.mesh_id, model, tex_id)
+            Some((mr.mesh_id, model, tex_id))
         })
         .collect();
 
@@ -188,5 +226,41 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
         ));
         app.update();
+    }
+
+    #[test]
+    fn frustum_cull_sphere_in_front_is_visible() {
+        use super::sphere_visible_in_frustum;
+        use glam::Mat4;
+        let vp = Mat4::perspective_rh(std::f32::consts::FRAC_PI_3, 1.0, 0.1, 100.0);
+        assert!(sphere_visible_in_frustum(
+            vp,
+            Vec3::new(0.0, 0.0, -5.0),
+            0.5
+        ));
+    }
+
+    #[test]
+    fn frustum_cull_sphere_behind_camera_is_culled() {
+        use super::sphere_visible_in_frustum;
+        use glam::Mat4;
+        let vp = Mat4::perspective_rh(std::f32::consts::FRAC_PI_3, 1.0, 0.1, 100.0);
+        assert!(!sphere_visible_in_frustum(
+            vp,
+            Vec3::new(0.0, 0.0, 5.0),
+            0.5
+        ));
+    }
+
+    #[test]
+    fn frustum_cull_sphere_past_far_plane_is_culled() {
+        use super::sphere_visible_in_frustum;
+        use glam::Mat4;
+        let vp = Mat4::perspective_rh(std::f32::consts::FRAC_PI_3, 1.0, 0.1, 100.0);
+        assert!(!sphere_visible_in_frustum(
+            vp,
+            Vec3::new(0.0, 0.0, -150.0),
+            0.5
+        ));
     }
 }

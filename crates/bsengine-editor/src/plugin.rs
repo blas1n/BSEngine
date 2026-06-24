@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // has_component
+            let snap_hc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "has_component".to_string(),
+                description: "Check whether an entity has a given component type (mesh, camera, point_light, directional_light, spot_light, transform)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "component": { "type": "string" }
+                    },
+                    "required": ["entity_id", "component"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let component = match input["component"].as_str() {
+                        Some(c) => c.to_string(),
+                        None => return McpToolOutput::error("missing component"),
+                    };
+                    let s = snap_hc.lock().unwrap();
+                    let e = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => e,
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    let has = match component.as_str() {
+                        "mesh" => e.mesh_id.is_some(),
+                        "camera" => e.camera_fov.is_some(),
+                        "point_light" => e.light_type.as_deref() == Some("point"),
+                        "directional_light" => e.light_type.as_deref() == Some("directional"),
+                        "spot_light" => e.light_type.as_deref() == Some("spot"),
+                        "transform" => e.position.is_some(),
+                        _ => return McpToolOutput::error("unknown component type"),
+                    };
+                    McpToolOutput::success(json!({"has_component": has, "entity_id": entity_id, "component": component}))
+                }),
+            });
+
+            // get_leaf_entities
+            let snap_leaf = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_leaf_entities".to_string(),
+                description: "Return entities that have no children".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_leaf.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let leaves: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": leaves}))
+                }),
+            });
+
             // get_entity_depth
             let snap_depth = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2803,6 +2863,185 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_has_component_detects_mesh_and_camera() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "Plain", "position": [0.0,0.0,0.0]}]}),
+            )
+            .unwrap();
+            mcp.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 5.0, 10.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (plain_id, camera_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let p = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Plain"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = entities
+                .iter()
+                .find(|e| !e["camera_fov"].is_null())
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (p, c)
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("attach_mesh", json!({"entity_id": plain_id, "mesh_id": 1}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mcp = mcp.0.lock().unwrap();
+
+        let has_mesh = mcp
+            .execute(
+                "has_component",
+                json!({"entity_id": plain_id, "component": "mesh"}),
+            )
+            .unwrap();
+        assert_eq!(has_mesh.content["has_component"], true);
+
+        let no_cam = mcp
+            .execute(
+                "has_component",
+                json!({"entity_id": plain_id, "component": "camera"}),
+            )
+            .unwrap();
+        assert_eq!(no_cam.content["has_component"], false);
+
+        let has_cam = mcp
+            .execute(
+                "has_component",
+                json!({"entity_id": camera_id, "component": "camera"}),
+            )
+            .unwrap();
+        assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_leaf_entities_returns_entities_without_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("spawn_entity", json!({"name": "ParentLeaf"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let parent_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ParentLeaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "ChildLeaf"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("ChildLeaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_leaf_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let leaf_ids: Vec<u64> = out.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["id"].as_u64())
+            .collect();
+        assert!(leaf_ids.contains(&child_id), "ChildLeaf should be a leaf");
+        assert!(
+            !leaf_ids.contains(&parent_id),
+            "ParentLeaf should not be a leaf since it has children"
+        );
     }
 
     #[test]

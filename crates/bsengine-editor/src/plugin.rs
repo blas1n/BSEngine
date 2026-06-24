@@ -254,6 +254,19 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::MoveEntity {
+                entity_id,
+                dx,
+                dy,
+                dz,
+            } => {
+                for (e, mut t) in params.p1().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        t.translation += glam::Vec3::new(dx, dy, dz);
+                        break;
+                    }
+                }
+            }
             EditorCommand::BatchSpawn { entries } => {
                 for (name, pos) in entries {
                     if let Some([x, y, z]) = pos {
@@ -1135,6 +1148,37 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // move_entity
+            let queue20 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "move_entity".to_string(),
+                description: "Move an entity by a delta offset [dx, dy, dz] relative to its current position (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "dx": { "type": "number", "default": 0 },
+                        "dy": { "type": "number", "default": 0 },
+                        "dz": { "type": "number", "default": 0 }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let dx = input["dx"].as_f64().unwrap_or(0.0) as f32;
+                    let dy = input["dy"].as_f64().unwrap_or(0.0) as f32;
+                    let dz = input["dz"].as_f64().unwrap_or(0.0) as f32;
+                    queue20
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::MoveEntity { entity_id, dx, dy, dz });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -1436,6 +1480,91 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_move_entity_applies_delta() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn with position [1, 0, 0]
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [{"name": "Mover", "position": [1.0, 0.0, 0.0]}]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mover"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        // move by [3, 2, 1]
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "move_entity",
+                    json!({"entity_id": entity_id, "dx": 3.0, "dy": 2.0, "dz": 1.0}),
+                )
+                .unwrap();
+            assert!(result.is_ok());
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entity = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mover"))
+                .unwrap();
+            let pos = entity["position"].as_array().unwrap();
+            assert!(
+                (pos[0].as_f64().unwrap() - 4.0).abs() < 1e-4,
+                "x should be 4"
+            );
+            assert!(
+                (pos[1].as_f64().unwrap() - 2.0).abs() < 1e-4,
+                "y should be 2"
+            );
+            assert!(
+                (pos[2].as_f64().unwrap() - 1.0).abs() < 1e-4,
+                "z should be 1"
+            );
+        }
     }
 
     #[test]

@@ -69,6 +69,12 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    MoveEntity {
+        entity_id: u64,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+    },
     DuplicateEntity {
         entity_id: u64,
     },

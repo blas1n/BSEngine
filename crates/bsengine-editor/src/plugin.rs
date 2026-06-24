@@ -1647,6 +1647,73 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_selection_bounds
+            let snap_gsb = snapshot.clone();
+            let sel_gsb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selection_bounds".to_string(),
+                description: "Return the axis-aligned bounding box and centroid of all selected entities that have a position".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let sel = sel_gsb.lock().unwrap();
+                    let s = snap_gsb.lock().unwrap();
+                    let positions: Vec<[f32; 3]> = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id))
+                        .filter_map(|e| e.position)
+                        .collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::success(json!({"count": 0, "centroid": null, "min": null, "max": null}));
+                    }
+                    let mut min = positions[0];
+                    let mut max = positions[0];
+                    let mut sum = [0f32; 3];
+                    for p in &positions {
+                        for i in 0..3 { if p[i] < min[i] { min[i] = p[i]; } if p[i] > max[i] { max[i] = p[i]; } sum[i] += p[i]; }
+                    }
+                    let n = positions.len() as f32;
+                    let centroid = [sum[0]/n, sum[1]/n, sum[2]/n];
+                    McpToolOutput::success(json!({"count": positions.len(), "centroid": centroid, "min": min, "max": max}))
+                }),
+            });
+
+            // rename_entity_with_suffix
+            let queue32 = cmd_queue.clone();
+            let snap_rews = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "rename_entity_with_suffix".to_string(),
+                description: "Append a suffix to an entity's current name".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "suffix": { "type": "string" }
+                    },
+                    "required": ["entity_id", "suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let suffix = match input["suffix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing suffix"),
+                    };
+                    let s = snap_rews.lock().unwrap();
+                    let current_name = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => e.name.clone().unwrap_or_default(),
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    drop(s);
+                    let new_name = format!("{}{}", current_name, suffix);
+                    queue32.lock().unwrap().push(EditorCommand::RenameEntity {
+                        entity_id,
+                        name: new_name.clone(),
+                    });
+                    McpToolOutput::success(json!({"entity_id": entity_id, "new_name": new_name}))
+                }),
+            });
+
             // list_all_tags
             let snap_lat = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6591,6 +6658,133 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_selection_bounds_returns_centroid_of_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "P1", "position": [0.0, 0.0, 0.0]},
+                    {"name": "P2", "position": [4.0, 0.0, 0.0]},
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": ids[0]}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": ids[1]}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection_bounds", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let centroid = out.content["centroid"].as_array().unwrap();
+        assert!(
+            (centroid[0].as_f64().unwrap() - 2.0).abs() < 0.01,
+            "centroid x = 2.0"
+        );
+        assert!(
+            (centroid[1].as_f64().unwrap()).abs() < 0.01,
+            "centroid y = 0.0"
+        );
+    }
+
+    #[test]
+    fn mcp_rename_entity_with_suffix_appends_suffix_to_name() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Hero"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "rename_entity_with_suffix",
+                    json!({"entity_id": eid, "suffix": "_01"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let name = ents.iter().find(|e| e["id"].as_u64() == Some(eid)).unwrap()["name"]
+            .as_str()
+            .unwrap();
+        assert_eq!(name, "Hero_01", "suffix appended to original name");
     }
 
     #[test]

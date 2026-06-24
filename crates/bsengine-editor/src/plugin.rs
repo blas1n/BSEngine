@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_camera
+            let snap_gwc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_camera".to_string(),
+                description: "Return all entities that have a Camera component".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gwc.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.camera_fov.is_some())
+                        .map(|e| json!({"id": e.id, "name": e.name, "camera_fov": e.camera_fov}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_light
+            let snap_gwl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light".to_string(),
+                description: "Return all entities that have any light component (point, directional, or spot)".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gwl.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.light_type.is_some())
+                        .map(|e| json!({
+                            "id": e.id,
+                            "name": e.name,
+                            "light_type": e.light_type,
+                            "light_color": e.light_color,
+                            "light_intensity": e.light_intensity,
+                            "light_range": e.light_range,
+                        }))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entity_tag_count
             let snap_gtc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3375,6 +3416,90 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_entities_with_camera_returns_camera_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "Plain2", "position": [0.0,0.0,0.0]}]}),
+            )
+            .unwrap();
+            mcp.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 45.0, "position": [0.0, 5.0, 10.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_camera", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1, "should have exactly 1 camera entity");
+        assert!(
+            !entities[0]["camera_fov"].is_null(),
+            "camera entity should have camera_fov"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_light_returns_all_light_types() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "NoLight", "position": [0.0,0.0,0.0]}]}),
+            )
+            .unwrap();
+            mcp.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 1.0, "range": 10.0, "position": [1.0,0.0,0.0]})).unwrap();
+            mcp.execute("spawn_directional_light", json!({"direction": [0.0,-1.0,0.0], "color": [1.0,1.0,1.0], "ambient": [0.1,0.1,0.1]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_light", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        assert_eq!(
+            entities.len(),
+            2,
+            "should have 2 light entities (point + directional)"
+        );
+        let types: Vec<&str> = entities
+            .iter()
+            .filter_map(|e| e["light_type"].as_str())
+            .collect();
+        assert!(types.contains(&"point"), "should include point light");
+        assert!(
+            types.contains(&"directional"),
+            "should include directional light"
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::snapshot::{
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
-use bsengine_core::{DirectionalLight, GlobalTransform, PointLight, SpotLight, Transform};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, PointLight, SpotLight, Transform};
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
 use bsengine_render::MeshRenderer;
@@ -22,12 +22,13 @@ fn update_editor_snapshot(
         Option<&PointLight>,
         Option<&DirectionalLight>,
         Option<&SpotLight>,
+        Option<&Camera>,
     )>,
 ) {
     let mut snapshot = snapshot_res.0.lock().unwrap();
     snapshot.entities = query
         .iter()
-        .map(|(e, name, transform, mesh, pt, dir, spot)| {
+        .map(|(e, name, transform, mesh, pt, dir, spot, cam)| {
             let light_type = if pt.is_some() {
                 Some("point".to_string())
             } else if dir.is_some() {
@@ -54,6 +55,7 @@ fn update_editor_snapshot(
                 light_color,
                 light_intensity,
                 light_range,
+                camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
             }
         })
         .collect();
@@ -67,6 +69,7 @@ fn process_editor_commands(
         Query<(Entity, &mut PointLight)>,
         Query<(Entity, &mut DirectionalLight)>,
         Query<(Entity, &mut SpotLight)>,
+        Query<(Entity, &mut Camera)>,
     )>,
     mut commands: Commands,
 ) {
@@ -197,6 +200,29 @@ fn process_editor_commands(
                 let entities: Vec<_> = params.p0().iter().collect();
                 for entity in entities {
                     commands.entity(entity).despawn();
+                }
+            }
+            EditorCommand::SpawnCamera {
+                fov_y_degrees,
+                position,
+            } => {
+                commands.spawn((
+                    Camera::perspective(fov_y_degrees, 16.0 / 9.0),
+                    Transform::from_translation(glam::Vec3::from(position)),
+                    GlobalTransform::default(),
+                ));
+            }
+            EditorCommand::UpdateCamera {
+                entity_id,
+                fov_y_degrees,
+            } => {
+                for (e, mut cam) in params.p5().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        if let Some(fov) = fov_y_degrees {
+                            cam.fov_y_radians = fov.to_radians();
+                        }
+                        break;
+                    }
                 }
             }
             EditorCommand::BatchSpawn { entries } => {
@@ -337,6 +363,7 @@ impl Plugin for EditorPlugin {
                             "light_color": e.light_color,
                             "light_intensity": e.light_intensity,
                             "light_range": e.light_range,
+                            "camera_fov": e.camera_fov,
                         })).collect::<Vec<_>>()
                     }))
                 }),
@@ -1003,6 +1030,57 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "count": count}))
                 }),
             });
+
+            // spawn_camera
+            let queue17 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "spawn_camera".to_string(),
+                description: "Spawn a perspective camera entity (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "fov_y_degrees": { "type": "number", "description": "Vertical field of view in degrees (default 60)" },
+                        "position": { "type": "array", "items": {"type":"number"}, "description": "[x,y,z]" }
+                    }
+                })),
+                handler: Box::new(move |input| {
+                    let fov_y_degrees = input["fov_y_degrees"].as_f64().unwrap_or(60.0) as f32;
+                    let position = parse_vec3_input(&input["position"]).unwrap_or([0.0, 0.0, 0.0]);
+                    queue17
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::SpawnCamera { fov_y_degrees, position });
+                    McpToolOutput::success(json!({"status": "queued"}))
+                }),
+            });
+
+            // update_camera
+            let queue18 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "update_camera".to_string(),
+                description: "Update a camera entity's field of view (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "fov_y_degrees": { "type": "number" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let fov_y_degrees = input["fov_y_degrees"].as_f64().map(|f| f as f32);
+                    queue18.lock().unwrap().push(EditorCommand::UpdateCamera {
+                        entity_id,
+                        fov_y_degrees,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -1304,6 +1382,119 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_spawn_camera_creates_camera_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({"fov_y_degrees": 75.0, "position": [0.0, 5.0, 10.0]}),
+                )
+                .expect("spawn_camera not found");
+            assert!(result.is_ok());
+        }
+        app.update(); // process_editor_commands spawns Camera
+        app.update(); // update_editor_snapshot captures it
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let cam_entity = entities
+                .iter()
+                .find(|e| e["camera_fov"].is_number())
+                .expect("no camera entity in snapshot");
+            let fov = cam_entity["camera_fov"].as_f64().unwrap();
+            assert!((fov - 75.0).abs() < 0.5, "expected 75 fov, got {fov}");
+            let pos = cam_entity["position"].as_array().unwrap();
+            assert!((pos[1].as_f64().unwrap() - 5.0).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn mcp_update_camera_changes_fov() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_camera", json!({"fov_y_degrees": 60.0}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["camera_fov"].is_number())
+                .expect("no camera")["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "update_camera",
+                    json!({"entity_id": entity_id, "fov_y_degrees": 90.0}),
+                )
+                .unwrap();
+            assert!(result.is_ok());
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let fov = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["camera_fov"].is_number())
+                .unwrap()["camera_fov"]
+                .as_f64()
+                .unwrap();
+            assert!((fov - 90.0).abs() < 0.5, "expected 90 fov, got {fov}");
+        }
     }
 
     #[test]

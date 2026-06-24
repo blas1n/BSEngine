@@ -11,6 +11,7 @@ pub struct EntityInfo {
     pub light_color: Option<[f32; 3]>,
     pub light_intensity: Option<f32>,
     pub light_range: Option<f32>,
+    pub camera_fov: Option<f32>,
 }
 
 #[derive(Clone, Default)]
@@ -68,6 +69,14 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    SpawnCamera {
+        fov_y_degrees: f32,
+        position: [f32; 3],
+    },
+    UpdateCamera {
+        entity_id: u64,
+        fov_y_degrees: Option<f32>,
+    },
     BatchSpawn {
         entries: Vec<(String, Option<[f32; 3]>)>,
     },
@@ -119,6 +128,7 @@ mod tests {
             light_color: None,
             light_intensity: None,
             light_range: None,
+            camera_fov: None,
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -135,6 +145,7 @@ mod tests {
             light_color: None,
             light_intensity: None,
             light_range: None,
+            camera_fov: None,
             position: None,
         };
         assert!(e.position.is_none());

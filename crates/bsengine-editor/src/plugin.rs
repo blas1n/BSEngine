@@ -1647,6 +1647,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_x
+            let snap_gesbx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_x".to_string(),
+                description: "Return all entities with a position sorted by X ascending"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbx.lock().unwrap();
+                    let mut ents: Vec<&crate::snapshot::EntityInfo> =
+                        s.entities.iter().filter(|e| e.position.is_some()).collect();
+                    ents.sort_by(|a, b| {
+                        let ax = a.position.unwrap()[0];
+                        let bx = b.position.unwrap()[0];
+                        ax.partial_cmp(&bx).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let entities: Vec<serde_json::Value> = ents
+                        .iter()
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_sorted_by_z
+            let snap_gesbz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_z".to_string(),
+                description: "Return all entities with a position sorted by Z ascending"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbz.lock().unwrap();
+                    let mut ents: Vec<&crate::snapshot::EntityInfo> =
+                        s.entities.iter().filter(|e| e.position.is_some()).collect();
+                    ents.sort_by(|a, b| {
+                        let az = a.position.unwrap()[2];
+                        let bz = b.position.unwrap()[2];
+                        az.partial_cmp(&bz).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let entities: Vec<serde_json::Value> = ents
+                        .iter()
+                        .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_within_distance
             let snap_sewd = snapshot.clone();
             let sel_sewd = selection.clone();
@@ -7566,6 +7614,90 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_x_returns_entities_in_ascending_x_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "C", "position": [30.0, 0.0, 0.0]},
+                        {"name": "A", "position": [10.0, 0.0, 0.0]},
+                        {"name": "B", "position": [20.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_x", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 3);
+        assert!(
+            ents[0]["position"][0].as_f64().unwrap() <= ents[1]["position"][0].as_f64().unwrap()
+        );
+        assert!(
+            ents[1]["position"][0].as_f64().unwrap() <= ents[2]["position"][0].as_f64().unwrap()
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_z_returns_entities_in_ascending_z_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "C", "position": [0.0, 0.0, 30.0]},
+                        {"name": "A", "position": [0.0, 0.0, 10.0]},
+                        {"name": "B", "position": [0.0, 0.0, 20.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_z", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ents = out.content["entities"].as_array().unwrap();
+        assert_eq!(ents.len(), 3);
+        assert!(
+            ents[0]["position"][2].as_f64().unwrap() <= ents[1]["position"][2].as_f64().unwrap()
+        );
+        assert!(
+            ents[1]["position"][2].as_f64().unwrap() <= ents[2]["position"][2].as_f64().unwrap()
+        );
     }
 
     #[test]

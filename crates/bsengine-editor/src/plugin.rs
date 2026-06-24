@@ -1647,6 +1647,103 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // snap_to_grid
+            let snap_sg = snapshot.clone();
+            let queue_sg = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "snap_to_grid".to_string(),
+                description: "Round entity position to the nearest grid cell (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "grid_size": { "type": "number" }
+                    },
+                    "required": ["entity_id", "grid_size"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let grid = input["grid_size"].as_f64().unwrap_or(1.0) as f32;
+                    if grid <= 0.0 {
+                        return McpToolOutput::error("grid_size must be positive");
+                    }
+                    let s = snap_sg.lock().unwrap();
+                    let pos = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => match e.position {
+                            Some(p) => p,
+                            None => return McpToolOutput::error("entity has no position"),
+                        },
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    drop(s);
+                    let snapped = [
+                        (pos[0] / grid).round() * grid,
+                        (pos[1] / grid).round() * grid,
+                        (pos[2] / grid).round() * grid,
+                    ];
+                    queue_sg
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::SetEntityTransform {
+                            entity_id,
+                            position: Some(snapped),
+                            rotation: None,
+                            scale: None,
+                        });
+                    McpToolOutput::success(json!({"status": "queued", "snapped_position": snapped}))
+                }),
+            });
+
+            // get_scene_hierarchy
+            let snap_hier = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_scene_hierarchy".to_string(),
+                description:
+                    "Return the full scene hierarchy as a nested tree of {id, name, children}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_hier.lock().unwrap();
+                    use std::collections::HashMap;
+                    let mut children_map: HashMap<u64, Vec<u64>> = HashMap::new();
+                    let mut root_ids: Vec<u64> = Vec::new();
+                    for e in &s.entities {
+                        match e.parent_id {
+                            Some(pid) => children_map.entry(pid).or_default().push(e.id),
+                            None => root_ids.push(e.id),
+                        }
+                    }
+                    fn build_node(
+                        id: u64,
+                        entities: &[crate::snapshot::EntityInfo],
+                        children_map: &HashMap<u64, Vec<u64>>,
+                    ) -> serde_json::Value {
+                        let name = entities
+                            .iter()
+                            .find(|e| e.id == id)
+                            .and_then(|e| e.name.clone());
+                        let children: Vec<serde_json::Value> = children_map
+                            .get(&id)
+                            .map(|ids| {
+                                ids.iter()
+                                    .map(|&cid| build_node(cid, entities, children_map))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        json!({"id": id, "name": name, "children": children})
+                    }
+                    let roots: Vec<serde_json::Value> = root_ids
+                        .iter()
+                        .map(|&id| build_node(id, &s.entities, &children_map))
+                        .collect();
+                    McpToolOutput::success(json!({"roots": roots}))
+                }),
+            });
+
             // copy_transform
             let snap_ct = snapshot.clone();
             let queue_ct = cmd_queue.clone();
@@ -3031,6 +3128,175 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_snap_to_grid_rounds_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SnapMe", "position": [1.3, 2.7, 4.4]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("SnapMe"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "snap_to_grid",
+                    json!({"entity_id": entity_id, "grid_size": 1.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let e = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity", json!({"entity_id": entity_id}))
+            .unwrap();
+        let pos = &e.content["entity"]["position"];
+        assert!(
+            (pos[0].as_f64().unwrap() - 1.0).abs() < 1e-4,
+            "x should snap to 1.0"
+        );
+        assert!(
+            (pos[1].as_f64().unwrap() - 3.0).abs() < 1e-4,
+            "y should snap to 3.0"
+        );
+        assert!(
+            (pos[2].as_f64().unwrap() - 4.0).abs() < 1e-4,
+            "z should snap to 4.0"
+        );
+    }
+
+    #[test]
+    fn mcp_get_scene_hierarchy_returns_nested_tree() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "HRoot"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let root_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HRoot"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "HChild"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let child_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HChild"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_hierarchy", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let roots = out.content["roots"].as_array().unwrap();
+        let root_node = roots
+            .iter()
+            .find(|n| n["name"].as_str() == Some("HRoot"))
+            .unwrap();
+        let children = root_node["children"].as_array().unwrap();
+        assert_eq!(children.len(), 1, "HRoot should have 1 child");
+        assert_eq!(children[0]["name"], "HChild");
     }
 
     #[test]

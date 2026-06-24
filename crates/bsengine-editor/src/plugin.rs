@@ -1647,6 +1647,41 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // move_selected_entities
+            let sel_move = selection.clone();
+            let queue_move = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "move_selected_entities".to_string(),
+                description: "Move all selected entities by (dx, dy, dz) (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "dx": { "type": "number" },
+                        "dy": { "type": "number" },
+                        "dz": { "type": "number" }
+                    },
+                    "required": ["dx", "dy", "dz"]
+                })),
+                handler: Box::new(move |input| {
+                    let dx = input["dx"].as_f64().unwrap_or(0.0) as f32;
+                    let dy = input["dy"].as_f64().unwrap_or(0.0) as f32;
+                    let dz = input["dz"].as_f64().unwrap_or(0.0) as f32;
+                    let ids: Vec<u64> = sel_move.lock().unwrap().iter().copied().collect();
+                    let count = ids.len();
+                    let mut queue = queue_move.lock().unwrap();
+                    for entity_id in ids {
+                        queue.push(EditorCommand::MoveEntity {
+                            entity_id,
+                            dx,
+                            dy,
+                            dz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
+
             // get_entity_distance
             let snap_dist = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -2444,6 +2479,101 @@ mod tests {
                 "entity should be deselected"
             );
         }
+    }
+
+    #[test]
+    fn mcp_move_selected_entities_moves_all() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "M1", "position": [1.0, 0.0, 0.0]},
+                        {"name": "M2", "position": [4.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id1, id2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let id1 = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("M1"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id2 = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("M2"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id1, id2)
+        };
+
+        // select both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("select_entity", json!({"entity_id": id1}))
+                .unwrap();
+            mcp.execute("select_entity", json!({"entity_id": id2}))
+                .unwrap();
+        }
+
+        // move selected by dx=10
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "move_selected_entities",
+                    json!({"dx": 10.0, "dy": 0.0, "dz": 0.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let list = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap();
+        let entities = list.content["entities"].as_array().unwrap();
+
+        let m1 = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("M1"))
+            .unwrap();
+        let m2 = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("M2"))
+            .unwrap();
+        let x1 = m1["position"][0].as_f64().unwrap();
+        let x2 = m2["position"][0].as_f64().unwrap();
+        assert!((x1 - 11.0).abs() < 1e-4, "M1 x should be 11, got {}", x1);
+        assert!((x2 - 14.0).abs() < 1e-4, "M2 x should be 14, got {}", x2);
     }
 
     #[test]

@@ -34,9 +34,8 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
-// Padded to 256 bytes (typical min_uniform_buffer_offset_alignment).
-// Mat4 = 64 bytes; pad to 256 so dynamic offsets work on all devices.
 const MODEL_STRIDE: u64 = 256;
 const CAMERA_UNIFORM_SIZE: u64 = 64;
 
@@ -47,6 +46,8 @@ pub struct WgpuSurface {
     pub(crate) device: Arc<wgpu::Device>,
     pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
+    depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
@@ -110,7 +111,9 @@ impl WgpuSurface {
         };
         surface.configure(&device, &config);
 
-        // Camera uniform buffer (group 0)
+        let (depth_texture, depth_view) =
+            Self::create_depth_texture(&device, config.width, config.height);
+
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera uniform"),
             size: CAMERA_UNIFORM_SIZE,
@@ -139,7 +142,6 @@ impl WgpuSurface {
             }],
         });
 
-        // Model uniform buffer with dynamic offsets (group 1)
         let model_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("model uniform"),
             size: MODEL_STRIDE * MAX_OBJECTS as u64,
@@ -190,7 +192,7 @@ impl WgpuSurface {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 24, // 6 x f32
+                    array_stride: 24,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
                         wgpu::VertexAttribute {
@@ -223,7 +225,13 @@ impl WgpuSurface {
                 front_face: wgpu::FrontFace::Ccw,
                 ..Default::default()
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
@@ -236,6 +244,8 @@ impl WgpuSurface {
             device,
             queue,
             pipeline,
+            depth_texture,
+            depth_view,
             camera_buffer,
             camera_bind_group,
             model_buffer,
@@ -243,19 +253,39 @@ impl WgpuSurface {
         })
     }
 
-    /// Render a frame. `draw_calls` is a list of `(mesh_id, model_matrix)`.
+    fn create_depth_texture(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("depth texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
     pub fn render_frame(
         &self,
         view_proj: Mat4,
         draw_calls: &[(u64, Mat4)],
         registry: &GpuMeshRegistry,
     ) -> Result<(), String> {
-        // Upload camera matrix
         let camera_data: [[f32; 4]; 4] = view_proj.to_cols_array_2d();
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&camera_data));
 
-        // Upload model matrices (padded to MODEL_STRIDE)
         for (i, (_, model)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
@@ -268,18 +298,15 @@ impl WgpuSurface {
             );
         }
 
-        let output = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| e.to_string())?;
+        let output = self.surface.get_current_texture().map_err(|e| e.to_string())?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render encoder"),
-            });
+        let mut encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("render encoder"),
+                });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
@@ -296,7 +323,14 @@ impl WgpuSurface {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
@@ -330,6 +364,9 @@ impl WgpuSurface {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+        let (depth_texture, depth_view) = Self::create_depth_texture(&self.device, width, height);
+        self.depth_texture = depth_texture;
+        self.depth_view = depth_view;
     }
 
     pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {

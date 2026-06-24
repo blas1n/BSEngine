@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // list_all_tags
+            let snap_lat = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "list_all_tags".to_string(),
+                description: "Return a deduplicated list of all tags used across all entities"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_lat.lock().unwrap();
+                    let mut seen = std::collections::HashSet::new();
+                    let mut tags: Vec<serde_json::Value> = Vec::new();
+                    for e in &s.entities {
+                        for t in &e.tags {
+                            if seen.insert(t.clone()) {
+                                tags.push(serde_json::Value::String(t.clone()));
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"tags": tags}))
+                }),
+            });
+
+            // get_entity_has_parent
+            let snap_gehp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_has_parent".to_string(),
+                description: "Return whether an entity has a parent assigned".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gehp.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(
+                            json!({"entity_id": entity_id, "has_parent": e.parent_id.is_some()}),
+                        ),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // count_entities_by_tag
             let snap_cebt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6544,6 +6591,165 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_list_all_tags_returns_unique_tags_across_all_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": ids[0], "tag": "alpha"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": ids[0], "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": ids[1], "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_all_tags", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let tags: Vec<String> = out.content["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_str().unwrap().to_string())
+            .collect();
+        assert!(tags.contains(&"alpha".to_string()), "alpha present");
+        assert!(tags.contains(&"beta".to_string()), "beta present");
+        assert_eq!(tags.len(), 2, "exactly 2 unique tags (beta deduplicated)");
+    }
+
+    #[test]
+    fn mcp_get_entity_has_parent_returns_bool_for_parent_presence() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "Parent"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "Child"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (parent_id, child_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let p = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (p, c)
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_child = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_parent", json!({"entity_id": child_id}))
+            .unwrap();
+        assert!(
+            out_child.content["has_parent"].as_bool().unwrap(),
+            "child has parent → true"
+        );
+
+        let out_root = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_has_parent", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert!(
+            !out_root.content["has_parent"].as_bool().unwrap(),
+            "root has no parent → false"
+        );
     }
 
     #[test]

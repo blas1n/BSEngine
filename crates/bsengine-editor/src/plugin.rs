@@ -1647,6 +1647,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // distribute_selection_along_y
+            let snap_dsay = snapshot.clone();
+            let sel_dsay = selection.clone();
+            let queue65 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "distribute_selection_along_y".to_string(),
+                description: "Distribute selected entities evenly along Y axis with given spacing, sorted by current Y; returns distributed_count".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "spacing": { "type": "number" } },
+                    "required": ["spacing"]
+                })),
+                handler: Box::new(move |input| {
+                    let spacing = input["spacing"].as_f64().unwrap_or(1.0) as f32;
+                    let s = snap_dsay.lock().unwrap();
+                    let sel = sel_dsay.lock().unwrap();
+                    let mut q = queue65.lock().unwrap();
+                    let mut entries: Vec<(u64, [f32; 3])> = sel.iter()
+                        .filter_map(|&id| s.entities.iter().find(|e| e.id == id))
+                        .filter_map(|e| e.position.map(|p| (e.id, p)))
+                        .collect();
+                    entries.sort_by(|a, b| a.1[1].partial_cmp(&b.1[1]).unwrap_or(std::cmp::Ordering::Equal));
+                    let count = entries.len();
+                    for (i, (id, pos)) in entries.into_iter().enumerate() {
+                        let new_y = i as f32 * spacing;
+                        q.push(crate::snapshot::EditorCommand::SetPosition { entity_id: id, x: pos[0], y: new_y, z: pos[2] });
+                    }
+                    McpToolOutput::success(json!({"distributed_count": count}))
+                }),
+            });
+
+            // get_entities_within_x_range
+            let snap_gewxr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_within_x_range".to_string(),
+                description: "Return entity IDs whose X position is between min and max (inclusive); returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "number" },
+                        "max": { "type": "number" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max = input["max"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_gewxr.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.map(|p| p[0] >= min && p[0] <= max).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // distribute_selection_along_x
             let snap_dsax = snapshot.clone();
             let sel_dsax = selection.clone();
@@ -10015,6 +10071,156 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_distribute_selection_along_y_spaces_entities_evenly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Low",  "position": [0.0, 1.0, 0.0]},
+                        {"name": "Mid",  "position": [0.0, 5.0, 0.0]},
+                        {"name": "High", "position": [0.0, 9.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let ids_all: Vec<u64> = all.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            for &id in &ids_all {
+                m.execute("select_entity", json!({"entity_id": id}))
+                    .unwrap();
+            }
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("distribute_selection_along_y", json!({"spacing": 3.0}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["distributed_count"].as_u64().unwrap(), 3);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let ents = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut ys: Vec<f32> = ents
+            .iter()
+            .map(|e| e["position"].as_array().unwrap()[1].as_f64().unwrap() as f32)
+            .collect();
+        ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (ys[1] - ys[0] - 3.0).abs() < 0.01,
+            "Y spacing first gap = 3"
+        );
+        assert!(
+            (ys[2] - ys[1] - 3.0).abs() < 0.01,
+            "Y spacing second gap = 3"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_within_x_range_returns_entities_in_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near",  "position": [2.0,  0.0, 0.0]},
+                        {"name": "Mid",   "position": [5.0,  0.0, 0.0]},
+                        {"name": "Far",   "position": [10.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_within_x_range",
+                json!({"min": 1.0, "max": 6.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "Near(2) and Mid(5) within [1,6]");
+
+        // Far(10) must not be included
+        let all = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let far_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Far"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(!ids.contains(&far_id), "Far not within range");
     }
 
     #[test]

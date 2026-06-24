@@ -48,6 +48,18 @@ pub enum EditorCommand {
     RemoveLight {
         entity_id: u64,
     },
+    UpdatePointLight {
+        entity_id: u64,
+        color: Option<[f32; 3]>,
+        intensity: Option<f32>,
+        range: Option<f32>,
+    },
+    UpdateDirectionalLight {
+        entity_id: u64,
+        direction: Option<[f32; 3]>,
+        color: Option<[f32; 3]>,
+        ambient: Option<[f32; 3]>,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

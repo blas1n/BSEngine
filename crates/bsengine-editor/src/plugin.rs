@@ -47,7 +47,12 @@ fn update_editor_snapshot(
 
 fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
-    mut params: ParamSet<(Query<Entity>, Query<(Entity, &mut Transform)>)>,
+    mut params: ParamSet<(
+        Query<Entity>,
+        Query<(Entity, &mut Transform)>,
+        Query<(Entity, &mut PointLight)>,
+        Query<(Entity, &mut DirectionalLight)>,
+    )>,
     mut commands: Commands,
 ) {
     let cmds: Vec<EditorCommand> = {
@@ -123,6 +128,48 @@ fn process_editor_commands(
                         .remove::<PointLight>()
                         .remove::<DirectionalLight>()
                         .remove::<SpotLight>();
+                }
+            }
+            EditorCommand::UpdatePointLight {
+                entity_id,
+                color,
+                intensity,
+                range,
+            } => {
+                for (e, mut light) in params.p2().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        if let Some(c) = color {
+                            light.color = glam::Vec3::from(c);
+                        }
+                        if let Some(i) = intensity {
+                            light.intensity = i;
+                        }
+                        if let Some(r) = range {
+                            light.range = r;
+                        }
+                        break;
+                    }
+                }
+            }
+            EditorCommand::UpdateDirectionalLight {
+                entity_id,
+                direction,
+                color,
+                ambient,
+            } => {
+                for (e, mut light) in params.p3().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        if let Some(d) = direction {
+                            light.direction = glam::Vec3::from(d);
+                        }
+                        if let Some(c) = color {
+                            light.color = glam::Vec3::from(c);
+                        }
+                        if let Some(a) = ambient {
+                            light.ambient = glam::Vec3::from(a);
+                        }
+                        break;
+                    }
                 }
             }
             EditorCommand::LoadScene(path) => {
@@ -529,6 +576,72 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // update_point_light
+            let queue10 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "update_point_light".to_string(),
+                description: "Update PointLight properties on an entity (all fields optional, applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" },
+                        "color":     { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" },
+                        "intensity": { "type": "number" },
+                        "range":     { "type": "number" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    let color = parse_vec3_input(&input["color"]);
+                    let intensity = input["intensity"].as_f64().map(|v| v as f32);
+                    let range = input["range"].as_f64().map(|v| v as f32);
+                    queue10.lock().unwrap().push(EditorCommand::UpdatePointLight {
+                        entity_id,
+                        color,
+                        intensity,
+                        range,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // update_directional_light
+            let queue11 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "update_directional_light".to_string(),
+                description: "Update DirectionalLight properties on an entity (all fields optional, applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" },
+                        "direction": { "type": "array", "items": {"type":"number"}, "description": "[x,y,z]" },
+                        "color":     { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" },
+                        "ambient":   { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    let direction = parse_vec3_input(&input["direction"]);
+                    let color = parse_vec3_input(&input["color"]);
+                    let ambient = parse_vec3_input(&input["ambient"]);
+                    queue11.lock().unwrap().push(EditorCommand::UpdateDirectionalLight {
+                        entity_id,
+                        direction,
+                        color,
+                        ambient,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
 }
@@ -830,6 +943,80 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_update_point_light_changes_intensity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_core::PointLight::default())
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "update_point_light",
+                    json!({"entity_id": eid.index() as u64, "intensity": 5.0, "range": 20.0}),
+                )
+                .expect("update_point_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let light = app
+            .world_mut()
+            .query::<&bsengine_core::PointLight>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        assert!(
+            (light.intensity - 5.0).abs() < 1e-4,
+            "intensity not updated"
+        );
+        assert!((light.range - 20.0).abs() < 1e-4, "range not updated");
+    }
+
+    #[test]
+    fn mcp_update_directional_light_changes_color() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_core::DirectionalLight::default())
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "update_directional_light",
+                    json!({"entity_id": eid.index() as u64, "color": [0.5, 0.5, 0.5]}),
+                )
+                .expect("update_directional_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let light = app
+            .world_mut()
+            .query::<&bsengine_core::DirectionalLight>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        assert!((light.color.x - 0.5).abs() < 1e-4, "color.r not updated");
     }
 
     #[test]

@@ -68,6 +68,9 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    BatchSpawn {
+        entries: Vec<(String, Option<[f32; 3]>)>,
+    },
     SpawnSpotLight {
         color: [f32; 3],
         intensity: f32,

@@ -199,6 +199,18 @@ fn process_editor_commands(
                     commands.entity(entity).despawn();
                 }
             }
+            EditorCommand::BatchSpawn { entries } => {
+                for (name, pos) in entries {
+                    if let Some([x, y, z]) = pos {
+                        commands.spawn((
+                            Name(name),
+                            Transform::from_translation(glam::Vec3::new(x, y, z)),
+                        ));
+                    } else {
+                        commands.spawn(Name(name));
+                    }
+                }
+            }
             EditorCommand::SpawnSpotLight {
                 color,
                 intensity,
@@ -947,6 +959,50 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued"}))
                 }),
             });
+
+            // batch_spawn
+            let queue16 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "batch_spawn".to_string(),
+                description: "Spawn multiple named entities at once (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entities": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name":     { "type": "string" },
+                                    "position": { "type": "array", "items": {"type":"number"}, "description": "[x,y,z]" }
+                                },
+                                "required": ["name"]
+                            }
+                        }
+                    },
+                    "required": ["entities"]
+                })),
+                handler: Box::new(move |input| {
+                    let items = match input["entities"].as_array() {
+                        Some(a) => a,
+                        None => return McpToolOutput::error("missing array 'entities' field"),
+                    };
+                    let entries: Vec<(String, Option<[f32; 3]>)> = items
+                        .iter()
+                        .filter_map(|item| {
+                            let name = item["name"].as_str()?.to_string();
+                            let pos = parse_vec3_input(&item["position"]);
+                            Some((name, pos))
+                        })
+                        .collect();
+                    let count = entries.len();
+                    queue16
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::BatchSpawn { entries });
+                    McpToolOutput::success(json!({"status": "queued", "count": count}))
+                }),
+            });
         }
     }
 }
@@ -1248,6 +1304,63 @@ mod tests {
             q.iter(app.world()).next().is_none(),
             "PointLight still present"
         );
+    }
+
+    #[test]
+    fn mcp_batch_spawn_creates_multiple_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "Alpha", "position": [1.0, 0.0, 0.0]},
+                            {"name": "Beta"},
+                            {"name": "Gamma", "position": [3.0, 0.0, 0.0]}
+                        ]
+                    }),
+                )
+                .expect("batch_spawn not found");
+            assert!(result.is_ok());
+            assert_eq!(result.content["count"], 3);
+        }
+        app.update(); // process_editor_commands spawns entities
+        app.update(); // update_editor_snapshot captures them
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let list = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap();
+            let names: Vec<_> = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|e| e["name"].as_str())
+                .collect();
+            assert!(names.contains(&"Alpha"), "Alpha missing: {:?}", names);
+            assert!(names.contains(&"Beta"), "Beta missing: {:?}", names);
+            assert!(names.contains(&"Gamma"), "Gamma missing: {:?}", names);
+            let alpha = list.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Alpha"))
+                .unwrap();
+            let pos = alpha["position"].as_array().unwrap();
+            assert!((pos[0].as_f64().unwrap() - 1.0).abs() < 1e-4);
+        }
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::snapshot::{
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
-use bsengine_core::{GlobalTransform, Transform};
+use bsengine_core::{DirectionalLight, GlobalTransform, PointLight, SpotLight, Transform};
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
 use bsengine_render::MeshRenderer;
@@ -74,6 +74,43 @@ fn process_editor_commands(
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).remove::<MeshRenderer>();
+                }
+            }
+            EditorCommand::SpawnPointLight {
+                color,
+                intensity,
+                range,
+                position,
+            } => {
+                commands.spawn((
+                    PointLight {
+                        color: glam::Vec3::from(color),
+                        intensity,
+                        range,
+                    },
+                    Transform::from_translation(glam::Vec3::from(position)),
+                    GlobalTransform::default(),
+                ));
+            }
+            EditorCommand::SpawnDirectionalLight {
+                direction,
+                color,
+                ambient,
+            } => {
+                commands.spawn(DirectionalLight {
+                    direction: glam::Vec3::from(direction),
+                    color: glam::Vec3::from(color),
+                    ambient: glam::Vec3::from(ambient),
+                });
+            }
+            EditorCommand::RemoveLight { entity_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .remove::<PointLight>()
+                        .remove::<DirectionalLight>()
+                        .remove::<SpotLight>();
                 }
             }
             EditorCommand::LoadScene(path) => {
@@ -394,8 +431,104 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // spawn_point_light
+            let queue7 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "spawn_point_light".to_string(),
+                description: "Spawn a point light entity at a position (applied next frame)"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "color":     { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" },
+                        "intensity": { "type": "number" },
+                        "range":     { "type": "number" },
+                        "position":  { "type": "array", "items": {"type":"number"}, "description": "[x,y,z]" }
+                    },
+                    "required": ["color", "intensity", "range", "position"]
+                })),
+                handler: Box::new(move |input| {
+                    let color = parse_vec3_input(&input["color"]).unwrap_or([1.0, 1.0, 1.0]);
+                    let intensity = input["intensity"].as_f64().unwrap_or(1.0) as f32;
+                    let range = input["range"].as_f64().unwrap_or(10.0) as f32;
+                    let position = parse_vec3_input(&input["position"]).unwrap_or([0.0, 0.0, 0.0]);
+                    queue7.lock().unwrap().push(EditorCommand::SpawnPointLight {
+                        color,
+                        intensity,
+                        range,
+                        position,
+                    });
+                    McpToolOutput::success(json!({"status": "queued"}))
+                }),
+            });
+
+            // spawn_directional_light
+            let queue8 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "spawn_directional_light".to_string(),
+                description: "Spawn a directional light (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "direction": { "type": "array", "items": {"type":"number"}, "description": "[x,y,z]" },
+                        "color":     { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" },
+                        "ambient":   { "type": "array", "items": {"type":"number"}, "description": "[r,g,b]" }
+                    }
+                })),
+                handler: Box::new(move |input| {
+                    let direction = parse_vec3_input(&input["direction"]).unwrap_or([-0.4, -0.8, -0.4]);
+                    let color = parse_vec3_input(&input["color"]).unwrap_or([1.0, 1.0, 1.0]);
+                    let ambient = parse_vec3_input(&input["ambient"]).unwrap_or([0.15, 0.15, 0.15]);
+                    queue8.lock().unwrap().push(EditorCommand::SpawnDirectionalLight {
+                        direction,
+                        color,
+                        ambient,
+                    });
+                    McpToolOutput::success(json!({"status": "queued"}))
+                }),
+            });
+
+            // remove_light
+            let queue9 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "remove_light".to_string(),
+                description:
+                    "Remove all light components from an entity by ID (applied next frame)"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    queue9
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::RemoveLight { entity_id });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
         }
     }
+}
+
+fn parse_vec3_input(v: &serde_json::Value) -> Option<[f32; 3]> {
+    let arr = v.as_array()?;
+    if arr.len() < 3 {
+        return None;
+    }
+    Some([
+        arr[0].as_f64()? as f32,
+        arr[1].as_f64()? as f32,
+        arr[2].as_f64()? as f32,
+    ])
 }
 
 #[cfg(test)]
@@ -599,6 +732,90 @@ mod tests {
             .iter(app.world())
             .any(|(n, m)| n.0 == "Cube" && m.mesh_id == 42);
         assert!(found, "MeshRenderer not attached");
+    }
+
+    #[test]
+    fn mcp_spawn_point_light_creates_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({"color":[1.0,0.5,0.0],"intensity":2.0,"range":8.0,"position":[0.0,3.0,0.0]}),
+                )
+                .expect("spawn_point_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let mut q = app.world_mut().query::<&bsengine_core::PointLight>();
+        let lights: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(lights.len(), 1);
+        assert!((lights[0].intensity - 2.0).abs() < 1e-4);
+        assert!((lights[0].range - 8.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn mcp_spawn_directional_light_creates_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_directional_light",
+                    json!({"direction":[0.0,-1.0,0.0],"color":[1.0,1.0,1.0],"ambient":[0.1,0.1,0.1]}),
+                )
+                .expect("spawn_directional_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let mut q = app.world_mut().query::<&bsengine_core::DirectionalLight>();
+        assert!(
+            q.iter(app.world()).next().is_some(),
+            "no DirectionalLight spawned"
+        );
+    }
+
+    #[test]
+    fn mcp_remove_light_removes_point_light() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_core::PointLight::default())
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("remove_light", json!({"entity_id": eid.index() as u64}))
+                .expect("remove_light not found");
+        }
+        app.update();
+
+        let mut q = app.world_mut().query::<&bsengine_core::PointLight>();
+        assert!(
+            q.iter(app.world()).next().is_none(),
+            "PointLight still present"
+        );
     }
 
     #[test]

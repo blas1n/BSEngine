@@ -1647,6 +1647,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_nearest_entity
+            let snap_gne = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_nearest_entity".to_string(),
+                description: "Return the entity closest to the given world position (only considers entities with a transform)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "z": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z"]
+                })),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gne.lock().unwrap();
+                    let nearest = s.entities.iter()
+                        .filter_map(|e| {
+                            let [ex, ey, ez] = e.position?;
+                            let dx = ex - px; let dy = ey - py; let dz = ez - pz;
+                            Some((e, dx*dx + dy*dy + dz*dz))
+                        })
+                        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    match nearest {
+                        Some((e, dist_sq)) => McpToolOutput::success(json!({
+                            "entity": {"id": e.id, "name": e.name, "position": e.position},
+                            "distance": (dist_sq as f64).sqrt()
+                        })),
+                        None => McpToolOutput::error("no entities with position found"),
+                    }
+                }),
+            });
+
             // get_entity_count_by_type
             let snap_gect = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -3770,6 +3806,113 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_get_nearest_entity_returns_closest() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NearA", "position": [1.0, 0.0, 0.0]},
+                        {"name": "NearB", "position": [10.0, 0.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_nearest_entity", json!({"x": 0.0, "y": 0.0, "z": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["entity"]["name"].as_str().unwrap(),
+            "NearA",
+            "NearA at [1,0,0] is closer to origin than NearB at [10,0,0]"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_distance_returns_euclidean_distance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "DistA", "position": [0.0, 0.0, 0.0]},
+                        {"name": "DistB", "position": [3.0, 4.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (a_id, b_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DistA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DistB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b)
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_distance",
+                json!({"entity_id_a": a_id, "entity_id_b": b_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!(
+            (dist - 5.0).abs() < 1e-3,
+            "distance between [0,0,0] and [3,4,0] should be 5.0, got {}",
+            dist
+        );
     }
 
     #[test]

@@ -1647,6 +1647,55 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_without_camera
+            let snap_gewoc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_without_camera".to_string(),
+                description: "Return entity IDs that are NOT cameras; returns entity_ids"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewoc.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.camera_fov.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_in_box
+            let snap_gewpib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_in_box".to_string(),
+                description: "Return entity IDs whose position falls within the axis-aligned bounding box [min_x..max_x, min_y..max_y, min_z..max_z] (inclusive); returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" }, "min_y": { "type": "number" }, "min_z": { "type": "number" },
+                        "max_x": { "type": "number" }, "max_y": { "type": "number" }, "max_z": { "type": "number" }
+                    },
+                    "required": ["min_x", "min_y", "min_z", "max_x", "max_y", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let f = |k: &str| input[k].as_f64().unwrap_or(0.0) as f32;
+                    let (min_x, min_y, min_z) = (f("min_x"), f("min_y"), f("min_z"));
+                    let (max_x, max_y, max_z) = (f("max_x"), f("max_y"), f("max_z"));
+                    let s = snap_gewpib.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.map(|p|
+                            p[0] >= min_x && p[0] <= max_x &&
+                            p[1] >= min_y && p[1] <= max_y &&
+                            p[2] >= min_z && p[2] <= max_z
+                        ).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_name_prefix
             let snap_gewnpfx = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -10924,6 +10973,143 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_without_camera_excludes_cameras() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn a regular entity and a camera
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "Plain", "position": [0.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 5.0, 10.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let plain_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Plain"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let camera_id = all.iter().find(|e| e["camera_fov"].is_number()).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_camera", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&plain_id), "Plain entity is not a camera");
+        assert!(!ids.contains(&camera_id), "Camera entity excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_position_in_box_returns_within_bounds() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Inside",  "position": [2.0, 2.0, 2.0]},
+                        {"name": "Outside", "position": [9.0, 9.0, 9.0]},
+                        {"name": "Edge",    "position": [5.0, 5.0, 5.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (inside_id, outside_id, edge_id) = (id_of("Inside"), id_of("Outside"), id_of("Edge"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_position_in_box",
+                json!({
+                    "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                    "max_x": 5.0, "max_y": 5.0, "max_z": 5.0
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&inside_id), "Inside(2,2,2) within box");
+        assert!(
+            ids.contains(&edge_id),
+            "Edge(5,5,5) on boundary (inclusive)"
+        );
+        assert!(!ids.contains(&outside_id), "Outside(9,9,9) not in box");
     }
 
     #[test]

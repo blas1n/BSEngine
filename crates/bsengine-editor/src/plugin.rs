@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_first_entity_with_tag
+            let snap_gfewt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_first_entity_with_tag".to_string(),
+                description: "Return the first entity found with the given tag, or null if none"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = input["tag"].as_str().unwrap_or("").to_string();
+                    let s = snap_gfewt.lock().unwrap();
+                    let entity = s
+                        .entities
+                        .iter()
+                        .find(|e| e.tags.iter().any(|t| t == &tag))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .unwrap_or(serde_json::Value::Null);
+                    McpToolOutput::success(json!({"entity": entity}))
+                }),
+            });
+
+            // get_average_position
+            let snap_gap = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_average_position".to_string(),
+                description:
+                    "Return the average (centroid) position of all entities that have a position"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gap.lock().unwrap();
+                    let positions: Vec<[f32; 3]> =
+                        s.entities.iter().filter_map(|e| e.position).collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::success(
+                            json!({"average_position": serde_json::Value::Null, "count": 0u64}),
+                        );
+                    }
+                    let n = positions.len() as f32;
+                    let sum = positions.iter().fold([0.0f32; 3], |acc, p| {
+                        [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]]
+                    });
+                    let avg = [sum[0] / n, sum[1] / n, sum[2] / n];
+                    McpToolOutput::success(
+                        json!({"average_position": avg, "count": positions.len() as u64}),
+                    )
+                }),
+            });
+
             // count_entities_with_tag
             let snap_cewt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8330,6 +8382,128 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_first_entity_with_tag_returns_one_matching_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "A"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "B"})).unwrap();
+            m.execute("spawn_entity", json!({"name": "C"})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect()
+        };
+        let (id_a, id_b) = (ids[0], ids[1]);
+
+        for id in [id_a, id_b] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
+                .unwrap();
+            drop(mcp);
+            app.update();
+            app.update();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_first_entity_with_tag", json!({"tag": "hero"}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(out.content["entity"].is_object(), "entity object returned");
+        let found_id = out.content["entity"]["id"].as_u64().unwrap();
+        assert!(
+            found_id == id_a || found_id == id_b,
+            "returned entity has hero tag"
+        );
+
+        let out_none = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_first_entity_with_tag", json!({"tag": "villain"}))
+            .unwrap();
+        assert!(out_none.is_ok());
+        assert!(out_none.content["entity"].is_null(), "no villain entity");
+    }
+
+    #[test]
+    fn mcp_get_average_position_returns_centroid_of_positioned_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({
+                        "entities": [
+                            {"name": "A", "position": [0.0, 0.0, 0.0]},
+                            {"name": "B", "position": [6.0, 0.0, 0.0]},
+                            {"name": "C", "position": [0.0, 0.0, 9.0]}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_average_position", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let avg = out.content["average_position"].as_array().unwrap();
+        // Average of [0,6,0] for x = 2.0; [0,0,0] for y = 0.0; [0,0,9] for z = 3.0
+        assert!(
+            (avg[0].as_f64().unwrap() - 2.0).abs() < 0.01,
+            "avg_x = 2.0, got {}",
+            avg[0]
+        );
+        assert!(
+            (avg[1].as_f64().unwrap() - 0.0).abs() < 0.01,
+            "avg_y = 0.0, got {}",
+            avg[1]
+        );
+        assert!(
+            (avg[2].as_f64().unwrap() - 3.0).abs() < 0.01,
+            "avg_z = 3.0, got {}",
+            avg[2]
+        );
     }
 
     #[test]

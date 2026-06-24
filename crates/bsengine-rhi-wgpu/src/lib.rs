@@ -6,5 +6,5 @@ pub mod texture;
 pub use mesh::{cube_vertices, triangle_vertices, GpuMeshRegistry, Vertex};
 pub use plugin::{RhiResource, WgpuRHIPlugin};
 pub use rhi::WgpuRHI;
-pub use surface::{LightData, WgpuSurfaceResource};
+pub use surface::{LightData, PointLightEntry, WgpuSurfaceResource};
 pub use texture::GpuTextureRegistry;

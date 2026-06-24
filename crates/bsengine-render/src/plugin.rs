@@ -1,8 +1,12 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, Without};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Parent, Transform};
+use bsengine_core::{
+    Camera, DirectionalLight, GlobalTransform, Material, Parent, PointLight, Transform,
+};
 use bsengine_ecs::Res;
-use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry, LightData, WgpuSurfaceResource};
+use bsengine_rhi_wgpu::{
+    GpuMeshRegistry, GpuTextureRegistry, LightData, PointLightEntry, WgpuSurfaceResource,
+};
 use bsengine_window::WindowResized;
 use glam::Mat4;
 use std::collections::HashMap;
@@ -45,6 +49,7 @@ fn render_frame(
         Option<&Material>,
     )>,
     light_query: Query<&DirectionalLight>,
+    point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
 ) {
     let (Some(surface), Some(registry)) = (surface, registry) else {
         return;
@@ -65,15 +70,34 @@ fn render_frame(
         })
         .collect();
 
-    let light = light_query
+    let collected_point_lights: Vec<PointLightEntry> = point_light_query
         .iter()
-        .next()
-        .map(|l| LightData {
+        .map(|(pl, gt, t)| {
+            let pos = gt
+                .map(|g| g.to_matrix().w_axis.truncate())
+                .unwrap_or(t.translation);
+            PointLightEntry {
+                position: pos,
+                color: pl.color,
+                intensity: pl.intensity,
+                range: pl.range,
+            }
+        })
+        .collect();
+
+    let light = if let Some(l) = light_query.iter().next() {
+        LightData {
             direction: l.direction,
             color: l.color,
             ambient: l.ambient,
-        })
-        .unwrap_or_default();
+            point_lights: collected_point_lights,
+        }
+    } else {
+        LightData {
+            point_lights: collected_point_lights,
+            ..Default::default()
+        }
+    };
 
     let tex_reg_ref = tex_registry.as_deref();
 
@@ -110,9 +134,10 @@ impl Plugin for RenderPlugin {
 mod tests {
     use super::RenderPlugin;
     use bsengine_app::new_app;
-    use bsengine_core::Camera;
+    use bsengine_core::{Camera, PointLight, Transform};
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
     use bsengine_window::WindowResized;
+    use glam::Vec3;
 
     #[test]
     fn render_plugin_runs_without_surface() {
@@ -147,5 +172,21 @@ mod tests {
         let cam = app.world().get::<Camera>(cam_entity).unwrap();
         let expected = 800.0_f32 / 600.0_f32;
         assert!((cam.aspect_ratio - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn render_plugin_accepts_point_lights() {
+        let mut app = new_app();
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut().spawn((
+            PointLight {
+                color: Vec3::new(1.0, 0.5, 0.0),
+                intensity: 2.0,
+                range: 5.0,
+            },
+            Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
+        ));
+        app.update();
     }
 }

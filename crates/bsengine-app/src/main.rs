@@ -1,6 +1,6 @@
 use bevy_app::PostStartup;
 use bsengine_app::new_app;
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Parent, Transform};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Parent, PointLight, Transform};
 use bsengine_ecs::{Commands, ResMut};
 use bsengine_input::InputPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
@@ -45,4 +45,15 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     ));
 
     commands.spawn(DirectionalLight::default());
+
+    // Orange point light above the scene
+    commands.spawn((
+        PointLight {
+            color: Vec3::new(1.0, 0.5, 0.1),
+            intensity: 2.0,
+            range: 8.0,
+        },
+        Transform::from_translation(Vec3::new(0.0, 3.0, 1.0)),
+        GlobalTransform::default(),
+    ));
 }

@@ -1647,6 +1647,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_total_entity_count
+            let snap_gtec = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_total_entity_count".to_string(),
+                description: "Return the total number of entities in the scene".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gtec.lock().unwrap();
+                    McpToolOutput::success(json!({"count": s.entities.len() as u64}))
+                }),
+            });
+
+            // get_entity_has_tag
+            let snap_geht = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_has_tag".to_string(),
+                description: "Return whether a specific entity has a given tag".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "tag": { "type": "string" }
+                    },
+                    "required": ["entity_id", "tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_geht.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => {
+                            McpToolOutput::success(json!({"has_tag": e.tags.contains(&tag)}))
+                        }
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_nearest_entity_to_position
             let snap_gnetp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -6307,6 +6351,112 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_total_entity_count_returns_all_entity_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_entity", json!({"name": "CountA"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "CountB"}))
+                .unwrap();
+            m.execute("spawn_entity", json!({"name": "CountC"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_total_entity_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let count = out.content["count"].as_u64().unwrap();
+        assert_eq!(count, 3, "3 entities spawned");
+    }
+
+    #[test]
+    fn mcp_get_entity_has_tag_returns_bool_for_tag_presence() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "HasTagEntity"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("HasTagEntity"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": eid, "tag": "checked"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out_has = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_has_tag",
+                json!({"entity_id": eid, "tag": "checked"}),
+            )
+            .unwrap();
+        assert!(out_has.is_ok());
+        assert!(
+            out_has.content["has_tag"].as_bool().unwrap(),
+            "entity has 'checked' tag"
+        );
+
+        let out_miss = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_has_tag",
+                json!({"entity_id": eid, "tag": "missing"}),
+            )
+            .unwrap();
+        assert!(
+            !out_miss.content["has_tag"].as_bool().unwrap(),
+            "entity lacks 'missing' tag"
+        );
     }
 
     #[test]

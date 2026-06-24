@@ -69,6 +69,9 @@ pub enum EditorCommand {
         name: String,
     },
     ClearScene,
+    DuplicateEntity {
+        entity_id: u64,
+    },
     SpawnCamera {
         fov_y_degrees: f32,
         position: [f32; 3],

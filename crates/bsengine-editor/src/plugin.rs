@@ -1647,6 +1647,37 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_distance_to_origin
+            let snap_gedto = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_distance_to_origin".to_string(),
+                description:
+                    "Return the Euclidean distance from the entity's position to the world origin"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gedto.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => {
+                            let [x, y, z] = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                            let dist = (x * x + y * y + z * z).sqrt();
+                            McpToolOutput::success(
+                                json!({"entity_id": entity_id, "distance": dist}),
+                            )
+                        }
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // mirror_selected_on_axis
             let snap_msoa = snapshot.clone();
             let sel_msoa = selection.clone();
@@ -4619,6 +4650,158 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_cam.content["has_component"], true);
+    }
+
+    #[test]
+    fn mcp_invert_selection_swaps_selected_and_unselected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "InvSelA"},
+                        {"name": "InvSelB"},
+                        {"name": "InvSelC"}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let ents = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InvSelA"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let b = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InvSelB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let c = ents
+                .iter()
+                .find(|e| e["name"].as_str() == Some("InvSelC"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (a, b, c)
+        };
+        // select only A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": id_a}))
+                .unwrap();
+        }
+        // invert selection → B and C selected, A deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("invert_selection", json!({}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_u64().unwrap())
+            .collect();
+        assert!(
+            !ids.contains(&id_a),
+            "A was selected before → not selected after invert"
+        );
+        assert!(
+            ids.contains(&id_b),
+            "B was not selected → selected after invert"
+        );
+        assert!(
+            ids.contains(&id_c),
+            "C was not selected → selected after invert"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entity_distance_to_origin_returns_distance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "DistEnt", "position": [3.0, 4.0, 0.0]}
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"].as_str() == Some("DistEnt"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_distance_to_origin", json!({"entity_id": eid}))
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!((dist - 5.0).abs() < 1e-3, "sqrt(3^2+4^2)=5, got {}", dist);
     }
 
     #[test]

@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_duplicate_name
+            let snap_gewdn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_duplicate_name".to_string(),
+                description: "Return all entities whose name is shared by at least one other entity; returns {entities}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewdn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(n) = &e.name {
+                            *name_counts.entry(n.clone()).or_insert(0) += 1;
+                        }
+                    }
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.name.as_ref().map(|n| name_counts.get(n).copied().unwrap_or(0) > 1).unwrap_or(false))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_nearest_entity_to
+            let snap_gnet = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_nearest_entity_to".to_string(),
+                description: "Return the entity with a position closest to the given point; returns entity info or error if no entities have positions".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}
+                }, "required": ["x", "y", "z"]})),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gnet.lock().unwrap();
+                    let nearest = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[ex, ey, ez]| {
+                            let dist = ((ex-px).powi(2)+(ey-py).powi(2)+(ez-pz).powi(2)).sqrt();
+                            (dist, e)
+                        }))
+                        .min_by(|(da, _), (db, _)| da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal));
+                    match nearest {
+                        Some((_, e)) => McpToolOutput::success(json!({
+                            "id": e.id, "name": e.name, "position": e.position
+                        })),
+                        None => McpToolOutput::error("no entities with positions"),
+                    }
+                }),
+            });
+
             // get_entities_sharing_name
             let snap_gesn = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17199,6 +17249,82 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_duplicate_name_returns_duplicates() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Dup"},
+                        {"name": "Dup"},
+                        {"name": "Unique"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_duplicate_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 2, "both Dup entities returned");
+        for e in entities {
+            assert_eq!(e["name"].as_str(), Some("Dup"));
+        }
+    }
+
+    #[test]
+    fn mcp_get_nearest_entity_to_returns_closest() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_nearest_entity_to",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["name"].as_str(), Some("Near"));
     }
 
     #[test]

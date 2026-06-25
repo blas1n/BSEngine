@@ -1647,6 +1647,71 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_any_of_tags
+            let snap_sewat = snapshot.clone();
+            let sel_sewat = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_any_of_tags".to_string(),
+                description:
+                    "Select entities that have any of the specified tags; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let any_of: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_sewat.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| any_of.iter().any(|t| e.tags.contains(t)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewat.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // count_entities_with_any_of_tags
+            let snap_cewat = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_any_of_tags".to_string(),
+                description: "Count entities that have any of the specified tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let any_of: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_cewat.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| any_of.iter().any(|t| e.tags.contains(t)))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_sharing_all_tags
             let snap_deast = snapshot.clone();
             let sel_deast = selection.clone();
@@ -18114,6 +18179,176 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_count_entities_with_any_of_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Alpha"}, {"name": "Beta"}, {"name": "Both"}, {"name": "Neither"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_alpha = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Alpha"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_both = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Both"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_alpha, "tag": "alpha"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_both, "tag": "alpha"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_beta = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Beta"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_both = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Both"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_beta, "tag": "beta"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_both, "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // count_entities_with_any_of_tags([alpha, beta]): Alpha, Beta, Both = 3
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_with_any_of_tags",
+                json!({"tags": ["alpha", "beta"]}),
+            )
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(
+            count_out.content["count"], 3,
+            "Alpha, Beta, Both match any of [alpha,beta]"
+        );
+
+        // select_entities_with_any_of_tags([alpha]): Alpha, Both selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_any_of_tags",
+                    json!({"tags": ["alpha"]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let alpha_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Alpha"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let beta_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Beta"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let both_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Both"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let neither_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Neither"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(alpha_sel, "Alpha selected");
+        assert!(!beta_sel, "Beta not selected");
+        assert!(both_sel, "Both selected");
+        assert!(!neither_sel, "Neither not selected");
     }
 
     #[test]

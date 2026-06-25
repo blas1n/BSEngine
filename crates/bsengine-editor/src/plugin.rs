@@ -1647,6 +1647,71 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // is_descendant_of
+            let snap_ido = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "is_descendant_of".to_string(),
+                description: "Check whether entity_id is a descendant (at any depth) of ancestor_id; returns {is_descendant}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "ancestor_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id", "ancestor_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let ancestor_id = match input["ancestor_id"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing ancestor_id"),
+                    };
+                    let s = snap_ido.lock().unwrap();
+                    let mut cur = entity_id;
+                    let is_descendant = loop {
+                        let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                        match p {
+                            Some(pid) if pid == ancestor_id => break true,
+                            Some(pid) => cur = pid,
+                            None => break false,
+                        }
+                    };
+                    McpToolOutput::success(json!({"is_descendant": is_descendant}))
+                }),
+            });
+
+            // is_sibling_of
+            let snap_iso = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "is_sibling_of".to_string(),
+                description: "Check whether entity_id and sibling_id share the same parent; returns {is_sibling}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "sibling_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id", "sibling_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let sibling_id = match input["sibling_id"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing sibling_id"),
+                    };
+                    let s = snap_iso.lock().unwrap();
+                    let parent_a = s.entities.iter().find(|e| e.id == entity_id).and_then(|e| e.parent_id);
+                    let parent_b = s.entities.iter().find(|e| e.id == sibling_id).and_then(|e| e.parent_id);
+                    let is_sibling = match (parent_a, parent_b) {
+                        (Some(a), Some(b)) => a == b,
+                        _ => false,
+                    };
+                    McpToolOutput::success(json!({"is_sibling": is_sibling}))
+                }),
+            });
+
             // is_ancestor_of
             let snap_iao = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14836,6 +14901,232 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_is_descendant_of_returns_correct_result() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "Child"},
+                        {"name": "Grandchild"},
+                        {"name": "Unrelated"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, gc_id, unrel_id) = (
+            id_of("Root"),
+            id_of("Child"),
+            id_of("Grandchild"),
+            id_of("Unrelated"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": child_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": gc_id, "parent_id": child_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "is_descendant_of",
+                json!({"entity_id": gc_id, "ancestor_id": root_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["is_descendant"], true,
+            "Grandchild is descendant of Root"
+        );
+
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "is_descendant_of",
+                json!({"entity_id": root_id, "ancestor_id": gc_id}),
+            )
+            .unwrap();
+        assert_eq!(
+            out2.content["is_descendant"], false,
+            "Root is not descendant of Grandchild"
+        );
+
+        let out3 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "is_descendant_of",
+                json!({"entity_id": unrel_id, "ancestor_id": root_id}),
+            )
+            .unwrap();
+        assert_eq!(
+            out3.content["is_descendant"], false,
+            "Unrelated is not descendant of Root"
+        );
+    }
+
+    #[test]
+    fn mcp_is_sibling_of_returns_correct_result() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "S1"},
+                        {"name": "S2"},
+                        {"name": "Unrelated"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, s1_id, s2_id, unrel_id) = (
+            id_of("Parent"),
+            id_of("S1"),
+            id_of("S2"),
+            id_of("Unrelated"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": s1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": s2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "is_sibling_of",
+                json!({"entity_id": s1_id, "sibling_id": s2_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["is_sibling"], true,
+            "S1 and S2 share the same parent"
+        );
+
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "is_sibling_of",
+                json!({"entity_id": s1_id, "sibling_id": unrel_id}),
+            )
+            .unwrap();
+        assert_eq!(
+            out2.content["is_sibling"], false,
+            "S1 and Unrelated do not share parent"
+        );
+
+        let out3 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "is_sibling_of",
+                json!({"entity_id": parent_id, "sibling_id": s1_id}),
+            )
+            .unwrap();
+        assert_eq!(
+            out3.content["is_sibling"], false,
+            "parent is not sibling of child"
+        );
     }
 
     #[test]

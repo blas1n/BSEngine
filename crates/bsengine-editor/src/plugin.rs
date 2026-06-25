@@ -1647,6 +1647,43 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_fov
+            let snap_gef = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_fov".to_string(),
+                description: "Return the camera FOV (fov_y_degrees) for a given entity, or null if not a camera; returns {fov_y_degrees}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gef.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(json!({"fov_y_degrees": e.camera_fov})),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // count_cameras
+            let snap_cc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_cameras".to_string(),
+                description: "Return the count of camera entities in the scene; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cc.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_name_length_above
             let snap_gewnla = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11555,6 +11592,130 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_fov_returns_fov_for_camera_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "NoCamera", "position": [1.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let cam_ent = all.iter().find(|e| !e["camera_fov"].is_null()).unwrap();
+        let plain_ent = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("NoCamera"))
+            .unwrap();
+        let (cam_id, plain_id) = (
+            cam_ent["id"].as_u64().unwrap(),
+            plain_ent["id"].as_u64().unwrap(),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entity_fov", json!({"entity_id": cam_id}))
+                .unwrap();
+            assert!(out.is_ok());
+            let fov = out.content["fov_y_degrees"].as_f64().unwrap();
+            assert!((fov - 60.0).abs() < 0.1, "fov should be 60.0, got {fov}");
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_fov", json!({"entity_id": plain_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(
+            out.content["fov_y_degrees"].is_null(),
+            "non-camera has null fov"
+        );
+    }
+
+    #[test]
+    fn mcp_count_cameras_returns_number_of_camera_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // No cameras yet
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_cameras", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 0);
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 45.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "Plain", "position": [2.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_cameras", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"].as_u64().unwrap(), 2);
     }
 
     #[test]

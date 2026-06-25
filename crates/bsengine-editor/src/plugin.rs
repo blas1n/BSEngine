@@ -1647,6 +1647,97 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // offset_entity_rotation
+            let snap_oer = snapshot.clone();
+            let queue82 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "offset_entity_rotation".to_string(),
+                description: "Add rotation offsets (degrees) to an entity's current rotation; returns {status}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "rx": { "type": "number" },
+                        "ry": { "type": "number" },
+                        "rz": { "type": "number" }
+                    },
+                    "required": ["entity_id", "rx", "ry", "rz"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let drx = match input["rx"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing rx") };
+                    let dry = match input["ry"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing ry") };
+                    let drz = match input["rz"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing rz") };
+                    let s = snap_oer.lock().unwrap();
+                    let cur = s.entities.iter().find(|e| e.id == entity_id)
+                        .and_then(|e| e.rotation)
+                        .unwrap_or([0.0, 0.0, 0.0]);
+                    drop(s);
+                    queue82.lock().unwrap().push(EditorCommand::SetRotation {
+                        entity_id,
+                        rx: cur[0] + drx,
+                        ry: cur[1] + dry,
+                        rz: cur[2] + drz,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // offset_entity_scale
+            let snap_oes = snapshot.clone();
+            let queue83 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "offset_entity_scale".to_string(),
+                description: "Add scale offsets to an entity's current scale; returns {status}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "sx": { "type": "number" },
+                        "sy": { "type": "number" },
+                        "sz": { "type": "number" }
+                    },
+                    "required": ["entity_id", "sx", "sy", "sz"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let dsx = match input["sx"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing sx"),
+                    };
+                    let dsy = match input["sy"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing sy"),
+                    };
+                    let dsz = match input["sz"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing sz"),
+                    };
+                    let s = snap_oes.lock().unwrap();
+                    let cur = s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == entity_id)
+                        .and_then(|e| e.scale)
+                        .unwrap_or([1.0, 1.0, 1.0]);
+                    drop(s);
+                    queue83.lock().unwrap().push(EditorCommand::SetScale {
+                        entity_id,
+                        sx: cur[0] + dsx,
+                        sy: cur[1] + dsy,
+                        sz: cur[2] + dsz,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
             // get_entities_sorted_by_position_z
             let snap_gesbpz = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12073,6 +12164,192 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_offset_entity_rotation_adds_to_current_rotation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let entity_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // Set initial rotation
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": entity_id, "rx": 10.0, "ry": 20.0, "rz": 30.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "offset_entity_rotation",
+                    json!({"entity_id": entity_id, "rx": 5.0, "ry": 10.0, "rz": 15.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let e = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == entity_id)
+            .unwrap();
+        let rot = e["rotation"].as_array().unwrap();
+        assert!((rot[0].as_f64().unwrap() - 15.0).abs() < 0.5, "rx=15");
+        assert!((rot[1].as_f64().unwrap() - 30.0).abs() < 0.5, "ry=30");
+        assert!((rot[2].as_f64().unwrap() - 45.0).abs() < 0.5, "rz=45");
+    }
+
+    #[test]
+    fn mcp_offset_entity_scale_adds_to_current_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let entity_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // Set initial scale
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_scale",
+                    json!({"entity_id": entity_id, "sx": 1.0, "sy": 2.0, "sz": 3.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "offset_entity_scale",
+                    json!({"entity_id": entity_id, "sx": 0.5, "sy": 1.0, "sz": 2.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let e = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == entity_id)
+            .unwrap();
+        let scale = e["scale"].as_array().unwrap();
+        assert!((scale[0].as_f64().unwrap() - 1.5).abs() < 0.01, "sx=1.5");
+        assert!((scale[1].as_f64().unwrap() - 3.0).abs() < 0.01, "sy=3.0");
+        assert!((scale[2].as_f64().unwrap() - 5.0).abs() < 0.01, "sz=5.0");
     }
 
     #[test]

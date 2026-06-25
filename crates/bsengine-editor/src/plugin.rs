@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_below_x
+            let snap_sebx = snapshot.clone();
+            let sel_sebx = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_below_x".to_string(),
+                description: "Add to selection all entities whose x position is strictly less than the given value; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "x": { "type": "number" } },
+                    "required": ["x"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sebx.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, _, _]| if x < threshold { Some(e.id) } else { None }).flatten())
+                        .collect();
+                    let count = to_add.len() as u64;
+                    let mut sel = sel_sebx.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_above_x
+            let snap_deax = snapshot.clone();
+            let sel_deax = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_above_x".to_string(),
+                description: "Remove from selection all entities whose x position is strictly greater than the given value; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "x": { "type": "number" } },
+                    "required": ["x"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_deax.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, _, _]| if x > threshold { Some(e.id) } else { None }).flatten())
+                        .collect();
+                    let mut sel = sel_deax.lock().unwrap();
+                    let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_centroid_of_selection
             let snap_gcos = snapshot.clone();
             let sel_gcos = selection.clone();
@@ -15624,6 +15671,159 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_below_x_adds_entities_below_x_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NegA", "position": [-5.0, 0.0, 0.0]},
+                        {"name": "NegB", "position": [-1.0, 0.0, 0.0]},
+                        {"name": "Pos", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (na_id, nb_id, pos_id) = (id_of("NegA"), id_of("NegB"), id_of("Pos"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_entities_below_x", json!({"x": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["added_count"], 2);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&na_id));
+        assert!(ids.contains(&nb_id));
+        assert!(!ids.contains(&pos_id));
+    }
+
+    #[test]
+    fn mcp_deselect_entities_above_x_removes_entities_above_x_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Right", "position": [10.0, 0.0, 0.0]},
+                        {"name": "Left", "position": [-5.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (right_id, left_id) = (id_of("Right"), id_of("Left"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": right_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": left_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("deselect_entities_above_x", json!({"x": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["removed_count"], 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&right_id), "Right deselected");
+        assert!(ids.contains(&left_id), "Left still selected");
     }
 
     #[test]

@@ -1647,6 +1647,45 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_all_leaves
+            let snap_sal = snapshot.clone();
+            let sel_sal = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_all_leaves".to_string(),
+                description: "Add all entities that have no children to the selection; returns {selected_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sal.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id)
+                        .collect();
+                    let leaves: Vec<u64> = s.entities.iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = leaves.len() as u64;
+                    let mut sel = sel_sal.lock().unwrap();
+                    for id in leaves { sel.insert(id); }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // get_entities_with_zero_scale
+            let snap_gewzs = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_zero_scale".to_string(),
+                description: "Return entity IDs where at least one scale component is zero; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewzs.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.scale.map(|sc| sc[0] == 0.0 || sc[1] == 0.0 || sc[2] == 0.0).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_children_of
             let snap_sco = snapshot.clone();
             let sel_sco = selection.clone();
@@ -12531,6 +12570,187 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_all_leaves_adds_entities_without_children_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root",  "position": [0.0, 0.0, 0.0]},
+                        {"name": "Child", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Leaf",  "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, leaf_id) = (id_of("Root"), id_of("Child"), id_of("Leaf"));
+
+        // Root → Child → Leaf hierarchy
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": child_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": leaf_id, "parent_id": child_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_all_leaves", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let sel_ids: Vec<u64> = sel_out.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(sel_ids.contains(&leaf_id), "Leaf selected (no children)");
+        assert!(
+            !sel_ids.contains(&child_id),
+            "Child not selected (has Leaf)"
+        );
+        assert!(!sel_ids.contains(&root_id), "Root not selected (has Child)");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_zero_scale_returns_entities_with_zero_component() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Normal", "position": [0.0, 0.0, 0.0]},
+                        {"name": "ZeroX",  "position": [1.0, 0.0, 0.0]},
+                        {"name": "ZeroY",  "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (normal_id, zero_x_id, zero_y_id) = (id_of("Normal"), id_of("ZeroX"), id_of("ZeroY"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_scale",
+                json!({"entity_id": normal_id, "sx": 1.0, "sy": 1.0, "sz": 1.0}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_scale",
+                json!({"entity_id": zero_x_id, "sx": 0.0, "sy": 1.0, "sz": 1.0}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_scale",
+                json!({"entity_id": zero_y_id, "sx": 1.0, "sy": 0.0, "sz": 1.0}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_zero_scale", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&normal_id), "Normal not in list");
+        assert!(ids.contains(&zero_x_id), "ZeroX included");
+        assert!(ids.contains(&zero_y_id), "ZeroY included");
     }
 
     #[test]

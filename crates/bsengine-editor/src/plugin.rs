@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_without_tag
+            let snap_cewt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_without_tag".to_string(),
+                description:
+                    "Return the count of entities that do not have the given tag; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tag": {"type": "string"}
+                }, "required": ["tag"]})),
+                handler: Box::new(move |input| {
+                    let tag = input["tag"].as_str().unwrap_or("").to_string();
+                    let s = snap_cewt.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.tags.iter().any(|t| t == &tag))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_exactly_n_tags
+            let snap_cewent = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_exactly_n_tags".to_string(),
+                description:
+                    "Return the count of entities that have exactly n tags; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "n": {"type": "integer"}
+                }, "required": ["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewent.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.len() == n).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_with_tag_containing
             let snap_sewtc = snapshot.clone();
             let sel_sewtc = selection.clone();
@@ -17623,6 +17663,197 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_without_tag_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"}, {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "special"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_without_tag", json!({"tag": "special"}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "B and C don't have 'special' tag");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_exactly_n_tags_returns_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Zero"}, {"name": "One"}, {"name": "Two"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_one = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("One"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_two = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Two"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_one, "tag": "a"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_two = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Two"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_two, "tag": "a"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_two = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Two"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_two, "tag": "b"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let zero_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_exactly_n_tags", json!({"n": 0}))
+            .unwrap();
+        let one_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_exactly_n_tags", json!({"n": 1}))
+            .unwrap();
+        let two_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_exactly_n_tags", json!({"n": 2}))
+            .unwrap();
+        assert_eq!(zero_out.content["count"], 1, "Zero has 0 tags");
+        assert_eq!(one_out.content["count"], 1, "One has 1 tag");
+        assert_eq!(two_out.content["count"], 1, "Two has 2 tags");
     }
 
     #[test]

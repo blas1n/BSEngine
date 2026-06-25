@@ -1666,6 +1666,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_by_name_starts_with
+            let snap_cntnamestart = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_name_starts_with".to_string(),
+                description: "Count entities whose name starts with the given prefix (case-sensitive); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "prefix": {"type": "string"}
+                }, "required": ["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing prefix"),
+                    };
+                    let s = snap_cntnamestart.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.starts_with(&*prefix)).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_by_name_ends_with
+            let snap_cntnameend = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_name_ends_with".to_string(),
+                description: "Count entities whose name ends with the given suffix (case-sensitive); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "suffix": {"type": "string"}
+                }, "required": ["suffix"]})),
+                handler: Box::new(move |input| {
+                    let suffix = match input["suffix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing suffix"),
+                    };
+                    let s = snap_cntnameend.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.ends_with(&*suffix)).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_by_name_starts_with
             let snap_delnamestart = snapshot.clone();
             let sel_delnamestart = selection.clone();
@@ -19384,6 +19426,88 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_by_name_starts_and_ends_with() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_A"}, {"name": "Enemy_B"}, {"name": "Player"},
+                        {"name": "Wall_Left"}, {"name": "Wall_Right"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // count_entities_by_name_starts_with("Enemy") → 2
+        let count_start = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_by_name_starts_with",
+                json!({"prefix": "Enemy"}),
+            )
+            .unwrap();
+        assert!(count_start.is_ok());
+        assert_eq!(count_start.content["count"], 2);
+
+        // count_entities_by_name_starts_with("Wall") → 2
+        let count_wall = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_by_name_starts_with",
+                json!({"prefix": "Wall"}),
+            )
+            .unwrap();
+        assert_eq!(count_wall.content["count"], 2);
+
+        // count_entities_by_name_starts_with("NPC") → 0
+        let count_npc = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_by_name_starts_with",
+                json!({"prefix": "NPC"}),
+            )
+            .unwrap();
+        assert_eq!(count_npc.content["count"], 0);
+
+        // count_entities_by_name_ends_with("_B") → 1 (Enemy_B)
+        let count_b = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_by_name_ends_with", json!({"suffix": "_B"}))
+            .unwrap();
+        assert!(count_b.is_ok());
+        assert_eq!(count_b.content["count"], 1);
+
+        // count_entities_by_name_ends_with("_A") → 1 (Enemy_A)
+        let count_a = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_by_name_ends_with", json!({"suffix": "_A"}))
+            .unwrap();
+        assert_eq!(count_a.content["count"], 1);
     }
 
     #[test]

@@ -1647,6 +1647,34 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_without_parent
+            let snap_cewop = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_without_parent".to_string(),
+                description:
+                    "Return the count of entities that have no parent entity; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewop.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.parent_id.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_camera_fov
+            let snap_cewcf = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_camera_fov".to_string(),
+                description: "Return the count of entities that have a camera_fov (i.e. are cameras); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewcf.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_name_suffix
             let snap_cewns = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16420,6 +16448,119 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_without_parent_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "Child"},
+                        {"name": "Orphan"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let parent_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Parent"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let child_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_without_parent", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "Parent and Orphan have no parent");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_camera_fov_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            reg.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "PlainEntity"}]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_camera_fov", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
     }
 
     #[test]

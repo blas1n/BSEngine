@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_within_aabb
+            let snap_dewab = snapshot.clone();
+            let sel_dewab = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_within_aabb".to_string(),
+                description: "Deselect all entities whose position is within an axis-aligned bounding box; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_x": {"type": "number"}, "min_y": {"type": "number"}, "min_z": {"type": "number"},
+                    "max_x": {"type": "number"}, "max_y": {"type": "number"}, "max_z": {"type": "number"}
+                }, "required": ["min_x","min_y","min_z","max_x","max_y","max_z"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewab.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.map(|[ex, ey, ez]|
+                            ex >= min_x && ex <= max_x && ey >= min_y && ey <= max_y && ez >= min_z && ez <= max_z
+                        ).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewab.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_selection_aabb
+            let snap_gsab = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selection_aabb".to_string(),
+                description: "Return the axis-aligned bounding box of all selected entities with positions; returns {min_x,min_y,min_z,max_x,max_y,max_z} or error if none selected with positions".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsab.lock().unwrap();
+                    let positions: Vec<[f32; 3]> = s.entities.iter()
+                        .filter(|e| e.selected)
+                        .filter_map(|e| e.position)
+                        .collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::error("no selected entities with positions");
+                    }
+                    let min_x = positions.iter().map(|p| p[0]).fold(f32::INFINITY, f32::min);
+                    let min_y = positions.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
+                    let min_z = positions.iter().map(|p| p[2]).fold(f32::INFINITY, f32::min);
+                    let max_x = positions.iter().map(|p| p[0]).fold(f32::NEG_INFINITY, f32::max);
+                    let max_y = positions.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
+                    let max_z = positions.iter().map(|p| p[2]).fold(f32::NEG_INFINITY, f32::max);
+                    McpToolOutput::success(json!({"min_x": min_x, "min_y": min_y, "min_z": min_z,
+                                                  "max_x": max_x, "max_y": max_y, "max_z": max_z}))
+                }),
+            });
+
             // count_entities_within_aabb
             let snap_cewab = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17363,6 +17421,144 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_within_aabb_clears_inside() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "In",  "position": [3.0, 3.0, 3.0]},
+                        {"name": "Out", "position": [50.0, 50.0, 50.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // deselect only "In"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_within_aabb",
+                    json!({
+                        "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                        "max_x": 10.0, "max_y": 10.0, "max_z": 10.0,
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let in_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("In"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let out_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Out"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!in_sel, "In deselected");
+        assert!(out_sel, "Out still selected");
+    }
+
+    #[test]
+    fn mcp_get_selection_aabb_returns_bounding_box() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 2.0, 3.0]},
+                        {"name": "B", "position": [7.0, 8.0, 9.0]},
+                        {"name": "C", "position": [50.0, 50.0, 50.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select A and B only (both within [0..10], C at [50,50,50] is outside)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_within_aabb",
+                    json!({
+                        "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                        "max_x": 10.0, "max_y": 10.0, "max_z": 10.0,
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection_aabb", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["min_x"].as_f64().unwrap() as f32, 1.0);
+        assert_eq!(out.content["min_y"].as_f64().unwrap() as f32, 2.0);
+        assert_eq!(out.content["min_z"].as_f64().unwrap() as f32, 3.0);
+        assert_eq!(out.content["max_x"].as_f64().unwrap() as f32, 7.0);
+        assert_eq!(out.content["max_y"].as_f64().unwrap() as f32, 8.0);
+        assert_eq!(out.content["max_z"].as_f64().unwrap() as f32, 9.0);
     }
 
     #[test]

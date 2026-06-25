@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_selected_entities
+            let snap_gse = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selected_entities".to_string(),
+                description: "Return all currently selected entities; returns {entities}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object"})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gse.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.selected)
+                        .map(|e| json!({"id": e.id, "name": e.name, "selected": e.selected}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_without_children
+            let snap_gewc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_without_children".to_string(),
+                description:
+                    "Return all leaf entities (entities that have no children); returns {entities}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object"})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_by_visibility
             let snap_sebv = snapshot.clone();
             let sel_sebv = selection.clone();
@@ -18279,6 +18320,115 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_selected_and_unselected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"}, {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Tag A and B with "pick", leave C untagged
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "pick"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "pick"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select A and B via tag
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_tag_containing",
+                    json!({"substring": "pick"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        let sel_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selected_entities", json!({}))
+            .unwrap();
+        assert!(sel_out.is_ok(), "get_selected_entities failed");
+        let sel_arr = sel_out.content["entities"]
+            .as_array()
+            .expect("get_selected_entities missing entities array");
+        assert_eq!(sel_arr.len(), 2, "A and B selected");
+
+        // get_entities_without_children: no parent relationships, all 3 are leaves
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let leaf_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_children", json!({}))
+            .unwrap();
+        assert!(leaf_out.is_ok(), "get_entities_without_children failed");
+        let leaf_arr = leaf_out.content["entities"]
+            .as_array()
+            .expect("get_entities_without_children missing entities array");
+        assert_eq!(
+            leaf_arr.len(),
+            3,
+            "all 3 are leaves (no parent-child links)"
+        );
     }
 
     #[test]

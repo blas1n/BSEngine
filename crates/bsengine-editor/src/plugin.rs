@@ -1666,6 +1666,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_exact_tag_count
+            let snap_gewetc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_exact_tag_count".to_string(),
+                description: "Return IDs of entities that have exactly exact_count tags; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "exact_count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["exact_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let exact = input["exact_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewetc.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.len() == exact)
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // count_entities_with_exact_tag_count
+            let snap_cewetc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_exact_tag_count".to_string(),
+                description: "Count entities that have exactly exact_count tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "exact_count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["exact_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let exact = input["exact_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewetc.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.len() == exact).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_by_tag_contains
             let snap_sebtc = snapshot.clone();
             let sel_sebtc = selection.clone();
@@ -21438,6 +21482,140 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_and_count_entities_with_exact_tag_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → 2 tags, B → 1 tag, C → 0 tags
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "t1"), (id_a, "t2"), (id_b, "t1")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // count_entities_with_exact_tag_count 1 → B only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "count_entities_with_exact_tag_count",
+                    json!({"exact_count": 1}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // get_entities_with_exact_tag_count 2 → A only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "get_entities_with_exact_tag_count",
+                    json!({"exact_count": 2}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert_eq!(ids.len(), 1);
+            assert!(ids.contains(&id_a));
+        }
+
+        // get_entities_with_exact_tag_count 0 → C only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "get_entities_with_exact_tag_count",
+                    json!({"exact_count": 0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.contains(&id_c));
+            assert!(!ids.contains(&id_a));
+            assert!(!ids.contains(&id_b));
+        }
     }
 
     #[test]

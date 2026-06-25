@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_light_type
+            let snap_gewlt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_type".to_string(),
+                description: "Return entity IDs whose light_type matches the given value (point/directional/spot); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "light_type": {"type": "string"}
+                }, "required": ["light_type"]})),
+                handler: Box::new(move |input| {
+                    let lt = input["light_type"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewlt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some(&lt))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_all_tags
+            let snap_gat = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_all_tags".to_string(),
+                description:
+                    "Return the unique set of all tags used across all entities; returns {tags}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gat.lock().unwrap();
+                    let mut tags: Vec<String> = s
+                        .entities
+                        .iter()
+                        .flat_map(|e| e.tags.iter().cloned())
+                        .collect();
+                    tags.sort();
+                    tags.dedup();
+                    McpToolOutput::success(json!({"tags": tags}))
+                }),
+            });
+
             // count_entities_with_light_range
             let snap_cewlr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16552,6 +16592,114 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_light_type_returns_matching_ids() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_light_type",
+                json!({"light_type": "point"}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids = out.content["entity_ids"].as_array().unwrap();
+        assert_eq!(ids.len(), 2);
+    }
+
+    #[test]
+    fn mcp_get_all_tags_returns_unique_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"},
+                        {"name": "B"},
+                        {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "hero"}))
+                .unwrap();
+            reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "hero"}))
+                .unwrap();
+            reg.execute("tag_entity", json!({"entity_id": c_id, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_all_tags", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let tags: Vec<String> = out.content["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert!(tags.contains(&"hero".to_string()));
+        assert!(tags.contains(&"enemy".to_string()));
+        assert_eq!(tags.len(), 2, "duplicates deduplicated");
     }
 
     #[test]

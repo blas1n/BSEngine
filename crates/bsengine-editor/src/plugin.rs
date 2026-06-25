@@ -1647,6 +1647,80 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_distance_to
+            let snap_gedt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_distance_to".to_string(),
+                description: "Return the 3D distance between two entities; returns {distance}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "target_entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id", "target_entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let target_id = match input["target_entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing target_entity_id"),
+                    };
+                    let s = snap_gedt.lock().unwrap();
+                    let pos_a = match s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == entity_id)
+                        .and_then(|e| e.position)
+                    {
+                        Some(p) => p,
+                        None => return McpToolOutput::error("entity not found or has no position"),
+                    };
+                    let pos_b = match s
+                        .entities
+                        .iter()
+                        .find(|e| e.id == target_id)
+                        .and_then(|e| e.position)
+                    {
+                        Some(p) => p,
+                        None => {
+                            return McpToolOutput::error(
+                                "target entity not found or has no position",
+                            )
+                        }
+                    };
+                    let dx = pos_b[0] - pos_a[0];
+                    let dy = pos_b[1] - pos_a[1];
+                    let dz = pos_b[2] - pos_a[2];
+                    let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+                    McpToolOutput::success(json!({"distance": distance}))
+                }),
+            });
+
+            // get_entities_at_origin
+            let snap_geao = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_at_origin".to_string(),
+                description:
+                    "Return entity IDs whose position is exactly [0,0,0]; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_geao.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.position == Some([0.0, 0.0, 0.0]))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_light_type_of_entity
             let snap_gltoe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11282,6 +11356,130 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_distance_to_measures_distance_between_two_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [3.0, 4.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entity_distance_to",
+                json!({"entity_id": a_id, "target_entity_id": b_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!(
+            (dist - 5.0).abs() < 0.01,
+            "distance should be 5.0 (3-4-5 triangle), got {dist}"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_at_origin_returns_only_entities_near_zero() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "AtOrigin", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Far",      "position": [10.0, 5.0, 3.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (origin_id, far_id) = (id_of("AtOrigin"), id_of("Far"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_at_origin", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&origin_id), "AtOrigin should be at origin");
+        assert!(!ids.contains(&far_id), "Far should not be at origin");
     }
 
     #[test]

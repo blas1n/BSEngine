@@ -1647,6 +1647,69 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_in_bounds
+            let snap_geib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_in_bounds".to_string(),
+                description: "Return entity IDs whose position is within the AABB [min,max]; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" }, "min_y": { "type": "number" }, "min_z": { "type": "number" },
+                        "max_x": { "type": "number" }, "max_y": { "type": "number" }, "max_z": { "type": "number" }
+                    },
+                    "required": ["min_x", "min_y", "min_z", "max_x", "max_y", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_geib.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                            if x >= min_x && x <= max_x && y >= min_y && y <= max_y && z >= min_z && z <= max_z {
+                                Some(e.id)
+                            } else { None }
+                        }).flatten())
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // count_entities_in_bounds
+            let snap_cib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_in_bounds".to_string(),
+                description: "Return the count of entities whose position is within the AABB [min,max]; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_x": { "type": "number" }, "min_y": { "type": "number" }, "min_z": { "type": "number" },
+                        "max_x": { "type": "number" }, "max_y": { "type": "number" }, "max_z": { "type": "number" }
+                    },
+                    "required": ["min_x", "min_y", "min_z", "max_x", "max_y", "max_z"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cib.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                            x >= min_x && x <= max_x && y >= min_y && y <= max_y && z >= min_z && z <= max_z
+                        }))
+                        .filter(|&within| within)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_in_radius
             let snap_ceir = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15212,6 +15275,118 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_in_bounds_returns_entities_within_aabb() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Inside1", "position": [1.0, 1.0, 1.0]},
+                        {"name": "Inside2", "position": [4.0, 4.0, 4.0]},
+                        {"name": "Outside", "position": [10.0, 10.0, 10.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (in1_id, in2_id, out_id) = (id_of("Inside1"), id_of("Inside2"), id_of("Outside"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_in_bounds",
+                json!({
+                    "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                    "max_x": 5.0, "max_y": 5.0, "max_z": 5.0
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&in1_id), "Inside1 in bounds");
+        assert!(ids.contains(&in2_id), "Inside2 in bounds");
+        assert!(!ids.contains(&out_id), "Outside out of bounds");
+    }
+
+    #[test]
+    fn mcp_count_entities_in_bounds_returns_count_within_aabb() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [3.0, 0.0, 0.0]},
+                        {"name": "C", "position": [7.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_in_bounds",
+                json!({
+                    "min_x": 0.0, "min_y": -1.0, "min_z": -1.0,
+                    "max_x": 5.0, "max_y": 1.0, "max_z": 1.0
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "A and B are within bounds");
     }
 
     #[test]

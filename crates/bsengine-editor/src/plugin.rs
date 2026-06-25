@@ -1666,6 +1666,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_no_transform
+            let snap_cntwnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_transform".to_string(),
+                description:
+                    "Count entities that have no position (transform) set; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cntwnt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_with_no_transform
+            let snap_senwt = snapshot.clone();
+            let sel_senwt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_no_transform".to_string(),
+                description: "Select all entities that have no position (transform) set; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_senwt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_senwt.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_entities_with_transform
             let snap_gewt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19623,6 +19659,81 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_with_no_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let cnt_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_entities_with_no_transform", json!({}))
+                .unwrap();
+            assert!(cnt_out.is_ok());
+            assert_eq!(cnt_out.content["count"], 1, "only C has no transform");
+
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_no_transform", json!({}))
+                .unwrap();
+            assert!(sel_out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let c_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!a_sel, "A not selected");
+            assert!(c_sel, "C selected");
+        }
     }
 
     #[test]

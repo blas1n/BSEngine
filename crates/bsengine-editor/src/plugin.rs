@@ -1666,6 +1666,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_by_name_starts_with
+            let snap_gnamestart = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_name_starts_with".to_string(),
+                description: "Return IDs of entities whose name starts with the given prefix (case-sensitive); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "prefix": {"type": "string"}
+                }, "required": ["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing prefix"),
+                    };
+                    let s = snap_gnamestart.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.starts_with(&*prefix)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_by_name_ends_with
+            let snap_gnameend = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_name_ends_with".to_string(),
+                description: "Return IDs of entities whose name ends with the given suffix (case-sensitive); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "suffix": {"type": "string"}
+                }, "required": ["suffix"]})),
+                handler: Box::new(move |input| {
+                    let suffix = match input["suffix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing suffix"),
+                    };
+                    let s = snap_gnameend.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.ends_with(&*suffix)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // count_entities_by_name_contains
             let snap_cntnamecon = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19232,6 +19276,126 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_by_name_starts_with_and_ends_with() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_Archer"}, {"name": "Enemy_Knight"}, {"name": "Player_01"},
+                        {"name": "Wall_Left"}, {"name": "Wall_Right"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_archer = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Enemy_Archer"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_knight = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Enemy_Knight"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_left = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Wall_Left"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_right = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Wall_Right"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_player = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Player_01"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // get_entities_by_name_starts_with("Enemy") → Archer, Knight
+        let starts_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_by_name_starts_with",
+                json!({"prefix": "Enemy"}),
+            )
+            .unwrap();
+        assert!(starts_out.is_ok());
+        let starts_ids: std::collections::HashSet<u64> = starts_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(
+            starts_ids.contains(&id_archer),
+            "Enemy_Archer starts with Enemy"
+        );
+        assert!(
+            starts_ids.contains(&id_knight),
+            "Enemy_Knight starts with Enemy"
+        );
+        assert!(
+            !starts_ids.contains(&id_player),
+            "Player_01 not starts with Enemy"
+        );
+        assert_eq!(starts_ids.len(), 2);
+
+        // get_entities_by_name_ends_with("Right") → Wall_Right
+        let ends_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_by_name_ends_with", json!({"suffix": "Right"}))
+            .unwrap();
+        assert!(ends_out.is_ok());
+        let ends_ids: std::collections::HashSet<u64> = ends_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ends_ids.contains(&id_right), "Wall_Right ends with Right");
+        assert!(
+            !ends_ids.contains(&id_left),
+            "Wall_Left does not end with Right"
+        );
+        assert_eq!(ends_ids.len(), 1);
+
+        let _ = (id_archer, id_knight, id_left, id_right, id_player);
     }
 
     #[test]

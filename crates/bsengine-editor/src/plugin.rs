@@ -1647,6 +1647,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_position_z
+            let snap_gesbpz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_position_z".to_string(),
+                description:
+                    "Return all entity IDs sorted by position.z ascending; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbpz.lock().unwrap();
+                    let mut entities: Vec<(u64, f32)> = s
+                        .entities
+                        .iter()
+                        .map(|e| (e.id, e.position.map(|p| p[2]).unwrap_or(0.0)))
+                        .collect();
+                    entities
+                        .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    let ids: Vec<u64> = entities.into_iter().map(|(id, _)| id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // scale_entity_uniformly
+            let queue81 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "scale_entity_uniformly".to_string(),
+                description:
+                    "Apply the same scale value on all three axes of an entity; returns {status}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "scale": { "type": "number" }
+                    },
+                    "required": ["entity_id", "scale"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = match input["scale"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing scale"),
+                    };
+                    queue81.lock().unwrap().push(EditorCommand::SetScale {
+                        entity_id,
+                        sx: s,
+                        sy: s,
+                        sz: s,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
             // reset_entity_scale
             let queue80 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12017,6 +12073,150 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_position_z_returns_ascending_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "C", "position": [0.0, 0.0, 30.0]},
+                        {"name": "A", "position": [0.0, 0.0, 10.0]},
+                        {"name": "B", "position": [0.0, 0.0, 20.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_position_z", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let sorted_ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        let pos_a = sorted_ids.iter().position(|&id| id == a_id).unwrap();
+        let pos_b = sorted_ids.iter().position(|&id| id == b_id).unwrap();
+        let pos_c = sorted_ids.iter().position(|&id| id == c_id).unwrap();
+        assert!(pos_a < pos_b, "A (z=10) before B (z=20)");
+        assert!(pos_b < pos_c, "B (z=20) before C (z=30)");
+    }
+
+    #[test]
+    fn mcp_scale_entity_uniformly_applies_same_value_to_all_axes() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let entity_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "scale_entity_uniformly",
+                    json!({"entity_id": entity_id, "scale": 4.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let e = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == entity_id)
+            .unwrap();
+        let scale = e["scale"].as_array().unwrap();
+        assert!((scale[0].as_f64().unwrap() - 4.0).abs() < 0.01, "sx=4");
+        assert!((scale[1].as_f64().unwrap() - 4.0).abs() < 0.01, "sy=4");
+        assert!((scale[2].as_f64().unwrap() - 4.0).abs() < 0.01, "sz=4");
     }
 
     #[test]

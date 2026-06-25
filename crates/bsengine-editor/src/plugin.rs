@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // is_entity_visible
+            let snap_iev = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "is_entity_visible".to_string(),
+                description: "Return whether a specific entity is visible; returns {visible}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_iev.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => McpToolOutput::success(json!({"visible": e.visible})),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // is_entity_selected
+            let snap_ies = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "is_entity_selected".to_string(),
+                description: "Return whether a specific entity is selected; returns {selected}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_ies.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => McpToolOutput::success(json!({"selected": e.selected})),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_light_info_of_entity
             let snap_glioe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16797,6 +16835,156 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_is_entity_visible_returns_correct_visibility() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Visible"},
+                        {"name": "Hidden"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let vis_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Visible"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let hid_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Hidden"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hid_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("is_entity_visible", json!({"entity_id": vis_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["visible"].as_bool(), Some(true));
+
+        let out2 = reg
+            .execute("is_entity_visible", json!({"entity_id": hid_id}))
+            .unwrap();
+        assert!(out2.is_ok());
+        assert_eq!(out2.content["visible"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn mcp_is_entity_selected_returns_correct_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SelA"},
+                        {"name": "SelB"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let a_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("SelA"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let b_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("SelB"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("is_entity_selected", json!({"entity_id": a_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected"].as_bool(), Some(true));
+
+        let out2 = reg
+            .execute("is_entity_selected", json!({"entity_id": b_id}))
+            .unwrap();
+        assert!(out2.is_ok());
+        assert_eq!(out2.content["selected"].as_bool(), Some(false));
     }
 
     #[test]

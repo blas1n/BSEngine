@@ -1666,6 +1666,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_no_camera
+            let snap_cnwnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_camera".to_string(),
+                description: "Count entities that have no camera component; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cnwnc.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_with_no_camera
+            let snap_sewnc = snapshot.clone();
+            let sel_sewnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_no_camera".to_string(),
+                description:
+                    "Select all entities that have no camera component; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewnc.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.camera_fov.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewnc.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // deselect_entities_with_no_light
             let snap_dewnl = snapshot.clone();
             let sel_dewnl = selection.clone();
@@ -19876,6 +19917,96 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_with_no_camera() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B"},
+                    ]}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 5.0]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+            // count_entities_with_no_camera → A and B = 2
+            let cnt_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_entities_with_no_camera", json!({}))
+                .unwrap();
+            assert!(cnt_out.is_ok());
+            assert_eq!(cnt_out.content["count"], 2, "A and B have no camera");
+
+            // select_entities_with_no_camera → A and B selected
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_no_camera", json!({}))
+                .unwrap();
+            assert!(sel_out.is_ok());
+            assert_eq!(sel_out.content["added_count"], 2);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let b_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let cam_sel = entities
+                .iter()
+                .filter(|e| e["camera_fov"].is_number())
+                .any(|e| e["selected"].as_bool().unwrap_or(false));
+            assert!(a_sel, "A selected");
+            assert!(b_sel, "B selected");
+            assert!(!cam_sel, "camera not selected");
+        }
     }
 
     #[test]

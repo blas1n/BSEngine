@@ -1647,6 +1647,32 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_mesh
+            let snap_cewm = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_mesh".to_string(),
+                description: "Return the count of entities that have a mesh renderer attached; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewm.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.mesh_id.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_without_mesh
+            let snap_cewnm = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_without_mesh".to_string(),
+                description: "Return the count of entities that have no mesh renderer attached; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewnm.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.mesh_id.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_position
             let snap_cewp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15846,6 +15872,136 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_mesh_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "MeshA", "position": [0.0, 0.0, 0.0]},
+                    {"name": "MeshB", "position": [1.0, 0.0, 0.0]},
+                    {"name": "NoMesh", "position": [2.0, 0.0, 0.0]},
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (ma_id, mb_id) = (id_of("MeshA"), id_of("MeshB"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("attach_mesh", json!({"entity_id": ma_id, "mesh_id": 100}))
+                .unwrap();
+            reg.execute("attach_mesh", json!({"entity_id": mb_id, "mesh_id": 200}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_mesh", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
+    }
+
+    #[test]
+    fn mcp_count_entities_without_mesh_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WithMesh", "position": [0.0, 0.0, 0.0]},
+                        {"name": "NoMesh1"},
+                        {"name": "NoMesh2"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let wm_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("WithMesh"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": wm_id, "mesh_id": 1}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_without_mesh", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
     }
 
     #[test]

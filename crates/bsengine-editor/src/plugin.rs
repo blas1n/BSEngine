@@ -1647,6 +1647,72 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_common_ancestor_of_selection
+            let snap_scas = snapshot.clone();
+            let sel_scas = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_common_ancestor_of_selection".to_string(),
+                description: "Find the lowest common ancestor of all selected entities and add it to the selection; returns {entity_id}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_scas.lock().unwrap();
+                    let sel_ids: Vec<u64> = sel_scas.lock().unwrap().iter().copied().collect();
+                    if sel_ids.is_empty() { return McpToolOutput::error("no selected entities"); }
+                    let ancestors_of = |start: u64| -> Vec<u64> {
+                        let mut chain = vec![start];
+                        let mut cur = start;
+                        loop {
+                            let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                            match p { Some(pid) => { chain.push(pid); cur = pid; } None => break, }
+                        }
+                        chain
+                    };
+                    let mut chains: Vec<Vec<u64>> = sel_ids.iter().map(|&id| ancestors_of(id)).collect();
+                    let first = chains.remove(0);
+                    for ancestor in &first {
+                        if chains.iter().all(|c| c.contains(ancestor)) {
+                            drop(s);
+                            sel_scas.lock().unwrap().insert(*ancestor);
+                            return McpToolOutput::success(json!({"entity_id": ancestor}));
+                        }
+                    }
+                    McpToolOutput::success(json!({"entity_id": serde_json::Value::Null}))
+                }),
+            });
+
+            // get_selected_entities_at_depth
+            let snap_gsead = snapshot.clone();
+            let sel_gsead = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selected_entities_at_depth".to_string(),
+                description: "Return selected entity IDs at exactly the given hierarchy depth; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "depth": { "type": "integer" } },
+                    "required": ["depth"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = match input["depth"].as_u64() {
+                        Some(v) => v, None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_gsead.lock().unwrap();
+                    let sel = sel_gsead.lock().unwrap();
+                    let depth_of = |start: u64| -> u64 {
+                        let mut d: u64 = 0; let mut cur = start;
+                        loop {
+                            let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                            match p { Some(pid) => { d += 1; cur = pid; } None => break, }
+                        }
+                        d
+                    };
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id) && depth_of(e.id) == target)
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_common_ancestor
             let snap_gca = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14269,6 +14335,214 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_common_ancestor_of_selection_adds_common_ancestor() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "BranchA"},
+                        {"name": "BranchB"},
+                        {"name": "LeafA"},
+                        {"name": "LeafB"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, ba_id, bb_id, la_id, lb_id) = (
+            id_of("Root"),
+            id_of("BranchA"),
+            id_of("BranchB"),
+            id_of("LeafA"),
+            id_of("LeafB"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": ba_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": bb_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": la_id, "parent_id": ba_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": lb_id, "parent_id": bb_id}),
+            )
+            .unwrap();
+            reg.execute("select_entity", json!({"entity_id": la_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": lb_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_common_ancestor_of_selection", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["entity_id"], root_id);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&root_id), "Root added to selection");
+    }
+
+    #[test]
+    fn mcp_get_selected_entities_at_depth_returns_selected_at_depth() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "ChildA"},
+                        {"name": "ChildB"},
+                        {"name": "Grandchild"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, ca_id, cb_id, gc_id) = (
+            id_of("Root"),
+            id_of("ChildA"),
+            id_of("ChildB"),
+            id_of("Grandchild"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": ca_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": cb_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": gc_id, "parent_id": ca_id}),
+            )
+            .unwrap();
+            reg.execute("select_entity", json!({"entity_id": ca_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": cb_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": gc_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selected_entities_at_depth", json!({"depth": 1}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&ca_id), "ChildA at depth 1");
+        assert!(ids.contains(&cb_id), "ChildB at depth 1");
+        assert!(!ids.contains(&gc_id), "Grandchild not at depth 1");
     }
 
     #[test]

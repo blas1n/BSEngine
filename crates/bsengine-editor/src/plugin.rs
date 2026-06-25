@@ -1666,6 +1666,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_light
+            let snap_cntwl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light".to_string(),
+                description: "Count entities that have a light component; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cntwl.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_type.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // deselect_entities_with_light
+            let snap_delwl = snapshot.clone();
+            let sel_delwl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_light".to_string(),
+                description:
+                    "Deselect all entities that have a light component; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_delwl.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_delwl.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // count_entities_by_name_starts_with
             let snap_cntnamestart = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19426,6 +19467,115 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_deselect_entities_with_light() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn 2 point lights and 1 plain entity
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 0.0, 0.0], "intensity": 200.0, "range": 5.0,
+                        "position": [1.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Plain"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // count_entities_with_light → 2
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_light", json!({}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 2, "2 light entities");
+
+        // select all, deselect_entities_with_light → 2 removed
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_light", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"], 2);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let plain_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Plain"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let light_still_sel: Vec<bool> = entities
+                .iter()
+                .filter(|e| e["light_type"].is_string())
+                .map(|e| e["selected"].as_bool().unwrap())
+                .collect();
+            assert!(plain_sel, "Plain still selected");
+            assert!(light_still_sel.iter().all(|&s| !s), "all lights deselected");
+        }
     }
 
     #[test]

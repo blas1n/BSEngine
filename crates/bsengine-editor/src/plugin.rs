@@ -1666,6 +1666,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_position_in_range
+            let snap_depir = snapshot.clone();
+            let sel_depir = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_position_in_range".to_string(),
+                description: "Deselect all entities whose position is within the given AABB [min, max]; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                    "max": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+                }, "required": ["min", "max"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min"][0].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_y = input["min"][1].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let min_z = input["min"][2].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_x = input["max"][0].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_y = input["max"][1].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let max_z = input["max"][2].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_depir.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            if let Some([x, y, z]) = e.position {
+                                x >= min_x && x <= max_x && y >= min_y && y <= max_y && z >= min_z && z <= max_z
+                            } else { false }
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_depir.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation
+            let snap_sewr = snapshot.clone();
+            let sel_sewr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation".to_string(),
+                description: "Select all entities that have a rotation set; returns {added_count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewr.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.rotation.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewr.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // select_entities_with_position_in_range
             let snap_sepir = snapshot.clone();
             let sel_sepir = selection.clone();
@@ -20202,6 +20262,158 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_in_range_and_select_with_rotation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [100.0, 0.0, 0.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Set rotation on Near
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_near = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Near"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_entity_transform",
+                    json!({
+                        "entity_id": id_near,
+                        "rotation": [0.0, 45.0, 0.0]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select all, deselect_entities_with_position_in_range → Near deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_position_in_range",
+                    json!({
+                        "min": [0.0, -1.0, -1.0],
+                        "max": [10.0, 1.0, 1.0]
+                    }),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"], 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let near_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Near"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let far_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Far"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!near_sel, "Near deselected (in range)");
+            assert!(far_sel, "Far still selected");
+        }
+
+        // select_entities_with_rotation → selects entities with rotation; Near at minimum
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_rotation", json!({}))
+                .unwrap();
+            assert!(sel_out.is_ok());
+            assert!(sel_out.content["added_count"].as_u64().unwrap() >= 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let near_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Near"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(near_sel, "Near selected (has rotation)");
+        }
     }
 
     #[test]

@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_tags_used_by_selection
+            let snap_gtubs = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tags_used_by_selection".to_string(),
+                description:
+                    "Return all unique tags used by currently selected entities; returns {tags}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gtubs.lock().unwrap();
+                    let mut tags: Vec<String> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.selected)
+                        .flat_map(|e| e.tags.iter().cloned())
+                        .collect();
+                    tags.sort();
+                    tags.dedup();
+                    McpToolOutput::success(json!({"tags": tags}))
+                }),
+            });
+
+            // count_tags_used_by_selection
+            let snap_ctubs = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_tags_used_by_selection".to_string(),
+                description: "Return the count of unique tags used by currently selected entities; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_ctubs.lock().unwrap();
+                    let mut tags: Vec<String> = s.entities.iter()
+                        .filter(|e| e.selected)
+                        .flat_map(|e| e.tags.iter().cloned())
+                        .collect();
+                    tags.sort();
+                    tags.dedup();
+                    let count = tags.len() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_no_children
             let snap_cewnc2 = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17117,6 +17158,127 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_tags_used_by_selection_returns_tags_of_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "SelA"},
+                        {"name": "SelB"},
+                        {"name": "NotSel"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let a_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("SelA"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let b_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("SelB"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let ns_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("NotSel"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": a_id, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": b_id, "tag": "villain"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": ns_id, "tag": "npc"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("get_tags_used_by_selection", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let tags: Vec<String> = out.content["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert!(tags.contains(&"hero".to_string()));
+        assert!(tags.contains(&"villain".to_string()));
+        assert!(!tags.contains(&"npc".to_string()), "npc not in selection");
+
+        let out2 = reg
+            .execute("count_tags_used_by_selection", json!({}))
+            .unwrap();
+        assert!(out2.is_ok());
+        assert_eq!(out2.content["count"], 2);
     }
 
     #[test]

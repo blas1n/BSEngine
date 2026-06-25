@@ -1647,6 +1647,60 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_at_depth
+            let snap_cead = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_at_depth".to_string(),
+                description: "Return the count of entities at a specific parent-chain depth (0=root); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "depth": {"type": "integer", "minimum": 0}
+                }, "required": ["depth"]})),
+                handler: Box::new(move |input| {
+                    let target_depth = match input["depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_cead.lock().unwrap();
+                    let entity_depth = |id: u64| -> u64 {
+                        let mut current = id;
+                        let mut depth = 0u64;
+                        for _ in 0..64 {
+                            match s.entities.iter().find(|e| e.id == current).and_then(|e| e.parent_id) {
+                                Some(pid) => { current = pid; depth += 1; }
+                                None => break,
+                            }
+                        }
+                        depth
+                    };
+                    let count = s.entities.iter().filter(|e| entity_depth(e.id) == target_depth).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_with_name_containing
+            let snap_sewnc = snapshot.clone();
+            let sel_sewnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_name_containing".to_string(),
+                description: "Select all entities whose name contains the given substring; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "substring": {"type": "string"}
+                }, "required": ["substring"]})),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_sewnc.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.contains(&sub)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewnc.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_mesh_id_of_entity
             let snap_gmioe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16939,6 +16993,157 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_at_depth_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root1"},
+                        {"name": "Root2"},
+                        {"name": "Child1"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let root1_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Root1"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let child1_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child1"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child1_id, "parent_id": root1_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out0 = reg
+            .execute("count_entities_at_depth", json!({"depth": 0}))
+            .unwrap();
+        assert!(out0.is_ok());
+        assert_eq!(out0.content["count"], 2, "Root1 and Root2 at depth 0");
+
+        let out1 = reg
+            .execute("count_entities_at_depth", json!({"depth": 1}))
+            .unwrap();
+        assert!(out1.is_ok());
+        assert_eq!(out1.content["count"], 1, "Child1 at depth 1");
+    }
+
+    #[test]
+    fn mcp_select_entities_with_name_containing_selects_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "PlayerHero"},
+                        {"name": "PlayerEnemy"},
+                        {"name": "NPC"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_name_containing",
+                    json!({"substring": "Player"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let hero_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("PlayerHero"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let enemy_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("PlayerEnemy"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let npc_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("NPC"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(hero_sel, "PlayerHero should be selected");
+        assert!(enemy_sel, "PlayerEnemy should be selected");
+        assert!(!npc_sel, "NPC should not be selected");
     }
 
     #[test]

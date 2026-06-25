@@ -1647,6 +1647,59 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // reset_entity_position
+            let queue78 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "reset_entity_position".to_string(),
+                description: "Reset a single entity's position to [0,0,0]; returns {status}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue78.lock().unwrap().push(EditorCommand::SetPosition {
+                        entity_id,
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // reset_entity_rotation
+            let queue79 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "reset_entity_rotation".to_string(),
+                description:
+                    "Reset a single entity's rotation to [0,0,0] degrees; returns {status}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    queue79.lock().unwrap().push(EditorCommand::SetRotation {
+                        entity_id,
+                        rx: 0.0,
+                        ry: 0.0,
+                        rz: 0.0,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
             // select_entities_by_mesh_id
             let snap_sebmi = snapshot.clone();
             let sel_sebmi = selection.clone();
@@ -11876,6 +11929,171 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_reset_entity_position_sets_position_to_origin() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [5.0, 3.0, 2.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let entity_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("reset_entity_position", json!({"entity_id": entity_id}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let e = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == entity_id)
+            .unwrap();
+        let pos = e["position"].as_array().unwrap();
+        assert!((pos[0].as_f64().unwrap()).abs() < 0.01, "x=0");
+        assert!((pos[1].as_f64().unwrap()).abs() < 0.01, "y=0");
+        assert!((pos[2].as_f64().unwrap()).abs() < 0.01, "z=0");
+    }
+
+    #[test]
+    fn mcp_reset_entity_rotation_sets_rotation_to_zero() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let entity_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // Set a non-zero rotation first
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": entity_id, "rx": 45.0, "ry": 30.0, "rz": 10.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("reset_entity_rotation", json!({"entity_id": entity_id}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let e = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == entity_id)
+            .unwrap();
+        let rot = e["rotation"].as_array().unwrap();
+        assert!(rot[0].as_f64().unwrap().abs() < 0.1, "rx=0");
+        assert!(rot[1].as_f64().unwrap().abs() < 0.1, "ry=0");
+        assert!(rot[2].as_f64().unwrap().abs() < 0.1, "rz=0");
     }
 
     #[test]

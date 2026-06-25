@@ -1666,6 +1666,86 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_at_depth_range
+            let snap_deldrange = snapshot.clone();
+            let sel_deldrange = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_at_depth_range".to_string(),
+                description: "Deselect entities with depth in [min_depth, max_depth] inclusive (root = depth 0); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_depth": {"type": "integer"},
+                    "max_depth": {"type": "integer"}
+                }, "required": ["min_depth", "max_depth"]})),
+                handler: Box::new(move |input| {
+                    let min_d = match input["min_depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing min_depth"),
+                    };
+                    let max_d = match input["max_depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing max_depth"),
+                    };
+                    let s = snap_deldrange.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            let mut depth = 0u64;
+                            let mut current = e.id;
+                            while let Some(&pid) = parent_map.get(&current) {
+                                depth += 1;
+                                current = pid;
+                            }
+                            depth >= min_d && depth <= max_d
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_deldrange.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_at_depth_range
+            let snap_cntdrange = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_at_depth_range".to_string(),
+                description: "Count entities with depth in [min_depth, max_depth] inclusive (root = depth 0); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_depth": {"type": "integer"},
+                    "max_depth": {"type": "integer"}
+                }, "required": ["min_depth", "max_depth"]})),
+                handler: Box::new(move |input| {
+                    let min_d = match input["min_depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing min_depth"),
+                    };
+                    let max_d = match input["max_depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing max_depth"),
+                    };
+                    let s = snap_cntdrange.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let count = s.entities.iter()
+                        .filter(|e| {
+                            let mut depth = 0u64;
+                            let mut current = e.id;
+                            while let Some(&pid) = parent_map.get(&current) {
+                                depth += 1;
+                                current = pid;
+                            }
+                            depth >= min_d && depth <= max_d
+                        })
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_shallower_than
             let snap_delshall = snapshot.clone();
             let sel_delshall = selection.clone();
@@ -19044,6 +19124,171 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_at_depth_range_and_count_at_depth_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root(0) → Mid(1) → Leaf(2)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"}, {"name": "Mid"}, {"name": "Leaf"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_root = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_mid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_leaf = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_mid, "parent_id": id_root}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_leaf, "parent_id": id_mid}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // count_entities_at_depth_range(0, 1) → Root and Mid = 2
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_at_depth_range",
+                json!({"min_depth": 0, "max_depth": 1}),
+            )
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(
+            count_out.content["count"], 2,
+            "Root+Mid = 2 entities in [0,1]"
+        );
+
+        // count_entities_at_depth_range(2, 2) → Leaf only = 1
+        let count_leaf = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_at_depth_range",
+                json!({"min_depth": 2, "max_depth": 2}),
+            )
+            .unwrap();
+        assert_eq!(count_leaf.content["count"], 1, "Leaf = 1 entity in [2,2]");
+
+        // select all, deselect_entities_at_depth_range(1, 1) → only Mid deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_at_depth_range",
+                    json!({"min_depth": 1, "max_depth": 1}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let root_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let mid_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let leaf_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(root_sel, "Root still selected (depth 0 outside [1,1])");
+            assert!(!mid_sel, "Mid deselected (depth 1 in [1,1])");
+            assert!(leaf_sel, "Leaf still selected (depth 2 outside [1,1])");
+        }
     }
 
     #[test]

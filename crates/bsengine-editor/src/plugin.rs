@@ -1647,6 +1647,71 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_depth_of
+            let snap_gdo = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_depth_of".to_string(),
+                description: "Return the hierarchy depth of the given entity (root = 0, child of root = 1, etc.); returns {depth}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let start = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gdo.lock().unwrap();
+                    let mut depth: u64 = 0;
+                    let mut current = start;
+                    loop {
+                        let parent = s.entities.iter()
+                            .find(|e| e.id == current)
+                            .and_then(|e| e.parent_id);
+                        match parent {
+                            Some(pid) => { depth += 1; current = pid; }
+                            None => break,
+                        }
+                    }
+                    McpToolOutput::success(json!({"depth": depth}))
+                }),
+            });
+
+            // count_entities_in_subtree
+            let snap_ceis = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_in_subtree".to_string(),
+                description:
+                    "Return the number of descendants of the given entity; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let root = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_ceis.lock().unwrap();
+                    let mut count: u64 = 0;
+                    let mut queue = vec![root];
+                    while let Some(current) = queue.pop() {
+                        let children: Vec<u64> = s
+                            .entities
+                            .iter()
+                            .filter(|e| e.parent_id == Some(current))
+                            .map(|e| e.id)
+                            .collect();
+                        count += children.len() as u64;
+                        queue.extend(children);
+                    }
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_subtree_ids
             let snap_gsi = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -13332,6 +13397,176 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_depth_of_returns_hierarchy_depth_of_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "Child"},
+                        {"name": "GrandChild"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id, gc_id) = (id_of("Root"), id_of("Child"), id_of("GrandChild"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": child_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": gc_id, "parent_id": child_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("get_depth_of", json!({"entity_id": root_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["depth"], 0, "Root depth = 0");
+
+        let out = reg
+            .execute("get_depth_of", json!({"entity_id": child_id}))
+            .unwrap();
+        assert_eq!(out.content["depth"], 1, "Child depth = 1");
+
+        let out = reg
+            .execute("get_depth_of", json!({"entity_id": gc_id}))
+            .unwrap();
+        assert_eq!(out.content["depth"], 2, "GrandChild depth = 2");
+    }
+
+    #[test]
+    fn mcp_count_entities_in_subtree_returns_descendant_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "Child1"},
+                        {"name": "Child2"},
+                        {"name": "GrandChild"},
+                        {"name": "Unrelated"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, c1_id, c2_id, gc_id) = (
+            id_of("Root"),
+            id_of("Child1"),
+            id_of("Child2"),
+            id_of("GrandChild"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c1_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c2_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": gc_id, "parent_id": c1_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_in_subtree", json!({"entity_id": root_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["count"], 3,
+            "Root has 3 descendants: Child1, Child2, GrandChild"
+        );
     }
 
     #[test]

@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_within_aabb
+            let snap_cewab = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_within_aabb".to_string(),
+                description: "Return the count of entities within an axis-aligned bounding box; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_x": {"type": "number"}, "min_y": {"type": "number"}, "min_z": {"type": "number"},
+                    "max_x": {"type": "number"}, "max_y": {"type": "number"}, "max_z": {"type": "number"}
+                }, "required": ["min_x","min_y","min_z","max_x","max_y","max_z"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewab.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.position.map(|[ex, ey, ez]|
+                            ex >= min_x && ex <= max_x && ey >= min_y && ey <= max_y && ez >= min_z && ez <= max_z
+                        ).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_within_aabb
+            let snap_sewab = snapshot.clone();
+            let sel_sewab = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_within_aabb".to_string(),
+                description: "Select all entities whose position is within an axis-aligned bounding box; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_x": {"type": "number"}, "min_y": {"type": "number"}, "min_z": {"type": "number"},
+                    "max_x": {"type": "number"}, "max_y": {"type": "number"}, "max_z": {"type": "number"}
+                }, "required": ["min_x","min_y","min_z","max_x","max_y","max_z"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewab.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.map(|[ex, ey, ez]|
+                            ex >= min_x && ex <= max_x && ey >= min_y && ey <= max_y && ez >= min_z && ez <= max_z
+                        ).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewab.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_farthest_entity_from
             let snap_gfef = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17305,6 +17363,88 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_within_aabb() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "In1",  "position": [2.0, 2.0, 2.0]},
+                        {"name": "In2",  "position": [8.0, 8.0, 8.0]},
+                        {"name": "Out1", "position": [20.0, 20.0, 20.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let aabb = json!({"min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                          "max_x": 10.0, "max_y": 10.0, "max_z": 10.0});
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_within_aabb", aabb.clone())
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 2);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entities_within_aabb", aabb)
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let in1_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("In1"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let in2_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("In2"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let out1_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Out1"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(in1_sel, "In1 selected");
+        assert!(in2_sel, "In2 selected");
+        assert!(!out1_sel, "Out1 not selected");
     }
 
     #[test]

@@ -1666,6 +1666,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_no_mesh
+            let snap_dewnm = snapshot.clone();
+            let sel_dewnm = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_no_mesh".to_string(),
+                description:
+                    "Deselect all entities that have no mesh attached; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewnm.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.mesh_id.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewnm.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_entities_with_no_light
+            let snap_gewnl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_light".to_string(),
+                description:
+                    "Return IDs of entities that have no light component; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewnl.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // count_entities_with_no_mesh
             let snap_cnwnm = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19741,6 +19788,166 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_no_mesh_and_get_no_light() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B"},
+                    ]}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0,
+                        "range": 10.0, "position": [0.0, 5.0, 0.0]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Attach mesh to A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": id_a, "mesh_id": 1}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select all, deselect_entities_with_no_mesh → B deselected, A and light still selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_no_mesh", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            // B and the light entity both have no mesh → 2 removed
+            assert!(out.content["removed_count"].as_u64().unwrap() >= 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let b_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(a_sel, "A still selected (has mesh)");
+            assert!(!b_sel, "B deselected (no mesh)");
+        }
+
+        // get_entities_with_no_light → A, B (not the light entity)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let light_ids: std::collections::HashSet<u64> = entities
+                .iter()
+                .filter(|e| e["light_type"].is_string())
+                .map(|e| e["id"].as_u64().unwrap())
+                .collect();
+            let nl_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entities_with_no_light", json!({}))
+                .unwrap();
+            assert!(nl_out.is_ok());
+            let ids: std::collections::HashSet<u64> = nl_out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.contains(&id_a), "A has no light");
+            assert!(
+                light_ids.iter().all(|lid| !ids.contains(lid)),
+                "light entities excluded"
+            );
+        }
     }
 
     #[test]

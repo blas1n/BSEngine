@@ -1647,6 +1647,97 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // set_light_intensity
+            let snap_sli = snapshot.clone();
+            let queue74 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_light_intensity".to_string(),
+                description: "Set the light intensity of a single light entity (point or spot); returns {status}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "intensity": { "type": "number" }
+                    },
+                    "required": ["entity_id", "intensity"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let intensity = match input["intensity"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing intensity"),
+                    };
+                    let light_type = {
+                        let s = snap_sli.lock().unwrap();
+                        s.entities.iter().find(|e| e.id == entity_id)
+                            .and_then(|e| e.light_type.clone())
+                    };
+                    let cmd = match light_type.as_deref() {
+                        Some("point") => EditorCommand::UpdatePointLight {
+                            entity_id, color: None, intensity: Some(intensity), range: None,
+                        },
+                        Some("spot") => EditorCommand::UpdateSpotLight {
+                            entity_id, color: None, intensity: Some(intensity), range: None,
+                            inner_angle: None, outer_angle: None,
+                        },
+                        _ => return McpToolOutput::error("entity has no point or spot light"),
+                    };
+                    queue74.lock().unwrap().push(cmd);
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // set_all_lights_color
+            let snap_salc = snapshot.clone();
+            let queue75 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_all_lights_color".to_string(),
+                description: "Set the color [r,g,b] on every light entity in the scene; returns {affected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "r": { "type": "number" },
+                        "g": { "type": "number" },
+                        "b": { "type": "number" }
+                    },
+                    "required": ["r", "g", "b"]
+                })),
+                handler: Box::new(move |input| {
+                    let r = match input["r"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing r") };
+                    let g = match input["g"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing g") };
+                    let b = match input["b"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing b") };
+                    let color = [r, g, b];
+                    let lights: Vec<(u64, String)> = {
+                        let s = snap_salc.lock().unwrap();
+                        s.entities.iter()
+                            .filter_map(|e| e.light_type.as_ref().map(|t| (e.id, t.clone())))
+                            .collect()
+                    };
+                    let count = lights.len() as u64;
+                    let mut q = queue75.lock().unwrap();
+                    for (entity_id, light_type) in lights {
+                        let cmd = match light_type.as_str() {
+                            "point" => EditorCommand::UpdatePointLight {
+                                entity_id, color: Some(color), intensity: None, range: None,
+                            },
+                            "spot" => EditorCommand::UpdateSpotLight {
+                                entity_id, color: Some(color), intensity: None, range: None,
+                                inner_angle: None, outer_angle: None,
+                            },
+                            "directional" => EditorCommand::UpdateDirectionalLight {
+                                entity_id, direction: None, color: Some(color), ambient: None,
+                            },
+                            _ => continue,
+                        };
+                        q.push(cmd);
+                    }
+                    McpToolOutput::success(json!({"affected_count": count}))
+                }),
+            });
+
             // hide_all_selected
             let sel_has = selection.clone();
             let queue72 = cmd_queue.clone();
@@ -11628,6 +11719,152 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_set_light_intensity_updates_point_light_intensity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0],
+                        "intensity": 100.0,
+                        "range": 5.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let light_id = all
+            .iter()
+            .find(|e| e["light_type"].as_str() == Some("point"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_light_intensity",
+                    json!({"entity_id": light_id, "intensity": 500.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let light = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == light_id)
+            .unwrap();
+        assert!(
+            (light["light_intensity"].as_f64().unwrap() - 500.0).abs() < 0.1,
+            "intensity should be 500"
+        );
+    }
+
+    #[test]
+    fn mcp_set_all_lights_color_updates_all_light_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({
+                "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 5.0, "position": [0.0, 0.0, 0.0]
+            })).unwrap();
+            m.execute("spawn_point_light", json!({
+                "color": [0.5, 0.5, 0.5], "intensity": 200.0, "range": 8.0, "position": [1.0, 0.0, 0.0]
+            })).unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "NoLight", "position": [2.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_all_lights_color",
+                    json!({"r": 1.0, "g": 0.0, "b": 0.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["affected_count"].as_u64().unwrap(), 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for e in &updated {
+            if !e["light_type"].is_null() {
+                let color = e["light_color"].as_array().unwrap();
+                assert!(
+                    (color[0].as_f64().unwrap() - 1.0).abs() < 0.01,
+                    "r should be 1.0"
+                );
+                assert!((color[1].as_f64().unwrap()).abs() < 0.01, "g should be 0.0");
+                assert!((color[2].as_f64().unwrap()).abs() < 0.01, "b should be 0.0");
+            }
+        }
     }
 
     #[test]

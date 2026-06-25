@@ -1666,6 +1666,60 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_any_tag
+            let snap_sewat = snapshot.clone();
+            let sel_sewat = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_any_tag".to_string(),
+                description:
+                    "Select all entities that have at least one tag; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewat.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.tags.is_empty())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewat.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_any_tag
+            let snap_dewat = snapshot.clone();
+            let sel_dewat = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_any_tag".to_string(),
+                description:
+                    "Deselect all entities that have at least one tag; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewat.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.tags.is_empty())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewat.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // count_entities_with_any_tag
             let snap_cewat = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -20520,6 +20574,95 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entities_with_any_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Tag A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "tagged"}))
+                .unwrap();
+            let _ = id_b;
+        }
+        app.update();
+        app.update();
+
+        // select_entities_with_any_tag — A gets selected (has tag)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_any_tag", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            let added = out.content["added_count"].as_u64().unwrap();
+            assert!(added >= 1, "A should be selected (has tag)");
+        }
+        app.update();
+        app.update();
+
+        // deselect_entities_with_any_tag — removes tagged entities from selection
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_any_tag", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            let removed = out.content["removed_count"].as_u64().unwrap();
+            assert!(removed >= 1, "A should be deselected");
+        }
     }
 
     #[test]

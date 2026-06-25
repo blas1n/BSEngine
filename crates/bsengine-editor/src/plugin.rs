@@ -1666,6 +1666,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_without_children
+            let snap_cewc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_without_children".to_string(),
+                description:
+                    "Count leaf entities (entities that have no children); returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object"})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_without_children
+            let snap_sewc = snapshot.clone();
+            let sel_sewc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_without_children".to_string(),
+                description:
+                    "Select leaf entities (entities that have no children); returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object"})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewc.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_entities_without_children
             let snap_gewc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -18320,6 +18370,114 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_without_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"}, {"name": "Child"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Set Child's parent to Parent
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_parent = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_child = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_child, "parent_id": id_parent}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_without_children", json!({}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 1, "only Child is a leaf");
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entities_without_children", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let parent_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Parent"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let child_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!parent_sel, "Parent not selected (has children)");
+        assert!(child_sel, "Child selected (is leaf)");
     }
 
     #[test]

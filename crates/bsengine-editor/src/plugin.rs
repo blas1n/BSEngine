@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sharing_name
+            let snap_gesn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sharing_name".to_string(),
+                description: "Return all entities with the given exact name; returns {entities}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "name": {"type": "string"}
+                }, "required": ["name"]})),
+                handler: Box::new(move |input| {
+                    let target = input["name"].as_str().unwrap_or("").to_string();
+                    let s = snap_gesn.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.as_deref() == Some(&target))
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // count_duplicate_names
+            let snap_cdn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_duplicate_names".to_string(),
+                description: "Return the count of distinct names that appear on more than one entity; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cdn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(n) = &e.name {
+                            *name_counts.entry(n.clone()).or_insert(0) += 1;
+                        }
+                    }
+                    let count = name_counts.values().filter(|&&c| c > 1).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_tags_used_by_selection
             let snap_gtubs = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17158,6 +17199,54 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sharing_name_returns_matching_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Duplicate"},
+                        {"name": "Duplicate"},
+                        {"name": "Unique"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("get_entities_sharing_name", json!({"name": "Duplicate"}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids = out.content["entities"].as_array().unwrap();
+        assert_eq!(ids.len(), 2, "two entities named Duplicate");
+
+        let out2 = reg
+            .execute("get_entities_sharing_name", json!({"name": "Unique"}))
+            .unwrap();
+        assert!(out2.is_ok());
+        assert_eq!(out2.content["entities"].as_array().unwrap().len(), 1);
+
+        let out3 = reg.execute("count_duplicate_names", json!({})).unwrap();
+        assert!(out3.is_ok());
+        assert_eq!(
+            out3.content["count"], 1,
+            "one name appears more than once: Duplicate"
+        );
     }
 
     #[test]

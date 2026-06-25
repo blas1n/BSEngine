@@ -1647,6 +1647,45 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_all_entity_names
+            let snap_gaen = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_all_entity_names".to_string(),
+                description: "Return a list of {id, name} pairs for every entity in the scene; returns {entities}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gaen.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .map(|e| json!({"id": e.id, "name": e.name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_fov_below
+            let snap_gewfb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_fov_below".to_string(),
+                description: "Return entity IDs (cameras) whose field-of-view is less than max_fov; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "max_fov": { "type": "number" } },
+                    "required": ["max_fov"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_fov = match input["max_fov"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing max_fov"),
+                    };
+                    let s = snap_gewfb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.camera_fov.map(|f| f < max_fov).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_fov_above
             let snap_gewfa = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12685,6 +12724,123 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_all_entity_names_returns_id_name_pairs_for_all_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Alpha", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Beta",  "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_all_entity_names", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entries = out.content["entities"].as_array().unwrap();
+        let names: Vec<&str> = entries.iter().filter_map(|e| e["name"].as_str()).collect();
+        assert!(names.contains(&"Alpha"), "Alpha in result");
+        assert!(names.contains(&"Beta"), "Beta in result");
+        // Each entry has an id field
+        for entry in entries {
+            assert!(entry["id"].as_u64().is_some(), "id field present");
+        }
+    }
+
+    #[test]
+    fn mcp_get_entities_with_fov_below_returns_cameras_below_threshold() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 30.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let narrow_id = all
+            .iter()
+            .find(|e| {
+                e["camera_fov"]
+                    .as_f64()
+                    .map(|f| (f - 30.0).abs() < 1.0)
+                    .unwrap_or(false)
+            })
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let wide_id = all
+            .iter()
+            .find(|e| {
+                e["camera_fov"]
+                    .as_f64()
+                    .map(|f| (f - 90.0).abs() < 1.0)
+                    .unwrap_or(false)
+            })
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_fov_below", json!({"max_fov": 60.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&narrow_id), "fov=30 below threshold 60");
+        assert!(!ids.contains(&wide_id), "fov=90 not below threshold 60");
     }
 
     #[test]

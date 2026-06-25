@@ -1666,6 +1666,79 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_multiple_tags
+            let snap_dewmt = snapshot.clone();
+            let sel_dewmt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_multiple_tags".to_string(),
+                description:
+                    "Deselect entities that have ALL of the specified tags; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tags: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_dewmt.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| tags.iter().all(|t| e.tags.contains(t)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewmt.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_entities_by_name_suffix
+            let snap_gebns = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_name_suffix".to_string(),
+                description:
+                    "Return IDs of entities whose name ends with suffix; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "suffix": { "type": "string" }
+                    },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_gebns.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.ends_with(&suffix))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // deselect_entities_by_name_prefix
             let snap_debnp = snapshot.clone();
             let sel_debnp = selection.clone();
@@ -20706,6 +20779,122 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_with_multiple_tags_and_get_by_name_suffix() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Enemy_B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "Player",  "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Get IDs, tag Enemy_A and Enemy_B with "enemy"+"unit" (one update per call)
+        let (id_ea, id_eb) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_ea = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_eb = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_ea, id_eb)
+        };
+        for (id, tag) in [
+            (id_ea, "enemy"),
+            (id_ea, "unit"),
+            (id_eb, "enemy"),
+            (id_eb, "unit"),
+        ] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // select_all then deselect_entities_with_multiple_tags ["enemy","unit"]
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_multiple_tags",
+                    json!({"tags": ["enemy", "unit"]}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+
+        // get_entities_by_name_suffix "_A" → Enemy_A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entities_by_name_suffix", json!({"suffix": "_A"}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.contains(&id_ea), "Enemy_A ends with _A");
+            assert!(!ids.contains(&id_eb), "Enemy_B does not end with _A");
+        }
     }
 
     #[test]

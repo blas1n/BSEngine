@@ -1647,6 +1647,74 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_common_ancestor
+            let snap_gca = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_common_ancestor".to_string(),
+                description: "Return the lowest common ancestor of the given entity IDs; returns {entity_id} or null if none exists".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_ids": { "type": "array", "items": { "type": "integer" } } },
+                    "required": ["entity_ids"]
+                })),
+                handler: Box::new(move |input| {
+                    let ids: Vec<u64> = match input["entity_ids"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|v| v.as_u64()).collect(),
+                        None => return McpToolOutput::error("missing entity_ids"),
+                    };
+                    if ids.is_empty() { return McpToolOutput::error("entity_ids is empty"); }
+                    let s = snap_gca.lock().unwrap();
+                    let ancestors_of = |start: u64| -> Vec<u64> {
+                        let mut chain = vec![start];
+                        let mut cur = start;
+                        loop {
+                            let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                            match p { Some(pid) => { chain.push(pid); cur = pid; } None => break, }
+                        }
+                        chain
+                    };
+                    let mut chains: Vec<Vec<u64>> = ids.iter().map(|&id| ancestors_of(id)).collect();
+                    // Walk ancestors of first entity and find first one that's in all others
+                    let first_chain = chains.remove(0);
+                    for ancestor in &first_chain {
+                        if chains.iter().all(|c| c.contains(ancestor)) {
+                            return McpToolOutput::success(json!({"entity_id": ancestor}));
+                        }
+                    }
+                    McpToolOutput::success(json!({"entity_id": serde_json::Value::Null}))
+                }),
+            });
+
+            // count_entities_shallower_than
+            let snap_cest = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_shallower_than".to_string(),
+                description: "Return the count of entities with hierarchy depth strictly less than the given depth; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "depth": { "type": "integer" } },
+                    "required": ["depth"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = match input["depth"].as_u64() {
+                        Some(v) => v, None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_cest.lock().unwrap();
+                    let depth_of = |start: u64| -> u64 {
+                        let mut d: u64 = 0; let mut cur = start;
+                        loop {
+                            let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                            match p { Some(pid) => { d += 1; cur = pid; } None => break, }
+                        }
+                        d
+                    };
+                    let count = s.entities.iter()
+                        .filter(|e| depth_of(e.id) < threshold)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_shallowest_selected
             let snap_gss = snapshot.clone();
             let sel_gss = selection.clone();
@@ -14201,6 +14269,181 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_common_ancestor_returns_lowest_common_ancestor() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "BranchA"},
+                        {"name": "BranchB"},
+                        {"name": "LeafA"},
+                        {"name": "LeafB"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, ba_id, bb_id, la_id, lb_id) = (
+            id_of("Root"),
+            id_of("BranchA"),
+            id_of("BranchB"),
+            id_of("LeafA"),
+            id_of("LeafB"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": ba_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": bb_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": la_id, "parent_id": ba_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": lb_id, "parent_id": bb_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        // LeafA and LeafB share Root as common ancestor
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_common_ancestor", json!({"entity_ids": [la_id, lb_id]}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["entity_id"], root_id, "Root is common ancestor");
+
+        // LeafA and BranchA share BranchA as common ancestor
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_common_ancestor", json!({"entity_ids": [la_id, ba_id]}))
+            .unwrap();
+        assert!(out2.is_ok());
+        assert_eq!(
+            out2.content["entity_id"], ba_id,
+            "BranchA is common ancestor"
+        );
+    }
+
+    #[test]
+    fn mcp_count_entities_shallower_than_returns_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "D0"},
+                        {"name": "D1"},
+                        {"name": "D2"},
+                        {"name": "D2b"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (d0, d1, d2, d2b) = (id_of("D0"), id_of("D1"), id_of("D2"), id_of("D2b"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("set_parent", json!({"entity_id": d1, "parent_id": d0}))
+                .unwrap();
+            reg.execute("set_parent", json!({"entity_id": d2, "parent_id": d1}))
+                .unwrap();
+            reg.execute("set_parent", json!({"entity_id": d2b, "parent_id": d1}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_shallower_than", json!({"depth": 2}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "D0 and D1 are shallower than 2");
     }
 
     #[test]

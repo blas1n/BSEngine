@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_ancestor_ids
+            let snap_geai = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_ancestor_ids".to_string(),
+                description: "Return all ancestor entity IDs (parent chain to root) for a given entity; returns {ancestor_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_geai.lock().unwrap();
+                    let mut ancestors = Vec::new();
+                    let mut current_id = entity_id;
+                    loop {
+                        let entity = match s.entities.iter().find(|e| e.id == current_id) {
+                            Some(e) => e,
+                            None => break,
+                        };
+                        match entity.parent_id {
+                            Some(pid) => { ancestors.push(pid); current_id = pid; }
+                            None => break,
+                        }
+                    }
+                    McpToolOutput::success(json!({"ancestor_ids": ancestors}))
+                }),
+            });
+
+            // get_entity_sibling_ids
+            let snap_gesi = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_sibling_ids".to_string(),
+                description: "Return all sibling entity IDs (same parent, excluding self) for a given entity; returns {sibling_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gesi.lock().unwrap();
+                    let parent_id = match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => e.parent_id,
+                        None => return McpToolOutput::error("entity not found"),
+                    };
+                    let siblings: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != entity_id && e.parent_id == parent_id)
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"sibling_ids": siblings}))
+                }),
+            });
+
             // select_all_with_mesh
             let snap_sawm = snapshot.clone();
             let sel_sawm = selection.clone();
@@ -11164,6 +11224,201 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entity_ancestor_ids_returns_chain_to_root() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "GrandParent", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Parent",      "position": [1.0, 0.0, 0.0]},
+                        {"name": "Leaf",        "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (gp_id, parent_id, leaf_id) = (id_of("GrandParent"), id_of("Parent"), id_of("Leaf"));
+
+        // Chain: Leaf → Parent → GrandParent
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": parent_id, "parent_id": gp_id}),
+            )
+            .unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": leaf_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Root has no ancestors
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entity_ancestor_ids", json!({"entity_id": gp_id}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["ancestor_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.is_empty(), "root has no ancestors");
+        }
+
+        // Leaf has Parent and GrandParent as ancestors
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_ancestor_ids", json!({"entity_id": leaf_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["ancestor_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&parent_id), "parent in ancestors");
+        assert!(ids.contains(&gp_id), "grandparent in ancestors");
+        assert!(!ids.contains(&leaf_id), "self not in ancestors");
+    }
+
+    #[test]
+    fn mcp_get_entity_sibling_ids_returns_same_parent_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent", "position": [0.0, 0.0, 0.0]},
+                        {"name": "ChildA", "position": [1.0, 0.0, 0.0]},
+                        {"name": "ChildB", "position": [2.0, 0.0, 0.0]},
+                        {"name": "ChildC", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, a_id, b_id, c_id) = (
+            id_of("Parent"),
+            id_of("ChildA"),
+            id_of("ChildB"),
+            id_of("ChildC"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": a_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": b_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            m.execute(
+                "set_parent",
+                json!({"entity_id": c_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entity_sibling_ids", json!({"entity_id": a_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["sibling_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&b_id), "ChildB is sibling of ChildA");
+        assert!(ids.contains(&c_id), "ChildC is sibling of ChildA");
+        assert!(!ids.contains(&a_id), "self not in siblings");
+        assert!(!ids.contains(&parent_id), "parent not in siblings");
     }
 
     #[test]

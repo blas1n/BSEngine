@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_below_x
+            let snap_debx = snapshot.clone();
+            let sel_debx = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_below_x".to_string(),
+                description: "Remove from selection all entities whose x position is strictly less than the given value; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "x": { "type": "number" } },
+                    "required": ["x"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_debx.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, _, _]| if x < threshold { Some(e.id) } else { None }).flatten())
+                        .collect();
+                    let mut sel = sel_debx.lock().unwrap();
+                    let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // select_entities_above_z
+            let snap_seaz = snapshot.clone();
+            let sel_seaz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_above_z".to_string(),
+                description: "Add to selection all entities whose z position is strictly greater than the given value; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "z": { "type": "number" } },
+                    "required": ["z"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seaz.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, _, z]| if z > threshold { Some(e.id) } else { None }).flatten())
+                        .collect();
+                    let count = to_add.len() as u64;
+                    let mut sel = sel_seaz.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // select_entities_below_x
             let snap_sebx = snapshot.clone();
             let sel_sebx = selection.clone();
@@ -15671,6 +15718,159 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_below_x_removes_entities_below_x_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Neg", "position": [-5.0, 0.0, 0.0]},
+                        {"name": "Pos", "position": [5.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (neg_id, pos_id) = (id_of("Neg"), id_of("Pos"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": neg_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": pos_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("deselect_entities_below_x", json!({"x": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["removed_count"], 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&neg_id), "Neg deselected");
+        assert!(ids.contains(&pos_id), "Pos still selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_above_z_adds_entities_above_z_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "FarA", "position": [0.0, 0.0, 8.0]},
+                        {"name": "FarB", "position": [0.0, 0.0, 2.0]},
+                        {"name": "Near", "position": [0.0, 0.0, -3.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (fa_id, fb_id, near_id) = (id_of("FarA"), id_of("FarB"), id_of("Near"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_entities_above_z", json!({"z": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["added_count"], 2);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&fa_id));
+        assert!(ids.contains(&fb_id));
+        assert!(!ids.contains(&near_id));
     }
 
     #[test]

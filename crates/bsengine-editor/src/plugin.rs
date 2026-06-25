@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_light_range
+            let snap_cewlr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_range".to_string(),
+                description:
+                    "Return the count of entities that have a light range value; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewlr.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_range.is_some())
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_color
+            let snap_cewlc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_color".to_string(),
+                description:
+                    "Return the count of entities that have a light color value; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewlc.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_color.is_some())
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_spot_lights
             let snap_csl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16514,6 +16552,63 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_light_range_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "NoLight"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_light_range", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "only point lights have range");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_light_color_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "NoLight"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_light_color", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "both light types have color");
     }
 
     #[test]

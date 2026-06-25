@@ -1666,6 +1666,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_transform
+            let snap_selwt = snapshot.clone();
+            let sel_selwt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_transform".to_string(),
+                description: "Select all entities that have a position (transform) set; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_selwt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_selwt.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_transform
+            let snap_delwt = snapshot.clone();
+            let sel_delwt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_transform".to_string(),
+                description: "Deselect all entities that have a position (transform) set; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_delwt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_delwt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // deselect_entities_with_camera
             let snap_delwcam = snapshot.clone();
             let sel_delwcam = selection.clone();
@@ -19549,6 +19591,132 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entities_with_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A and B have positions, C does not
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select_entities_with_transform → A and B selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_transform", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let b_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let c_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(a_sel, "A selected");
+            assert!(b_sel, "B selected");
+            assert!(!c_sel, "C not selected");
+        }
+
+        // select all, deselect_entities_with_transform → A and B deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_transform", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"], 2);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let c_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!a_sel, "A deselected");
+            assert!(c_sel, "C still selected");
+        }
     }
 
     #[test]

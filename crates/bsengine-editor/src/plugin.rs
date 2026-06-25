@@ -1666,6 +1666,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_camera
+            let snap_delwcam = snapshot.clone();
+            let sel_delwcam = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_camera".to_string(),
+                description:
+                    "Deselect all entities that have a camera component; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_delwcam.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.camera_fov.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_delwcam.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_transform
+            let snap_cntwt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_transform".to_string(),
+                description: "Count entities that have a position (transform) set; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cntwt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_with_mesh
             let snap_delwm = snapshot.clone();
             let sel_delwm = selection.clone();
@@ -19508,6 +19549,106 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_with_camera_and_count_with_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn camera, plus entities with/without positions
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 5.0]}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // count_entities_with_transform → camera + A + B = 3
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_transform", json!({}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(
+            count_out.content["count"], 3,
+            "camera + A + B have transform"
+        );
+
+        // select all, deselect_entities_with_camera → camera deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_camera", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"], 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let a_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let cam_still_sel: Vec<bool> = entities
+                .iter()
+                .filter(|e| e["camera_fov"].is_number())
+                .map(|e| e["selected"].as_bool().unwrap())
+                .collect();
+            assert!(a_sel, "A still selected");
+            assert!(cam_still_sel.iter().all(|&s| !s), "all cameras deselected");
+        }
     }
 
     #[test]

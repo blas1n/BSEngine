@@ -1647,6 +1647,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_closer_than
+            let snap_cect = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_closer_than".to_string(),
+                description: "Return the count of entities whose position is within the given Euclidean distance from point (x,y,z); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"},
+                    "distance": {"type": "number"}
+                }, "required": ["x","y","z","distance"]})),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let dist = input["distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cect.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.position.map(|[ex, ey, ez]| {
+                            ((ex-px).powi(2)+(ey-py).powi(2)+(ez-pz).powi(2)).sqrt() < dist
+                        }).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_farther_than
+            let snap_ceft = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_farther_than".to_string(),
+                description: "Return the count of entities whose position is beyond the given Euclidean distance from point (x,y,z); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"},
+                    "distance": {"type": "number"}
+                }, "required": ["x","y","z","distance"]})),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let dist = input["distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceft.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.position.map(|[ex, ey, ez]| {
+                            ((ex-px).powi(2)+(ey-py).powi(2)+(ez-pz).powi(2)).sqrt() > dist
+                        }).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_closer_than
             let snap_gect = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16079,6 +16127,80 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_closer_than_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Close", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_closer_than",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "distance": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1);
+    }
+
+    #[test]
+    fn mcp_count_entities_farther_than_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Close", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_farther_than",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "distance": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1);
     }
 
     #[test]

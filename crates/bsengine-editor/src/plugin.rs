@@ -1666,6 +1666,60 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_by_name_starts_with
+            let snap_selnamestart = snapshot.clone();
+            let sel_selnamestart = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_name_starts_with".to_string(),
+                description: "Select entities whose name starts with the given prefix (case-sensitive); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "prefix": {"type": "string"}
+                }, "required": ["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing prefix"),
+                    };
+                    let s = snap_selnamestart.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.starts_with(&*prefix)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_selnamestart.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_by_name_ends_with
+            let snap_selnameend = snapshot.clone();
+            let sel_selnameend = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_name_ends_with".to_string(),
+                description: "Select entities whose name ends with the given suffix (case-sensitive); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "suffix": {"type": "string"}
+                }, "required": ["suffix"]})),
+                handler: Box::new(move |input| {
+                    let suffix = match input["suffix"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing suffix"),
+                    };
+                    let s = snap_selnameend.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.ends_with(&*suffix)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_selnameend.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_entities_by_name_starts_with
             let snap_gnamestart = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19276,6 +19330,164 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_by_name_starts_with_and_ends_with() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_A"}, {"name": "Enemy_B"}, {"name": "Player"},
+                        {"name": "Wall_Left"}, {"name": "Wall_Right"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_ea = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Enemy_A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_eb = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Enemy_B"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_right = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Wall_Right"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // select_entities_by_name_starts_with("Enemy") → Enemy_A and Enemy_B selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_by_name_starts_with",
+                    json!({"prefix": "Enemy"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let ea_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let eb_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_B"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let player_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Player"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(ea_sel, "Enemy_A selected");
+            assert!(eb_sel, "Enemy_B selected");
+            assert!(!player_sel, "Player not selected");
+        }
+
+        // select_entities_by_name_ends_with("Right") → Wall_Right selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_by_name_ends_with",
+                    json!({"suffix": "Right"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let right_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Wall_Right"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let left_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Wall_Left"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let ea_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(right_sel, "Wall_Right selected");
+            assert!(!left_sel, "Wall_Left not selected");
+            assert!(ea_sel, "Enemy_A still selected from before");
+        }
+
+        let _ = (id_ea, id_eb, id_right);
     }
 
     #[test]

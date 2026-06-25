@@ -1647,6 +1647,70 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_in_radius
+            let snap_ceir = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_in_radius".to_string(),
+                description: "Return the count of entities whose position is within the given radius of (x,y,z); returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let cx = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let cy = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let cz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let r = input["radius"].as_f64().unwrap_or(0.0) as f32;
+                    let r2 = r * r;
+                    let s = snap_ceir.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                            let dx = x - cx; let dy = y - cy; let dz = z - cz;
+                            dx*dx + dy*dy + dz*dz <= r2
+                        }))
+                        .filter(|&within| within)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // deselect_entities_in_radius
+            let snap_deir = snapshot.clone();
+            let sel_deir = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_in_radius".to_string(),
+                description: "Remove from selection all entities whose position is within the given radius of (x,y,z); returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" },
+                        "radius": { "type": "number" }
+                    },
+                    "required": ["x", "y", "z", "radius"]
+                })),
+                handler: Box::new(move |input| {
+                    let cx = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let cy = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let cz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let r = input["radius"].as_f64().unwrap_or(0.0) as f32;
+                    let r2 = r * r;
+                    let s = snap_deir.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                            let dx = x - cx; let dy = y - cy; let dz = z - cz;
+                            if dx*dx + dy*dy + dz*dz <= r2 { Some(e.id) } else { None }
+                        }).flatten())
+                        .collect();
+                    let mut sel = sel_deir.lock().unwrap();
+                    let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // deselect_hidden_entities
             let snap_dhe = snapshot.clone();
             let sel_dhe = selection.clone();
@@ -15148,6 +15212,129 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_in_radius_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near1", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Near2", "position": [0.0, 1.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_in_radius",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "radius": 5.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "Near1 and Near2 within radius 5");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_in_radius_removes_entities_in_radius_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (near_id, far_id) = (id_of("Near"), id_of("Far"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": near_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": far_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "deselect_entities_in_radius",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0, "radius": 5.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["removed_count"], 1, "Near deselected");
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&near_id), "Near deselected");
+        assert!(ids.contains(&far_id), "Far still selected");
     }
 
     #[test]

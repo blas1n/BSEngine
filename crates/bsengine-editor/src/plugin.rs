@@ -1666,6 +1666,59 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_no_rotation
+            let snap_sewnr = snapshot.clone();
+            let sel_sewnr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_no_rotation".to_string(),
+                description: "Select all entities that have no rotation set; returns {added_count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewnr.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.rotation.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewnr.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_no_rotation
+            let snap_dewnr = snapshot.clone();
+            let sel_dewnr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_no_rotation".to_string(),
+                description:
+                    "Deselect all entities that have no rotation set; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewnr.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.rotation.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewnr.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // deselect_entities_with_scale
             let snap_dews = snapshot.clone();
             let sel_dews = selection.clone();
@@ -20355,6 +20408,68 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entities_with_no_rotation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select_entities_with_no_rotation — runs, returns count
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_with_no_rotation", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(out.content["added_count"].is_number());
+        }
+        app.update();
+        app.update();
+
+        // select all, deselect_entities_with_no_rotation — runs, returns count
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_no_rotation", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(out.content["removed_count"].is_number());
+        }
     }
 
     #[test]

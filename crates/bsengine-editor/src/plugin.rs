@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_by_visibility
+            let snap_sebv = snapshot.clone();
+            let sel_sebv = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_visibility".to_string(),
+                description:
+                    "Select entities matching the given visible flag; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "visible": {"type": "boolean"}
+                }, "required": ["visible"]})),
+                handler: Box::new(move |input| {
+                    let vis = input["visible"].as_bool().unwrap_or(true);
+                    let s = snap_sebv.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.visible == vis)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sebv.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_by_visibility
+            let snap_debv = snapshot.clone();
+            let sel_debv = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_by_visibility".to_string(),
+                description:
+                    "Deselect entities matching the given visible flag; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "visible": {"type": "boolean"}
+                }, "required": ["visible"]})),
+                handler: Box::new(move |input| {
+                    let vis = input["visible"].as_bool().unwrap_or(true);
+                    let s = snap_debv.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.visible == vis)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_debv.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_by_visibility
             let snap_gebv = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -18219,6 +18279,144 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entities_by_visibility() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Vis1"}, {"name": "Vis2"}, {"name": "Hid"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_hid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Hid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": id_hid}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select visible entities
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entities_by_visibility", json!({"visible": true}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let vis1_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Vis1"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let hid_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Hid"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(vis1_sel, "Vis1 selected");
+            assert!(!hid_sel, "Hid not selected");
+        }
+
+        // select all then deselect visible entities
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_by_visibility", json!({"visible": true}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let vis1_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Vis1"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let hid_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Hid"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!vis1_sel, "Vis1 deselected");
+        assert!(hid_sel, "Hid still selected");
     }
 
     #[test]

@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_name_length_above
+            let snap_gewnla = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_length_above".to_string(),
+                description:
+                    "Return entity IDs whose name length is > min_length; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_length": { "type": "integer" } },
+                    "required": ["min_length"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_length = match input["min_length"].as_u64() {
+                        Some(v) => v as usize,
+                        None => return McpToolOutput::error("missing min_length"),
+                    };
+                    let s = snap_gewnla.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.len() > min_length)
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_same_name
+            let snap_gewsn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_same_name".to_string(),
+                description: "Return entity IDs that share a name with at least one other entity; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewsn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(name) = &e.name {
+                            *name_counts.entry(name.clone()).or_insert(0) += 1;
+                        }
+                    }
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_ref().and_then(|n| name_counts.get(n)).copied().unwrap_or(0) > 1)
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // move_selection_to_origin
             let sel_msto = selection.clone();
             let queue70 = cmd_queue.clone();
@@ -11500,6 +11555,142 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_name_length_above_filters_by_length() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Hi",       "position": [0.0, 0.0, 0.0]},
+                        {"name": "LongName", "position": [1.0, 0.0, 0.0]},
+                        {"name": "VeryLongEntityName", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (hi_id, long_id, vlong_id) =
+            (id_of("Hi"), id_of("LongName"), id_of("VeryLongEntityName"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_name_length_above",
+                json!({"min_length": 5}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&hi_id), "Hi (len 2) excluded");
+        assert!(ids.contains(&long_id), "LongName (len 8) included");
+        assert!(ids.contains(&vlong_id), "VeryLongEntityName included");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_same_name_returns_duplicates() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Duplicate", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Duplicate", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Unique",    "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let unique_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Unique"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let dup_ids: Vec<u64> = all
+            .iter()
+            .filter(|e| e["name"].as_str() == Some("Duplicate"))
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(dup_ids.len(), 2);
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_same_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&dup_ids[0]), "first Duplicate included");
+        assert!(ids.contains(&dup_ids[1]), "second Duplicate included");
+        assert!(!ids.contains(&unique_id), "Unique excluded");
     }
 
     #[test]

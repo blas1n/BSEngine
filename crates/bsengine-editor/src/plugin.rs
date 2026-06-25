@@ -1647,6 +1647,43 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_tag_containing
+            let snap_gewtc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag_containing".to_string(),
+                description: "Return all entities with at least one tag containing the given substring; returns {entities}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "substring": {"type": "string"}
+                }, "required": ["substring"]})),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewtc.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.tags.iter().any(|t| t.contains(&sub)))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // count_entities_with_tag_containing
+            let snap_cewtc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_tag_containing".to_string(),
+                description: "Return the count of entities with at least one tag containing the given substring; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "substring": {"type": "string"}
+                }, "required": ["substring"]})),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_cewtc.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.tags.iter().any(|t| t.contains(&sub)))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_by_light_type
             let snap_deblt = snapshot.clone();
             let sel_deblt = selection.clone();
@@ -17538,6 +17575,107 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_and_count_entities_with_tag_containing() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"}, {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // tag A with "team:alpha", B with "team:beta", C with "solo"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "tag_entity",
+                    json!({"entity_id": id_a, "tag": "team:alpha"}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "team:beta"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_c, "tag": "solo"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let get_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_tag_containing",
+                json!({"substring": "team:"}),
+            )
+            .unwrap();
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_with_tag_containing",
+                json!({"substring": "team:"}),
+            )
+            .unwrap();
+        assert!(get_out.is_ok());
+        let entities = get_out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 2);
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 2);
     }
 
     #[test]

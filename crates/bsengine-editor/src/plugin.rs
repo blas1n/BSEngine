@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_centroid_of_selection
+            let snap_gcos = snapshot.clone();
+            let sel_gcos = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_centroid_of_selection".to_string(),
+                description: "Return the average position (centroid) of all selected entities that have a position; returns {x, y, z} or error if selection is empty or has no positions".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gcos.lock().unwrap();
+                    let sel = sel_gcos.lock().unwrap();
+                    let positions: Vec<[f32; 3]> = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id))
+                        .filter_map(|e| e.position)
+                        .collect();
+                    if positions.is_empty() {
+                        return McpToolOutput::error("no selected entities with positions");
+                    }
+                    let n = positions.len() as f32;
+                    let (sx, sy, sz) = positions.iter().fold((0f32, 0f32, 0f32), |(ax, ay, az), [x, y, z]| (ax+x, ay+y, az+z));
+                    McpToolOutput::success(json!({"x": sx/n, "y": sy/n, "z": sz/n}))
+                }),
+            });
+
+            // select_entities_above_x
+            let snap_seax = snapshot.clone();
+            let sel_seax = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_above_x".to_string(),
+                description: "Add to selection all entities whose x position is strictly greater than the given value; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "x": { "type": "number" } },
+                    "required": ["x"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seax.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, _, _]| if x > threshold { Some(e.id) } else { None }).flatten())
+                        .collect();
+                    let count = to_add.len() as u64;
+                    let mut sel = sel_seax.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // count_entities_below_z
             let snap_cebz = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15577,6 +15624,160 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_centroid_of_selection_returns_average_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [4.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 6.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": c_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_centroid_of_selection", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let x = out.content["x"].as_f64().unwrap();
+        let y = out.content["y"].as_f64().unwrap();
+        let z = out.content["z"].as_f64().unwrap();
+        assert!(
+            (x - 2.0).abs() < 0.001,
+            "centroid x should be 2.0, got {}",
+            x
+        );
+        assert!(
+            (y - 2.0).abs() < 0.001,
+            "centroid y should be 2.0, got {}",
+            y
+        );
+        assert!(z.abs() < 0.001, "centroid z should be 0.0, got {}", z);
+    }
+
+    #[test]
+    fn mcp_select_entities_above_x_adds_entities_above_x_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "RightA", "position": [5.0, 0.0, 0.0]},
+                        {"name": "RightB", "position": [10.0, 0.0, 0.0]},
+                        {"name": "Left", "position": [-3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (ra_id, rb_id, left_id) = (id_of("RightA"), id_of("RightB"), id_of("Left"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_entities_above_x", json!({"x": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["added_count"], 2);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&ra_id));
+        assert!(ids.contains(&rb_id));
+        assert!(!ids.contains(&left_id));
     }
 
     #[test]

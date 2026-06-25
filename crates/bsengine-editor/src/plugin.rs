@@ -1666,6 +1666,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_max_tag_count
+            let snap_cewtc2 = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_max_tag_count".to_string(),
+                description: "Count entities that have at most max_count tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "max_count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_count = input["max_count"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let s = snap_cewtc2.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.len() <= max_count)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_with_max_tag_count
+            let snap_sewtc2 = snapshot.clone();
+            let sel_sewtc2 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_max_tag_count".to_string(),
+                description:
+                    "Select all entities that have at most max_count tags; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "max_count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_count = input["max_count"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let s = snap_sewtc2.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.len() <= max_count)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewtc2.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // deselect_entities_with_min_tag_count
             let snap_dewtc = snapshot.clone();
             let sel_dewtc = selection.clone();
@@ -21234,6 +21293,126 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_with_max_tag_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → 2 tags, B → 1 tag, C → 0 tags
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "t1"), (id_a, "t2"), (id_b, "t1")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // count_entities_with_max_tag_count 1 → B and C (at most 1 tag) = 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_entities_with_max_tag_count", json!({"max_count": 1}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+        }
+
+        // select_entities_with_max_tag_count 0 → C only (no tags)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_max_tag_count",
+                    json!({"max_count": 0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selected_entities", json!({}))
+                .unwrap();
+            let sel_ids: std::collections::HashSet<u64> = sel_out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["id"].as_u64().unwrap())
+                .collect();
+            assert!(!sel_ids.contains(&id_a));
+            assert!(!sel_ids.contains(&id_b));
+            assert!(sel_ids.contains(&id_c));
+        }
     }
 
     #[test]

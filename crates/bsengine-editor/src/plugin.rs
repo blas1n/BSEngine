@@ -1666,6 +1666,33 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_any_tag
+            let snap_cewat = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_any_tag".to_string(),
+                description: "Count entities that have at least one tag; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewat.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| !e.tags.is_empty()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_no_tags
+            let snap_cewnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_tags".to_string(),
+                description: "Count entities that have no tags; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewnt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.is_empty()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_with_no_scale
             let snap_sewns = snapshot.clone();
             let sel_sewns = selection.clone();
@@ -20493,6 +20520,96 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_any_tag_and_no_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn A (tagged) and B (untagged)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Tag A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "player"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // count_entities_with_any_tag → A is tagged → count >= 1
+        let any_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_any_tag", json!({}))
+            .unwrap();
+        assert!(any_out.is_ok());
+        assert!(any_out.content["count"].as_u64().unwrap() >= 1);
+
+        // count_entities_with_no_tags → B has no tags → count >= 1
+        let no_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_no_tags", json!({}))
+            .unwrap();
+        assert!(no_out.is_ok());
+        assert!(no_out.content["count"].as_u64().unwrap() >= 1);
+
+        // counts should sum to total entity count
+        let total = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .len() as u64;
+        let sum =
+            any_out.content["count"].as_u64().unwrap() + no_out.content["count"].as_u64().unwrap();
+        assert_eq!(sum, total);
     }
 
     #[test]

@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_root_entities
+            let snap_cre = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_root_entities".to_string(),
+                description: "Return the count of entities with no parent (root-level entities); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cre.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.parent_id.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_deepest_hierarchy_depth
+            let snap_gdhd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_deepest_hierarchy_depth".to_string(),
+                description: "Return the maximum depth of the entity hierarchy (root = depth 0); returns {depth}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gdhd.lock().unwrap();
+                    let mut max_depth: u64 = 0;
+                    for entity in &s.entities {
+                        let mut depth: u64 = 0;
+                        let mut current_id = entity.id;
+                        loop {
+                            let e = match s.entities.iter().find(|e| e.id == current_id) {
+                                Some(e) => e,
+                                None => break,
+                            };
+                            match e.parent_id {
+                                Some(pid) => { depth += 1; current_id = pid; }
+                                None => break,
+                            }
+                        }
+                        if depth > max_depth { max_depth = depth; }
+                    }
+                    McpToolOutput::success(json!({"depth": max_depth}))
+                }),
+            });
+
             // get_all_tags_in_scene
             let snap_gatis = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11408,6 +11449,150 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_root_entities_returns_only_parentless_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root1", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Root2", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Child", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root1_id, child_id) = (id_of("Root1"), id_of("Child"));
+
+        // Make Child a child of Root1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root1_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_root_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        // Root1 and Root2 are parentless; Child has parent
+        assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+    }
+
+    #[test]
+    fn mcp_get_deepest_hierarchy_depth_returns_max_depth() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "L0", "position": [0.0, 0.0, 0.0]},
+                        {"name": "L1", "position": [1.0, 0.0, 0.0]},
+                        {"name": "L2", "position": [2.0, 0.0, 0.0]},
+                        {"name": "L3", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (l0, l1, l2, l3) = (id_of("L0"), id_of("L1"), id_of("L2"), id_of("L3"));
+
+        // Chain: L3 → L2 → L1 → L0 (depth 3 from root)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("set_parent", json!({"entity_id": l1, "parent_id": l0}))
+                .unwrap();
+            m.execute("set_parent", json!({"entity_id": l2, "parent_id": l1}))
+                .unwrap();
+            m.execute("set_parent", json!({"entity_id": l3, "parent_id": l2}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_deepest_hierarchy_depth", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        // L0=depth 0, L1=1, L2=2, L3=3 → max is 3
+        assert_eq!(out.content["depth"].as_u64().unwrap(), 3);
     }
 
     #[test]

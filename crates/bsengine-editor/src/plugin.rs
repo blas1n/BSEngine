@@ -1666,6 +1666,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_max_tag_count
+            let snap_dewtc2 = snapshot.clone();
+            let sel_dewtc2 = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_max_tag_count".to_string(),
+                description: "Deselect all entities that have at most max_count tags; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "max_count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_count = input["max_count"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let s = snap_dewtc2.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.len() <= max_count)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewtc2.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_entities_sorted_by_id
+            let snap_gesbi = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_id".to_string(),
+                description:
+                    "Return all entity IDs sorted in ascending order; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbi.lock().unwrap();
+                    let mut ids: Vec<u64> = s.entities.iter().map(|e| e.id).collect();
+                    ids.sort_unstable();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // count_entities_with_max_tag_count
             let snap_cewtc2 = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -21293,6 +21337,128 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_with_max_tag_count_and_get_sorted_by_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → 2 tags, B → 1 tag, C → 0 tags
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "t1"), (id_a, "t2"), (id_b, "t1")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // get_entities_sorted_by_id → entities ordered by id ascending
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entities_sorted_by_id", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.len() >= 3);
+            // verify sorted ascending
+            for w in ids.windows(2) {
+                assert!(w[0] <= w[1], "ids should be sorted ascending");
+            }
+        }
+
+        // select_all then deselect_entities_with_max_tag_count 1 → removes B and C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_max_tag_count",
+                    json!({"max_count": 1}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            // B and C (at most 1 tag) should be deselected; removed_count >= 2
+            assert!(out.content["removed_count"].as_u64().unwrap() >= 2);
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

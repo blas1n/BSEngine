@@ -1647,6 +1647,39 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_all_tags
+            let snap_cat = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_all_tags".to_string(),
+                description: "Return the total number of tag assignments across all entities (not unique); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cat.lock().unwrap();
+                    let count: u64 = s.entities.iter().map(|e| e.tags.len() as u64).sum();
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_tag_frequency
+            let snap_gtf = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tag_frequency".to_string(),
+                description: "Return each tag with its entity count, sorted by count descending; returns {frequencies: [{tag, count}]}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gtf.lock().unwrap();
+                    let mut tag_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        for t in &e.tags { *tag_counts.entry(t.clone()).or_insert(0) += 1; }
+                    }
+                    let mut frequencies: Vec<serde_json::Value> = tag_counts.into_iter()
+                        .map(|(tag, count)| json!({"tag": tag, "count": count}))
+                        .collect();
+                    frequencies.sort_by(|a, b| b["count"].as_u64().cmp(&a["count"].as_u64()));
+                    McpToolOutput::success(json!({"frequencies": frequencies}))
+                }),
+            });
+
             // get_least_common_tag
             let snap_glct = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17779,6 +17812,130 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_all_tags_and_get_tag_frequency() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A: [alpha], B: [alpha, beta] → total tags = 3, alpha=2, beta=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "alpha"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "alpha"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_all_tags", json!({}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(
+            count_out.content["count"], 3,
+            "total tag assignments: A=1, B=2"
+        );
+
+        let freq_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_tag_frequency", json!({}))
+            .unwrap();
+        assert!(freq_out.is_ok());
+        let freqs = freq_out.content["frequencies"].as_array().unwrap();
+        let alpha_count = freqs
+            .iter()
+            .find(|f| f["tag"].as_str() == Some("alpha"))
+            .unwrap()["count"]
+            .as_u64()
+            .unwrap();
+        let beta_count = freqs
+            .iter()
+            .find(|f| f["tag"].as_str() == Some("beta"))
+            .unwrap()["count"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(alpha_count, 2);
+        assert_eq!(beta_count, 1);
     }
 
     #[test]

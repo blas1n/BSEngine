@@ -1666,6 +1666,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_by_name_contains
+            let snap_cntnamecon = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_name_contains".to_string(),
+                description: "Count entities whose name contains the given substring (case-sensitive); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "substring": {"type": "string"}
+                }, "required": ["substring"]})),
+                handler: Box::new(move |input| {
+                    let sub = match input["substring"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing substring"),
+                    };
+                    let s = snap_cntnamecon.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.contains(&*sub)).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // deselect_entities_by_name_contains
+            let snap_delnamecon = snapshot.clone();
+            let sel_delnamecon = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_by_name_contains".to_string(),
+                description: "Deselect entities whose name contains the given substring (case-sensitive); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "substring": {"type": "string"}
+                }, "required": ["substring"]})),
+                handler: Box::new(move |input| {
+                    let sub = match input["substring"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing substring"),
+                    };
+                    let s = snap_delnamecon.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.contains(&*sub)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_delnamecon.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_at_depth_range
             let snap_gedrange = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19184,6 +19232,117 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_deselect_by_name_contains() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Enemy_A"}, {"name": "Enemy_B"}, {"name": "Player"}, {"name": "Tree"},
+            ]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // count_entities_by_name_contains("Enemy") → 2
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_by_name_contains",
+                json!({"substring": "Enemy"}),
+            )
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(
+            count_out.content["count"], 2,
+            "2 entities with 'Enemy' in name"
+        );
+
+        // count_entities_by_name_contains("z") → 0
+        let count_zero = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_by_name_contains", json!({"substring": "z"}))
+            .unwrap();
+        assert_eq!(count_zero.content["count"], 0);
+
+        // select all, deselect_entities_by_name_contains("Enemy") → Enemy_A and Enemy_B deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_by_name_contains",
+                    json!({"substring": "Enemy"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let ea_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let eb_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_B"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let player_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Player"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let tree_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Tree"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!ea_sel, "Enemy_A deselected");
+            assert!(!eb_sel, "Enemy_B deselected");
+            assert!(player_sel, "Player still selected");
+            assert!(tree_sel, "Tree still selected");
+        }
     }
 
     #[test]

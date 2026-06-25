@@ -1647,6 +1647,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_visible_entities
+            let snap_dve = snapshot.clone();
+            let sel_dve = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_visible_entities".to_string(),
+                description: "Remove all currently visible entities from the selection; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dve.lock().unwrap();
+                    let visible_ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.visible)
+                        .map(|e| e.id).collect();
+                    let mut sel = sel_dve.lock().unwrap();
+                    let count = visible_ids.iter().filter(|id| sel.remove(id)).count() as u64;
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // select_hidden_entities
+            let snap_she = snapshot.clone();
+            let sel_she = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_hidden_entities".to_string(),
+                description:
+                    "Add all currently hidden entities to the selection; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_she.lock().unwrap();
+                    let hidden_ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !e.visible)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = hidden_ids.len() as u64;
+                    let mut sel = sel_she.lock().unwrap();
+                    for id in hidden_ids {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // toggle_entity_selection
             let sel_tes = selection.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15060,6 +15104,179 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_visible_entities_removes_visible_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Visible1"},
+                        {"name": "Visible2"},
+                        {"name": "ToHide"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (v1_id, v2_id, h_id) = (id_of("Visible1"), id_of("Visible2"), id_of("ToHide"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("hide_entity", json!({"entity_id": h_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": v1_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": v2_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": h_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("deselect_visible_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(
+            out.content["removed_count"], 2,
+            "Visible1 and Visible2 deselected"
+        );
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&v1_id), "Visible1 deselected");
+        assert!(!ids.contains(&v2_id), "Visible2 deselected");
+        assert!(ids.contains(&h_id), "hidden still selected");
+    }
+
+    #[test]
+    fn mcp_select_hidden_entities_adds_hidden_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Visible"},
+                        {"name": "H1"},
+                        {"name": "H2"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (vis_id, h1_id, h2_id) = (id_of("Visible"), id_of("H1"), id_of("H2"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("hide_entity", json!({"entity_id": h1_id}))
+                .unwrap();
+            reg.execute("hide_entity", json!({"entity_id": h2_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_hidden_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["added_count"], 2, "H1 and H2 added");
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&h1_id), "H1 selected");
+        assert!(ids.contains(&h2_id), "H2 selected");
+        assert!(!ids.contains(&vis_id), "Visible not selected");
     }
 
     #[test]

@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_all_with_mesh
+            let snap_sawm = snapshot.clone();
+            let sel_sawm = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_all_with_mesh".to_string(),
+                description: "Add all entities with a mesh renderer to the selection; returns {selected_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sawm.lock().unwrap();
+                    let mesh_ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.mesh_id.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = mesh_ids.len() as u64;
+                    let mut sel = sel_sawm.lock().unwrap();
+                    for id in mesh_ids { sel.insert(id); }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // select_entities_at_root
+            let snap_sear = snapshot.clone();
+            let sel_sear = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_at_root".to_string(),
+                description: "Add all entities with no parent (root entities) to the selection; returns {selected_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sear.lock().unwrap();
+                    let root_ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.parent_id.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = root_ids.len() as u64;
+                    let mut sel = sel_sear.lock().unwrap();
+                    for id in root_ids { sel.insert(id); }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
             // get_selection_count
             let sel_gsc = selection.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11124,6 +11164,182 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_all_with_mesh_selects_only_mesh_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WithMesh", "position": [0.0, 0.0, 0.0]},
+                        {"name": "NoMesh",   "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (mesh_id, no_mesh_id) = (id_of("WithMesh"), id_of("NoMesh"));
+
+        // Attach mesh to one entity
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": mesh_id, "mesh_id": 42}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_all_with_mesh", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(out.content["selected_count"].as_u64().unwrap() >= 1);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(selected.contains(&mesh_id), "WithMesh is selected");
+        assert!(!selected.contains(&no_mesh_id), "NoMesh not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_at_root_selects_only_parentless_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root",  "position": [0.0, 0.0, 0.0]},
+                        {"name": "Child", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, child_id) = (id_of("Root"), id_of("Child"));
+
+        // Set child's parent to root
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_at_root", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert!(out.content["selected_count"].as_u64().unwrap() >= 1);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(selected.contains(&root_id), "Root (no parent) selected");
+        assert!(
+            !selected.contains(&child_id),
+            "Child (has parent) not selected"
+        );
     }
 
     #[test]

@@ -1666,6 +1666,82 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_deeper_than
+            let snap_deldeep = snapshot.clone();
+            let sel_deldeep = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_deeper_than".to_string(),
+                description: "Deselect all entities at depth strictly greater than the given value (root = depth 0); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "depth": {"type": "integer"}
+                }, "required": ["depth"]})),
+                handler: Box::new(move |input| {
+                    let min_depth = match input["depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_deldeep.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            let mut depth = 0u64;
+                            let mut current = e.id;
+                            while let Some(&pid) = parent_map.get(&current) {
+                                depth += 1;
+                                current = pid;
+                            }
+                            depth > min_depth
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_deldeep.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // select_entities_shallower_than
+            let snap_selshall = snapshot.clone();
+            let sel_selshall = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_shallower_than".to_string(),
+                description: "Select all entities at depth strictly less than the given value (root = depth 0); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "depth": {"type": "integer"}
+                }, "required": ["depth"]})),
+                handler: Box::new(move |input| {
+                    let max_depth = match input["depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_selshall.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            let mut depth = 0u64;
+                            let mut current = e.id;
+                            while let Some(&pid) = parent_map.get(&current) {
+                                depth += 1;
+                                current = pid;
+                            }
+                            depth < max_depth
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_selshall.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // count_sibling_entities
             let snap_cntsibl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -18887,6 +18963,186 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_deeper_than_and_select_shallower_than() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root(depth 0) → Mid(depth 1) → Leaf(depth 2)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"}, {"name": "Mid"}, {"name": "Leaf"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_root = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_mid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_leaf = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_mid, "parent_id": id_root}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_leaf, "parent_id": id_mid}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select all, then deselect_entities_deeper_than(0) → Mid and Leaf deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_deeper_than", json!({"depth": 0}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let root_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let mid_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let leaf_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(root_sel, "Root still selected (depth 0)");
+            assert!(!mid_sel, "Mid deselected (depth 1 > 0)");
+            assert!(!leaf_sel, "Leaf deselected (depth 2 > 0)");
+        }
+
+        // select_entities_shallower_than(2) → Root and Mid selected (depth 0 and 1 < 2)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_shallower_than", json!({"depth": 2}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let root_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let mid_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let leaf_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(root_sel, "Root selected (depth 0 < 2)");
+            assert!(mid_sel, "Mid selected (depth 1 < 2)");
+            assert!(!leaf_sel, "Leaf not selected (depth 2 not < 2)");
+        }
     }
 
     #[test]

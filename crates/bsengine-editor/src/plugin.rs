@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_at_least_n_tags
+            let snap_cealnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_at_least_n_tags".to_string(),
+                description: "Return the count of entities with at least n tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "n": {"type": "integer"}
+                }, "required": ["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cealnt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.len() >= n).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_most_common_tag
+            let snap_gmct = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_most_common_tag".to_string(),
+                description: "Return the tag that appears in the most entities; returns {tag, count} or error if no tags exist".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gmct.lock().unwrap();
+                    let mut tag_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        for t in &e.tags {
+                            *tag_counts.entry(t.clone()).or_insert(0) += 1;
+                        }
+                    }
+                    match tag_counts.into_iter().max_by_key(|(_, c)| *c) {
+                        Some((tag, count)) => McpToolOutput::success(json!({"tag": tag, "count": count})),
+                        None => McpToolOutput::error("no tags found"),
+                    }
+                }),
+            });
+
             // count_entities_with_more_than_n_tags
             let snap_cemtnt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17697,6 +17735,171 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_at_least_n_tags_and_get_most_common_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"}, {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A: [common], B: [common, rare], C: [common, rare, unique]
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "common"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "common"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_c, "tag": "common"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "rare"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_c, "tag": "rare"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_c, "tag": "unique"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        // at least 1 tag: A(1), B(2), C(3) → 3
+        let at1 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_at_least_n_tags", json!({"n": 1}))
+            .unwrap();
+        // at least 2 tags: B(2), C(3) → 2
+        let at2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_at_least_n_tags", json!({"n": 2}))
+            .unwrap();
+        assert_eq!(at1.content["count"], 3);
+        assert_eq!(at2.content["count"], 2);
+
+        // most common tag: "common" appears in all 3
+        let most_common = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_most_common_tag", json!({}))
+            .unwrap();
+        assert!(most_common.is_ok());
+        assert_eq!(most_common.content["tag"].as_str(), Some("common"));
+        assert_eq!(most_common.content["count"], 3);
     }
 
     #[test]

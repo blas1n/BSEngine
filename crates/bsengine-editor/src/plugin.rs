@@ -1647,6 +1647,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_point_lights
+            let snap_cpl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_point_lights".to_string(),
+                description: "Return the count of point light entities; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cpl.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.as_deref() == Some("point"))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_directional_lights
+            let snap_cdl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_directional_lights".to_string(),
+                description: "Return the count of directional light entities; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cdl.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.as_deref() == Some("directional"))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_without_parent
             let snap_cewop = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16448,6 +16484,59 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_point_lights_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_point_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
+    }
+
+    #[test]
+    fn mcp_count_directional_lights_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_directional_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1);
     }
 
     #[test]

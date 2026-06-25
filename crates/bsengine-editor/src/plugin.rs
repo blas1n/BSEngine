@@ -1666,6 +1666,75 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_children
+            let snap_dewch = snapshot.clone();
+            let sel_dewch = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_children".to_string(),
+                description:
+                    "Deselect entities that have at least one child; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object"})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewch.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| parent_ids.contains(&e.id))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewch.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_descendants
+            let snap_gdesc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_descendants".to_string(),
+                description:
+                    "Return all descendants of an entity (recursive); returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let root_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gdesc.lock().unwrap();
+                    // Build children map
+                    let mut children: std::collections::HashMap<u64, Vec<u64>> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(pid) = e.parent_id {
+                            children.entry(pid).or_default().push(e.id);
+                        }
+                    }
+                    // BFS
+                    let mut result = Vec::new();
+                    let mut queue = std::collections::VecDeque::new();
+                    queue.push_back(root_id);
+                    while let Some(current) = queue.pop_front() {
+                        if let Some(kids) = children.get(&current) {
+                            for &kid in kids {
+                                result.push(kid);
+                                queue.push_back(kid);
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"entity_ids": result}))
+                }),
+            });
+
             // deselect_entities_without_children
             let snap_dewc = snapshot.clone();
             let sel_dewc = selection.clone();
@@ -18422,6 +18491,183 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_with_children_and_get_descendants() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Grandparent → Parent → Child
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Grandparent"}, {"name": "Mid"}, {"name": "Leaf"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_gp = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Grandparent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_mid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_leaf = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_mid, "parent_id": id_gp}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_leaf, "parent_id": id_mid}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select all, then deselect_entities_with_children → only Leaf stays selected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_with_children", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let gp_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Grandparent"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let mid_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let leaf_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!gp_sel, "Grandparent deselected");
+            assert!(!mid_sel, "Mid deselected");
+            assert!(leaf_sel, "Leaf still selected");
+        }
+
+        // get_descendants of Grandparent → Mid and Leaf
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_gp = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Grandparent"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let desc_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_descendants", json!({"entity_id": id_gp}))
+            .unwrap();
+        assert!(desc_out.is_ok());
+        let desc_ids: std::collections::HashSet<u64> = desc_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        let id_mid = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Mid"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_leaf = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Leaf"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(desc_ids.len(), 2, "Grandparent has 2 descendants");
+        assert!(desc_ids.contains(&id_mid));
+        assert!(desc_ids.contains(&id_leaf));
     }
 
     #[test]

@@ -1647,6 +1647,55 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_all_mesh_ids
+            let snap_gami = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_all_mesh_ids".to_string(),
+                description: "Return a deduplicated list of all mesh IDs used in the scene; returns {mesh_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gami.lock().unwrap();
+                    let mut seen = std::collections::HashSet::new();
+                    let mut mesh_ids: Vec<u64> = Vec::new();
+                    for e in &s.entities {
+                        if let Some(mid) = e.mesh_id {
+                            if seen.insert(mid) {
+                                mesh_ids.push(mid);
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"mesh_ids": mesh_ids}))
+                }),
+            });
+
+            // get_entities_sharing_mesh
+            let snap_gesm = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sharing_mesh".to_string(),
+                description: "Return entity IDs that share the same mesh as a given entity (excluding self); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gesm.lock().unwrap();
+                    let mesh_id = match s.entities.iter().find(|e| e.id == entity_id).and_then(|e| e.mesh_id) {
+                        Some(mid) => mid,
+                        None => return McpToolOutput::success(json!({"entity_ids": []})),
+                    };
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != entity_id && e.mesh_id == Some(mesh_id))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // detach_selection_from_parent
             let sel_dsfp = selection.clone();
             let queue76 = cmd_queue.clone();
@@ -11767,6 +11816,168 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_all_mesh_ids_returns_unique_mesh_ids_used_in_scene() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                        {"name": "D", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Attach meshes: A and B share mesh 10, C has mesh 20, D has no mesh
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": a_id, "mesh_id": 10}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": b_id, "mesh_id": 10}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": c_id, "mesh_id": 20}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_all_mesh_ids", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let mesh_ids: Vec<u64> = out.content["mesh_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(mesh_ids.contains(&10), "mesh 10 present");
+        assert!(mesh_ids.contains(&20), "mesh 20 present");
+        // Each should appear exactly once (deduplicated)
+        assert_eq!(
+            mesh_ids.iter().filter(|&&id| id == 10).count(),
+            1,
+            "mesh 10 deduplicated"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_sharing_mesh_returns_others_with_same_mesh() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // A and B share mesh 42, C has mesh 99
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": a_id, "mesh_id": 42}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": b_id, "mesh_id": 42}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": c_id, "mesh_id": 99}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sharing_mesh", json!({"entity_id": a_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&b_id), "B shares mesh 42 with A");
+        assert!(!ids.contains(&a_id), "self (A) excluded");
+        assert!(!ids.contains(&c_id), "C has different mesh");
     }
 
     #[test]

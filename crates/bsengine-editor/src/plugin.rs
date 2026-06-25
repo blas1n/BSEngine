@@ -1647,6 +1647,40 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_selected_cameras
+            let snap_csca = snapshot.clone();
+            let sel_csca = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_selected_cameras".to_string(),
+                description: "Return the count of currently selected entities that have a camera component; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_csca.lock().unwrap();
+                    let sel = sel_csca.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id) && e.camera_fov.is_some())
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_selected_meshes
+            let snap_csm = snapshot.clone();
+            let sel_csm = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_selected_meshes".to_string(),
+                description: "Return the count of currently selected entities that have a mesh renderer attached; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_csm.lock().unwrap();
+                    let sel = sel_csm.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id) && e.mesh_id.is_some())
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_unnamed_entities
             let snap_cune = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15934,6 +15968,138 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_selected_cameras_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0, 5.0, 10.0]}),
+            )
+            .unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let cam_id = all.iter().find(|e| !e["camera_fov"].is_null()).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let plain_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Plain"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": cam_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": plain_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_selected_cameras", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1);
+    }
+
+    #[test]
+    fn mcp_count_selected_meshes_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "WithMesh", "position": [0.0, 0.0, 0.0]},
+                        {"name": "NoMesh", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (wm_id, nm_id) = (id_of("WithMesh"), id_of("NoMesh"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("attach_mesh", json!({"entity_id": wm_id, "mesh_id": 42}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": wm_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": nm_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_selected_meshes", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1);
     }
 
     #[test]

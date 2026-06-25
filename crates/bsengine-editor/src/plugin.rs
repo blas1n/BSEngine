@@ -1647,6 +1647,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_by_mesh_id
+            let snap_sebmi = snapshot.clone();
+            let sel_sebmi = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_mesh_id".to_string(),
+                description: "Add all entities using a specific mesh ID to the selection; returns {selected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "mesh_id": { "type": "integer" } },
+                    "required": ["mesh_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let mesh_id = match input["mesh_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing mesh_id"),
+                    };
+                    let s = snap_sebmi.lock().unwrap();
+                    let matching: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.mesh_id == Some(mesh_id))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = matching.len() as u64;
+                    let mut sel = sel_sebmi.lock().unwrap();
+                    for id in matching { sel.insert(id); }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // deselect_entities_without_tag
+            let snap_dewt = snapshot.clone();
+            let sel_dewt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_without_tag".to_string(),
+                description: "Remove from selection any entity that does not have the given tag; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_dewt.lock().unwrap();
+                    let mut sel = sel_dewt.lock().unwrap();
+                    let to_remove: Vec<u64> = sel.iter().copied()
+                        .filter(|&id| {
+                            s.entities.iter()
+                                .find(|e| e.id == id)
+                                .map(|e| !e.tags.contains(&tag))
+                                .unwrap_or(true)
+                        })
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    for id in to_remove { sel.remove(&id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_all_mesh_ids
             let snap_gami = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11816,6 +11876,193 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_by_mesh_id_adds_matching_entities_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // A and B share mesh 77, C has mesh 88
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("attach_mesh", json!({"entity_id": a_id, "mesh_id": 77}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": b_id, "mesh_id": 77}))
+                .unwrap();
+            m.execute("attach_mesh", json!({"entity_id": c_id, "mesh_id": 88}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_by_mesh_id", json!({"mesh_id": 77}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 2);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(selected.contains(&a_id), "A with mesh 77 selected");
+        assert!(selected.contains(&b_id), "B with mesh 77 selected");
+        assert!(!selected.contains(&c_id), "C with mesh 88 not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_without_tag_removes_untagged_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Tagged",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "Untagged", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (tagged_id, untagged_id) = (id_of("Tagged"), id_of("Untagged"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": tagged_id, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": tagged_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": untagged_id}))
+                .unwrap();
+        }
+
+        // Deselect those without "hero" tag
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_without_tag", json!({"tag": "hero"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let selected: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(selected.contains(&tagged_id), "Tagged stays selected");
+        assert!(
+            !selected.contains(&untagged_id),
+            "Untagged removed from selection"
+        );
     }
 
     #[test]

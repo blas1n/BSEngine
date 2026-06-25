@@ -1647,6 +1647,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_below_x
+            let snap_cebx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_below_x".to_string(),
+                description: "Return the count of entities whose x position is strictly less than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "x": { "type": "number" } },
+                    "required": ["x"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cebx.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[x, _, _]| x < threshold))
+                        .filter(|&below| below)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_above_z
+            let snap_ceaz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_above_z".to_string(),
+                description: "Return the count of entities whose z position is strictly greater than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "z": { "type": "number" } },
+                    "required": ["z"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceaz.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, _, z]| z > threshold))
+                        .filter(|&above| above)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_below_y
             let snap_deby = snapshot.clone();
             let sel_deby = selection.clone();
@@ -15489,6 +15531,78 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_below_x_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NegA", "position": [-5.0, 0.0, 0.0]},
+                        {"name": "NegB", "position": [-1.0, 0.0, 0.0]},
+                        {"name": "Pos", "position": [3.0, 0.0, 0.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_below_x", json!({"x": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "NegA and NegB are below x=0");
+    }
+
+    #[test]
+    fn mcp_count_entities_above_z_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "FarA", "position": [0.0, 0.0, 8.0]},
+                        {"name": "FarB", "position": [0.0, 0.0, 2.0]},
+                        {"name": "Near", "position": [0.0, 0.0, -3.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_above_z", json!({"z": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "FarA and FarB are above z=0");
     }
 
     #[test]

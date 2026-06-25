@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_without_light
+            let snap_gewol = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_without_light".to_string(),
+                description: "Return entity IDs that have no light component; returns entity_ids"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewol.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_light_range_above
+            let snap_gewlra = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_range_above".to_string(),
+                description: "Return entity IDs whose light range is strictly above the threshold; returns entity_ids".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlra.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_range.map(|r| r > threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_directional_light
             let snap_gewdl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11051,6 +11091,129 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_without_light_excludes_lights() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "Plain", "position": [0.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [5.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let plain_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Plain"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let light_id = all.iter().find(|e| e["light_type"].is_string()).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_light", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&plain_id), "Plain entity (no light) included");
+        assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_light_range_above_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 50.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 5.0,  "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let far_id = all
+            .iter()
+            .find(|e| e["light_range"].as_f64().map(|v| v > 40.0).unwrap_or(false))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let near_id = all
+            .iter()
+            .find(|e| e["light_range"].as_f64().map(|v| v < 10.0).unwrap_or(false))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_light_range_above",
+                json!({"threshold": 20.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&far_id), "Far(range=50) above threshold 20");
+        assert!(
+            !ids.contains(&near_id),
+            "Near(range=5) not above threshold 20"
+        );
     }
 
     #[test]

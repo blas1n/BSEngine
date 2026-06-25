@@ -1647,6 +1647,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_mesh_id_of_entity
+            let snap_gmioe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_mesh_id_of_entity".to_string(),
+                description: "Return the mesh ID of a specific entity by ID; returns {mesh_id} or error if no mesh".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gmioe.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => match e.mesh_id {
+                            Some(mid) => McpToolOutput::success(json!({"mesh_id": mid})),
+                            None => McpToolOutput::error("entity has no mesh"),
+                        },
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // deselect_entities_at_depth
+            let snap_dead = snapshot.clone();
+            let sel_dead = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_at_depth".to_string(),
+                description: "Deselect all entities at a specific parent-chain depth (0=root); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "depth": {"type": "integer", "minimum": 0}
+                }, "required": ["depth"]})),
+                handler: Box::new(move |input| {
+                    let target_depth = match input["depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_dead.lock().unwrap();
+                    let entity_depth = |id: u64| -> u64 {
+                        let mut current = id;
+                        let mut depth = 0u64;
+                        for _ in 0..64 {
+                            match s.entities.iter().find(|e| e.id == current).and_then(|e| e.parent_id) {
+                                Some(pid) => { current = pid; depth += 1; }
+                                None => break,
+                            }
+                        }
+                        depth
+                    };
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| entity_depth(e.id) == target_depth)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dead.lock().unwrap();
+                    for id in to_remove { sel.remove(&id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_children_of_entity
             let snap_gcoe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16880,6 +16939,189 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_mesh_id_of_entity_returns_correct_mesh_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "batch_spawn",
+                json!({"entities": [
+                    {"name": "WithMesh"},
+                    {"name": "NoMesh"},
+                ]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let with_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("WithMesh"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let no_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("NoMesh"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": with_id, "mesh_id": 42}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("get_mesh_id_of_entity", json!({"entity_id": with_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["mesh_id"].as_u64(), Some(42));
+
+        let out2 = reg
+            .execute("get_mesh_id_of_entity", json!({"entity_id": no_id}))
+            .unwrap();
+        assert!(!out2.is_ok(), "entity without mesh should return error");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_at_depth_deselects_correct_level() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "Child"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let root_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Root"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let child_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": root_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": child_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_at_depth", json!({"depth": 0}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let root_sel = entities
+            .iter()
+            .find(|e| e["id"].as_u64() == Some(root_id))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let child_sel = entities
+            .iter()
+            .find(|e| e["id"].as_u64() == Some(child_id))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!root_sel, "root (depth 0) should be deselected");
+        assert!(child_sel, "child (depth 1) should remain selected");
     }
 
     #[test]

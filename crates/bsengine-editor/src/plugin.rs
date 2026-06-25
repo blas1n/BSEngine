@@ -1666,6 +1666,88 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_descendants
+            let snap_cdesc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_descendants".to_string(),
+                description: "Count all descendants of an entity (recursive); returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let root_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_cdesc.lock().unwrap();
+                    let mut children: std::collections::HashMap<u64, Vec<u64>> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(pid) = e.parent_id {
+                            children.entry(pid).or_default().push(e.id);
+                        }
+                    }
+                    let mut count = 0u64;
+                    let mut queue = std::collections::VecDeque::new();
+                    queue.push_back(root_id);
+                    while let Some(current) = queue.pop_front() {
+                        if let Some(kids) = children.get(&current) {
+                            count += kids.len() as u64;
+                            for &kid in kids {
+                                queue.push_back(kid);
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_descendants
+            let snap_seldesc = snapshot.clone();
+            let sel_seldesc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_descendants".to_string(),
+                description:
+                    "Select all descendants of an entity (recursive); returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let root_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_seldesc.lock().unwrap();
+                    let mut children: std::collections::HashMap<u64, Vec<u64>> =
+                        std::collections::HashMap::new();
+                    for e in &s.entities {
+                        if let Some(pid) = e.parent_id {
+                            children.entry(pid).or_default().push(e.id);
+                        }
+                    }
+                    let mut to_add = Vec::new();
+                    let mut queue = std::collections::VecDeque::new();
+                    queue.push_back(root_id);
+                    while let Some(current) = queue.pop_front() {
+                        if let Some(kids) = children.get(&current) {
+                            for &kid in kids {
+                                to_add.push(kid);
+                                queue.push_back(kid);
+                            }
+                        }
+                    }
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_seldesc.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // deselect_entities_with_children
             let snap_dewch = snapshot.clone();
             let sel_dewch = selection.clone();
@@ -18491,6 +18573,168 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_descendants() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root → Mid → Leaf hierarchy
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"}, {"name": "Mid"}, {"name": "Leaf"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_root = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_mid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_leaf = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_mid, "parent_id": id_root}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_leaf, "parent_id": id_mid}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_root = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Root"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_mid = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Mid"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // count_descendants of Root → 2
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_descendants", json!({"entity_id": id_root}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 2, "Root has 2 descendants");
+
+        // count_descendants of Mid → 1
+        let count_mid = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_descendants", json!({"entity_id": id_mid}))
+            .unwrap();
+        assert_eq!(count_mid.content["count"], 1, "Mid has 1 descendant");
+
+        // select_descendants of Root → selects Mid and Leaf
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_descendants", json!({"entity_id": id_root}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let root_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Root"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let mid_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Mid"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let leaf_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Leaf"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!root_sel, "Root not selected");
+        assert!(mid_sel, "Mid selected");
+        assert!(leaf_sel, "Leaf selected");
     }
 
     #[test]

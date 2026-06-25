@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_identity_transform
+            let snap_gewit = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_identity_transform".to_string(),
+                description: "Return entity IDs where position=[0,0,0], rotation=[0,0,0], scale=[1,1,1] (or unset); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewit.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            let pos_ok = e.position.map(|p| p[0].abs() < 0.001 && p[1].abs() < 0.001 && p[2].abs() < 0.001).unwrap_or(true);
+                            let rot_ok = e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true);
+                            let scale_ok = e.scale.map(|sc| (sc[0]-1.0).abs() < 0.001 && (sc[1]-1.0).abs() < 0.001 && (sc[2]-1.0).abs() < 0.001).unwrap_or(true);
+                            pos_ok && rot_ok && scale_ok
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // tag_all_selected
+            let sel_tas = selection.clone();
+            let queue88 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "tag_all_selected".to_string(),
+                description:
+                    "Apply a tag to every currently selected entity; returns {tagged_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let selected: Vec<u64> = sel_tas.lock().unwrap().iter().copied().collect();
+                    let count = selected.len() as u64;
+                    let mut q = queue88.lock().unwrap();
+                    for entity_id in selected {
+                        q.push(EditorCommand::TagEntity {
+                            entity_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                    McpToolOutput::success(json!({"tagged_count": count}))
+                }),
+            });
+
             // offset_selection_rotation
             let snap_osr = snapshot.clone();
             let sel_osr = selection.clone();
@@ -12352,6 +12404,192 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_identity_transform_returns_only_default_transform_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Origin", "position": [0.0, 0.0, 0.0]},
+                        {"name": "Moved",  "position": [5.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (origin_id, moved_id) = (id_of("Origin"), id_of("Moved"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_identity_transform", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&origin_id),
+            "origin entity has identity transform"
+        );
+        assert!(
+            !ids.contains(&moved_id),
+            "moved entity does not have identity transform"
+        );
+    }
+
+    #[test]
+    fn mcp_tag_all_selected_applies_tag_to_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Select A and B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("tag_all_selected", json!({"tag": "hero"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["tagged_count"], 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let a = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == a_id)
+            .unwrap();
+        let b = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == b_id)
+            .unwrap();
+        let c = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == c_id)
+            .unwrap();
+        assert!(
+            a["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "A tagged"
+        );
+        assert!(
+            b["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "B tagged"
+        );
+        assert!(
+            !c["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "C not tagged"
+        );
     }
 
     #[test]

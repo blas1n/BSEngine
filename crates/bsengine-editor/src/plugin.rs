@@ -1647,6 +1647,57 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_fov_above
+            let snap_gewfa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_fov_above".to_string(),
+                description: "Return entity IDs (cameras) whose field-of-view exceeds min_fov; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_fov": { "type": "number" } },
+                    "required": ["min_fov"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_fov = match input["min_fov"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing min_fov"),
+                    };
+                    let s = snap_gewfa.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.camera_fov.map(|f| f > min_fov).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_same_parent
+            let snap_gewsp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_same_parent".to_string(),
+                description: "Return entity IDs that share the same parent as the given entity (siblings, excluding itself); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gewsp.lock().unwrap();
+                    let parent_id = s.entities.iter()
+                        .find(|e| e.id == entity_id)
+                        .and_then(|e| e.parent_id);
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != entity_id && e.parent_id == parent_id)
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_at_z_zero
             let snap_geazz = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12634,6 +12685,174 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_fov_above_returns_cameras_above_threshold() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 90.0, "position": [0.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 45.0, "position": [1.0, 0.0, 0.0]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let wide_id = all
+            .iter()
+            .find(|e| {
+                e["camera_fov"]
+                    .as_f64()
+                    .map(|f| (f - 90.0).abs() < 1.0)
+                    .unwrap_or(false)
+            })
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let narrow_id = all
+            .iter()
+            .find(|e| {
+                e["camera_fov"]
+                    .as_f64()
+                    .map(|f| (f - 45.0).abs() < 1.0)
+                    .unwrap_or(false)
+            })
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_fov_above", json!({"min_fov": 60.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&wide_id), "fov=90 above threshold 60");
+        assert!(!ids.contains(&narrow_id), "fov=45 not above threshold 60");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_same_parent_returns_siblings() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root",   "position": [0.0, 0.0, 0.0]},
+                        {"name": "Sib1",   "position": [1.0, 0.0, 0.0]},
+                        {"name": "Sib2",   "position": [2.0, 0.0, 0.0]},
+                        {"name": "Cousin", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, sib1_id, sib2_id, cousin_id) =
+            (id_of("Root"), id_of("Sib1"), id_of("Sib2"), id_of("Cousin"));
+
+        // Sib1 and Sib2 share Root as parent; Cousin is a child of Sib2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": sib1_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": sib2_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": cousin_id, "parent_id": sib2_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_same_parent",
+                json!({"entity_id": sib1_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&sib2_id), "Sib2 shares parent with Sib1");
+        assert!(!ids.contains(&sib1_id), "Sib1 itself not in result");
+        assert!(!ids.contains(&cousin_id), "Cousin has different parent");
     }
 
     #[test]

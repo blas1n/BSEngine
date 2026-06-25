@@ -1647,6 +1647,40 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_more_than_n_tags
+            let snap_cemtnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_more_than_n_tags".to_string(),
+                description: "Return the count of entities with more than n tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "n": {"type": "integer"}
+                }, "required": ["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cemtnt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.len() > n).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_fewer_than_n_tags
+            let snap_cefnt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_fewer_than_n_tags".to_string(),
+                description: "Return the count of entities with fewer than n tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "n": {"type": "integer"}
+                }, "required": ["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cefnt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.len() < n).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_without_tag
             let snap_cewt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17663,6 +17697,112 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_more_and_fewer_than_n_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Zero"}, {"name": "One"}, {"name": "Two"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // tag One with 1 tag, Two with 2 tags (Zero stays at 0)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_one = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("One"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_two = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Two"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_one, "tag": "a"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_two, "tag": "a"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_two = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Two"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_two, "tag": "b"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        // more than 0: One(1), Two(2) → 2
+        let more_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_more_than_n_tags", json!({"n": 0}))
+            .unwrap();
+        // fewer than 2: Zero(0), One(1) → 2
+        let fewer_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_fewer_than_n_tags", json!({"n": 2}))
+            .unwrap();
+        assert_eq!(more_out.content["count"], 2, "One and Two have >0 tags");
+        assert_eq!(fewer_out.content["count"], 2, "Zero and One have <2 tags");
     }
 
     #[test]

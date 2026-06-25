@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_tags_shared_by_selection
+            let snap_gtbs = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tags_shared_by_selection".to_string(),
+                description:
+                    "Return tags that all selected entities share (intersection); returns {tags}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gtbs.lock().unwrap();
+                    let selected: Vec<&crate::snapshot::EntityInfo> =
+                        s.entities.iter().filter(|e| e.selected).collect();
+                    if selected.is_empty() {
+                        return McpToolOutput::success(json!({"tags": []}));
+                    }
+                    let mut common: std::collections::HashSet<String> =
+                        selected[0].tags.iter().cloned().collect();
+                    for e in &selected[1..] {
+                        let e_tags: std::collections::HashSet<String> =
+                            e.tags.iter().cloned().collect();
+                        common = common.intersection(&e_tags).cloned().collect();
+                    }
+                    let mut tags: Vec<String> = common.into_iter().collect();
+                    tags.sort();
+                    McpToolOutput::success(json!({"tags": tags}))
+                }),
+            });
+
+            // get_entities_sharing_all_tags
+            let snap_geast = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sharing_all_tags".to_string(),
+                description:
+                    "Return entities that have ALL of the specified tags; returns {entities}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let required: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_geast.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| required.iter().all(|r| e.tags.contains(r)))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // count_all_tags
             let snap_cat = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17812,6 +17870,202 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_tags_shared_by_selection_and_entities_sharing_all_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"}, {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A: [shared, only_a], B: [shared, only_b], C: [shared, only_c]
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "shared"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "shared"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_c, "tag": "shared"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "only_a"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_b, "tag": "only_b"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select A and B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_tag_containing",
+                    json!({"substring": "shared"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        // deselect C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_tag_containing",
+                    json!({"substring": "only_"}),
+                )
+                .unwrap();
+        }
+        // C has no "only_" tag so stays selected — select only A and B via AABB is simpler, but just select all and deselect C via tag
+        // Actually let's just select A and B directly: select all tagged "only_a" or "only_b", then select "shared" + those
+        // Simpler: use select_entities_within_aabb if we place them, but they have no position.
+        // Instead: deselect_all then select A and B by name
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("deselect_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_name_containing",
+                    json!({"substring": "A"}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_name_containing",
+                    json!({"substring": "B"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // get_tags_shared_by_selection: A and B both have "shared"; A has "only_a", B has "only_b" → only "shared" is common
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let shared_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_tags_shared_by_selection", json!({}))
+            .unwrap();
+        assert!(shared_out.is_ok());
+        let tags = shared_out.content["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].as_str(), Some("shared"));
+
+        // get_entities_sharing_all_tags(["shared"]): A, B, C all have it → 3
+        let all_tags_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sharing_all_tags", json!({"tags": ["shared"]}))
+            .unwrap();
+        assert!(all_tags_out.is_ok());
+        let entities = all_tags_out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 3);
     }
 
     #[test]

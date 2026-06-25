@@ -1666,6 +1666,63 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_ancestors
+            let snap_delanc = snapshot.clone();
+            let sel_delanc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_ancestors".to_string(),
+                description: "Deselect all ancestors of an entity (parent chain up to root); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_delanc.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let mut to_remove = Vec::new();
+                    let mut current = target_id;
+                    while let Some(&pid) = parent_map.get(&current) {
+                        to_remove.push(pid);
+                        current = pid;
+                    }
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_delanc.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_max_depth
+            let snap_gmaxd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_max_depth".to_string(),
+                description: "Return the maximum hierarchy depth in the scene (root entities are depth 0); returns {max_depth}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gmaxd.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let mut max_depth = 0u64;
+                    for e in &s.entities {
+                        let mut depth = 0u64;
+                        let mut current = e.id;
+                        while let Some(&pid) = parent_map.get(&current) {
+                            depth += 1;
+                            current = pid;
+                        }
+                        if depth > max_depth { max_depth = depth; }
+                    }
+                    McpToolOutput::success(json!({"max_depth": max_depth}))
+                }),
+            });
+
             // count_ancestors
             let snap_canc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -18708,6 +18765,173 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_ancestors_and_get_max_depth() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Grandparent → Parent → Child
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Grandparent"}, {"name": "Parent"}, {"name": "Child"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_gp = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Grandparent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_par = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_child = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_par, "parent_id": id_gp}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_child, "parent_id": id_par}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_gp = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Grandparent"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_child = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // Select all, then deselect_ancestors of Child → Grandparent and Parent deselected
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("deselect_ancestors", json!({"entity_id": id_child}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let gp_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Grandparent"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let par_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let child_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!gp_sel, "Grandparent deselected");
+            assert!(!par_sel, "Parent deselected");
+            assert!(child_sel, "Child still selected");
+        }
+
+        // get_max_depth → 2 (Grandparent=0, Parent=1, Child=2)
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let depth_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_max_depth", json!({}))
+            .unwrap();
+        assert!(depth_out.is_ok());
+        assert_eq!(depth_out.content["max_depth"], 2, "max depth is 2");
+
+        let _ = (id_gp, id_child);
     }
 
     #[test]

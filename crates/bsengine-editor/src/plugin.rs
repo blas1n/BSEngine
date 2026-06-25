@@ -1647,6 +1647,54 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_without_name
+            let snap_gewon = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_without_name".to_string(),
+                description: "Return entity IDs that have no name set; returns {entity_ids}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewon.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // count_siblings_of
+            let snap_cso = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_siblings_of".to_string(),
+                description: "Return the number of entities sharing the same parent as the given entity (excluding itself); returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_cso.lock().unwrap();
+                    let parent_id = s.entities.iter()
+                        .find(|e| e.id == target)
+                        .and_then(|e| e.parent_id);
+                    let count = match parent_id {
+                        Some(pid) => s.entities.iter()
+                            .filter(|e| e.parent_id == Some(pid) && e.id != target)
+                            .count() as u64,
+                        None => 0,
+                    };
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entity_and_ancestors
             let snap_seaa = snapshot.clone();
             let sel_seaa = selection.clone();
@@ -13528,6 +13576,145 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_without_name_returns_unnamed_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Named"}]}))
+                .unwrap();
+            // lights have no Name component
+            reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 400.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 400.0, "range": 10.0, "position": [1.0,0.0,0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let named_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Named"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_without_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.len() >= 2, "at least two unnamed entities (lights)");
+        assert!(!ids.contains(&named_id), "Named excluded");
+    }
+
+    #[test]
+    fn mcp_count_siblings_of_returns_sibling_count_excluding_self() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "Sib1"},
+                        {"name": "Sib2"},
+                        {"name": "Target"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, s1_id, s2_id, target_id) = (
+            id_of("Parent"),
+            id_of("Sib1"),
+            id_of("Sib2"),
+            id_of("Target"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": s1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": s2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": target_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_siblings_of", json!({"entity_id": target_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "Sib1 and Sib2 are siblings");
     }
 
     #[test]

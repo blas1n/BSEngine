@@ -1647,6 +1647,86 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_between_depths
+            let snap_sebd = snapshot.clone();
+            let sel_sebd = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_between_depths".to_string(),
+                description: "Add entities at depths in [min_depth, max_depth] to the selection; returns {selected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_depth": { "type": "integer" },
+                        "max_depth": { "type": "integer" }
+                    },
+                    "required": ["min_depth", "max_depth"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_d = match input["min_depth"].as_u64() {
+                        Some(v) => v, None => return McpToolOutput::error("missing min_depth"),
+                    };
+                    let max_d = match input["max_depth"].as_u64() {
+                        Some(v) => v, None => return McpToolOutput::error("missing max_depth"),
+                    };
+                    let s = snap_sebd.lock().unwrap();
+                    let depth_of = |start: u64| -> u64 {
+                        let mut d: u64 = 0; let mut cur = start;
+                        loop {
+                            let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                            match p { Some(pid) => { d += 1; cur = pid; } None => break, }
+                        }
+                        d
+                    };
+                    let matches: Vec<u64> = s.entities.iter()
+                        .filter(|e| { let d = depth_of(e.id); d >= min_d && d <= max_d })
+                        .map(|e| e.id).collect();
+                    let count = matches.len() as u64;
+                    let mut sel = sel_sebd.lock().unwrap();
+                    for id in matches { sel.insert(id); }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // deselect_entities_between_depths
+            let snap_debd = snapshot.clone();
+            let sel_debd = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_between_depths".to_string(),
+                description: "Remove entities at depths in [min_depth, max_depth] from the selection; returns {deselected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_depth": { "type": "integer" },
+                        "max_depth": { "type": "integer" }
+                    },
+                    "required": ["min_depth", "max_depth"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_d = match input["min_depth"].as_u64() {
+                        Some(v) => v, None => return McpToolOutput::error("missing min_depth"),
+                    };
+                    let max_d = match input["max_depth"].as_u64() {
+                        Some(v) => v, None => return McpToolOutput::error("missing max_depth"),
+                    };
+                    let s = snap_debd.lock().unwrap();
+                    let depth_of = |start: u64| -> u64 {
+                        let mut d: u64 = 0; let mut cur = start;
+                        loop {
+                            let p = s.entities.iter().find(|e| e.id == cur).and_then(|e| e.parent_id);
+                            match p { Some(pid) => { d += 1; cur = pid; } None => break, }
+                        }
+                        d
+                    };
+                    let matches: Vec<u64> = s.entities.iter()
+                        .filter(|e| { let d = depth_of(e.id); d >= min_d && d <= max_d })
+                        .map(|e| e.id).collect();
+                    let count = matches.len() as u64;
+                    let mut sel = sel_debd.lock().unwrap();
+                    for id in matches { sel.remove(&id); }
+                    McpToolOutput::success(json!({"deselected_count": count}))
+                }),
+            });
+
             // get_entities_between_depths
             let snap_gebd = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14006,6 +14086,188 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_between_depths_selects_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "D0"},
+                        {"name": "D1"},
+                        {"name": "D2"},
+                        {"name": "D3"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (d0, d1, d2, d3) = (id_of("D0"), id_of("D1"), id_of("D2"), id_of("D3"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("set_parent", json!({"entity_id": d1, "parent_id": d0}))
+                .unwrap();
+            reg.execute("set_parent", json!({"entity_id": d2, "parent_id": d1}))
+                .unwrap();
+            reg.execute("set_parent", json!({"entity_id": d3, "parent_id": d2}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "select_entities_between_depths",
+                json!({"min_depth": 1, "max_depth": 2}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"], 2);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&d1), "D1 selected");
+        assert!(ids.contains(&d2), "D2 selected");
+        assert!(!ids.contains(&d0), "D0 not selected");
+        assert!(!ids.contains(&d3), "D3 not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_between_depths_deselects_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"},
+                        {"name": "B"},
+                        {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a, b, c) = (id_of("A"), id_of("B"), id_of("C"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("set_parent", json!({"entity_id": b, "parent_id": a}))
+                .unwrap();
+            reg.execute("set_parent", json!({"entity_id": c, "parent_id": b}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": a}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": c}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "deselect_entities_between_depths",
+                json!({"min_depth": 1, "max_depth": 1}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["deselected_count"], 1);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&a), "A still selected (depth 0)");
+        assert!(!ids.contains(&b), "B deselected (depth 1)");
+        assert!(ids.contains(&c), "C still selected (depth 2)");
     }
 
     #[test]

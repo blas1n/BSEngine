@@ -1647,6 +1647,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_below_y
+            let snap_ceby = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_below_y".to_string(),
+                description: "Return the count of entities whose y position is strictly less than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceby.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, y, _]| y < threshold))
+                        .filter(|&below| below)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // deselect_entities_above_y
+            let snap_deay = snapshot.clone();
+            let sel_deay = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_above_y".to_string(),
+                description: "Remove from selection all entities whose y position is strictly greater than the given value; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_deay.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, y, _]| if y > threshold { Some(e.id) } else { None }).flatten())
+                        .collect();
+                    let mut sel = sel_deay.lock().unwrap();
+                    let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_distance_between
             let snap_gdb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15401,6 +15445,123 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_below_y_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Low1", "position": [0.0, -5.0, 0.0]},
+                        {"name": "Low2", "position": [0.0, -1.0, 0.0]},
+                        {"name": "High", "position": [0.0, 10.0, 0.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_below_y", json!({"y": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "Low1 and Low2 are below y=0");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_above_y_removes_entities_above_y_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "High", "position": [0.0, 10.0, 0.0]},
+                        {"name": "Low", "position": [0.0, -1.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (high_id, low_id) = (id_of("High"), id_of("Low"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": high_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": low_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("deselect_entities_above_y", json!({"y": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["removed_count"], 1, "High deselected");
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&high_id), "High deselected");
+        assert!(ids.contains(&low_id), "Low still selected");
     }
 
     #[test]

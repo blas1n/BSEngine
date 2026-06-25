@@ -1666,6 +1666,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_sibling_entities
+            let snap_cntsibl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_sibling_entities".to_string(),
+                description: "Count siblings of an entity (entities with same parent, excluding itself); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_cntsibl.lock().unwrap();
+                    let parent_id = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .and_then(|e| e.parent_id);
+                    let count = s.entities.iter()
+                        .filter(|e| e.id != target_id && e.parent_id == parent_id && parent_id.is_some())
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_deeper_than
+            let snap_seldeep = snapshot.clone();
+            let sel_seldeep = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_deeper_than".to_string(),
+                description: "Select all entities at depth strictly greater than the given value (root = depth 0); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "depth": {"type": "integer"}
+                }, "required": ["depth"]})),
+                handler: Box::new(move |input| {
+                    let min_depth = match input["depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing depth"),
+                    };
+                    let s = snap_seldeep.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            let mut depth = 0u64;
+                            let mut current = e.id;
+                            while let Some(&pid) = parent_map.get(&current) {
+                                depth += 1;
+                                current = pid;
+                            }
+                            depth > min_depth
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_seldeep.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // select_sibling_entities
             let snap_selsibl = snapshot.clone();
             let sel_selsibl = selection.clone();
@@ -18825,6 +18887,177 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_siblings_and_select_entities_deeper_than() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root → Mid_A, Mid_B → Leaf (child of Mid_A)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"}, {"name": "Mid_A"}, {"name": "Mid_B"}, {"name": "Leaf"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_root = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_ma = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid_A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_mb = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid_B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_leaf = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_ma, "parent_id": id_root}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_mb, "parent_id": id_root}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_leaf, "parent_id": id_ma}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_ma = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Mid_A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // count_sibling_entities of Mid_A → 1 (Mid_B)
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_sibling_entities", json!({"entity_id": id_ma}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 1, "Mid_A has 1 sibling");
+
+        // select_entities_deeper_than(0) → Mid_A, Mid_B, Leaf (depth 1 and 2)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_deeper_than", json!({"depth": 0}))
+                .unwrap();
+            assert!(out.is_ok());
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let root_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let ma_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid_A"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let mb_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid_B"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let leaf_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(!root_sel, "Root not selected (depth 0)");
+            assert!(ma_sel, "Mid_A selected (depth 1)");
+            assert!(mb_sel, "Mid_B selected (depth 1)");
+            assert!(leaf_sel, "Leaf selected (depth 2)");
+        }
     }
 
     #[test]

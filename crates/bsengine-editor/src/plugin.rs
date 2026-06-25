@@ -1647,6 +1647,48 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_by_light_type
+            let snap_deblt = snapshot.clone();
+            let sel_deblt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_by_light_type".to_string(),
+                description: "Deselect all entities matching a given light type (point, directional, spot); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "light_type": {"type": "string"}
+                }, "required": ["light_type"]})),
+                handler: Box::new(move |input| {
+                    let target = input["light_type"].as_str().unwrap_or("").to_string();
+                    let s = snap_deblt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some(&target))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_deblt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_by_mesh_id
+            let snap_cebmi = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_mesh_id".to_string(),
+                description:
+                    "Return the count of entities with a specific mesh id; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "mesh_id": {"type": "integer"}
+                }, "required": ["mesh_id"]})),
+                handler: Box::new(move |input| {
+                    let target = input["mesh_id"].as_u64();
+                    let s = snap_cebmi.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.mesh_id == target).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_no_name
             let snap_cenwn = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17496,6 +17538,165 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_by_light_type_clears_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_directional_light",
+                    json!({
+                        "direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 0.0],
+                        "ambient": [0.1, 0.1, 0.1]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select all
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // deselect point lights only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_by_light_type",
+                    json!({"light_type": "point"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let point_sel = entities
+            .iter()
+            .filter(|e| e["light_type"].as_str() == Some("point"))
+            .all(|e| !e["selected"].as_bool().unwrap_or(true));
+        let dir_sel = entities
+            .iter()
+            .filter(|e| e["light_type"].as_str() == Some("directional"))
+            .all(|e| e["selected"].as_bool().unwrap_or(false));
+        assert!(point_sel, "point lights deselected");
+        assert!(dir_sel, "directional still selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_by_mesh_id_returns_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A"}, {"name": "B"}, {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // attach mesh 42 to A and B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": id_a, "mesh_id": 42}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("attach_mesh", json!({"entity_id": id_b, "mesh_id": 42}))
+                .unwrap();
+            mcp.0.lock().unwrap().execute("attach_mesh", json!({"entity_id":
+                entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap(),
+                "mesh_id": 99})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_by_mesh_id", json!({"mesh_id": 42}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
     }
 
     #[test]

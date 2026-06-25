@@ -1647,6 +1647,69 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_sharing_all_tags
+            let snap_seast = snapshot.clone();
+            let sel_seast = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_sharing_all_tags".to_string(),
+                description:
+                    "Select all entities that have ALL of the specified tags; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let required: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_seast.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| required.iter().all(|r| e.tags.contains(r)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_seast.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_none_of_tags
+            let snap_dewnot = snapshot.clone();
+            let sel_dewnot = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_none_of_tags".to_string(),
+                description: "Deselect entities that have none of the specified tags; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let excluded: Vec<String> = input["tags"].as_array()
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .unwrap_or_default();
+                    let s = snap_dewnot.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| !excluded.iter().any(|ex| e.tags.contains(ex)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewnot.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // count_entities_with_none_of_tags
             let snap_cewnot = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17977,6 +18040,188 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_sharing_all_tags_and_deselect_entities_with_none_of_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Both"}, {"name": "Alpha_only"}, {"name": "Neither"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Both: [alpha, beta], Alpha_only: [alpha], Neither: []
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_both = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Both"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Alpha_only"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_both, "tag": "alpha"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "alpha"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_both = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Both"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_both, "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // select_entities_sharing_all_tags([alpha, beta]): only Both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_sharing_all_tags",
+                    json!({"tags": ["alpha", "beta"]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let both_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Both"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            let alpha_sel = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Alpha_only"))
+                .unwrap()["selected"]
+                .as_bool()
+                .unwrap();
+            assert!(both_sel, "Both selected");
+            assert!(!alpha_sel, "Alpha_only not selected");
+        }
+
+        // select all then deselect_entities_with_none_of_tags([alpha,beta]) → deselect Neither
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_none_of_tags",
+                    json!({"tags": ["alpha", "beta"]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let neither_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Neither"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let both_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Both"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!neither_sel, "Neither deselected");
+        assert!(both_sel, "Both still selected");
     }
 
     #[test]

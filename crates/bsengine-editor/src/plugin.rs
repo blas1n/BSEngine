@@ -1647,6 +1647,36 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_spot_lights
+            let snap_csl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_spot_lights".to_string(),
+                description: "Return the count of spot light entities; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_csl.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.as_deref() == Some("spot"))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_intensity
+            let snap_cewli = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_intensity".to_string(),
+                description: "Return the count of entities that have a light intensity value; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewli.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_intensity.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_point_lights
             let snap_cpl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16484,6 +16514,61 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_spot_lights_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_spot_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "inner_angle": 15.0, "outer_angle": 30.0, "position": [0.0, 5.0, 0.0]})).unwrap();
+            reg.execute("spawn_spot_light", json!({"color": [0.0, 1.0, 0.0], "intensity": 2.0, "range": 5.0, "inner_angle": 10.0, "outer_angle": 20.0, "position": [1.0, 5.0, 0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_spot_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
+    }
+
+    #[test]
+    fn mcp_count_entities_with_light_intensity_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "NoLight"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_light_intensity", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
     }
 
     #[test]

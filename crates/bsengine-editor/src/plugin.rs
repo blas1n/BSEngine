@@ -1647,6 +1647,36 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_unnamed_entities
+            let snap_cune = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_unnamed_entities".to_string(),
+                description: "Return the count of entities that have no name (or an empty name); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cune.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.is_empty()).unwrap_or(true)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_selected_lights
+            let snap_csl = snapshot.clone();
+            let sel_csl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_selected_lights".to_string(),
+                description: "Return the count of currently selected entities that have a light component; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_csl.lock().unwrap();
+                    let sel = sel_csl.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| sel.contains(&e.id) && e.light_type.is_some())
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_lights
             let snap_cl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15904,6 +15934,92 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_unnamed_entities_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Named"}]}))
+                .unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,5.0,0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [0.5,0.5,0.5], "intensity": 50.0, "range": 5.0, "position": [1.0,5.0,0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_unnamed_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "two point lights have no name");
+    }
+
+    #[test]
+    fn mcp_count_selected_lights_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,5.0,0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [0.5,0.5,0.5], "intensity": 50.0, "range": 5.0, "position": [1.0,5.0,0.0]})).unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let light_ids: Vec<u64> = all
+            .iter()
+            .filter(|e| e["light_type"].as_str().is_some())
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(light_ids.len(), 2);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": light_ids[0]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_selected_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1);
     }
 
     #[test]

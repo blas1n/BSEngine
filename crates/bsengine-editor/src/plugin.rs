@@ -1647,6 +1647,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_all_lights
+            let snap_dall = snapshot.clone();
+            let sel_dall = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_all_lights".to_string(),
+                description:
+                    "Remove all light entities from the selection; returns {deselected_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dall.lock().unwrap();
+                    let lights: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_type.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = lights.len() as u64;
+                    let mut sel = sel_dall.lock().unwrap();
+                    for id in lights {
+                        sel.remove(&id);
+                    }
+                    McpToolOutput::success(json!({"deselected_count": count}))
+                }),
+            });
+
+            // deselect_all_cameras
+            let snap_dac = snapshot.clone();
+            let sel_dac = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_all_cameras".to_string(),
+                description:
+                    "Remove all camera entities from the selection; returns {deselected_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dac.lock().unwrap();
+                    let cameras: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.camera_fov.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = cameras.len() as u64;
+                    let mut sel = sel_dac.lock().unwrap();
+                    for id in cameras {
+                        sel.remove(&id);
+                    }
+                    McpToolOutput::success(json!({"deselected_count": count}))
+                }),
+            });
+
             // deselect_all_visible
             let snap_dav = snapshot.clone();
             let sel_dav = selection.clone();
@@ -13069,6 +13121,159 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_all_lights_removes_lights_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 800.0, "range": 20.0, "position": [0.0,0.0,0.0]})).unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let light_id = all
+            .iter()
+            .find(|e| e["light_type"].as_str().is_some())
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let plain_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Plain"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // Select both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": light_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": plain_id}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("deselect_all_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&light_id), "light deselected");
+        assert!(ids.contains(&plain_id), "Plain still selected");
+    }
+
+    #[test]
+    fn mcp_deselect_all_cameras_removes_cameras_from_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "spawn_camera",
+                json!({"fov_y_degrees": 60.0, "position": [0.0,0.0,0.0]}),
+            )
+            .unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let cam_id = all.iter().find(|e| !e["camera_fov"].is_null()).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let plain_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Plain"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // Select both
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": cam_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": plain_id}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("deselect_all_cameras", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&cam_id), "camera deselected");
+        assert!(ids.contains(&plain_id), "Plain still selected");
     }
 
     #[test]

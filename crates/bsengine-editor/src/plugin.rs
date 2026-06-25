@@ -1647,6 +1647,79 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // untag_all_selected
+            let sel_uas = selection.clone();
+            let queue89 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "untag_all_selected".to_string(),
+                description:
+                    "Remove a tag from every currently selected entity; returns {untagged_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "tag": { "type": "string" } },
+                    "required": ["tag"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let selected: Vec<u64> = sel_uas.lock().unwrap().iter().copied().collect();
+                    let count = selected.len() as u64;
+                    let mut q = queue89.lock().unwrap();
+                    for entity_id in selected {
+                        q.push(EditorCommand::UntagEntity {
+                            entity_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                    McpToolOutput::success(json!({"untagged_count": count}))
+                }),
+            });
+
+            // set_visibility_by_tag
+            let snap_svbt = snapshot.clone();
+            let queue90 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_visibility_by_tag".to_string(),
+                description:
+                    "Show or hide all entities that have a given tag; returns {affected_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tag": { "type": "string" },
+                        "visible": { "type": "boolean" }
+                    },
+                    "required": ["tag", "visible"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let visible = match input["visible"].as_bool() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing visible"),
+                    };
+                    let s = snap_svbt.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.contains(&tag))
+                        .map(|e| e.id)
+                        .collect();
+                    drop(s);
+                    let count = ids.len() as u64;
+                    let mut q = queue90.lock().unwrap();
+                    for entity_id in ids {
+                        q.push(EditorCommand::SetVisible { entity_id, visible });
+                    }
+                    McpToolOutput::success(json!({"affected_count": count}))
+                }),
+            });
+
             // get_entities_with_identity_transform
             let snap_gewit = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12404,6 +12477,238 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_untag_all_selected_removes_tag_from_all_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Tag all three with "hero"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            for id in [a_id, b_id, c_id] {
+                reg.execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
+                    .unwrap();
+            }
+        }
+        app.update();
+        app.update();
+
+        // Select A and B, then untag them
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("untag_all_selected", json!({"tag": "hero"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["untagged_count"], 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let a = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == a_id)
+            .unwrap();
+        let b = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == b_id)
+            .unwrap();
+        let c = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == c_id)
+            .unwrap();
+        assert!(
+            !a["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "A hero tag removed"
+        );
+        assert!(
+            !b["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "B hero tag removed"
+        );
+        assert!(
+            c["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str() == Some("hero")),
+            "C hero tag kept"
+        );
+    }
+
+    #[test]
+    fn mcp_set_visibility_by_tag_hides_all_entities_with_given_tag() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Tag A and B with "prop"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "prop"}))
+                .unwrap();
+            reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "prop"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_visibility_by_tag",
+                    json!({"tag": "prop", "visible": false}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["affected_count"], 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let a = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == a_id)
+            .unwrap();
+        let b = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == b_id)
+            .unwrap();
+        let c = updated
+            .iter()
+            .find(|e| e["id"].as_u64().unwrap() == c_id)
+            .unwrap();
+        assert!(!a["visible"].as_bool().unwrap(), "A hidden");
+        assert!(!b["visible"].as_bool().unwrap(), "B hidden");
+        assert!(c["visible"].as_bool().unwrap(), "C still visible");
     }
 
     #[test]

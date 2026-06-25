@@ -1647,6 +1647,63 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_none_of_tags
+            let snap_cewnot = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_none_of_tags".to_string(),
+                description: "Return the count of entities that have none of the specified tags; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let excluded: Vec<String> = input["tags"].as_array()
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .unwrap_or_default();
+                    let s = snap_cewnot.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| !excluded.iter().any(|ex| e.tags.contains(ex)))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_with_none_of_tags
+            let snap_sewnot = snapshot.clone();
+            let sel_sewnot = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_none_of_tags".to_string(),
+                description:
+                    "Select entities that have none of the specified tags; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let excluded: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_sewnot.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !excluded.iter().any(|ex| e.tags.contains(ex)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewnot.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // count_entities_sharing_all_tags
             let snap_ceast = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17920,6 +17977,115 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_with_none_of_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Tagged"}, {"name": "Clean"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_tagged = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Tagged"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "tag_entity",
+                    json!({"entity_id": id_tagged, "tag": "dirty"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_with_none_of_tags",
+                json!({"tags": ["dirty"]}),
+            )
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(
+            count_out.content["count"], 1,
+            "only Clean has none of [dirty]"
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_none_of_tags",
+                    json!({"tags": ["dirty"]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let tagged_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Tagged"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let clean_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Clean"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(!tagged_sel, "Tagged not selected");
+        assert!(clean_sel, "Clean selected");
     }
 
     #[test]

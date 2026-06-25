@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_closer_than
+            let snap_sect = snapshot.clone();
+            let sel_sect = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_closer_than".to_string(),
+                description: "Add to selection all entities whose position is within the given Euclidean distance from point (x,y,z); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"},
+                    "distance": {"type": "number"}
+                }, "required": ["x","y","z","distance"]})),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let dist = input["distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sect.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[ex, ey, ez]| {
+                            if ((ex-px).powi(2)+(ey-py).powi(2)+(ez-pz).powi(2)).sqrt() < dist { Some(e.id) } else { None }
+                        }))
+                        .flatten()
+                        .collect();
+                    let count = to_add.len() as u64;
+                    let mut sel = sel_sect.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_farther_than
+            let snap_seft = snapshot.clone();
+            let sel_seft = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_farther_than".to_string(),
+                description: "Add to selection all entities whose position is beyond the given Euclidean distance from point (x,y,z); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"},
+                    "distance": {"type": "number"}
+                }, "required": ["x","y","z","distance"]})),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let dist = input["distance"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seft.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[ex, ey, ez]| {
+                            if ((ex-px).powi(2)+(ey-py).powi(2)+(ez-pz).powi(2)).sqrt() > dist { Some(e.id) } else { None }
+                        }))
+                        .flatten()
+                        .collect();
+                    let count = to_add.len() as u64;
+                    let mut sel = sel_seft.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // count_entities_closer_than
             let snap_cect = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16127,6 +16185,172 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_entities_closer_than_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Close", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (close_id, far_id) = (id_of("Close"), id_of("Far"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_closer_than",
+                    json!({"x": 0.0, "y": 0.0, "z": 0.0, "distance": 10.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"], 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let find = |id: u64| {
+            entities
+                .iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(find(close_id)["selected"], true);
+        assert_eq!(find(far_id)["selected"], false);
+    }
+
+    #[test]
+    fn mcp_select_entities_farther_than_adds_to_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Close", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far", "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (close_id, far_id) = (id_of("Close"), id_of("Far"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_farther_than",
+                    json!({"x": 0.0, "y": 0.0, "z": 0.0, "distance": 10.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"], 1);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let find = |id: u64| {
+            entities
+                .iter()
+                .find(|e| e["id"].as_u64() == Some(id))
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(find(close_id)["selected"], false);
+        assert_eq!(find(far_id)["selected"], true);
     }
 
     #[test]

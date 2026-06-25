@@ -1647,6 +1647,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_no_name
+            let snap_cenwn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_name".to_string(),
+                description: "Return the count of entities that have no name; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cenwn.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.name.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_by_light_type
+            let snap_seblt = snapshot.clone();
+            let sel_seblt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_light_type".to_string(),
+                description: "Select all entities matching a given light type (point, directional, spot); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "light_type": {"type": "string"}
+                }, "required": ["light_type"]})),
+                handler: Box::new(move |input| {
+                    let target = input["light_type"].as_str().unwrap_or("").to_string();
+                    let s = snap_seblt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some(&target))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_seblt.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // count_entities_by_light_type
             let snap_ceblt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17458,6 +17496,126 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_no_name_returns_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            // spawn_point_light creates unnamed entities
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Named"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_no_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(
+            out.content["count"].as_u64().unwrap() >= 1,
+            "at least one unnamed entity"
+        );
+    }
+
+    #[test]
+    fn mcp_select_entities_by_light_type_selects_matching() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_directional_light",
+                    json!({
+                        "direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 0.0],
+                        "ambient": [0.1, 0.1, 0.1]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_by_light_type",
+                    json!({"light_type": "point"}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let point_selected: Vec<_> = entities
+            .iter()
+            .filter(|e| {
+                e["light_type"].as_str() == Some("point")
+                    && e["selected"].as_bool().unwrap_or(false)
+            })
+            .collect();
+        let dir_selected: Vec<_> = entities
+            .iter()
+            .filter(|e| {
+                e["light_type"].as_str() == Some("directional")
+                    && e["selected"].as_bool().unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(point_selected.len(), 1, "one point light selected");
+        assert_eq!(dir_selected.len(), 0, "directional not selected");
     }
 
     #[test]

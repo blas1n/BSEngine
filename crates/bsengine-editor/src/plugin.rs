@@ -1647,6 +1647,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_leaves
+            let snap_sl = snapshot.clone();
+            let sel_sl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_leaves".to_string(),
+                description: "Add all leaf entities (entities with no children) to the selection; returns {selected_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sl.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id)
+                        .collect();
+                    let leaves: Vec<u64> = s.entities.iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = leaves.len() as u64;
+                    let mut sel = sel_sl.lock().unwrap();
+                    for id in leaves { sel.insert(id); }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // count_leaves
+            let snap_cl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_leaves".to_string(),
+                description: "Return the number of leaf entities (entities with no children); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cl.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id)
+                        .collect();
+                    let count = s.entities.iter()
+                        .filter(|e| !parent_ids.contains(&e.id))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_all_root_entities
             let snap_dare = snapshot.clone();
             let sel_dare = selection.clone();
@@ -13781,6 +13822,173 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_leaves_selects_entities_with_no_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "Leaf1"},
+                        {"name": "Leaf2"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, leaf1_id, leaf2_id) = (id_of("Parent"), id_of("Leaf1"), id_of("Leaf2"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": leaf1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": leaf2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_leaves", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"], 2);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&leaf1_id), "Leaf1 selected");
+        assert!(ids.contains(&leaf2_id), "Leaf2 selected");
+        assert!(
+            !ids.contains(&parent_id),
+            "Parent not selected (has children)"
+        );
+    }
+
+    #[test]
+    fn mcp_count_leaves_returns_leaf_entity_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"},
+                        {"name": "LeafA"},
+                        {"name": "LeafB"},
+                        {"name": "Orphan"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root_id, la_id, lb_id) = (id_of("Root"), id_of("LeafA"), id_of("LeafB"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": la_id, "parent_id": root_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": lb_id, "parent_id": root_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_leaves", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        // LeafA, LeafB, Orphan — all have no children
+        assert_eq!(out.content["count"], 3, "three leaf entities");
     }
 
     #[test]

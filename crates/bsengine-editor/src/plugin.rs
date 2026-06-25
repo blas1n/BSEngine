@@ -1647,6 +1647,45 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_name_of_entity
+            let snap_gnoe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_name_of_entity".to_string(),
+                description: "Return the name of a specific entity by ID; returns {name} or error if not found".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gnoe.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => McpToolOutput::success(json!({"name": e.name})),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_parent_of_entity
+            let snap_gpoe2 = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_parent_of_entity".to_string(),
+                description: "Return the parent ID of a specific entity by ID; returns {parent_id} or error if no parent".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gpoe2.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => match e.parent_id {
+                            Some(pid) => McpToolOutput::success(json!({"parent_id": pid})),
+                            None => McpToolOutput::error("entity has no parent"),
+                        },
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_rotation_of_entity
             let snap_groe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16711,6 +16750,140 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_name_of_entity_returns_correct_name() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "MyEntity"},
+                        {"name": "Other"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let e_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("MyEntity"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_name_of_entity", json!({"entity_id": e_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["name"].as_str(), Some("MyEntity"));
+    }
+
+    #[test]
+    fn mcp_get_parent_of_entity_returns_correct_parent() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "Child"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let parent_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Parent"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let child_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": parent_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_parent_of_entity", json!({"entity_id": child_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["parent_id"].as_u64(), Some(parent_id));
+
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_parent_of_entity", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert!(!out2.is_ok(), "entity without parent should return error");
     }
 
     #[test]

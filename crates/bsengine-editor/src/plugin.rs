@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_distance_between
+            let snap_gdb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_distance_between".to_string(),
+                description: "Return the Euclidean distance between two entities; returns {distance} or error if positions are missing".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id_a": { "type": "integer" },
+                        "entity_id_b": { "type": "integer" }
+                    },
+                    "required": ["entity_id_a", "entity_id_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let a = match input["entity_id_a"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing entity_id_a"),
+                    };
+                    let b = match input["entity_id_b"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing entity_id_b"),
+                    };
+                    let s = snap_gdb.lock().unwrap();
+                    let pa = s.entities.iter().find(|e| e.id == a).and_then(|e| e.position);
+                    let pb = s.entities.iter().find(|e| e.id == b).and_then(|e| e.position);
+                    match (pa, pb) {
+                        (Some([ax, ay, az]), Some([bx, by, bz])) => {
+                            let dx = ax - bx; let dy = ay - by; let dz = az - bz;
+                            let dist = (dx*dx + dy*dy + dz*dz).sqrt();
+                            McpToolOutput::success(json!({"distance": dist}))
+                        }
+                        _ => McpToolOutput::error("one or both entities have no position"),
+                    }
+                }),
+            });
+
+            // count_entities_above_y
+            let snap_ceay = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_above_y".to_string(),
+                description: "Return the count of entities whose y position is strictly greater than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "y": { "type": "number" } },
+                    "required": ["y"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceay.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, y, _]| y > threshold))
+                        .filter(|&above| above)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_in_bounds
             let snap_seib = snapshot.clone();
             let sel_seib = selection.clone();
@@ -15346,6 +15401,105 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_distance_between_returns_euclidean_distance() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [3.0, 4.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_distance_between",
+                json!({"entity_id_a": a_id, "entity_id_b": b_id}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!(
+            (dist - 5.0).abs() < 0.001,
+            "distance should be 5.0 (3-4-5 triangle), got {}",
+            dist
+        );
+    }
+
+    #[test]
+    fn mcp_count_entities_above_y_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "High1", "position": [0.0, 10.0, 0.0]},
+                        {"name": "High2", "position": [0.0, 5.0, 0.0]},
+                        {"name": "Low", "position": [0.0, -1.0, 0.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_above_y", json!({"y": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "High1 and High2 are above y=0");
     }
 
     #[test]

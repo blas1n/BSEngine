@@ -1647,6 +1647,38 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_at_z_zero
+            let snap_geazz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_at_z_zero".to_string(),
+                description: "Return entity IDs where position.z is zero (within 0.001 epsilon); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_geazz.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.map(|p| p[2].abs() < 0.001).unwrap_or(true))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_rotation_zero
+            let snap_gewrz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_zero".to_string(),
+                description: "Return entity IDs where all rotation components are zero (within 0.001 epsilon); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewrz.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_at_x_zero
             let snap_geaxz = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12602,6 +12634,145 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_at_z_zero_returns_entities_with_zero_z_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "OnZ",  "position": [5.0, 3.0, 0.0]},
+                        {"name": "OffZ", "position": [5.0, 3.0, 2.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (on_id, off_id) = (id_of("OnZ"), id_of("OffZ"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_at_z_zero", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&on_id), "OnZ included (z=0)");
+        assert!(!ids.contains(&off_id), "OffZ excluded (z=2)");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_rotation_zero_returns_entities_with_no_rotation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Flat",    "position": [0.0, 0.0, 0.0]},
+                        {"name": "Rotated", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (flat_id, rot_id) = (id_of("Flat"), id_of("Rotated"));
+
+        // Rotate one entity
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_rotation",
+                    json!({"entity_id": rot_id, "rx": 45.0, "ry": 0.0, "rz": 0.0}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_rotation_zero", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&flat_id), "Flat included (rot=[0,0,0])");
+        assert!(!ids.contains(&rot_id), "Rotated excluded (rx=45)");
     }
 
     #[test]

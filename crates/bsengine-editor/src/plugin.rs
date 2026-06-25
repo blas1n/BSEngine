@@ -1666,6 +1666,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_ancestors
+            let snap_canc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_ancestors".to_string(),
+                description: "Count ancestors of an entity (parent chain depth); returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_canc.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s
+                        .entities
+                        .iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let mut count = 0u64;
+                    let mut current = target_id;
+                    while let Some(&pid) = parent_map.get(&current) {
+                        count += 1;
+                        current = pid;
+                    }
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_ancestors
+            let snap_selanc = snapshot.clone();
+            let sel_selanc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_ancestors".to_string(),
+                description: "Select all ancestors of an entity (parent chain up to root); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_selanc.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let mut to_add = Vec::new();
+                    let mut current = target_id;
+                    while let Some(&pid) = parent_map.get(&current) {
+                        to_add.push(pid);
+                        current = pid;
+                    }
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_selanc.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_ancestors
             let snap_ganc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -18646,6 +18708,171 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_ancestors() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Grandparent → Parent → Child
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Grandparent"}, {"name": "Parent"}, {"name": "Child"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_gp = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Grandparent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_par = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Parent"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_child = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Child"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_par, "parent_id": id_gp}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_child, "parent_id": id_par}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_gp = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Grandparent"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_child = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // count_ancestors of Child → 2
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_ancestors", json!({"entity_id": id_child}))
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 2, "Child has 2 ancestors");
+
+        // count_ancestors of Grandparent → 0
+        let count_root = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_ancestors", json!({"entity_id": id_gp}))
+            .unwrap();
+        assert_eq!(
+            count_root.content["count"], 0,
+            "Grandparent has no ancestors"
+        );
+
+        // select_ancestors of Child → selects Parent and Grandparent
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_ancestors", json!({"entity_id": id_child}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let gp_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Grandparent"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let par_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Parent"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        let child_sel = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Child"))
+            .unwrap()["selected"]
+            .as_bool()
+            .unwrap();
+        assert!(gp_sel, "Grandparent selected");
+        assert!(par_sel, "Parent selected");
+        assert!(!child_sel, "Child not selected");
     }
 
     #[test]

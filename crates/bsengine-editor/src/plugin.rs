@@ -1647,6 +1647,38 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_lights
+            let snap_cl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_lights".to_string(),
+                description: "Return the count of entities that have a light component (any light type); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cl.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_type.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_named_entities
+            let snap_cne = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_named_entities".to_string(),
+                description:
+                    "Return the count of entities that have a non-empty name; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cne.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.as_deref().map(|n| !n.is_empty()).unwrap_or(false))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_mesh
             let snap_cewm = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15872,6 +15904,69 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_lights_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,5.0,0.0]})).unwrap();
+            reg.execute("spawn_point_light", json!({"color": [1.0,0.0,0.0], "intensity": 50.0, "range": 5.0, "position": [1.0,5.0,0.0]})).unwrap();
+            reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_lights", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
+    }
+
+    #[test]
+    fn mcp_count_named_entities_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Named1"},
+                        {"name": "Named2"},
+                        {},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_named_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
     }
 
     #[test]

@@ -1647,6 +1647,35 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_tagged_entities
+            let snap_cte = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_tagged_entities".to_string(),
+                description:
+                    "Return the count of entities that have at least one tag; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cte.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| !e.tags.is_empty()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_untagged_entities
+            let snap_cute = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_untagged_entities".to_string(),
+                description: "Return the count of entities that have no tags; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cute.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.is_empty()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_rotation
             let snap_cewr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15998,6 +16027,138 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_tagged_entities_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "TaggedA"},
+                        {"name": "TaggedB"},
+                        {"name": "Untagged"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (ta_id, tb_id) = (id_of("TaggedA"), id_of("TaggedB"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("tag_entity", json!({"entity_id": ta_id, "tag": "hero"}))
+                .unwrap();
+            reg.execute("tag_entity", json!({"entity_id": tb_id, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_tagged_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
+    }
+
+    #[test]
+    fn mcp_count_untagged_entities_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Tagged"},
+                        {"name": "UntaggedA"},
+                        {"name": "UntaggedB"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let t_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Tagged"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": t_id, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_untagged_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2);
     }
 
     #[test]

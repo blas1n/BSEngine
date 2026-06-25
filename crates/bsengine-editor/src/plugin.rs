@@ -1647,6 +1647,46 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_unselected_entities
+            let snap_gue = snapshot.clone();
+            let sel_gue = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_unselected_entities".to_string(),
+                description: "Return entity IDs of all entities NOT currently in the selection; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let selected = sel_gue.lock().unwrap().clone();
+                    let s = snap_gue.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| !selected.contains(&e.id))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_sorted_by_position_x
+            let snap_gesbpx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_position_x".to_string(),
+                description:
+                    "Return all entity IDs sorted by position.x ascending; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbpx.lock().unwrap();
+                    let mut entities: Vec<(u64, f32)> = s
+                        .entities
+                        .iter()
+                        .map(|e| (e.id, e.position.map(|p| p[0]).unwrap_or(0.0)))
+                        .collect();
+                    entities
+                        .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    let ids: Vec<u64> = entities.into_iter().map(|(id, _)| id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // reset_entity_position
             let queue78 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11929,6 +11969,146 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_unselected_entities_returns_entities_not_in_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        // Select only A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_unselected_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&a_id), "A is selected, not in unselected");
+        assert!(ids.contains(&b_id), "B is unselected");
+        assert!(ids.contains(&c_id), "C is unselected");
+    }
+
+    #[test]
+    fn mcp_get_entities_sorted_by_position_x_returns_ascending_order() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "C", "position": [30.0, 0.0, 0.0]},
+                        {"name": "A", "position": [10.0, 0.0, 0.0]},
+                        {"name": "B", "position": [20.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id, c_id) = (id_of("A"), id_of("B"), id_of("C"));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_sorted_by_position_x", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let sorted_ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        let pos_a = sorted_ids.iter().position(|&id| id == a_id).unwrap();
+        let pos_b = sorted_ids.iter().position(|&id| id == b_id).unwrap();
+        let pos_c = sorted_ids.iter().position(|&id| id == c_id).unwrap();
+        assert!(pos_a < pos_b, "A (x=10) before B (x=20)");
+        assert!(pos_b < pos_c, "B (x=20) before C (x=30)");
     }
 
     #[test]

@@ -1647,6 +1647,43 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_by_light_type
+            let snap_ceblt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_light_type".to_string(),
+                description: "Return the count of entities matching a given light type (point, directional, spot); returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "light_type": {"type": "string"}
+                }, "required": ["light_type"]})),
+                handler: Box::new(move |input| {
+                    let target = input["light_type"].as_str().unwrap_or("").to_string();
+                    let s = snap_ceblt.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.light_type.as_deref() == Some(&target))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_entities_with_no_name
+            let snap_genwn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_name".to_string(),
+                description: "Return all entities that have no name; returns {entities}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_genwn.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.name.is_none())
+                        .map(|e| json!({"id": e.id}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // deselect_entities_within_aabb
             let snap_dewab = snapshot.clone();
             let sel_dewab = selection.clone();
@@ -17421,6 +17458,123 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_by_light_type_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 0.0, 0.0], "intensity": 200.0, "range": 20.0,
+                        "position": [5.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_directional_light",
+                    json!({
+                        "direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 0.0],
+                        "ambient": [0.1, 0.1, 0.1]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let point_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_by_light_type",
+                json!({"light_type": "point"}),
+            )
+            .unwrap();
+        let dir_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_by_light_type",
+                json!({"light_type": "directional"}),
+            )
+            .unwrap();
+        assert!(point_out.is_ok());
+        assert_eq!(point_out.content["count"], 2);
+        assert!(dir_out.is_ok());
+        assert_eq!(dir_out.content["count"], 1);
+    }
+
+    #[test]
+    fn mcp_get_entities_with_no_name_returns_unnamed() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            // spawn_point_light creates unnamed entities
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0,
+                        "position": [0.0, 0.0, 0.0]
+                    }),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("spawn_entity", json!({"name": "Named"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_name", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        assert!(!entities.is_empty(), "at least one unnamed entity");
+        assert!(
+            entities
+                .iter()
+                .all(|e| e["name"].is_null() || e["name"].as_str().is_none()),
+            "all returned entities have no name"
+        );
     }
 
     #[test]

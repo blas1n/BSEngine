@@ -1666,6 +1666,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_by_name_suffix
+            let snap_debns = snapshot.clone();
+            let sel_debns = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_by_name_suffix".to_string(),
+                description:
+                    "Deselect all entities whose name ends with suffix; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "suffix": { "type": "string" }
+                    },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_debns.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.ends_with(&suffix))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_debns.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_entities_by_tag_prefix
+            let snap_gebtp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_tag_prefix".to_string(),
+                description: "Return IDs of entities that have at least one tag starting with prefix; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "prefix": { "type": "string" }
+                    },
+                    "required": ["prefix"]
+                })),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_gebtp.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.iter().any(|t| t.starts_with(&prefix)))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // count_entities_by_name_suffix
             let snap_cebns = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -20848,6 +20910,119 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_by_name_suffix_and_get_by_tag_prefix() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Player",  "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Get IDs, tag Enemy_A with "enemy:melee", Player with "player:hero"
+        let (id_ea, id_p) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_ea = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_p = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Player"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_ea, id_p)
+        };
+        for (id, tag) in [(id_ea, "enemy:melee"), (id_p, "player:hero")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // get_entities_by_tag_prefix "enemy" → Enemy_A only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entities_by_tag_prefix", json!({"prefix": "enemy"}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(
+                ids.contains(&id_ea),
+                "Enemy_A has tag starting with 'enemy'"
+            );
+            assert!(
+                !ids.contains(&id_p),
+                "Player tag doesn't start with 'enemy'"
+            );
+        }
+
+        // select_all then deselect_by_name_suffix "_A" → removes Enemy_A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("deselect_entities_by_name_suffix", json!({"suffix": "_A"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

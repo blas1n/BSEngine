@@ -1647,6 +1647,101 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // offset_selection_rotation
+            let snap_osr = snapshot.clone();
+            let sel_osr = selection.clone();
+            let queue86 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "offset_selection_rotation".to_string(),
+                description: "Add rotation offsets (degrees) to all selected entities; returns {rotated_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "rx": { "type": "number" },
+                        "ry": { "type": "number" },
+                        "rz": { "type": "number" }
+                    },
+                    "required": ["rx", "ry", "rz"]
+                })),
+                handler: Box::new(move |input| {
+                    let drx = match input["rx"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing rx") };
+                    let dry = match input["ry"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing ry") };
+                    let drz = match input["rz"].as_f64() { Some(v) => v as f32, None => return McpToolOutput::error("missing rz") };
+                    let selected = sel_osr.lock().unwrap().clone();
+                    let s = snap_osr.lock().unwrap();
+                    let updates: Vec<(u64, [f32; 3])> = s.entities.iter()
+                        .filter(|e| selected.contains(&e.id))
+                        .map(|e| {
+                            let cur = e.rotation.unwrap_or([0.0, 0.0, 0.0]);
+                            (e.id, [cur[0] + drx, cur[1] + dry, cur[2] + drz])
+                        })
+                        .collect();
+                    drop(s);
+                    let count = updates.len() as u64;
+                    let mut q = queue86.lock().unwrap();
+                    for (entity_id, [rx, ry, rz]) in updates {
+                        q.push(EditorCommand::SetRotation { entity_id, rx, ry, rz });
+                    }
+                    McpToolOutput::success(json!({"rotated_count": count}))
+                }),
+            });
+
+            // offset_selection_scale
+            let snap_oss = snapshot.clone();
+            let sel_oss = selection.clone();
+            let queue87 = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "offset_selection_scale".to_string(),
+                description: "Add scale offsets to all selected entities; returns {scaled_count}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "sx": { "type": "number" },
+                        "sy": { "type": "number" },
+                        "sz": { "type": "number" }
+                    },
+                    "required": ["sx", "sy", "sz"]
+                })),
+                handler: Box::new(move |input| {
+                    let dsx = match input["sx"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing sx"),
+                    };
+                    let dsy = match input["sy"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing sy"),
+                    };
+                    let dsz = match input["sz"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing sz"),
+                    };
+                    let selected = sel_oss.lock().unwrap().clone();
+                    let s = snap_oss.lock().unwrap();
+                    let updates: Vec<(u64, [f32; 3])> = s
+                        .entities
+                        .iter()
+                        .filter(|e| selected.contains(&e.id))
+                        .map(|e| {
+                            let cur = e.scale.unwrap_or([1.0, 1.0, 1.0]);
+                            (e.id, [cur[0] + dsx, cur[1] + dsy, cur[2] + dsz])
+                        })
+                        .collect();
+                    drop(s);
+                    let count = updates.len() as u64;
+                    let mut q = queue87.lock().unwrap();
+                    for (entity_id, [sx, sy, sz]) in updates {
+                        q.push(EditorCommand::SetScale {
+                            entity_id,
+                            sx,
+                            sy,
+                            sz,
+                        });
+                    }
+                    McpToolOutput::success(json!({"scaled_count": count}))
+                }),
+            });
+
             // offset_selection_position
             let snap_osp = snapshot.clone();
             let sel_osp = selection.clone();
@@ -12257,6 +12352,193 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_offset_selection_rotation_adds_to_rotation_of_all_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "offset_selection_rotation",
+                    json!({"rx": 10.0, "ry": 20.0, "rz": 30.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["rotated_count"], 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for id in [a_id, b_id] {
+            let e = updated
+                .iter()
+                .find(|e| e["id"].as_u64().unwrap() == id)
+                .unwrap();
+            let rot = e["rotation"].as_array().unwrap();
+            assert!((rot[0].as_f64().unwrap() - 10.0).abs() < 0.5, "rx=10");
+            assert!((rot[1].as_f64().unwrap() - 20.0).abs() < 0.5, "ry=20");
+            assert!((rot[2].as_f64().unwrap() - 30.0).abs() < 0.5, "rz=30");
+        }
+    }
+
+    #[test]
+    fn mcp_offset_selection_scale_adds_to_scale_of_all_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            reg.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "offset_selection_scale",
+                    json!({"sx": 1.0, "sy": 2.0, "sz": 3.0}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["scaled_count"], 2);
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let updated = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for id in [a_id, b_id] {
+            let e = updated
+                .iter()
+                .find(|e| e["id"].as_u64().unwrap() == id)
+                .unwrap();
+            let scale = e["scale"].as_array().unwrap();
+            // default scale is [1,1,1], so after offset: [2,3,4]
+            assert!((scale[0].as_f64().unwrap() - 2.0).abs() < 0.01, "sx=2");
+            assert!((scale[1].as_f64().unwrap() - 3.0).abs() < 0.01, "sy=3");
+            assert!((scale[2].as_f64().unwrap() - 4.0).abs() < 0.01, "sz=4");
+        }
     }
 
     #[test]

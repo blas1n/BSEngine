@@ -1647,6 +1647,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_children_of
+            let snap_gco = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_children_of".to_string(),
+                description:
+                    "Return the immediate children IDs of the given entity; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gco.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id == Some(target))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // count_children_of
+            let snap_cco = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_children_of".to_string(),
+                description:
+                    "Return the number of immediate children of the given entity; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_cco.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id == Some(target))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_children_of_selection
             let snap_dcos = snapshot.clone();
             let sel_dcos = selection.clone();
@@ -14532,6 +14587,187 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_children_of_returns_immediate_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "C1"},
+                        {"name": "C2"},
+                        {"name": "Grandchild"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, c1_id, c2_id, gc_id) = (
+            id_of("Parent"),
+            id_of("C1"),
+            id_of("C2"),
+            id_of("Grandchild"),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": gc_id, "parent_id": c1_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_children_of", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&c1_id), "C1 is child");
+        assert!(ids.contains(&c2_id), "C2 is child");
+        assert!(!ids.contains(&gc_id), "Grandchild not an immediate child");
+    }
+
+    #[test]
+    fn mcp_count_children_of_returns_immediate_child_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "C1"},
+                        {"name": "C2"},
+                        {"name": "C3"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, c1_id, c2_id, c3_id) =
+            (id_of("Parent"), id_of("C1"), id_of("C2"), id_of("C3"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c3_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_children_of", json!({"entity_id": parent_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 3);
+
+        let out2 = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_children_of", json!({"entity_id": c1_id}))
+            .unwrap();
+        assert_eq!(out2.content["count"], 0, "leaf has no children");
     }
 
     #[test]

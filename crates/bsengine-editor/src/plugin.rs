@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_light_info_of_entity
+            let snap_glioe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_light_info_of_entity".to_string(),
+                description: "Return light info of a specific entity by ID; returns {light_type, light_color, intensity, range} or error if not a light".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_glioe.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => match &e.light_type {
+                            Some(lt) => McpToolOutput::success(json!({
+                                "light_type": lt,
+                                "light_color": e.light_color,
+                                "intensity": e.light_intensity,
+                                "range": e.light_range,
+                            })),
+                            None => McpToolOutput::error("entity is not a light"),
+                        },
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_camera_fov_of_entity
+            let snap_gcfoe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_camera_fov_of_entity".to_string(),
+                description: "Return the camera FOV of a specific entity by ID; returns {fov} or error if not a camera".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gcfoe.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => match e.camera_fov {
+                            Some(fov) => McpToolOutput::success(json!({"fov": fov})),
+                            None => McpToolOutput::error("entity is not a camera"),
+                        },
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
             // get_name_of_entity
             let snap_gnoe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16750,6 +16797,113 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_light_info_of_entity_returns_light_data() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_point_light",
+                    json!({
+                        "color": [1.0, 0.5, 0.0],
+                        "intensity": 500.0,
+                        "range": 20.0,
+                        "position": [0.0, 5.0, 0.0],
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let light_id = all
+            .iter()
+            .find(|e| e["light_type"].as_str() == Some("point"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_light_info_of_entity", json!({"entity_id": light_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["light_type"].as_str(), Some("point"));
+        assert!((out.content["intensity"].as_f64().unwrap() - 500.0).abs() < 1.0);
+        assert!((out.content["range"].as_f64().unwrap() - 20.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn mcp_get_camera_fov_of_entity_returns_fov() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_camera",
+                    json!({
+                        "fov_y_degrees": 60.0,
+                        "position": [0.0, 0.0, 10.0],
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let cam_id = all.iter().find(|e| !e["camera_fov"].is_null()).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_camera_fov_of_entity", json!({"entity_id": cam_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!((out.content["fov"].as_f64().unwrap() - 60.0).abs() < 0.1);
     }
 
     #[test]

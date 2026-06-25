@@ -1666,6 +1666,38 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_transform
+            let snap_gewt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_transform".to_string(),
+                description: "Return IDs of entities that have a position (transform) set; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.is_some())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_no_transform
+            let snap_genwt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_transform".to_string(),
+                description: "Return IDs of entities that have no position (transform) set; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_genwt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_entities_with_transform
             let snap_selwt = snapshot.clone();
             let sel_selwt = selection.clone();
@@ -19591,6 +19623,100 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_with_and_without_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A and B have positions, C does not
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_a = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("A"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_b = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("B"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_c = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("C"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // get_entities_with_transform → A and B
+        let wt_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_transform", json!({}))
+            .unwrap();
+        assert!(wt_out.is_ok());
+        let wt_ids: std::collections::HashSet<u64> = wt_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(wt_ids.contains(&id_a), "A has transform");
+        assert!(wt_ids.contains(&id_b), "B has transform");
+        assert!(!wt_ids.contains(&id_c), "C has no transform");
+
+        // get_entities_with_no_transform → C only
+        let wnt_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_transform", json!({}))
+            .unwrap();
+        assert!(wnt_out.is_ok());
+        let wnt_ids: std::collections::HashSet<u64> = wnt_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(wnt_ids.contains(&id_c), "C has no transform");
+        assert!(!wnt_ids.contains(&id_a), "A not in no-transform set");
+        assert!(!wnt_ids.contains(&id_b), "B not in no-transform set");
+
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

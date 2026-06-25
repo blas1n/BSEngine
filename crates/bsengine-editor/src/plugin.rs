@@ -1647,6 +1647,39 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_selection_count
+            let sel_gsc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_selection_count".to_string(),
+                description: "Return the number of currently selected entities; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let count = sel_gsc.lock().unwrap().len() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // are_all_selected_visible
+            let snap_aasv = snapshot.clone();
+            let sel_aasv = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "are_all_selected_visible".to_string(),
+                description: "Return true if all currently selected entities are visible; returns {all_visible}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let selected = sel_aasv.lock().unwrap().clone();
+                    if selected.is_empty() {
+                        return McpToolOutput::success(json!({"all_visible": true}));
+                    }
+                    let s = snap_aasv.lock().unwrap();
+                    let all_visible = selected.iter().all(|&id| {
+                        s.entities.iter().find(|e| e.id == id).map(|e| e.visible).unwrap_or(false)
+                    });
+                    McpToolOutput::success(json!({"all_visible": all_visible}))
+                }),
+            });
+
             // get_entities_without_light
             let snap_gewol = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11091,6 +11124,183 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_selection_count_returns_number_of_selected_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [0.0, 0.0, 0.0]},
+                        {"name": "B", "position": [1.0, 0.0, 0.0]},
+                        {"name": "C", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (a_id, b_id) = (id_of("A"), id_of("B"));
+
+        // No selection yet
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selection_count", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 0);
+        }
+
+        // Select two
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": a_id}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": b_id}))
+                .unwrap();
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection_count", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+    }
+
+    #[test]
+    fn mcp_are_all_selected_visible_returns_true_only_when_all_visible() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "VisA", "position": [0.0, 0.0, 0.0]},
+                        {"name": "VisB", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Hid",  "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (vis_a, vis_b, hid_id) = (id_of("VisA"), id_of("VisB"), id_of("Hid"));
+
+        // Hide one entity
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("hide_entity", json!({"entity_id": hid_id}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Select only visible — all_visible should be true
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("select_entity", json!({"entity_id": vis_a}))
+                .unwrap();
+            m.execute("select_entity", json!({"entity_id": vis_b}))
+                .unwrap();
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("are_all_selected_visible", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["all_visible"].as_bool().unwrap(), true);
+        }
+
+        // Add hidden entity to selection — all_visible should now be false
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_entity", json!({"entity_id": hid_id}))
+                .unwrap();
+        }
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("are_all_selected_visible", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["all_visible"].as_bool().unwrap(), false);
     }
 
     #[test]

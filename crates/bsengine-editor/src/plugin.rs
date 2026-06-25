@@ -1647,6 +1647,52 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_below_z
+            let snap_cebz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_below_z".to_string(),
+                description: "Return the count of entities whose z position is strictly less than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "z": { "type": "number" } },
+                    "required": ["z"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cebz.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[_, _, z]| z < threshold))
+                        .filter(|&below| below)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_distance_from_origin
+            let snap_gdfo = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_distance_from_origin".to_string(),
+                description: "Return the Euclidean distance from the world origin to the entity's position; returns {distance} or error if missing position".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let id = match input["entity_id"].as_u64() {
+                        Some(id) => id, None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gdfo.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id).and_then(|e| e.position) {
+                        Some([x, y, z]) => {
+                            let dist = (x*x + y*y + z*z).sqrt();
+                            McpToolOutput::success(json!({"distance": dist}))
+                        }
+                        None => McpToolOutput::error("entity not found or has no position"),
+                    }
+                }),
+            });
+
             // count_entities_below_x
             let snap_cebx = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -15531,6 +15577,99 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_below_z_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "NearA", "position": [0.0, 0.0, -5.0]},
+                        {"name": "NearB", "position": [0.0, 0.0, -1.0]},
+                        {"name": "Far", "position": [0.0, 0.0, 3.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_below_z", json!({"z": 0.0}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 2, "NearA and NearB are below z=0");
+    }
+
+    #[test]
+    fn mcp_get_distance_from_origin_returns_distance_to_world_origin() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Entity", "position": [3.0, 4.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let entity_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Entity"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_distance_from_origin", json!({"entity_id": entity_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        let dist = out.content["distance"].as_f64().unwrap();
+        assert!(
+            (dist - 5.0).abs() < 0.001,
+            "distance should be 5.0, got {}",
+            dist
+        );
     }
 
     #[test]

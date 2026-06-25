@@ -1647,6 +1647,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_sharing_all_tags
+            let snap_ceast = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_sharing_all_tags".to_string(),
+                description: "Return the count of entities that have ALL of the specified tags; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let required: Vec<String> = input["tags"].as_array()
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .unwrap_or_default();
+                    let s = snap_ceast.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| required.iter().all(|r| e.tags.contains(r)))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_entities_with_none_of_tags
+            let snap_gewnot = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_none_of_tags".to_string(),
+                description:
+                    "Return entities that have none of the specified tags; returns {entities}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "tags": {"type": "array", "items": {"type": "string"}}
+                }, "required": ["tags"]})),
+                handler: Box::new(move |input| {
+                    let excluded: Vec<String> = input["tags"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let s = snap_gewnot.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s
+                        .entities
+                        .iter()
+                        .filter(|e| !excluded.iter().any(|ex| e.tags.contains(ex)))
+                        .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_tags_shared_by_selection
             let snap_gtbs = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17870,6 +17920,123 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_entities_sharing_all_tags_and_get_entities_with_none_of_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "AB"}, {"name": "A_only"}, {"name": "None"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // AB: [alpha, beta], A_only: [alpha], None: []
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_ab = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A_only"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_ab, "tag": "alpha"}))
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_a, "tag": "alpha"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_ab = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("AB"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": id_ab, "tag": "beta"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        // count entities with both [alpha, beta]: only AB → 1
+        let count_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "count_entities_sharing_all_tags",
+                json!({"tags": ["alpha", "beta"]}),
+            )
+            .unwrap();
+        assert!(count_out.is_ok());
+        assert_eq!(count_out.content["count"], 1);
+
+        // entities with none of [alpha, beta]: only None → 1
+        let none_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_none_of_tags",
+                json!({"tags": ["alpha", "beta"]}),
+            )
+            .unwrap();
+        assert!(none_out.is_ok());
+        let entities = none_out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0]["name"].as_str(), Some("None"));
     }
 
     #[test]

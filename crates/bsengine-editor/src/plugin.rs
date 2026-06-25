@@ -1647,6 +1647,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_all_root_entities
+            let snap_sare = snapshot.clone();
+            let sel_sare = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_all_root_entities".to_string(),
+                description:
+                    "Add all entities with no parent to the selection; returns {selected_count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sare.lock().unwrap();
+                    let roots: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.parent_id.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    let count = roots.len() as u64;
+                    let mut sel = sel_sare.lock().unwrap();
+                    for id in roots {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // count_entities_with_children
+            let snap_cewc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_children".to_string(),
+                description:
+                    "Return the number of entities that have at least one child; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> =
+                        s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| parent_ids.contains(&e.id))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_siblings_of
             let snap_dsof = snapshot.clone();
             let sel_dsof = selection.clone();
@@ -13693,6 +13740,166 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_all_root_entities_selects_parentless_entities() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root1"},
+                        {"name": "Root2"},
+                        {"name": "Child"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (root1_id, root2_id, child_id) = (id_of("Root1"), id_of("Root2"), id_of("Child"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": child_id, "parent_id": root1_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("select_all_root_entities", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["selected_count"], 2);
+
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selection", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["selected_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&root1_id), "Root1 selected");
+        assert!(ids.contains(&root2_id), "Root2 selected");
+        assert!(!ids.contains(&child_id), "Child not selected (has parent)");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_children_returns_non_leaf_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Parent"},
+                        {"name": "Child1"},
+                        {"name": "Child2"},
+                        {"name": "Leaf"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (parent_id, c1_id, c2_id) = (id_of("Parent"), id_of("Child1"), id_of("Child2"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mut reg = mcp.0.lock().unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c1_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+            reg.execute(
+                "set_parent",
+                json!({"entity_id": c2_id, "parent_id": parent_id}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_children", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1, "only Parent has children");
     }
 
     #[test]

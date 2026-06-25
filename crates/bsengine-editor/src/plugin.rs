@@ -1647,6 +1647,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_position_of_entity
+            let snap_gpoe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_position_of_entity".to_string(),
+                description: "Return the position of a specific entity by ID; returns {x, y, z} or error if no position".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "entity_id": {"type": "integer"}
+                }, "required": ["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gpoe.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == id) {
+                        Some(e) => match e.position {
+                            Some([x, y, z]) => McpToolOutput::success(json!({"x": x, "y": y, "z": z})),
+                            None => McpToolOutput::error("entity has no position"),
+                        },
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // count_entities_with_multiple_tags
+            let snap_cewmt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_multiple_tags".to_string(),
+                description:
+                    "Return the count of entities that have more than one tag; returns {count}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewmt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.len() > 1).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_tags_of_entity
             let snap_gtoe = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -16633,6 +16669,162 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_position_of_entity_returns_correct_position() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Placed", "position": [3.0, 5.0, 7.0]},
+                        {"name": "NoPos"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let placed_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Placed"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let no_pos_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("NoPos"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let mut reg = mcp.0.lock().unwrap();
+
+        let out = reg
+            .execute("get_position_of_entity", json!({"entity_id": placed_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!((out.content["x"].as_f64().unwrap() - 3.0).abs() < 0.001);
+        assert!((out.content["y"].as_f64().unwrap() - 5.0).abs() < 0.001);
+        assert!((out.content["z"].as_f64().unwrap() - 7.0).abs() < 0.001);
+
+        let out2 = reg
+            .execute("get_position_of_entity", json!({"entity_id": no_pos_id}))
+            .unwrap();
+        assert!(!out2.is_ok(), "entity without position should return error");
+    }
+
+    #[test]
+    fn mcp_count_entities_with_multiple_tags_returns_correct_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "MultiA"},
+                        {"name": "SingleTag"},
+                        {"name": "NoTag"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let ma_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("MultiA"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let st_id = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("SingleTag"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": ma_id, "tag": "hero"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": ma_id, "tag": "player"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("tag_entity", json!({"entity_id": st_id, "tag": "enemy"}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_multiple_tags", json!({}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["count"], 1, "only MultiA has 2 tags");
     }
 
     #[test]

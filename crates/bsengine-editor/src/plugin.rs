@@ -1666,6 +1666,75 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_by_name_suffix
+            let snap_cebns = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_by_name_suffix".to_string(),
+                description: "Count entities whose name ends with suffix; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "suffix": { "type": "string" }
+                    },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_cebns.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.ends_with(&suffix))
+                                .unwrap_or(false)
+                        })
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_by_name_suffix
+            let snap_sebns = snapshot.clone();
+            let sel_sebns = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_by_name_suffix".to_string(),
+                description:
+                    "Select all entities whose name ends with suffix; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "suffix": { "type": "string" }
+                    },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_sebns.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.name
+                                .as_deref()
+                                .map(|n| n.ends_with(&suffix))
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sebns.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // deselect_entities_with_multiple_tags
             let snap_dewmt = snapshot.clone();
             let sel_dewmt = selection.clone();
@@ -20779,6 +20848,105 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_by_name_suffix() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Enemy_A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Enemy_B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "Player",  "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let (id_ea, id_eb) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_ea = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_eb = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Enemy_B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_ea, id_eb)
+        };
+
+        // count_entities_by_name_suffix "_A" → 1 (Enemy_A)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let cnt_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_entities_by_name_suffix", json!({"suffix": "_A"}))
+                .unwrap();
+            assert!(cnt_out.is_ok());
+            assert_eq!(cnt_out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // select_entities_by_name_suffix "_B" → Enemy_B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("select_entities_by_name_suffix", json!({"suffix": "_B"}))
+                .unwrap();
+            assert!(sel_out.is_ok());
+            assert_eq!(sel_out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+
+        // verify Enemy_B is selected via get_selected_entities (returns {entities: [{id,...}]})
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let snap_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selected_entities", json!({}))
+                .unwrap();
+            let sel_ids: std::collections::HashSet<u64> = snap_out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["id"].as_u64().unwrap())
+                .collect();
+            assert!(sel_ids.contains(&id_eb), "Enemy_B should be selected");
+            assert!(!sel_ids.contains(&id_ea), "Enemy_A should not be selected");
+        }
     }
 
     #[test]

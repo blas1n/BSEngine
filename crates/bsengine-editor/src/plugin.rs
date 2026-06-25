@@ -1666,6 +1666,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_at_depth_range
+            let snap_gedrange = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_at_depth_range".to_string(),
+                description: "Return IDs of entities with depth in [min_depth, max_depth] inclusive (root = depth 0); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_depth": {"type": "integer"},
+                    "max_depth": {"type": "integer"}
+                }, "required": ["min_depth", "max_depth"]})),
+                handler: Box::new(move |input| {
+                    let min_d = match input["min_depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing min_depth"),
+                    };
+                    let max_d = match input["max_depth"].as_u64() {
+                        Some(d) => d,
+                        None => return McpToolOutput::error("missing max_depth"),
+                    };
+                    let s = snap_gedrange.lock().unwrap();
+                    let parent_map: std::collections::HashMap<u64, u64> = s.entities.iter()
+                        .filter_map(|e| e.parent_id.map(|pid| (e.id, pid)))
+                        .collect();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| {
+                            let mut depth = 0u64;
+                            let mut current = e.id;
+                            while let Some(&pid) = parent_map.get(&current) {
+                                depth += 1;
+                                current = pid;
+                            }
+                            depth >= min_d && depth <= max_d
+                        })
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_by_name_contains
+            let snap_gnamecon = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_by_name_contains".to_string(),
+                description: "Return IDs of entities whose name contains the given substring (case-sensitive); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "substring": {"type": "string"}
+                }, "required": ["substring"]})),
+                handler: Box::new(move |input| {
+                    let sub = match input["substring"].as_str() {
+                        Some(s) => s.to_string(),
+                        None => return McpToolOutput::error("missing substring"),
+                    };
+                    let s = snap_gnamecon.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().map(|n| n.contains(&*sub)).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // deselect_entities_at_depth_range
             let snap_deldrange = snapshot.clone();
             let sel_deldrange = selection.clone();
@@ -19124,6 +19184,154 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_entities_at_depth_range_and_by_name_contains() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root(0) → Mid(1) → Leaf(2), plus Unrelated at depth 0
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Root"}, {"name": "Mid"}, {"name": "Leaf"}, {"name": "Unrelated"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_root = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Root"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_mid = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Mid"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_leaf = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("Leaf"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_mid, "parent_id": id_root}),
+                )
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": id_leaf, "parent_id": id_mid}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let entities = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("list_entities", json!({}))
+            .unwrap()
+            .content["entities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let id_root = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Root"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_mid = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Mid"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let id_unrelated = entities
+            .iter()
+            .find(|e| e["name"].as_str() == Some("Unrelated"))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+
+        // get_entities_at_depth_range(0, 1) → Root, Unrelated, Mid
+        let range_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_at_depth_range",
+                json!({"min_depth": 0, "max_depth": 1}),
+            )
+            .unwrap();
+        assert!(range_out.is_ok());
+        let range_ids: std::collections::HashSet<u64> = range_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(range_ids.contains(&id_root), "Root in range");
+        assert!(range_ids.contains(&id_unrelated), "Unrelated in range");
+        assert!(range_ids.contains(&id_mid), "Mid in range");
+        assert_eq!(range_ids.len(), 3, "exactly 3 entities in [0,1]");
+
+        // get_entities_by_name_contains("e") → Mid has 'i' not 'e'; "Unrelated" and "Leaf" contain 'e'
+        // Use "oot" which only "Root" matches
+        let name_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_by_name_contains", json!({"substring": "oot"}))
+            .unwrap();
+        assert!(name_out.is_ok());
+        let name_ids: std::collections::HashSet<u64> = name_out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(name_ids.contains(&id_root), "Root contains 'oot'");
+        assert!(!name_ids.contains(&id_mid), "Mid does not contain 'oot'");
+        assert!(
+            !name_ids.contains(&id_unrelated),
+            "Unrelated does not contain 'oot'"
+        );
     }
 
     #[test]

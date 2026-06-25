@@ -1666,6 +1666,38 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_no_scale
+            let snap_gewns = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_scale".to_string(),
+                description: "Return IDs of entities that have no scale set; returns {entity_ids}"
+                    .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewns.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.scale.is_none())
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // count_entities_with_no_scale
+            let snap_cewns = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_scale".to_string(),
+                description: "Count entities that have no scale set; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewns.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.is_none()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_with_no_rotation
             let snap_sewnr = snapshot.clone();
             let sel_sewnr = selection.clone();
@@ -20408,6 +20440,89 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_and_count_entities_with_no_scale() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // Set scale on B only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_entity_transform",
+                    json!({
+                        "entity_id": id_b, "scale": [2.0, 2.0, 2.0]
+                    }),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+
+        // get_entities_with_no_scale — runs and returns entity_ids array
+        let ns_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_entities_with_no_scale", json!({}))
+            .unwrap();
+        assert!(ns_out.is_ok());
+        assert!(ns_out.content["entity_ids"].is_array());
+
+        // count_entities_with_no_scale — runs and returns a count
+        let cnt_out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("count_entities_with_no_scale", json!({}))
+            .unwrap();
+        assert!(cnt_out.is_ok());
+        assert!(cnt_out.content["count"].is_number());
+
+        // ids in get match count
+        let list_len = ns_out.content["entity_ids"].as_array().unwrap().len() as u64;
+        assert_eq!(list_len, cnt_out.content["count"].as_u64().unwrap());
     }
 
     #[test]

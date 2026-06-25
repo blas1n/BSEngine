@@ -1647,6 +1647,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_light_type_of_entity
+            let snap_gltoe = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_light_type_of_entity".to_string(),
+                description: "Return the light type of an entity (\"point\", \"directional\", \"spot\"), or null if no light; returns {light_type}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "entity_id": { "type": "integer" } },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let s = snap_gltoe.lock().unwrap();
+                    match s.entities.iter().find(|e| e.id == entity_id) {
+                        Some(e) => McpToolOutput::success(json!({"light_type": e.light_type})),
+                        None => McpToolOutput::error("entity not found"),
+                    }
+                }),
+            });
+
+            // get_entities_with_light_range_between
+            let snap_gewlrb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_range_between".to_string(),
+                description:
+                    "Return entity IDs whose light_range is >= min and <= max; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "number" },
+                        "max": { "type": "number" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = match input["min"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing min"),
+                    };
+                    let max = match input["max"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing max"),
+                    };
+                    let s = snap_gewlrb.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.light_range.map(|r| r >= min && r <= max).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entity_ancestor_ids
             let snap_geai = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -11224,6 +11282,140 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_light_type_of_entity_returns_correct_type() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 5.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute(
+                "batch_spawn",
+                json!({"entities": [{"name": "NoLight", "position": [1.0, 0.0, 0.0]}]}),
+            )
+            .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let point_ent = all
+            .iter()
+            .find(|e| e["light_type"].as_str() == Some("point"))
+            .unwrap();
+        let plain_ent = all
+            .iter()
+            .find(|e| e["name"].as_str() == Some("NoLight"))
+            .unwrap();
+        let (point_id, plain_id) = (
+            point_ent["id"].as_u64().unwrap(),
+            plain_ent["id"].as_u64().unwrap(),
+        );
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_light_type_of_entity", json!({"entity_id": point_id}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["light_type"].as_str().unwrap(), "point");
+        }
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_light_type_of_entity", json!({"entity_id": plain_id}))
+            .unwrap();
+        assert!(out.is_ok());
+        assert!(
+            out.content["light_type"].is_null(),
+            "no light_type for plain entity"
+        );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_light_range_between_filters_correctly() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 3.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 7.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 15.0, "position": [2.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_with_range = |r: f64| -> u64 {
+            all.iter()
+                .find(|e| {
+                    e["light_range"]
+                        .as_f64()
+                        .map(|v| (v - r).abs() < 0.1)
+                        .unwrap_or(false)
+                })
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (id3, id7, id15) = (id_with_range(3.0), id_with_range(7.0), id_with_range(15.0));
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_with_light_range_between",
+                json!({"min": 5.0, "max": 10.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let ids: Vec<u64> = out.content["entity_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert!(!ids.contains(&id3), "range 3 excluded (< min)");
+        assert!(ids.contains(&id7), "range 7 included");
+        assert!(!ids.contains(&id15), "range 15 excluded (> max)");
     }
 
     #[test]

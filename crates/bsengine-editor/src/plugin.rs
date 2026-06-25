@@ -1647,6 +1647,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_farthest_entity_from
+            let snap_gfef = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_farthest_entity_from".to_string(),
+                description: "Return the entity with a position farthest from the given point; returns entity info or error if no entities have positions".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}
+                }, "required": ["x", "y", "z"]})),
+                handler: Box::new(move |input| {
+                    let px = input["x"].as_f64().unwrap_or(0.0) as f32;
+                    let py = input["y"].as_f64().unwrap_or(0.0) as f32;
+                    let pz = input["z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gfef.lock().unwrap();
+                    let farthest = s.entities.iter()
+                        .filter_map(|e| e.position.map(|[ex, ey, ez]| {
+                            let dist = ((ex-px).powi(2)+(ey-py).powi(2)+(ez-pz).powi(2)).sqrt();
+                            (dist, e)
+                        }))
+                        .max_by(|(da, _), (db, _)| da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal));
+                    match farthest {
+                        Some((_, e)) => McpToolOutput::success(json!({
+                            "id": e.id, "name": e.name, "position": e.position
+                        })),
+                        None => McpToolOutput::error("no entities with positions"),
+                    }
+                }),
+            });
+
+            // get_entities_within_aabb
+            let snap_gewab = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_within_aabb".to_string(),
+                description: "Return entities whose position is within an axis-aligned bounding box; returns {entities}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {
+                    "min_x": {"type": "number"}, "min_y": {"type": "number"}, "min_z": {"type": "number"},
+                    "max_x": {"type": "number"}, "max_y": {"type": "number"}, "max_z": {"type": "number"}
+                }, "required": ["min_x","min_y","min_z","max_x","max_y","max_z"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewab.lock().unwrap();
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter_map(|e| e.position.and_then(|[ex, ey, ez]| {
+                            if ex >= min_x && ex <= max_x && ey >= min_y && ey <= max_y && ez >= min_z && ez <= max_z {
+                                Some(json!({"id": e.id, "name": e.name, "position": [ex, ey, ez]}))
+                            } else { None }
+                        }))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // get_entities_with_duplicate_name
             let snap_gewdn = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17249,6 +17305,85 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_farthest_entity_from_returns_farthest() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Near", "position": [1.0, 0.0, 0.0]},
+                        {"name": "Far",  "position": [100.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_farthest_entity_from",
+                json!({"x": 0.0, "y": 0.0, "z": 0.0}),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        assert_eq!(out.content["name"].as_str(), Some("Far"));
+    }
+
+    #[test]
+    fn mcp_get_entities_within_aabb_returns_entities_inside_box() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Inside",  "position": [5.0, 5.0, 5.0]},
+                        {"name": "Outside", "position": [50.0, 50.0, 50.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "get_entities_within_aabb",
+                json!({
+                    "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+                    "max_x": 10.0, "max_y": 10.0, "max_z": 10.0,
+                }),
+            )
+            .unwrap();
+        assert!(out.is_ok());
+        let entities = out.content["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0]["name"].as_str(), Some("Inside"));
     }
 
     #[test]

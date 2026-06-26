@@ -18,15 +18,27 @@ pub struct RigidBody {
 
 impl RigidBody {
     pub fn dynamic() -> Self {
-        Self { body_type: RigidBodyType::Dynamic, linear_damping: 0.0, angular_damping: 0.0 }
+        Self {
+            body_type: RigidBodyType::Dynamic,
+            linear_damping: 0.0,
+            angular_damping: 0.0,
+        }
     }
 
     pub fn fixed() -> Self {
-        Self { body_type: RigidBodyType::Static, linear_damping: 0.0, angular_damping: 0.0 }
+        Self {
+            body_type: RigidBodyType::Static,
+            linear_damping: 0.0,
+            angular_damping: 0.0,
+        }
     }
 
     pub fn kinematic() -> Self {
-        Self { body_type: RigidBodyType::KinematicPosition, linear_damping: 0.0, angular_damping: 0.0 }
+        Self {
+            body_type: RigidBodyType::KinematicPosition,
+            linear_damping: 0.0,
+            angular_damping: 0.0,
+        }
     }
 }
 
@@ -48,7 +60,9 @@ pub struct Collider {
 impl Collider {
     pub fn cuboid(hx: f32, hy: f32, hz: f32) -> Self {
         Self {
-            shape: ColliderShape::Box { half_extents: Vec3::new(hx, hy, hz) },
+            shape: ColliderShape::Box {
+                half_extents: Vec3::new(hx, hy, hz),
+            },
             restitution: 0.0,
             friction: 0.5,
             density: 1.0,
@@ -66,7 +80,10 @@ impl Collider {
 
     pub fn capsule(half_height: f32, radius: f32) -> Self {
         Self {
-            shape: ColliderShape::Capsule { half_height, radius },
+            shape: ColliderShape::Capsule {
+                half_height,
+                radius,
+            },
             restitution: 0.0,
             friction: 0.5,
             density: 1.0,
@@ -100,7 +117,10 @@ pub struct PhysicsInput {
 
 impl Default for PhysicsInput {
     fn default() -> Self {
-        Self { translation: Vec3::ZERO, rotation: Quat::IDENTITY }
+        Self {
+            translation: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+        }
     }
 }
 

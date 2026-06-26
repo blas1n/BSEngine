@@ -61,7 +61,8 @@ impl PhysicsWorld {
         coll: rapier3d::geometry::Collider,
         body_handle: RigidBodyHandle,
     ) -> ColliderHandle {
-        self.collider_set.insert_with_parent(coll, body_handle, &mut self.rigid_body_set)
+        self.collider_set
+            .insert_with_parent(coll, body_handle, &mut self.rigid_body_set)
     }
 
     pub fn gravity(&self) -> f32 {

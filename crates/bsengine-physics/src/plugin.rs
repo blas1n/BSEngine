@@ -16,10 +16,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
-        app.add_systems(
-            Update,
-            (spawn_bodies, step_world, sync_from_rapier).chain(),
-        );
+        app.add_systems(Update, (spawn_bodies, step_world, sync_from_rapier).chain());
     }
 }
 
@@ -46,10 +43,7 @@ fn from_rapier_rot(r: Rotation) -> Quat {
 fn spawn_bodies(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    query: Query<
-        (Entity, &RigidBody, &Collider, Option<&PhysicsInput>),
-        Without<PhysicsHandles>,
-    >,
+    query: Query<(Entity, &RigidBody, &Collider, Option<&PhysicsInput>), Without<PhysicsHandles>>,
 ) {
     for (entity, rigid_body, collider, input) in query.iter() {
         let pos = input.map(|i| i.translation).unwrap_or(Vec3::ZERO);
@@ -64,9 +58,9 @@ fn spawn_bodies(
                 .angular_damping(rigid_body.angular_damping)
                 .build(),
             RigidBodyType::Static => RigidBodyBuilder::fixed().position(pose).build(),
-            RigidBodyType::KinematicPosition => {
-                RigidBodyBuilder::kinematic_position_based().position(pose).build()
-            }
+            RigidBodyType::KinematicPosition => RigidBodyBuilder::kinematic_position_based()
+                .position(pose)
+                .build(),
         };
 
         let body_handle = world.rigid_body_set.insert(rb);
@@ -81,8 +75,14 @@ fn spawn_bodies(
         let collider_handle = world.add_collider(coll, body_handle);
 
         commands.entity(entity).insert((
-            PhysicsHandles { body_handle, collider_handle },
-            PhysicsTransform { translation: pos, rotation: rot },
+            PhysicsHandles {
+                body_handle,
+                collider_handle,
+            },
+            PhysicsTransform {
+                translation: pos,
+                rotation: rot,
+            },
         ));
     }
 }
@@ -123,8 +123,9 @@ fn make_shape(shape: &ColliderShape) -> SharedShape {
             SharedShape::cuboid(half_extents.x, half_extents.y, half_extents.z)
         }
         ColliderShape::Sphere { radius } => SharedShape::ball(*radius),
-        ColliderShape::Capsule { half_height, radius } => {
-            SharedShape::capsule_y(*half_height, *radius)
-        }
+        ColliderShape::Capsule {
+            half_height,
+            radius,
+        } => SharedShape::capsule_y(*half_height, *radius),
     }
 }

@@ -69,6 +69,7 @@ pub mod viewport;
 pub mod vignette;
 pub mod visible;
 pub mod volumetric_light;
+pub mod wind;
 pub mod z_index;
 
 pub use aabb::Aabb;
@@ -142,6 +143,7 @@ pub use viewport::Viewport;
 pub use vignette::Vignette;
 pub use visible::Visible;
 pub use volumetric_light::VolumetricLight;
+pub use wind::Wind;
 pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

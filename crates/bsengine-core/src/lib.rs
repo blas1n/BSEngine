@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod global_transform;
+pub mod layer;
 pub mod lifetime;
 pub mod light;
 pub mod logging;
@@ -12,6 +13,7 @@ pub mod tween;
 
 pub use camera::Camera;
 pub use global_transform::GlobalTransform;
+pub use layer::Layer;
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;

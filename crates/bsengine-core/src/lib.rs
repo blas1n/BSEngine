@@ -1,5 +1,6 @@
 pub mod aabb;
 pub mod angular_velocity;
+pub mod animation_player;
 pub mod camera;
 pub mod capsule;
 pub mod color;
@@ -25,6 +26,7 @@ pub mod z_index;
 
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
+pub use animation_player::AnimationPlayer;
 pub use camera::Camera;
 pub use capsule::Capsule;
 pub use color::Color;

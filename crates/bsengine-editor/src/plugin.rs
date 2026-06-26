@@ -14438,6 +14438,27 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_light_range_equal
+            let snap_gewlreq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_range_equal".to_string(),
+                description: "Return entity IDs whose light range equals the given value (±0.001 tolerance); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "range": { "type": "number" } },
+                    "required": ["range"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlreq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_range.map(|r| (r - target).abs() < 0.001).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_light_range_below
             let snap_gewlrb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14556,6 +14577,27 @@ impl Plugin for EditorPlugin {
                     let s = snap_gewlibt.lock().unwrap();
                     let ids: Vec<u64> = s.entities.iter()
                         .filter(|e| e.light_intensity.map(|i| i > min && i < max).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_light_intensity_equal
+            let snap_gewlieq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_intensity_equal".to_string(),
+                description: "Return entity IDs whose light intensity equals the given value (±0.001 tolerance); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "intensity": { "type": "number" } },
+                    "required": ["intensity"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["intensity"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlieq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_intensity.map(|i| (i - target).abs() < 0.001).unwrap_or(false))
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
@@ -57015,6 +57057,58 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_light_range_equal_and_intensity_equal() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Three lights: range=5/10/20, intensity=100/200/300
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":100.0,"range":5.0,"position":[0.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":200.0,"range":10.0,"position":[1.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":300.0,"range":20.0,"position":[2.0,0.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_r5, id_r10, id_r20) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_r5  = es.iter().find(|e| e["light_range"].as_f64().map(|v| (v-5.0).abs()<0.5).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_r10 = es.iter().find(|e| e["light_range"].as_f64().map(|v| (v-10.0).abs()<0.5).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_r20 = es.iter().find(|e| e["light_range"].as_f64().map(|v| (v-20.0).abs()<0.5).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            (id_r5, id_r10, id_r20)
+        };
+
+        // get_entities_with_light_range_equal(10) → id_r10 only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_light_range_equal", json!({"range": 10.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_r5),  "range=5 not equal to 10");
+            assert!(ids.contains(&id_r10),  "range=10 equals 10");
+            assert!(!ids.contains(&id_r20), "range=20 not equal to 10");
+        }
+
+        // get_entities_with_light_intensity_equal(200) → id_r10 (intensity=200) only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_light_intensity_equal", json!({"intensity": 200.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_r5),  "intensity=100 not equal to 200");
+            assert!(ids.contains(&id_r10),  "intensity=200 equals 200");
+            assert!(!ids.contains(&id_r20), "intensity=300 not equal to 200");
+        }
+        let _ = (id_r5, id_r10, id_r20);
     }
 
     #[test]

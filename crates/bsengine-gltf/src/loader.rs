@@ -1,6 +1,8 @@
 use bsengine_rhi_wgpu::Vertex;
 use gltf::image::Format as GltfFormat;
 
+use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
+
 pub struct MeshData {
     pub name: String,
     pub vertices: Vec<Vertex>,
@@ -17,6 +19,7 @@ pub struct LoadedGltf {
     pub meshes: Vec<MeshData>,
     pub images: Vec<GltfImageData>,
     pub mesh_tex_indices: Vec<Option<usize>>,
+    pub animations: Vec<AnimationClip>,
 }
 
 pub struct GltfLoader;
@@ -103,12 +106,73 @@ impl GltfLoader {
             }
         }
 
+        let animations = parse_animations(&doc, &buffers);
+
         Ok(LoadedGltf {
             meshes,
             images,
             mesh_tex_indices,
+            animations,
         })
     }
+}
+
+fn parse_animations(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Vec<AnimationClip> {
+    let mut clips = Vec::new();
+
+    for anim in doc.animations() {
+        let name = anim.name().unwrap_or("animation").to_string();
+        let mut channels = Vec::new();
+        let mut duration = 0.0f32;
+
+        for channel in anim.channels() {
+            let node_index = channel.target().node().index();
+            let reader = channel.reader(|b| Some(&buffers[b.index()]));
+
+            let times: Vec<f32> = match reader.read_inputs() {
+                Some(inputs) => inputs.collect(),
+                None => continue,
+            };
+
+            if let Some(&last) = times.last() {
+                duration = duration.max(last);
+            }
+
+            let interpolation = match channel.sampler().interpolation() {
+                gltf::animation::Interpolation::Linear => Interpolation::Linear,
+                gltf::animation::Interpolation::Step => Interpolation::Step,
+                gltf::animation::Interpolation::CubicSpline => Interpolation::CubicSpline,
+            };
+
+            let values = match reader.read_outputs() {
+                Some(gltf::animation::util::ReadOutputs::Translations(t)) => {
+                    KeyframeValues::Translations(t.collect())
+                }
+                Some(gltf::animation::util::ReadOutputs::Rotations(r)) => {
+                    KeyframeValues::Rotations(r.into_f32().collect())
+                }
+                Some(gltf::animation::util::ReadOutputs::Scales(s)) => {
+                    KeyframeValues::Scales(s.collect())
+                }
+                _ => continue,
+            };
+
+            channels.push(AnimationChannel {
+                node_index,
+                times,
+                values,
+                interpolation,
+            });
+        }
+
+        clips.push(AnimationClip {
+            name,
+            channels,
+            duration,
+        });
+    }
+
+    clips
 }
 
 fn gltf_pixels_to_rgba(pixels: &[u8], format: GltfFormat, width: u32, height: u32) -> Vec<u8> {
@@ -138,6 +202,20 @@ mod tests {
     #[test]
     fn load_full_nonexistent_returns_error() {
         assert!(GltfLoader::load_full("nonexistent.gltf").is_err());
+    }
+
+    #[test]
+    fn load_full_result_has_animations_field() {
+        let result = GltfLoader::load_full("nonexistent.gltf");
+        assert!(result.is_err());
+        // Verify LoadedGltf struct has the animations field by constructing one
+        let loaded = LoadedGltf {
+            meshes: vec![],
+            images: vec![],
+            mesh_tex_indices: vec![],
+            animations: vec![],
+        };
+        assert_eq!(loaded.animations.len(), 0);
     }
 
     #[test]

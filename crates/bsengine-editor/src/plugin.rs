@@ -22831,6 +22831,33 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect for position; select/deselect/count for position_above, position_below, position_in_box
+            let snap_sewpos = snapshot.clone(); let sel_sewpos = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_position".to_string(), description: "Add to selection entities that have a position (Transform component); returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewpos.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.is_some()).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpos.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpos = snapshot.clone(); let sel_dewpos = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_position".to_string(), description: "Remove from selection entities that have a position (Transform component); returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewpos.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.is_some()).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpos.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+
+            let snap_sewpa = snapshot.clone(); let sel_sewpa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_position_above".to_string(), description: "Add to selection entities whose Y position is greater than y_min; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"y_min":{"type":"number"}},"required":["y_min"]})), handler: Box::new(move |input| { let y_min = input["y_min"].as_f64().unwrap_or(0.0) as f32; let s = snap_sewpa.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] > y_min).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpa.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpa = snapshot.clone(); let sel_dewpa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_position_above".to_string(), description: "Remove from selection entities whose Y position is greater than y_min; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"y_min":{"type":"number"}},"required":["y_min"]})), handler: Box::new(move |input| { let y_min = input["y_min"].as_f64().unwrap_or(0.0) as f32; let s = snap_dewpa.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] > y_min).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpa.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_position_above".to_string(), description: "Return count of entities whose Y position is greater than y_min; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"y_min":{"type":"number"}},"required":["y_min"]})), handler: Box::new(move |input| { let y_min = input["y_min"].as_f64().unwrap_or(0.0) as f32; let s = snap_cewpa.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] > y_min).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewpb = snapshot.clone(); let sel_sewpb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_position_below".to_string(), description: "Add to selection entities whose Y position is less than y_max; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"y_max":{"type":"number"}},"required":["y_max"]})), handler: Box::new(move |input| { let y_max = input["y_max"].as_f64().unwrap_or(0.0) as f32; let s = snap_sewpb.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] < y_max).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpb.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpb = snapshot.clone(); let sel_dewpb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_position_below".to_string(), description: "Remove from selection entities whose Y position is less than y_max; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"y_max":{"type":"number"}},"required":["y_max"]})), handler: Box::new(move |input| { let y_max = input["y_max"].as_f64().unwrap_or(0.0) as f32; let s = snap_dewpb.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] < y_max).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpb.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_position_below".to_string(), description: "Return count of entities whose Y position is less than y_max; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"y_max":{"type":"number"}},"required":["y_max"]})), handler: Box::new(move |input| { let y_max = input["y_max"].as_f64().unwrap_or(0.0) as f32; let s = snap_cewpb.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] < y_max).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewpib = snapshot.clone(); let sel_sewpib = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_position_in_box".to_string(), description: "Add to selection entities whose position falls within AABB [min_x..max_x, min_y..max_y, min_z..max_z]; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"min_y":{"type":"number"},"min_z":{"type":"number"},"max_x":{"type":"number"},"max_y":{"type":"number"},"max_z":{"type":"number"}},"required":["min_x","min_y","min_z","max_x","max_y","max_z"]})), handler: Box::new(move |input| { let f = |k: &str| input[k].as_f64().unwrap_or(0.0) as f32; let (mnx,mny,mnz,mxx,mxy,mxz) = (f("min_x"),f("min_y"),f("min_z"),f("max_x"),f("max_y"),f("max_z")); let s = snap_sewpib.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0]>=mnx&&p[0]<=mxx&&p[1]>=mny&&p[1]<=mxy&&p[2]>=mnz&&p[2]<=mxz).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpib.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpib = snapshot.clone(); let sel_dewpib = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_position_in_box".to_string(), description: "Remove from selection entities whose position falls within AABB; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"min_y":{"type":"number"},"min_z":{"type":"number"},"max_x":{"type":"number"},"max_y":{"type":"number"},"max_z":{"type":"number"}},"required":["min_x","min_y","min_z","max_x","max_y","max_z"]})), handler: Box::new(move |input| { let f = |k: &str| input[k].as_f64().unwrap_or(0.0) as f32; let (mnx,mny,mnz,mxx,mxy,mxz) = (f("min_x"),f("min_y"),f("min_z"),f("max_x"),f("max_y"),f("max_z")); let s = snap_dewpib.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0]>=mnx&&p[0]<=mxx&&p[1]>=mny&&p[1]<=mxy&&p[2]>=mnz&&p[2]<=mxz).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpib.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_position_in_box".to_string(), description: "Return count of entities whose position falls within AABB; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"min_y":{"type":"number"},"min_z":{"type":"number"},"max_x":{"type":"number"},"max_y":{"type":"number"},"max_z":{"type":"number"}},"required":["min_x","min_y","min_z","max_x","max_y","max_z"]})), handler: Box::new(move |input| { let f = |k: &str| input[k].as_f64().unwrap_or(0.0) as f32; let (mnx,mny,mnz,mxx,mxy,mxz) = (f("min_x"),f("min_y"),f("min_z"),f("max_x"),f("max_y"),f("max_z")); let s = snap_cewpib.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[0]>=mnx&&p[0]<=mxx&&p[1]>=mny&&p[1]<=mxy&&p[2]>=mnz&&p[2]<=mxz).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // get_entities_without_position
             let snap_gewoutpos = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -61635,6 +61662,48 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_position_gaps_select_deselect_count_496() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 5.0, 1.0]},
+                {"name": "B", "position": [2.0, -3.0, 2.0]},
+                {"name": "C", "position": [10.0, 10.0, 10.0]},
+                {"name": "NoPos"},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // position: A, B, C = 3
+            assert_eq!(lock.execute("select_entities_with_position", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 3);
+            assert_eq!(lock.execute("deselect_entities_with_position", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 3);
+
+            // position_above(y > 0): A(5), C(10) = 2
+            assert_eq!(lock.execute("count_entities_with_position_above", json!({"y_min": 0.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_position_above", json!({"y_min": 0.0})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_position_above", json!({"y_min": 0.0})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // position_below(y < 0): B(-3) = 1
+            assert_eq!(lock.execute("count_entities_with_position_below", json!({"y_max": 0.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_position_below", json!({"y_max": 0.0})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_position_below", json!({"y_max": 0.0})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // position_in_box([0..5, -10..10, 0..5]): A(1,5,1), B(2,-3,2) = 2
+            assert_eq!(lock.execute("count_entities_with_position_in_box", json!({"min_x":0.0,"min_y":-10.0,"min_z":0.0,"max_x":5.0,"max_y":10.0,"max_z":5.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_position_in_box", json!({"min_x":0.0,"min_y":-10.0,"min_z":0.0,"max_x":5.0,"max_y":10.0,"max_z":5.0})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_position_in_box", json!({"min_x":0.0,"min_y":-10.0,"min_z":0.0,"max_x":5.0,"max_y":10.0,"max_z":5.0})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
     }
 
     #[test]

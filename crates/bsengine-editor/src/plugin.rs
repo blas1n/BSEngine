@@ -1666,6 +1666,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_no_shared_tags
+            let snap_dewnst = snapshot.clone();
+            let sel_dewnst = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_no_shared_tags".to_string(),
+                description: "Deselect other entities that share NO tags with the given entity; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_dewnst.lock().unwrap();
+                    let target_tags: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != target_id && !e.tags.iter().any(|t| target_tags.contains(t.as_str())))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewnst.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_tag_overlap_count
+            let snap_gtoc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tag_overlap_count".to_string(),
+                description: "Count entities that have both tag_a and tag_b; returns {count}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tag_a": { "type": "string" },
+                        "tag_b": { "type": "string" }
+                    },
+                    "required": ["tag_a", "tag_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_a = input["tag_a"].as_str().unwrap_or("").to_string();
+                    let tag_b = input["tag_b"].as_str().unwrap_or("").to_string();
+                    let s = snap_gtoc.lock().unwrap();
+                    let count = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.contains(&tag_a) && e.tags.contains(&tag_b))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_no_shared_tags
             let snap_cewnst = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22043,6 +22102,120 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_no_shared_and_get_tag_overlap_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → [p, q], B → [p], C → [q]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "p"), (id_a, "q"), (id_b, "p"), (id_c, "q")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // get_tag_overlap_count p q → only A has both p and q = 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_tag_overlap_count", json!({"tag_a": "p", "tag_b": "q"}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // select_all then deselect_entities_with_no_shared_tags A → removes B (shares p) and C (shares q)? No...
+        // A shares p with B and q with C, so NONE are isolated from A. deselect_no_shared_tags A should remove 0.
+        // Let's verify: B shares p, C shares q, neither is isolated from A.
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_no_shared_tags",
+                    json!({"entity_id": id_a}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            // A shares tags with B and C, so no entities are isolated — removed_count = 0
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 0);
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

@@ -17688,6 +17688,88 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_children_count_between
+            let snap_sewccbt = snapshot.clone();
+            let sel_sewccbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_children_count_between".to_string(),
+                description: "Add to selection entities whose direct child count is >= min_count and <= max_count; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_count": { "type": "integer" },
+                        "max_count": { "type": "integer" }
+                    },
+                    "required": ["min_count", "max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let max = input["max_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewccbt.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| { let c = *child_counts.get(&e.id).unwrap_or(&0); c >= min && c <= max }).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewccbt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_children_count_between
+            let snap_dewccbt = snapshot.clone();
+            let sel_dewccbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_children_count_between".to_string(),
+                description: "Remove from selection entities whose direct child count is >= min_count and <= max_count; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_count": { "type": "integer" },
+                        "max_count": { "type": "integer" }
+                    },
+                    "required": ["min_count", "max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let max = input["max_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewccbt.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| { let c = *child_counts.get(&e.id).unwrap_or(&0); c >= min && c <= max }).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewccbt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_children_count_between
+            let snap_cowccbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_children_count_between".to_string(),
+                description: "Count entities whose direct child count is >= min_count and <= max_count; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_count": { "type": "integer" },
+                        "max_count": { "type": "integer" }
+                    },
+                    "required": ["min_count", "max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let max = input["max_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cowccbt.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let count = s.entities.iter().filter(|e| { let c = *child_counts.get(&e.id).unwrap_or(&0); c >= min && c <= max }).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_children_count_above
             let snap_cowcca = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -66019,6 +66101,68 @@ mod tests {
             "B rotation unchanged, got {}",
             rot_y_of(id_b)
         );
+    }
+
+    #[test]
+    fn mcp_select_deselect_count_entities_with_children_count_between() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root(3ch), B(2ch), A/C/D/E(0ch)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Root", "position": [0.0, 0.0, 0.0]},
+                {"name": "A",    "position": [1.0, 0.0, 0.0]},
+                {"name": "B",    "position": [2.0, 0.0, 0.0]},
+                {"name": "C",    "position": [3.0, 0.0, 0.0]},
+                {"name": "D",    "position": [4.0, 0.0, 0.0]},
+                {"name": "E",    "position": [5.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_root, id_a, id_b, id_c, id_d, id_e) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("Root"), get("A"), get("B"), get("C"), get("D"), get("E"))
+        };
+        for (child, parent) in [(id_a, id_root), (id_b, id_root), (id_c, id_root), (id_d, id_b), (id_e, id_b)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": child, "parent_id": parent})).unwrap();
+            app.update(); app.update();
+        }
+
+        // count_between(2, 3) → Root(3), B(2) → 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_children_count_between", json!({"min_count": 2, "max_count": 3})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+        }
+
+        // select_between(2, 3) → Root, B selected; added_count=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_children_count_between", json!({"min_count": 2, "max_count": 3})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+
+        // deselect_between(2, 3) → removes Root, B; removed_count=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_children_count_between", json!({"min_count": 2, "max_count": 3})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        let _ = (id_root, id_a, id_b, id_c, id_d, id_e);
     }
 
     #[test]

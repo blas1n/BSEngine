@@ -1,3 +1,4 @@
+pub mod aabb;
 pub mod angular_velocity;
 pub mod camera;
 pub mod color;
@@ -16,6 +17,7 @@ pub mod tween;
 pub mod velocity;
 pub mod visible;
 
+pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
 pub use color::Color;

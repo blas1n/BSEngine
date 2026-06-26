@@ -6,6 +6,7 @@ pub mod material;
 pub mod parent;
 pub mod time;
 pub mod transform;
+pub mod tween;
 
 pub use camera::Camera;
 pub use global_transform::GlobalTransform;
@@ -15,6 +16,7 @@ pub use material::Material;
 pub use parent::Parent;
 pub use time::Time;
 pub use transform::Transform;
+pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

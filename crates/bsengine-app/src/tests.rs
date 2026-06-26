@@ -20,4 +20,33 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(MyPlugin);
     }
+
+    #[test]
+    fn time_plugin_inserts_time_resource() {
+        use crate::TimePlugin;
+        use bsengine_core::Time;
+
+        let mut app = new_app();
+        app.add_plugins(TimePlugin);
+        app.update();
+
+        let time = app.world().resource::<Time>();
+        assert!(time.elapsed_seconds >= 0.0);
+    }
+
+    #[test]
+    fn time_advances_each_frame() {
+        use crate::TimePlugin;
+        use bsengine_core::Time;
+
+        let mut app = new_app();
+        app.add_plugins(TimePlugin);
+
+        app.update();
+        let e1 = app.world().resource::<Time>().elapsed_seconds;
+        app.update();
+        let e2 = app.world().resource::<Time>().elapsed_seconds;
+
+        assert!(e2 > e1, "elapsed_seconds should increase each frame");
+    }
 }

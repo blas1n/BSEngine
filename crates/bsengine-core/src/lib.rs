@@ -21,6 +21,7 @@ pub mod transform;
 pub mod tween;
 pub mod velocity;
 pub mod visible;
+pub mod z_index;
 
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
@@ -45,6 +46,7 @@ pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use velocity::Velocity;
 pub use visible::Visible;
+pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

@@ -16343,6 +16343,177 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_rotation_x_above
+            let snap_cerxa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_x_above".to_string(),
+                description: "Return count of entities whose X rotation (degrees) is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerxa.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_x_below
+            let snap_cerxb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_x_below".to_string(),
+                description: "Return count of entities whose X rotation (degrees) is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerxb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_x_equal
+            let snap_cerxeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_x_equal".to_string(),
+                description: "Return count of entities whose X rotation equals value (±0.001 degrees); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerxeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| (r[0] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_x_between
+            let snap_cerxbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_x_between".to_string(),
+                description: "Return count of entities whose X rotation is in [min_value, max_value] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerxbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] >= min && r[0] <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_y_above
+            let snap_cerya = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_y_above".to_string(),
+                description: "Return count of entities whose Y rotation (degrees) is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerya.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_y_below
+            let snap_ceryb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_y_below".to_string(),
+                description: "Return count of entities whose Y rotation (degrees) is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceryb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_y_equal
+            let snap_ceryeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_y_equal".to_string(),
+                description: "Return count of entities whose Y rotation equals value (±0.001 degrees); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceryeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| (r[1] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_y_between
+            let snap_cerybt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_y_between".to_string(),
+                description: "Return count of entities whose Y rotation is in [min_value, max_value] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerybt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] >= min && r[1] <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_z_above
+            let snap_cerza = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_z_above".to_string(),
+                description: "Return count of entities whose Z rotation (degrees) is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerza.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_z_below
+            let snap_cerzb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_z_below".to_string(),
+                description: "Return count of entities whose Z rotation (degrees) is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerzb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_z_equal
+            let snap_cerzeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_z_equal".to_string(),
+                description: "Return count of entities whose Z rotation equals value (±0.001 degrees); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerzeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| (r[2] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_z_between
+            let snap_cerzbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_z_between".to_string(),
+                description: "Return count of entities whose Z rotation is in [min_value, max_value] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cerzbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] >= min && r[2] <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // rename_selection_replace
             let snap_rsr2 = snapshot.clone();
             let sel_rsr2 = selection.clone();
@@ -61651,6 +61822,64 @@ mod tests {
             assert_eq!(ids.len(), 2);
             assert!(ids.contains(&id_b) && ids.contains(&id_c));
         }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_count_rotation_xyz() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [0.0, 0.0, 0.0]},
+                {"name": "C", "position": [0.0, 0.0, 0.0]},
+            ]})).unwrap();
+            drop(mcp);
+            app.update(); app.update();
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // A: rx=10,ry=20,rz=30; B: rx=50,ry=60,rz=70; C: rx=80,ry=80,rz=80
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_a, "rx": 10.0, "ry": 20.0, "rz": 30.0})).unwrap();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_b, "rx": 50.0, "ry": 60.0, "rz": 70.0})).unwrap();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_c, "rx": 80.0, "ry": 80.0, "rz": 80.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_rotation_x_above", json!({"threshold": 30.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_rotation_x_below", json!({"threshold": 30.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_rotation_x_equal", json!({"value": 50.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_rotation_x_between", json!({"min_value": 40.0, "max_value": 85.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_rotation_y_above", json!({"threshold": 30.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_rotation_y_below", json!({"threshold": 30.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_rotation_y_equal", json!({"value": 60.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_rotation_y_between", json!({"min_value": 55.0, "max_value": 85.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_rotation_z_above", json!({"threshold": 40.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_rotation_z_below", json!({"threshold": 40.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_rotation_z_equal", json!({"value": 70.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_rotation_z_between", json!({"min_value": 65.0, "max_value": 85.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+
         let _ = (id_a, id_b, id_c);
     }
 

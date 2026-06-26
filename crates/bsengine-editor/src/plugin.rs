@@ -14644,6 +14644,59 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_same_name
+            let snap_sewsn = snapshot.clone();
+            let sel_sewsn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_same_name".to_string(),
+                description: "Add to selection entities that share a name with at least one other entity; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewsn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+                    for e in &s.entities { if let Some(n) = &e.name { *name_counts.entry(n.clone()).or_insert(0) += 1; } }
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().and_then(|n| name_counts.get(n)).copied().unwrap_or(0) > 1).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewsn.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_same_name
+            let snap_dewsn = snapshot.clone();
+            let sel_dewsn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_same_name".to_string(),
+                description: "Remove from selection entities that share a name with at least one other entity; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewsn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+                    for e in &s.entities { if let Some(n) = &e.name { *name_counts.entry(n.clone()).or_insert(0) += 1; } }
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().and_then(|n| name_counts.get(n)).copied().unwrap_or(0) > 1).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewsn.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_same_name
+            let snap_cewsn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_same_name".to_string(),
+                description: "Return count of entities that share a name with at least one other entity; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewsn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+                    for e in &s.entities { if let Some(n) = &e.name { *name_counts.entry(n.clone()).or_insert(0) += 1; } }
+                    let count = s.entities.iter().filter(|e| e.name.as_ref().and_then(|n| name_counts.get(n)).copied().unwrap_or(0) > 1).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // move_selection_to_origin
             let sel_msto = selection.clone();
             let queue70 = cmd_queue.clone();
@@ -17842,6 +17895,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_name_shorter_than
+            let snap_sewnsht = snapshot.clone();
+            let sel_sewnsht = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_name_shorter_than".to_string(),
+                description: "Add to selection entities whose name length is strictly less than max_length; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_length":{"type":"integer"}},"required":["max_length"]})),
+                handler: Box::new(move |input| {
+                    let max_len = input["max_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewnsht.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.len() < max_len).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewnsht.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_name_shorter_than
+            let snap_dewnsht = snapshot.clone();
+            let sel_dewnsht = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_name_shorter_than".to_string(),
+                description: "Remove from selection entities whose name length is strictly less than max_length; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_length":{"type":"integer"}},"required":["max_length"]})),
+                handler: Box::new(move |input| {
+                    let max_len = input["max_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewnsht.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.len() < max_len).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewnsht.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_name_shorter_than
+            let snap_cewnsht = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_shorter_than".to_string(),
+                description: "Return count of entities whose name length is strictly less than max_length; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_length":{"type":"integer"}},"required":["max_length"]})),
+                handler: Box::new(move |input| {
+                    let max_len = input["max_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewnsht.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.len() < max_len).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // select_entities_name_starts_with
             let snap_sensw = snapshot.clone();
             let sel_sensw = selection.clone();
@@ -18367,6 +18470,56 @@ impl Plugin for EditorPlugin {
                         .map(|e| json!({"id": e.id, "name": e.name}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_name_longer_than
+            let snap_sewnlt = snapshot.clone();
+            let sel_sewnlt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_name_longer_than".to_string(),
+                description: "Add to selection entities whose name length is strictly greater than min_length; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_length":{"type":"integer"}},"required":["min_length"]})),
+                handler: Box::new(move |input| {
+                    let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewnlt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewnlt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_name_longer_than
+            let snap_dewnlt = snapshot.clone();
+            let sel_dewnlt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_name_longer_than".to_string(),
+                description: "Remove from selection entities whose name length is strictly greater than min_length; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_length":{"type":"integer"}},"required":["min_length"]})),
+                handler: Box::new(move |input| {
+                    let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewnlt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewnlt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_name_longer_than
+            let snap_cewnlt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_longer_than".to_string(),
+                description: "Return count of entities whose name length is strictly greater than min_length; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_length":{"type":"integer"}},"required":["min_length"]})),
+                handler: Box::new(move |input| {
+                    let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewnlt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -19127,6 +19280,56 @@ impl Plugin for EditorPlugin {
                         .map(|e| json!({"id": e.id, "name": e.name}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_no_parent_and_no_children
+            let snap_sewnpnc = snapshot.clone();
+            let sel_sewnpnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_no_parent_and_no_children".to_string(),
+                description: "Add to selection isolated entities (no parent, not a parent of any entity); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewnpnc.lock().unwrap();
+                    let all_parent_ids: std::collections::HashSet<u64> = s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.parent_id.is_none() && !all_parent_ids.contains(&e.id)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewnpnc.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_no_parent_and_no_children
+            let snap_dewnpnc = snapshot.clone();
+            let sel_dewnpnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_no_parent_and_no_children".to_string(),
+                description: "Remove from selection isolated entities (no parent, not a parent of any entity); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewnpnc.lock().unwrap();
+                    let all_parent_ids: std::collections::HashSet<u64> = s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.parent_id.is_none() && !all_parent_ids.contains(&e.id)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewnpnc.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_no_parent_and_no_children
+            let snap_cewnpnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_parent_and_no_children".to_string(),
+                description: "Return count of isolated entities (no parent, not a parent of any entity); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewnpnc.lock().unwrap();
+                    let all_parent_ids: std::collections::HashSet<u64> = s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let count = s.entities.iter().filter(|e| e.parent_id.is_none() && !all_parent_ids.contains(&e.id)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -21970,6 +22173,62 @@ impl Plugin for EditorPlugin {
                         .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_same_tag_as
+            let snap_sewsta = snapshot.clone();
+            let sel_sewsta = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_same_tag_as".to_string(),
+                description: "Add to selection entities that share at least one tag with the given entity (excluding the entity itself); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"entity_id":{"type":"integer"}},"required":["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_sewsta.lock().unwrap();
+                    let target_tags: std::collections::HashSet<String> = s.entities.iter().find(|e| e.id == target_id).map(|e| e.tags.iter().cloned().collect()).unwrap_or_default();
+                    if target_tags.is_empty() { return McpToolOutput::success(json!({"added_count": 0})); }
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.id != target_id && e.tags.iter().any(|t| target_tags.contains(t))).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewsta.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_same_tag_as
+            let snap_dewsta = snapshot.clone();
+            let sel_dewsta = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_same_tag_as".to_string(),
+                description: "Remove from selection entities that share at least one tag with the given entity (excluding the entity itself); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"entity_id":{"type":"integer"}},"required":["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_dewsta.lock().unwrap();
+                    let target_tags: std::collections::HashSet<String> = s.entities.iter().find(|e| e.id == target_id).map(|e| e.tags.iter().cloned().collect()).unwrap_or_default();
+                    if target_tags.is_empty() { return McpToolOutput::success(json!({"removed_count": 0})); }
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.id != target_id && e.tags.iter().any(|t| target_tags.contains(t))).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewsta.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_same_tag_as
+            let snap_cewsta = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_same_tag_as".to_string(),
+                description: "Return count of entities that share at least one tag with the given entity (excluding the entity itself); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"entity_id":{"type":"integer"}},"required":["entity_id"]})),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_cewsta.lock().unwrap();
+                    let target_tags: std::collections::HashSet<String> = s.entities.iter().find(|e| e.id == target_id).map(|e| e.tags.iter().cloned().collect()).unwrap_or_default();
+                    if target_tags.is_empty() { return McpToolOutput::success(json!({"count": 0})); }
+                    let count = s.entities.iter().filter(|e| e.id != target_id && e.tags.iter().any(|t| target_tags.contains(t))).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -61282,6 +61541,88 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_name_geo_gaps_492() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // entities: A(5 chars), BB(2 chars), CC(2 chars), D(1 char)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Alpha"}, {"name": "BB"}, {"name": "CC"}, {"name": "D"},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let ids = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let f = |n: &str| es.iter().find(|e| e["name"].as_str() == Some(n)).unwrap()["id"].as_u64().unwrap();
+            (f("Alpha"), f("BB"), f("CC"), f("D"))
+        };
+
+        // name_longer_than 2: Alpha(5) → 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_name_longer_than", json!({"min_length": 2})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_name_longer_than", json!({"min_length": 2})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_name_longer_than", json!({"min_length": 2})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
+        // name_shorter_than 2: D(1) → 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_name_shorter_than", json!({"max_length": 2})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_name_shorter_than", json!({"max_length": 2})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_name_shorter_than", json!({"max_length": 2})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // tag BB and CC with same tag "grp", tag Alpha with "other"
+        for (id, tag) in [(ids.0, "other"), (ids.1, "grp"), (ids.2, "grp")] {
+            { let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>(); mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap(); }
+            app.update(); app.update();
+        }
+
+        // same_tag_as BB: CC shares "grp" → 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_same_tag_as", json!({"entity_id": ids.1})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_same_tag_as", json!({"entity_id": ids.1})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_same_tag_as", json!({"entity_id": ids.1})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // same_name: duplicate "Dup" × 2, others unique
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [{"name": "Dup"}, {"name": "Dup"}]})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_same_name", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_same_name", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_same_name", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
+
+        // no_parent_and_no_children: all 6 entities are isolated (no parents/children)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            let total = lock.execute("count_entities_with_no_parent_and_no_children", json!({})).unwrap().content["count"].as_u64().unwrap();
+            let sel = lock.execute("select_entities_with_no_parent_and_no_children", json!({})).unwrap().content["added_count"].as_u64().unwrap();
+            let desel = lock.execute("deselect_entities_with_no_parent_and_no_children", json!({})).unwrap().content["removed_count"].as_u64().unwrap();
+            assert_eq!(total, sel);
+            assert_eq!(sel, desel);
+            assert!(total >= 4);
+        }
     }
 
     #[test]

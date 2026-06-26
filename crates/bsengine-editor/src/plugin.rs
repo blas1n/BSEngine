@@ -17343,6 +17343,160 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_position_x_above
+            let snap_sewpxa = snapshot.clone();
+            let sel_sewpxa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_position_x_above".to_string(),
+                description: "Add to selection entities whose X position is strictly above threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewpxa.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewpxa.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_position_x_below
+            let snap_sewpxb = snapshot.clone();
+            let sel_sewpxb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_position_x_below".to_string(),
+                description: "Add to selection entities whose X position is strictly below threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewpxb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewpxb.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_position_x_equal
+            let snap_sewpxeq = snapshot.clone();
+            let sel_sewpxeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_position_x_equal".to_string(),
+                description: "Add to selection entities whose X position equals value (±0.001); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewpxeq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| (p[0] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewpxeq.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_position_x_between
+            let snap_sewpxbt = snapshot.clone();
+            let sel_sewpxbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_position_x_between".to_string(),
+                description: "Add to selection entities whose X position is in [min_x, max_x] inclusive; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"max_x":{"type":"number"}},"required":["min_x","max_x"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewpxbt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] >= min_x && p[0] <= max_x).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewpxbt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_position_x_above
+            let snap_dewpxa = snapshot.clone();
+            let sel_dewpxa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_position_x_above".to_string(),
+                description: "Remove from selection entities whose X position is strictly above threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewpxa.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewpxa.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_position_x_below
+            let snap_dewpxb = snapshot.clone();
+            let sel_dewpxb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_position_x_below".to_string(),
+                description: "Remove from selection entities whose X position is strictly below threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewpxb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewpxb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_position_x_equal
+            let snap_dewpxeq = snapshot.clone();
+            let sel_dewpxeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_position_x_equal".to_string(),
+                description: "Remove from selection entities whose X position equals value (±0.001); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewpxeq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| (p[0] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewpxeq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_position_x_between
+            let snap_dewpxbt = snapshot.clone();
+            let sel_dewpxbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_position_x_between".to_string(),
+                description: "Remove from selection entities whose X position is in [min_x, max_x] inclusive; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"max_x":{"type":"number"}},"required":["min_x","max_x"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewpxbt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] >= min_x && p[0] <= max_x).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewpxbt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_with_position_y_equal
             let snap_gewpyeq = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -60112,6 +60266,89 @@ mod tests {
             assert!(ids.contains(&id_a),  "A(sz=3) < 7");
             assert!(ids.contains(&id_b),  "B(sz=6) < 7");
             assert!(!ids.contains(&id_c), "C(sz=9) not < 7");
+        }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_select_deselect_position_x() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A(x=1), B(x=5), C(x=8)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [5.0, 0.0, 0.0]},
+                {"name": "C", "position": [8.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // select_above(4) → B,C; added=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_position_x_above", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        // deselect_above(4) → removes B,C; removed=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_position_x_above", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        // select_below(4) → A; added=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_position_x_below", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        // deselect_below(4) → removed=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_position_x_below", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        // select_equal(5.0) → B; added=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_position_x_equal", json!({"value": 5.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        // deselect_equal(5.0) → removed=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_position_x_equal", json!({"value": 5.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        // select_between(4, 9) → B,C; added=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_position_x_between", json!({"min_x": 4.0, "max_x": 9.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        // deselect_between(4, 9) → removed=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_position_x_between", json!({"min_x": 4.0, "max_x": 9.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
         }
         let _ = (id_a, id_b, id_c);
     }

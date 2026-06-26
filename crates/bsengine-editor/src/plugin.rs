@@ -1666,6 +1666,72 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_all_tags_in_list
+            let snap_sewatil = snapshot.clone();
+            let sel_sewatil = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_all_tags_in_list".to_string(),
+                description: "Select entities that have ALL tags from the given list; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_list: Vec<String> = input["tags"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    let s = snap_sewatil.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| tag_list.iter().all(|t| e.tags.contains(t)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewatil.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_all_tags_in_list
+            let snap_dewatil = snapshot.clone();
+            let sel_dewatil = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_all_tags_in_list".to_string(),
+                description: "Deselect entities that have ALL tags from the given list; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_list: Vec<String> = input["tags"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    let s = snap_dewatil.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| tag_list.iter().all(|t| e.tags.contains(t)))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewatil.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // count_entities_with_tag_in_list
             let snap_cewtil = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22624,6 +22690,81 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entities_with_all_tags_in_list() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // A → [p, q], B → [p, q, r], C → [p]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "p"), (id_a, "q"), (id_b, "p"), (id_b, "q"), (id_b, "r"), (id_c, "p")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // select_entities_with_all_tags_in_list [p, q] → A and B (both have p and q)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_all_tags_in_list", json!({"tags": ["p", "q"]})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp.0.lock().unwrap()
+                .execute("get_selected_entities", json!({})).unwrap();
+            let sel_ids: std::collections::HashSet<u64> = sel_out.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(sel_ids.contains(&id_a));
+            assert!(sel_ids.contains(&id_b));
+            assert!(!sel_ids.contains(&id_c));
+        }
+
+        // deselect_entities_with_all_tags_in_list [p, q, r] → removes only B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_all_tags_in_list", json!({"tags": ["p", "q", "r"]})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp.0.lock().unwrap()
+                .execute("get_selected_entities", json!({})).unwrap();
+            let sel_ids: std::collections::HashSet<u64> = sel_out.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(sel_ids.contains(&id_a));
+            assert!(!sel_ids.contains(&id_b));
+            assert!(!sel_ids.contains(&id_c));
+        }
     }
 
     #[test]

@@ -1,10 +1,14 @@
-use bevy_ecs::prelude::Resource;
+use std::collections::HashMap;
+
+use bevy_ecs::prelude::{Entity, Resource};
+use rapier3d::pipeline::EventHandler;
 use rapier3d::prelude::*;
 
 #[derive(Resource)]
 pub struct PhysicsWorld {
     pub(crate) rigid_body_set: RigidBodySet,
     pub(crate) collider_set: ColliderSet,
+    pub(crate) collider_entity_map: HashMap<ColliderHandle, Entity>,
     gravity: Vector,
     integration_parameters: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
@@ -27,6 +31,7 @@ impl PhysicsWorld {
         Self {
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
+            collider_entity_map: HashMap::new(),
             gravity: Vector::new(0.0, -gravity_magnitude, 0.0),
             integration_parameters: IntegrationParameters::default(),
             physics_pipeline: PhysicsPipeline::new(),
@@ -39,7 +44,7 @@ impl PhysicsWorld {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self, event_handler: &dyn EventHandler) {
         self.physics_pipeline.step(
             self.gravity,
             &self.integration_parameters,
@@ -52,7 +57,7 @@ impl PhysicsWorld {
             &mut self.multibody_joint_set,
             &mut self.ccd_solver,
             &(),
-            &(),
+            event_handler,
         );
     }
 

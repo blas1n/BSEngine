@@ -17664,6 +17664,66 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_children_count_above
+            let snap_cowcca = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_children_count_above".to_string(),
+                description: "Count entities with strictly more than min_count direct children; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "min_count": { "type": "integer" } },
+                    "required": ["min_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_count = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cowcca.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let count = s.entities.iter().filter(|e| *child_counts.get(&e.id).unwrap_or(&0) > min_count).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_children_count_below
+            let snap_cowccb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_children_count_below".to_string(),
+                description: "Count entities with strictly fewer than max_count direct children; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "max_count": { "type": "integer" } },
+                    "required": ["max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_count = input["max_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cowccb.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let count = s.entities.iter().filter(|e| *child_counts.get(&e.id).unwrap_or(&0) < max_count).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_children_count_equal
+            let snap_cowcce = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_children_count_equal".to_string(),
+                description: "Count entities with exactly count direct children; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "count": { "type": "integer" } },
+                    "required": ["count"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cowcce.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let count = s.entities.iter().filter(|e| *child_counts.get(&e.id).unwrap_or(&0) == target).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_children_count_below
             let snap_gewccb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -65935,6 +65995,68 @@ mod tests {
             "B rotation unchanged, got {}",
             rot_y_of(id_b)
         );
+    }
+
+    #[test]
+    fn mcp_count_entities_with_children_count_above_below_equal() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root(3ch), B(2ch), A/C/D/E(0ch)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Root", "position": [0.0, 0.0, 0.0]},
+                {"name": "A",    "position": [1.0, 0.0, 0.0]},
+                {"name": "B",    "position": [2.0, 0.0, 0.0]},
+                {"name": "C",    "position": [3.0, 0.0, 0.0]},
+                {"name": "D",    "position": [4.0, 0.0, 0.0]},
+                {"name": "E",    "position": [5.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_root, id_a, id_b, id_c, id_d, id_e) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("Root"), get("A"), get("B"), get("C"), get("D"), get("E"))
+        };
+        for (child, parent) in [(id_a, id_root), (id_b, id_root), (id_c, id_root), (id_d, id_b), (id_e, id_b)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": child, "parent_id": parent})).unwrap();
+            app.update(); app.update();
+        }
+
+        // count_above(1) → Root(3), B(2) → 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_children_count_above", json!({"min_count": 1})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+        }
+
+        // count_below(1) → A,C,D,E(0ch) → 4
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_children_count_below", json!({"max_count": 1})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 4);
+        }
+
+        // count_equal(0) → A,C,D,E → 4
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_children_count_equal", json!({"count": 0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 4);
+        }
+        let _ = (id_root, id_a, id_b, id_c, id_d, id_e);
     }
 
     #[test]

@@ -1666,6 +1666,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_tag_union
+            let snap_gtu = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tag_union".to_string(),
+                description: "Return all tags from both entities combined (deduplicated); returns {tags}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_a_id": { "type": "integer" },
+                        "entity_b_id": { "type": "integer" }
+                    },
+                    "required": ["entity_a_id", "entity_b_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let id_a = input["entity_a_id"].as_u64().unwrap_or(0);
+                    let id_b = input["entity_b_id"].as_u64().unwrap_or(0);
+                    let s = snap_gtu.lock().unwrap();
+                    let tags_a: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_a)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let tags_b: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_b)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let mut union: Vec<&str> = tags_a.union(&tags_b).copied().collect();
+                    union.sort();
+                    McpToolOutput::success(json!({"tags": union}))
+                }),
+            });
+
+            // get_tag_difference
+            let snap_gtd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tag_difference".to_string(),
+                description: "Return tags in entity_a but NOT in entity_b; returns {tags}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_a_id": { "type": "integer" },
+                        "entity_b_id": { "type": "integer" }
+                    },
+                    "required": ["entity_a_id", "entity_b_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let id_a = input["entity_a_id"].as_u64().unwrap_or(0);
+                    let id_b = input["entity_b_id"].as_u64().unwrap_or(0);
+                    let s = snap_gtd.lock().unwrap();
+                    let tags_a: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_a)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let tags_b: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_b)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let mut diff: Vec<&str> = tags_a.difference(&tags_b).copied().collect();
+                    diff.sort();
+                    McpToolOutput::success(json!({"tags": diff}))
+                }),
+            });
+
             // get_entities_sorted_by_tag_count_asc
             let snap_gesbta = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22382,6 +22444,73 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_tag_union_and_tag_difference() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // A → [a, b, c], B → [b, c, d]
+        let (id_a, id_b) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b)
+        };
+        for (id, tag) in [(id_a, "a"), (id_a, "b"), (id_a, "c"), (id_b, "b"), (id_b, "c"), (id_b, "d")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // get_tag_union A B → {a, b, c, d}
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_tag_union", json!({"entity_a_id": id_a, "entity_b_id": id_b})).unwrap();
+            assert!(out.is_ok());
+            let mut tags: Vec<String> = out.content["tags"].as_array().unwrap()
+                .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            tags.sort();
+            assert_eq!(tags, vec!["a", "b", "c", "d"]);
+        }
+
+        // get_tag_difference A B → {a} (in A but not B)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_tag_difference", json!({"entity_a_id": id_a, "entity_b_id": id_b})).unwrap();
+            assert!(out.is_ok());
+            let tags: Vec<String> = out.content["tags"].as_array().unwrap()
+                .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            assert_eq!(tags, vec!["a"]);
+        }
+
+        // get_tag_difference B A → {d} (in B but not A)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_tag_difference", json!({"entity_a_id": id_b, "entity_b_id": id_a})).unwrap();
+            assert!(out.is_ok());
+            let tags: Vec<String> = out.content["tags"].as_array().unwrap()
+                .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            assert_eq!(tags, vec!["d"]);
+        }
     }
 
     #[test]

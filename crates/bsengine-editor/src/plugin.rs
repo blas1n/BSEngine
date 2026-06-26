@@ -17514,6 +17514,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_children_count_below
+            let snap_gewccb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_children_count_below".to_string(),
+                description: "Return entities whose number of direct children is strictly below max_count; returns {entities}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "max_count": { "type": "integer" } },
+                    "required": ["max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let max_count = input["max_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewccb.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        child_counts.entry(e.id).or_insert(0);
+                        if let Some(pid) = e.parent_id {
+                            *child_counts.entry(pid).or_insert(0) += 1;
+                        }
+                    }
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| *child_counts.get(&e.id).unwrap_or(&0) < max_count)
+                        .map(|e| json!({"id": e.id, "name": e.name, "children_count": child_counts.get(&e.id).copied().unwrap_or(0)}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // get_entities_with_children_count_equal
+            let snap_gewcce = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_children_count_equal".to_string(),
+                description: "Return entities whose number of direct children equals the given count; returns {entities}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "count": { "type": "integer" } },
+                    "required": ["count"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewcce.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities {
+                        child_counts.entry(e.id).or_insert(0);
+                        if let Some(pid) = e.parent_id {
+                            *child_counts.entry(pid).or_insert(0) += 1;
+                        }
+                    }
+                    let entities: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| *child_counts.get(&e.id).unwrap_or(&0) == target)
+                        .map(|e| json!({"id": e.id, "name": e.name, "children_count": child_counts.get(&e.id).copied().unwrap_or(0)}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
             // select_entities_by_name_contains
             let snap_sebnc = snapshot.clone();
             let sel_sebnc = selection.clone();
@@ -65729,6 +65785,74 @@ mod tests {
             "B rotation unchanged, got {}",
             rot_y_of(id_b)
         );
+    }
+
+    #[test]
+    fn mcp_children_count_below_and_equal() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // root has 3 children: A, B, C. B has 2 children: D, E. C has 0 children.
+        // Hierarchy: root→{A(0ch), B(2ch: D,E), C(0ch)}, depth 2 for D/E
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Root", "position": [0.0, 0.0, 0.0]},
+                {"name": "A",    "position": [1.0, 0.0, 0.0]},
+                {"name": "B",    "position": [2.0, 0.0, 0.0]},
+                {"name": "C",    "position": [3.0, 0.0, 0.0]},
+                {"name": "D",    "position": [4.0, 0.0, 0.0]},
+                {"name": "E",    "position": [5.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_root, id_a, id_b, id_c, id_d, id_e) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("Root"), get("A"), get("B"), get("C"), get("D"), get("E"))
+        };
+
+        // set parents: A,B,C → Root; D,E → B
+        for (child, parent) in [(id_a, id_root), (id_b, id_root), (id_c, id_root), (id_d, id_b), (id_e, id_b)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": child, "parent_id": parent})).unwrap();
+            app.update(); app.update();
+        }
+
+        // children counts: Root=3, A=0, B=2, C=0, D=0, E=0
+
+        // get_entities_with_children_count_below(2) → Root(3) excluded; B(2) excluded; A,C,D,E(0) included
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_children_count_below", json!({"max_count": 2})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entities"].as_array().unwrap().iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_root), "Root(3 ch) not < 2");
+            assert!(ids.contains(&id_a),     "A(0 ch) < 2");
+            assert!(!ids.contains(&id_b),    "B(2 ch) not < 2");
+            assert!(ids.contains(&id_c),     "C(0 ch) < 2");
+        }
+
+        // get_entities_with_children_count_equal(0) → A, C, D, E
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_children_count_equal", json!({"count": 0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entities"].as_array().unwrap().iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_root), "Root(3 ch) != 0");
+            assert!(ids.contains(&id_a),     "A(0 ch) == 0");
+            assert!(!ids.contains(&id_b),    "B(2 ch) != 0");
+            assert!(ids.contains(&id_c),     "C(0 ch) == 0");
+            assert!(ids.contains(&id_d),     "D(0 ch) == 0");
+            assert!(ids.contains(&id_e),     "E(0 ch) == 0");
+        }
+        let _ = (id_root, id_a, id_b, id_c, id_d, id_e);
     }
 
     #[test]

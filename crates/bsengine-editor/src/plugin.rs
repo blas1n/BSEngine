@@ -17664,6 +17664,30 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_children_count_between
+            let snap_gewccbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_children_count_between".to_string(),
+                description: "Return entities whose direct child count is >= min_count and <= max_count; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_count": { "type": "integer" },
+                        "max_count": { "type": "integer" }
+                    },
+                    "required": ["min_count", "max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let max = input["max_count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewccbt.lock().unwrap();
+                    let mut child_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+                    for e in &s.entities { child_counts.entry(e.id).or_insert(0); if let Some(pid) = e.parent_id { *child_counts.entry(pid).or_insert(0) += 1; } }
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| { let c = *child_counts.get(&e.id).unwrap_or(&0); c >= min && c <= max }).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // count_entities_with_children_count_above
             let snap_cowcca = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -65995,6 +66019,61 @@ mod tests {
             "B rotation unchanged, got {}",
             rot_y_of(id_b)
         );
+    }
+
+    #[test]
+    fn mcp_get_entities_with_children_count_between() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Root(3ch), B(2ch), A/C/D/E(0ch)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Root", "position": [0.0, 0.0, 0.0]},
+                {"name": "A",    "position": [1.0, 0.0, 0.0]},
+                {"name": "B",    "position": [2.0, 0.0, 0.0]},
+                {"name": "C",    "position": [3.0, 0.0, 0.0]},
+                {"name": "D",    "position": [4.0, 0.0, 0.0]},
+                {"name": "E",    "position": [5.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_root, id_a, id_b, id_c, id_d, id_e) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("Root"), get("A"), get("B"), get("C"), get("D"), get("E"))
+        };
+        for (child, parent) in [(id_a, id_root), (id_b, id_root), (id_c, id_root), (id_d, id_b), (id_e, id_b)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": child, "parent_id": parent})).unwrap();
+            app.update(); app.update();
+        }
+
+        // between(1, 2) → Root(3ch) excluded; B(2ch) included; A/C/D/E(0ch) excluded → [B]
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_children_count_between", json!({"min_count": 1, "max_count": 2})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+
+        // between(0, 3) → all 6
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_children_count_between", json!({"min_count": 0, "max_count": 3})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 6);
+        }
+        let _ = (id_root, id_a, id_b, id_c, id_d, id_e);
     }
 
     #[test]

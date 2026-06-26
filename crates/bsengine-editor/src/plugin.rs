@@ -15707,6 +15707,93 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_rotation_x_equal
+            let snap_gewrxeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_x_equal".to_string(),
+                description: "Return entity IDs whose X rotation (degrees) equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewrxeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[0] - value).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_rotation_x_between
+            let snap_gewrxbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_x_between".to_string(),
+                description: "Return entity IDs whose X rotation (degrees) is in [min_value, max_value] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewrxbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] >= min && r[0] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_rotation_y_equal
+            let snap_gewryeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_y_equal".to_string(),
+                description: "Return entity IDs whose Y rotation (degrees) equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewryeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[1] - value).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_rotation_y_between
+            let snap_gewrybt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_y_between".to_string(),
+                description: "Return entity IDs whose Y rotation (degrees) is in [min_value, max_value] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewrybt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] >= min && r[1] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_rotation_z_equal
+            let snap_gewrzeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_z_equal".to_string(),
+                description: "Return entity IDs whose Z rotation (degrees) equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewrzeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[2] - value).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_rotation_z_between
+            let snap_gewrzbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_rotation_z_between".to_string(),
+                description: "Return entity IDs whose Z rotation (degrees) is in [min_value, max_value] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewrzbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] >= min && r[2] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // rename_selection_replace
             let snap_rsr2 = snapshot.clone();
             let sel_rsr2 = selection.clone();
@@ -59795,6 +59882,94 @@ mod tests {
             assert!(ids.contains(&id_a),  "A(sz=3) < 7");
             assert!(ids.contains(&id_b),  "B(sz=6) < 7");
             assert!(!ids.contains(&id_c), "C(sz=9) not < 7");
+        }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_rotation_xyz_equal_between() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [1.0, 0.0, 0.0]},
+                {"name": "C", "position": [2.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // A: rx=10 ry=20 rz=30; B: rx=45 ry=45 rz=45; C: rx=60 ry=70 rz=80
+        for (id, rx, ry, rz) in [(id_a, 10.0, 20.0, 30.0f32), (id_b, 45.0, 45.0, 45.0), (id_c, 60.0, 70.0, 80.0)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id, "rx": rx, "ry": ry, "rz": rz})).unwrap();
+            app.update(); app.update();
+        }
+
+        // rotation_x_equal(45.0) → B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_rotation_x_equal", json!({"value": 45.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+
+        // rotation_x_between(5, 50) → A(10), B(45)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_rotation_x_between", json!({"min_value": 5.0, "max_value": 50.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_a) && ids.contains(&id_b));
+        }
+
+        // rotation_y_equal(70.0) → C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_rotation_y_equal", json!({"value": 70.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_c]);
+        }
+
+        // rotation_y_between(30, 50) → B(45) only (A=20 excluded, C=70 excluded)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_rotation_y_between", json!({"min_value": 30.0, "max_value": 50.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+
+        // rotation_z_equal(30.0) → A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_rotation_z_equal", json!({"value": 30.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_a]);
+        }
+
+        // rotation_z_between(40, 85) → B(45), C(80)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_rotation_z_between", json!({"min_value": 40.0, "max_value": 85.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b) && ids.contains(&id_c));
         }
         let _ = (id_a, id_b, id_c);
     }

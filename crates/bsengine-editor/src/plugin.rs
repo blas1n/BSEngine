@@ -12828,6 +12828,160 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_fov_above
+            let snap_sewfa = snapshot.clone();
+            let sel_sewfa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_fov_above".to_string(),
+                description: "Add to selection cameras whose FOV is strictly above min_fov; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_fov":{"type":"number"}},"required":["min_fov"]})),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewfa.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| f > min_fov).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewfa.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_fov_below
+            let snap_sewfb = snapshot.clone();
+            let sel_sewfb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_fov_below".to_string(),
+                description: "Add to selection cameras whose FOV is strictly below max_fov; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_fov":{"type":"number"}},"required":["max_fov"]})),
+                handler: Box::new(move |input| {
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewfb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| f < max_fov).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewfb.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_fov_equal
+            let snap_sewfeq = snapshot.clone();
+            let sel_sewfeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_fov_equal".to_string(),
+                description: "Add to selection cameras whose FOV equals fov (within 0.001); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"fov":{"type":"number"}},"required":["fov"]})),
+                handler: Box::new(move |input| {
+                    let fov = input["fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewfeq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| (f - fov).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewfeq.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_fov_between
+            let snap_sewfbt = snapshot.clone();
+            let sel_sewfbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_fov_between".to_string(),
+                description: "Add to selection cameras whose FOV is strictly between min_fov and max_fov (exclusive); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_fov":{"type":"number"},"max_fov":{"type":"number"}},"required":["min_fov","max_fov"]})),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewfbt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| f > min_fov && f < max_fov).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewfbt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_fov_above
+            let snap_dewfa = snapshot.clone();
+            let sel_dewfa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_fov_above".to_string(),
+                description: "Remove from selection cameras whose FOV is strictly above min_fov; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_fov":{"type":"number"}},"required":["min_fov"]})),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewfa.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| f > min_fov).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewfa.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_fov_below
+            let snap_dewfb = snapshot.clone();
+            let sel_dewfb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_fov_below".to_string(),
+                description: "Remove from selection cameras whose FOV is strictly below max_fov; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_fov":{"type":"number"}},"required":["max_fov"]})),
+                handler: Box::new(move |input| {
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewfb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| f < max_fov).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewfb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_fov_equal
+            let snap_dewfeq = snapshot.clone();
+            let sel_dewfeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_fov_equal".to_string(),
+                description: "Remove from selection cameras whose FOV equals fov (within 0.001); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"fov":{"type":"number"}},"required":["fov"]})),
+                handler: Box::new(move |input| {
+                    let fov = input["fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewfeq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| (f - fov).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewfeq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_fov_between
+            let snap_dewfbt = snapshot.clone();
+            let sel_dewfbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_fov_between".to_string(),
+                description: "Remove from selection cameras whose FOV is strictly between min_fov and max_fov (exclusive); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_fov":{"type":"number"},"max_fov":{"type":"number"}},"required":["min_fov","max_fov"]})),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewfbt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.camera_fov.map(|f| f > min_fov && f < max_fov).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewfbt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_with_same_parent
             let snap_gewsp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -69211,6 +69365,97 @@ mod tests {
         let ents = out.content["entities"].as_array().unwrap();
         assert_eq!(ents.len(), 1, "exactly 1 spot light");
         assert_eq!(ents[0]["light_type"].as_str(), Some("spot"));
+    }
+
+    #[test]
+    fn mcp_select_deselect_entities_with_fov() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // cam60 (fov=60), cam90 (fov=90)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("spawn_camera", json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("spawn_camera", json!({"fov_y_degrees": 90.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // select_above(70) → cam90; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_fov_above", json!({"min_fov": 70.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_above(70) → removes cam90; removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_fov_above", json!({"min_fov": 70.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // select_below(70) → cam60; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_fov_below", json!({"max_fov": 70.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_below(70) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_fov_below", json!({"max_fov": 70.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // select_equal(90.0) → cam90; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_fov_equal", json!({"fov": 90.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_equal(90.0) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_fov_equal", json!({"fov": 90.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // select_between(50, 70) → cam60; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_fov_between", json!({"min_fov": 50.0, "max_fov": 70.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_between(50, 70) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_fov_between", json!({"min_fov": 50.0, "max_fov": 70.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

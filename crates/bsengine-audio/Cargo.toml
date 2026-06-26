@@ -1,0 +1,17 @@
+[package]
+name = "bsengine-audio"
+description = "Audio playback via kira — AudioSource/AudioPlayer components and AudioPlugin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+bsengine-core    = { workspace = true }
+bevy_app         = { workspace = true }
+bevy_ecs         = { workspace = true }
+kira             = { workspace = true }
+tracing          = { workspace = true }
+
+[dev-dependencies]
+bsengine-app = { workspace = true }

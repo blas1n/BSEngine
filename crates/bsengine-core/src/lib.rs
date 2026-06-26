@@ -1,5 +1,6 @@
 pub mod aabb;
 pub mod angular_velocity;
+pub mod animation_player;
 pub mod audio_emitter;
 pub mod camera;
 pub mod capsule;
@@ -35,6 +36,7 @@ pub mod z_index;
 
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
+pub use animation_player::AnimationPlayer;
 pub use audio_emitter::{AudioEmitter, AudioListener};
 pub use camera::Camera;
 pub use capsule::Capsule;

@@ -12977,6 +12977,49 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for positive_x, negative_x, positive_y, negative_y, positive_z, negative_z
+            let snap_sewpx = snapshot.clone(); let sel_sewpx = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_positive_x".to_string(), description: "Add to selection entities where position.x > 0; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewpx.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] > 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpx.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpx = snapshot.clone(); let sel_dewpx = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_positive_x".to_string(), description: "Remove from selection entities where position.x > 0; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewpx.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] > 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpx.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_positive_x".to_string(), description: "Return count of entities where position.x > 0; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewpx.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[0] > 0.0).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewnx = snapshot.clone(); let sel_sewnx = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_negative_x".to_string(), description: "Add to selection entities where position.x < 0; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewnx.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] < 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewnx.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewnx = snapshot.clone(); let sel_dewnx = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_negative_x".to_string(), description: "Remove from selection entities where position.x < 0; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewnx.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] < 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewnx.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewnx = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_negative_x".to_string(), description: "Return count of entities where position.x < 0; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewnx.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[0] < 0.0).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewpy = snapshot.clone(); let sel_sewpy = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_positive_y".to_string(), description: "Add to selection entities where position.y > 0; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewpy.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] > 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpy.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpy = snapshot.clone(); let sel_dewpy = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_positive_y".to_string(), description: "Remove from selection entities where position.y > 0; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewpy.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] > 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpy.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpy = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_positive_y".to_string(), description: "Return count of entities where position.y > 0; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewpy.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] > 0.0).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewny = snapshot.clone(); let sel_sewny = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_negative_y".to_string(), description: "Add to selection entities where position.y < 0; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewny.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] < 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewny.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewny = snapshot.clone(); let sel_dewny = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_negative_y".to_string(), description: "Remove from selection entities where position.y < 0; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewny.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] < 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewny.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewny = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_negative_y".to_string(), description: "Return count of entities where position.y < 0; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewny.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] < 0.0).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewpz = snapshot.clone(); let sel_sewpz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_positive_z".to_string(), description: "Add to selection entities where position.z > 0; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewpz.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] > 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpz.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpz = snapshot.clone(); let sel_dewpz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_positive_z".to_string(), description: "Remove from selection entities where position.z > 0; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewpz.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] > 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpz.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_positive_z".to_string(), description: "Return count of entities where position.z > 0; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewpz.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[2] > 0.0).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewnz = snapshot.clone(); let sel_sewnz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_negative_z".to_string(), description: "Add to selection entities where position.z < 0; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewnz.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] < 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewnz.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewnz = snapshot.clone(); let sel_dewnz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_negative_z".to_string(), description: "Remove from selection entities where position.z < 0; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewnz.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] < 0.0).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewnz.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewnz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_negative_z".to_string(), description: "Return count of entities where position.z < 0; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewnz.lock().unwrap(); let count = s.entities.iter().filter(|e| e.position.map(|p| p[2] < 0.0).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // count_visible_entities
             let snap_cve = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -61541,6 +61584,60 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_pos_sign_select_deselect_count_493() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn 4 entities at positions covering all sign combinations
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "PPP", "position": [1.0, 2.0, 3.0]},
+                {"name": "NNN", "position": [-1.0, -2.0, -3.0]},
+                {"name": "PNP", "position": [4.0, -5.0, 6.0]},
+                {"name": "NPP", "position": [-7.0, 8.0, 9.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // positive_x: PPP(1), PNP(4) = 2
+            assert_eq!(lock.execute("count_entities_with_positive_x", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_positive_x", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_positive_x", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // negative_x: NNN(-1), NPP(-7) = 2
+            assert_eq!(lock.execute("count_entities_with_negative_x", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_negative_x", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_negative_x", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // positive_y: PPP(2), NPP(8) = 2
+            assert_eq!(lock.execute("count_entities_with_positive_y", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_positive_y", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_positive_y", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // negative_y: NNN(-2), PNP(-5) = 2
+            assert_eq!(lock.execute("count_entities_with_negative_y", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_negative_y", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_negative_y", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // positive_z: PPP(3), PNP(6), NPP(9) = 3
+            assert_eq!(lock.execute("count_entities_with_positive_z", json!({})).unwrap().content["count"].as_u64().unwrap(), 3);
+            assert_eq!(lock.execute("select_entities_with_positive_z", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 3);
+            assert_eq!(lock.execute("deselect_entities_with_positive_z", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 3);
+
+            // negative_z: NNN(-3) = 1
+            assert_eq!(lock.execute("count_entities_with_negative_z", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_negative_z", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_negative_z", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

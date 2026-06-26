@@ -1666,6 +1666,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_shared_tags
+            let snap_dewst = snapshot.clone();
+            let sel_dewst = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_shared_tags".to_string(),
+                description: "Deselect other entities that share at least one tag with the given entity; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_dewst.lock().unwrap();
+                    let target_tags: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != target_id && e.tags.iter().any(|t| target_tags.contains(t.as_str())))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewst.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_entities_with_no_shared_tags
+            let snap_gewnst = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_shared_tags".to_string(),
+                description: "Return IDs of other entities that share NO tags with the given entity; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_gewnst.lock().unwrap();
+                    let target_tags: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != target_id && !e.tags.iter().any(|t| target_tags.contains(t.as_str())))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // count_entities_with_shared_tags
             let snap_cewst = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -21917,6 +21976,127 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_shared_tags_and_get_no_shared_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → [x, y], B → [x], C → [z]  (A and B share x, C isolated)
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "x"), (id_a, "y"), (id_b, "x"), (id_c, "z")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // get_entities_with_no_shared_tags A → C (no tags in common with A)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "get_entities_with_no_shared_tags",
+                    json!({"entity_id": id_a}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.contains(&id_c), "C has no tags in common with A");
+            assert!(!ids.contains(&id_b), "B shares 'x' with A");
+            assert!(!ids.contains(&id_a), "A should not include itself");
+        }
+
+        // select_all then deselect_entities_with_shared_tags A → removes B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_shared_tags",
+                    json!({"entity_id": id_a}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

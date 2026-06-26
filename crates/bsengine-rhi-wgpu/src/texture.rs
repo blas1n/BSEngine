@@ -77,7 +77,11 @@ impl GpuTextureRegistry {
     fn upload_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) -> u64 {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("user texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -93,7 +97,11 @@ impl GpuTextureRegistry {
                 bytes_per_row: Some(4 * width),
                 rows_per_image: None,
             },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -112,7 +120,14 @@ impl GpuTextureRegistry {
         });
         let id = self.next_id;
         self.next_id += 1;
-        self.textures.insert(id, GpuTexture { _texture: texture, _view: view, bind_group });
+        self.textures.insert(
+            id,
+            GpuTexture {
+                _texture: texture,
+                _view: view,
+                bind_group,
+            },
+        );
         id
     }
 

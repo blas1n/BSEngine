@@ -27,8 +27,7 @@ impl GltfLoader {
     }
 
     pub fn load_full(path: &str) -> Result<LoadedGltf, String> {
-        let (doc, buffers, raw_images) =
-            gltf::import(path).map_err(|e| format!("gltf: {e}"))?;
+        let (doc, buffers, raw_images) = gltf::import(path).map_err(|e| format!("gltf: {e}"))?;
 
         let images: Vec<GltfImageData> = raw_images
             .iter()

@@ -51,8 +51,10 @@ fn load_gltf_assets(
                 };
 
                 let mut first = true;
-                for (mesh_data, tex_idx) in
-                    loaded.meshes.into_iter().zip(loaded.mesh_tex_indices.iter())
+                for (mesh_data, tex_idx) in loaded
+                    .meshes
+                    .into_iter()
+                    .zip(loaded.mesh_tex_indices.iter())
                 {
                     let mesh_id = mesh_reg.register(&mesh_data.vertices, &mesh_data.indices);
                     let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
@@ -71,7 +73,12 @@ fn load_gltf_assets(
                         first = false;
                     } else {
                         let t = existing_transform.cloned().unwrap_or_default();
-                        commands.spawn((MeshRenderer { mesh_id }, mat, t, GlobalTransform::default()));
+                        commands.spawn((
+                            MeshRenderer { mesh_id },
+                            mat,
+                            t,
+                            GlobalTransform::default(),
+                        ));
                     }
                 }
 

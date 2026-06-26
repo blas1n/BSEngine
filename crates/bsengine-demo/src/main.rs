@@ -7,11 +7,7 @@ use bsengine_rhi_wgpu::{cube_vertices, GpuMeshRegistry, WgpuRHIPlugin};
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 use glam::{Quat, Vec3};
 
-fn setup(
-    mut commands: Commands,
-    registry: Option<ResMut<GpuMeshRegistry>>,
-    mut done: Local<bool>,
-) {
+fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut done: Local<bool>) {
     if *done {
         return;
     }

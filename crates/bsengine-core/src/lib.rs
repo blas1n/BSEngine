@@ -103,6 +103,7 @@ pub mod vignette;
 pub mod visible;
 pub mod volumetric_light;
 pub mod water_body;
+pub mod weather;
 pub mod wind;
 pub mod z_index;
 
@@ -211,6 +212,7 @@ pub use vignette::Vignette;
 pub use visible::Visible;
 pub use volumetric_light::VolumetricLight;
 pub use water_body::WaterBody;
+pub use weather::{Precipitation, Weather};
 pub use wind::Wind;
 pub use z_index::ZIndex;
 

@@ -1666,6 +1666,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_shortest_named_entity
+            let snap_gsne = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_shortest_named_entity".to_string(),
+                description: "Return the entity with the shortest name; returns {id, name, name_length} or null if no entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gsne.lock().unwrap();
+                    if let Some(e) = s.entities.iter().min_by_key(|e| e.name.as_deref().unwrap_or("").len()) {
+                        let name = e.name.clone().unwrap_or_default();
+                        let len = name.len();
+                        McpToolOutput::success(json!({"id": e.id, "name": name, "name_length": len}))
+                    } else {
+                        McpToolOutput::success(json!(null))
+                    }
+                }),
+            });
+
+            // get_entities_with_name_length_equal
+            let snap_gewtlen = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_length_equal".to_string(),
+                description: "Return entities whose name length equals the given value; returns {entities: [{id, name, name_length}]}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "length": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["length"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewtlen.lock().unwrap();
+                    let result: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().unwrap_or("").len() == target)
+                        .map(|e| {
+                            let name = e.name.clone().unwrap_or_default();
+                            json!({"id": e.id, "name": name, "name_length": target})
+                        })
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
             // get_entities_sorted_by_name_length_desc
             let snap_gesbtnld = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22902,6 +22946,61 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_shortest_named_entity_and_name_length_equal() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "X", "position": [1.0, 0.0, 0.0]},
+                {"name": "AB", "position": [2.0, 0.0, 0.0]},
+                {"name": "CD", "position": [3.0, 0.0, 0.0]},
+                {"name": "Long", "position": [4.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_x, id_ab, id_cd, id_long) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_x = entities.iter().find(|e| e["name"].as_str() == Some("X")).unwrap()["id"].as_u64().unwrap();
+            let id_ab = entities.iter().find(|e| e["name"].as_str() == Some("AB")).unwrap()["id"].as_u64().unwrap();
+            let id_cd = entities.iter().find(|e| e["name"].as_str() == Some("CD")).unwrap()["id"].as_u64().unwrap();
+            let id_long = entities.iter().find(|e| e["name"].as_str() == Some("Long")).unwrap()["id"].as_u64().unwrap();
+            (id_x, id_ab, id_cd, id_long)
+        };
+
+        // get_shortest_named_entity → X (length 1)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_shortest_named_entity", json!({})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["id"].as_u64().unwrap(), id_x);
+            assert_eq!(out.content["name"].as_str().unwrap(), "X");
+            assert_eq!(out.content["name_length"].as_u64().unwrap(), 1);
+        }
+
+        // get_entities_with_name_length_equal 2 → AB, CD
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_name_length_equal", json!({"length": 2})).unwrap();
+            assert!(out.is_ok());
+            let ids: std::collections::HashSet<u64> = out.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_ab));
+            assert!(ids.contains(&id_cd));
+            assert!(!ids.contains(&id_x));
+            assert!(!ids.contains(&id_long));
+        }
+        let _ = (id_x, id_ab, id_cd, id_long);
     }
 
     #[test]

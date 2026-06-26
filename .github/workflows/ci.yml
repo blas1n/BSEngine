@@ -50,4 +50,6 @@ jobs:
         run: cargo build --all
 
       - name: Test
+        env:
+          RUST_MIN_STACK: 8388608
         run: cargo test --all

@@ -13386,6 +13386,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_rotation_zero
+            let snap_sewrz = snapshot.clone();
+            let sel_sewrz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_zero".to_string(),
+                description: "Add to selection entities where all rotation components are zero (within 0.001 epsilon); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewrz.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewrz.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_zero
+            let snap_dewrz = snapshot.clone();
+            let sel_dewrz = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_zero".to_string(),
+                description: "Remove from selection entities where all rotation components are zero (within 0.001 epsilon); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewrz.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewrz.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_rotation_zero
+            let snap_cewrz = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_rotation_zero".to_string(),
+                description: "Return count of entities where all rotation components are zero (within 0.001 epsilon); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewrz.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_at_x_zero
             let snap_geaxz = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -13454,6 +13501,53 @@ impl Plugin for EditorPlugin {
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // select_entities_with_zero_scale
+            let snap_sewzs = snapshot.clone();
+            let sel_sewzs = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_zero_scale".to_string(),
+                description: "Add to selection entities where at least one scale component is zero; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewzs.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] == 0.0 || sc[1] == 0.0 || sc[2] == 0.0).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewzs.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_zero_scale
+            let snap_dewzs = snapshot.clone();
+            let sel_dewzs = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_zero_scale".to_string(),
+                description: "Remove from selection entities where at least one scale component is zero; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewzs.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] == 0.0 || sc[1] == 0.0 || sc[2] == 0.0).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewzs.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_zero_scale
+            let snap_cewzs = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_zero_scale".to_string(),
+                description: "Return count of entities where at least one scale component is zero; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewzs.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] == 0.0 || sc[1] == 0.0 || sc[2] == 0.0).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -13602,6 +13696,68 @@ impl Plugin for EditorPlugin {
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // select_entities_with_identity_transform
+            let snap_sewit = snapshot.clone();
+            let sel_sewit = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_identity_transform".to_string(),
+                description: "Add to selection entities where position=[0,0,0], rotation=[0,0,0], scale=[1,1,1] (or unset); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewit.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| {
+                        let pos_ok = e.position.map(|p| p[0].abs() < 0.001 && p[1].abs() < 0.001 && p[2].abs() < 0.001).unwrap_or(true);
+                        let rot_ok = e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true);
+                        let scale_ok = e.scale.map(|sc| (sc[0]-1.0).abs() < 0.001 && (sc[1]-1.0).abs() < 0.001 && (sc[2]-1.0).abs() < 0.001).unwrap_or(true);
+                        pos_ok && rot_ok && scale_ok
+                    }).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewit.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_identity_transform
+            let snap_dewit = snapshot.clone();
+            let sel_dewit = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_identity_transform".to_string(),
+                description: "Remove from selection entities where position=[0,0,0], rotation=[0,0,0], scale=[1,1,1] (or unset); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewit.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| {
+                        let pos_ok = e.position.map(|p| p[0].abs() < 0.001 && p[1].abs() < 0.001 && p[2].abs() < 0.001).unwrap_or(true);
+                        let rot_ok = e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true);
+                        let scale_ok = e.scale.map(|sc| (sc[0]-1.0).abs() < 0.001 && (sc[1]-1.0).abs() < 0.001 && (sc[2]-1.0).abs() < 0.001).unwrap_or(true);
+                        pos_ok && rot_ok && scale_ok
+                    }).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewit.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_identity_transform
+            let snap_cewit = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_identity_transform".to_string(),
+                description: "Return count of entities where position=[0,0,0], rotation=[0,0,0], scale=[1,1,1] (or unset); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewit.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| {
+                        let pos_ok = e.position.map(|p| p[0].abs() < 0.001 && p[1].abs() < 0.001 && p[2].abs() < 0.001).unwrap_or(true);
+                        let rot_ok = e.rotation.map(|r| r[0].abs() < 0.001 && r[1].abs() < 0.001 && r[2].abs() < 0.001).unwrap_or(true);
+                        let scale_ok = e.scale.map(|sc| (sc[0]-1.0).abs() < 0.001 && (sc[1]-1.0).abs() < 0.001 && (sc[2]-1.0).abs() < 0.001).unwrap_or(true);
+                        pos_ok && rot_ok && scale_ok
+                    }).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -15797,6 +15953,53 @@ impl Plugin for EditorPlugin {
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // select_entities_with_non_uniform_scale
+            let snap_sewnusc = snapshot.clone();
+            let sel_sewnusc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_non_uniform_scale".to_string(),
+                description: "Add to selection entities whose scale components are not all equal; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewnusc.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-sc[1]).abs() > 0.0001 || (sc[1]-sc[2]).abs() > 0.0001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewnusc.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_non_uniform_scale
+            let snap_dewnusc = snapshot.clone();
+            let sel_dewnusc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_non_uniform_scale".to_string(),
+                description: "Remove from selection entities whose scale components are not all equal; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewnusc.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-sc[1]).abs() > 0.0001 || (sc[1]-sc[2]).abs() > 0.0001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewnusc.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_non_uniform_scale
+            let snap_cewnusc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_non_uniform_scale".to_string(),
+                description: "Return count of entities whose scale components are not all equal; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewnusc.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-sc[1]).abs() > 0.0001 || (sc[1]-sc[2]).abs() > 0.0001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -20186,6 +20389,53 @@ impl Plugin for EditorPlugin {
                         .map(|e| json!({"id": e.id, "name": e.name, "scale": e.scale}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_uniform_scale
+            let snap_sewus = snapshot.clone();
+            let sel_sewus = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_uniform_scale".to_string(),
+                description: "Add to selection entities whose scale components are all equal (within 0.001 epsilon); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewus.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-sc[1]).abs() < 0.001 && (sc[1]-sc[2]).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64; drop(s);
+                    let mut sel = sel_sewus.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_uniform_scale
+            let snap_dewus = snapshot.clone();
+            let sel_dewus = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_uniform_scale".to_string(),
+                description: "Remove from selection entities whose scale components are all equal (within 0.001 epsilon); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewus.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-sc[1]).abs() < 0.001 && (sc[1]-sc[2]).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64; drop(s);
+                    let mut sel = sel_dewus.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_uniform_scale
+            let snap_cewus = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_uniform_scale".to_string(),
+                description: "Return count of entities whose scale components are all equal (within 0.001 epsilon); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewus.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-sc[1]).abs() < 0.001 && (sc[1]-sc[2]).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -61032,6 +61282,76 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_transform_state_select_deselect_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn entities: one at identity (no transform), one with non-uniform scale, one with zero scale component, one with non-zero rotation
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Identity"},
+                {"name": "NonUniform", "position": [1.0,0.0,0.0]},
+                {"name": "ZeroScale",  "position": [2.0,0.0,0.0]},
+                {"name": "Rotated",    "position": [3.0,0.0,0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_nu, id_zs, id_rot) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let f = |n: &str| es.iter().find(|e| e["name"].as_str() == Some(n)).unwrap()["id"].as_u64().unwrap();
+            (f("NonUniform"), f("ZeroScale"), f("Rotated"))
+        };
+
+        // set non-uniform scale on NonUniform
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_nu, "sx": 1.0, "sy": 2.0, "sz": 1.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        // set zero scale on ZeroScale
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_zs, "sx": 0.0, "sy": 1.0, "sz": 1.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        // set rotation on Rotated
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_rot, "rx": 45.0, "ry": 0.0, "rz": 0.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // rotation_zero: Identity (no rotation), NonUniform (no rotation), ZeroScale (no rotation) = 3; Rotated has rotation
+            assert_eq!(lock.execute("count_entities_with_rotation_zero", json!({})).unwrap().content["count"].as_u64().unwrap(), 3);
+            assert_eq!(lock.execute("select_entities_with_rotation_zero", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 3);
+            assert_eq!(lock.execute("deselect_entities_with_rotation_zero", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 3);
+
+            // zero_scale: only ZeroScale
+            assert_eq!(lock.execute("count_entities_with_zero_scale", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_zero_scale", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_zero_scale", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // non_uniform_scale: NonUniform (1,2,1) AND ZeroScale (0,1,1) — both non-uniform
+            assert_eq!(lock.execute("count_entities_with_non_uniform_scale", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_non_uniform_scale", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_non_uniform_scale", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // uniform_scale: Rotated has Transform (from position) → default scale (1,1,1) = uniform. Others: Identity has no Transform → None. ZeroScale (0,1,1) and NonUniform (1,2,1) are not uniform → count=1
+            assert_eq!(lock.execute("count_entities_with_uniform_scale", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

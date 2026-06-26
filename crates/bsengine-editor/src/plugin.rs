@@ -1666,6 +1666,47 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_name_length_desc
+            let snap_gesbtnld = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_name_length_desc".to_string(),
+                description: "Return entities sorted by name length descending (longest name first); returns {entities: [{id, name, name_length}]}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbtnld.lock().unwrap();
+                    let mut entries: Vec<(u64, String, usize)> = s.entities.iter()
+                        .map(|e| {
+                            let name = e.name.clone().unwrap_or_default();
+                            let len = name.len();
+                            (e.id, name, len)
+                        })
+                        .collect();
+                    entries.sort_by(|a, b| b.2.cmp(&a.2));
+                    let result: Vec<serde_json::Value> = entries.iter()
+                        .map(|(id, name, len)| json!({"id": id, "name": name, "name_length": len}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
+            // get_longest_named_entity
+            let snap_glne = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_longest_named_entity".to_string(),
+                description: "Return the entity with the longest name; returns {id, name, name_length} or null if no entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_glne.lock().unwrap();
+                    if let Some(e) = s.entities.iter().max_by_key(|e| e.name.as_deref().unwrap_or("").len()) {
+                        let name = e.name.clone().unwrap_or_default();
+                        let len = name.len();
+                        McpToolOutput::success(json!({"id": e.id, "name": name, "name_length": len}))
+                    } else {
+                        McpToolOutput::success(json!(null))
+                    }
+                }),
+            });
+
             // count_entities_with_no_tags_in_list
             let snap_cewtnil = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22861,6 +22902,59 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_sort_by_name_length_desc_and_get_longest() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Z", "position": [1.0, 0.0, 0.0]},
+                {"name": "Mo", "position": [2.0, 0.0, 0.0]},
+                {"name": "Alice", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_z, id_mo, id_alice) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_z = entities.iter().find(|e| e["name"].as_str() == Some("Z")).unwrap()["id"].as_u64().unwrap();
+            let id_mo = entities.iter().find(|e| e["name"].as_str() == Some("Mo")).unwrap()["id"].as_u64().unwrap();
+            let id_alice = entities.iter().find(|e| e["name"].as_str() == Some("Alice")).unwrap()["id"].as_u64().unwrap();
+            (id_z, id_mo, id_alice)
+        };
+
+        // get_entities_sorted_by_name_length_desc → Alice(5), Mo(2), Z(1)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_sorted_by_name_length_desc", json!({})).unwrap();
+            assert!(out.is_ok());
+            let entities = out.content["entities"].as_array().unwrap();
+            assert_eq!(entities.len(), 3);
+            assert_eq!(entities[0]["id"].as_u64().unwrap(), id_alice);
+            assert_eq!(entities[0]["name_length"].as_u64().unwrap(), 5);
+            assert_eq!(entities[1]["id"].as_u64().unwrap(), id_mo);
+            assert_eq!(entities[2]["id"].as_u64().unwrap(), id_z);
+        }
+
+        // get_longest_named_entity → Alice
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_longest_named_entity", json!({})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["id"].as_u64().unwrap(), id_alice);
+            assert_eq!(out.content["name"].as_str().unwrap(), "Alice");
+            assert_eq!(out.content["name_length"].as_u64().unwrap(), 5);
+        }
+        let _ = (id_z, id_mo, id_alice);
     }
 
     #[test]

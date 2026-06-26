@@ -14634,6 +14634,160 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_light_range_above
+            let snap_sewlra = snapshot.clone();
+            let sel_sewlra = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_light_range_above".to_string(),
+                description: "Add to selection light entities whose range is strictly above min_range; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"}},"required":["min_range"]})),
+                handler: Box::new(move |input| {
+                    let min_range = input["min_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewlra.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r > min_range).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewlra.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_light_range_below
+            let snap_sewlrb = snapshot.clone();
+            let sel_sewlrb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_light_range_below".to_string(),
+                description: "Add to selection light entities whose range is strictly below max_range; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_range":{"type":"number"}},"required":["max_range"]})),
+                handler: Box::new(move |input| {
+                    let max_range = input["max_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewlrb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r < max_range).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewlrb.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_light_range_equal
+            let snap_sewlreq = snapshot.clone();
+            let sel_sewlreq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_light_range_equal".to_string(),
+                description: "Add to selection light entities whose range equals the given value (±0.001); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"range":{"type":"number"}},"required":["range"]})),
+                handler: Box::new(move |input| {
+                    let target = input["range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewlreq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| (r - target).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewlreq.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_light_range_between
+            let snap_sewlrbt = snapshot.clone();
+            let sel_sewlrbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_light_range_between".to_string(),
+                description: "Add to selection light entities whose range is in [min_range, max_range] inclusive; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"},"max_range":{"type":"number"}},"required":["min_range","max_range"]})),
+                handler: Box::new(move |input| {
+                    let min_range = input["min_range"].as_f64().unwrap_or(0.0) as f32;
+                    let max_range = input["max_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_sewlrbt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r >= min_range && r <= max_range).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewlrbt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_light_range_above
+            let snap_dewlra = snapshot.clone();
+            let sel_dewlra = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_light_range_above".to_string(),
+                description: "Remove from selection light entities whose range is strictly above min_range; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"}},"required":["min_range"]})),
+                handler: Box::new(move |input| {
+                    let min_range = input["min_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewlra.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r > min_range).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewlra.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_light_range_below
+            let snap_dewlrb = snapshot.clone();
+            let sel_dewlrb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_light_range_below".to_string(),
+                description: "Remove from selection light entities whose range is strictly below max_range; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"max_range":{"type":"number"}},"required":["max_range"]})),
+                handler: Box::new(move |input| {
+                    let max_range = input["max_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewlrb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r < max_range).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewlrb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_light_range_equal
+            let snap_dewlreq = snapshot.clone();
+            let sel_dewlreq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_light_range_equal".to_string(),
+                description: "Remove from selection light entities whose range equals the given value (±0.001); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"range":{"type":"number"}},"required":["range"]})),
+                handler: Box::new(move |input| {
+                    let target = input["range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewlreq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| (r - target).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewlreq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_light_range_between
+            let snap_dewlrbt = snapshot.clone();
+            let sel_dewlrbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_light_range_between".to_string(),
+                description: "Remove from selection light entities whose range is in [min_range, max_range] inclusive; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"},"max_range":{"type":"number"}},"required":["min_range","max_range"]})),
+                handler: Box::new(move |input| {
+                    let min_range = input["min_range"].as_f64().unwrap_or(0.0) as f32;
+                    let max_range = input["max_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_dewlrbt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r >= min_range && r <= max_range).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewlrbt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_with_directional_light
             let snap_gewdl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -57888,6 +58042,97 @@ mod tests {
             assert!(!ids.contains(&id_120), "fov=120 not in (40,90)");
         }
         let _ = (id_dim, id_mid, id_bright, id_30, id_60, id_120);
+    }
+
+    #[test]
+    fn mcp_select_deselect_entities_with_light_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // light_range=10, light_range=20
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 100.0, "range": 20.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // select_above(15) → range=20; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_light_range_above", json!({"min_range": 15.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_above(15) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_light_range_above", json!({"min_range": 15.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // select_below(15) → range=10; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_light_range_below", json!({"max_range": 15.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_below(15) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_light_range_below", json!({"max_range": 15.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // select_equal(20.0) → range=20; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_light_range_equal", json!({"range": 20.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_equal(20.0) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_light_range_equal", json!({"range": 20.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // select_between(5, 15) → range=10; added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_light_range_between", json!({"min_range": 5.0, "max_range": 15.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+
+        // deselect_between(5, 15) → removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_light_range_between", json!({"min_range": 5.0, "max_range": 15.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

@@ -1666,6 +1666,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_name_length_equal
+            let snap_sewtlneq = snapshot.clone();
+            let sel_sewtlneq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_name_length_equal".to_string(),
+                description: "Select entities whose name length equals the given value; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "length": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["length"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewtlneq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().unwrap_or("").len() == target)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewtlneq.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_name_length_equal
+            let snap_dewtlneq = snapshot.clone();
+            let sel_dewtlneq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_name_length_equal".to_string(),
+                description: "Deselect entities whose name length equals the given value; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "length": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["length"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewtlneq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().unwrap_or("").len() == target)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewtlneq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // deselect_entities_with_name_length_above
             let snap_dewtlna = snapshot.clone();
             let sel_dewtlna = selection.clone();
@@ -23151,6 +23207,82 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_name_length_equal() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // names: "A"(1), "BB"(2), "CC"(2), "DDD"(3)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A",   "position": [1.0, 0.0, 0.0]},
+                {"name": "BB",  "position": [2.0, 0.0, 0.0]},
+                {"name": "CC",  "position": [3.0, 0.0, 0.0]},
+                {"name": "DDD", "position": [4.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_bb, id_cc, id_ddd) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_bb = entities.iter().find(|e| e["name"].as_str() == Some("BB")).unwrap()["id"].as_u64().unwrap();
+            let id_cc = entities.iter().find(|e| e["name"].as_str() == Some("CC")).unwrap()["id"].as_u64().unwrap();
+            let id_ddd = entities.iter().find(|e| e["name"].as_str() == Some("DDD")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_bb, id_cc, id_ddd)
+        };
+
+        // select_entities_with_name_length_equal 2 → BB, CC
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_name_length_equal", json!({"length": 2})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_a));
+            assert!(ids.contains(&id_bb));
+            assert!(ids.contains(&id_cc));
+            assert!(!ids.contains(&id_ddd));
+        }
+
+        // select all, then deselect_entities_with_name_length_equal 2 → removes BB, CC
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("select_all", json!({})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_name_length_equal", json!({"length": 2})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_a));
+            assert!(!ids.contains(&id_bb));
+            assert!(!ids.contains(&id_cc));
+            assert!(ids.contains(&id_ddd));
+        }
+        let _ = (id_a, id_bb, id_cc, id_ddd);
     }
 
     #[test]

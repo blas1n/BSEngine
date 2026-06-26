@@ -17,6 +17,7 @@ members = [
     "crates/bsengine-plugin",
     "crates/bsengine-mcp",
     "crates/bsengine-gltf",
+    "crates/bsengine-demo",
     "crates/bsengine-editor",
 ]
 

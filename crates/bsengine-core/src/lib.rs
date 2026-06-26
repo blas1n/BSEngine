@@ -1,6 +1,7 @@
 pub mod aabb;
 pub mod ability;
 pub mod ability_slot;
+pub mod aggro;
 pub mod ambient_occlusion;
 pub mod anchor;
 pub mod angular_velocity;
@@ -112,6 +113,7 @@ pub mod z_index;
 pub use aabb::Aabb;
 pub use ability::Ability;
 pub use ability_slot::{AbilitySlot, Slot};
+pub use aggro::{Aggro, ThreatEntry};
 pub use ambient_occlusion::AmbientOcclusion;
 pub use anchor::{Anchor, AnchorPreset};
 pub use angular_velocity::AngularVelocity;

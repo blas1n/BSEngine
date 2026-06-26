@@ -15881,6 +15881,468 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_rotation_x_above
+            let snap_serxa = snapshot.clone();
+            let sel_serxa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_x_above".to_string(),
+                description: "Add to selection entities whose X rotation (degrees) is strictly above threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serxa.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serxa.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_x_below
+            let snap_serxb = snapshot.clone();
+            let sel_serxb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_x_below".to_string(),
+                description: "Add to selection entities whose X rotation (degrees) is strictly below threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serxb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serxb.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_x_equal
+            let snap_serxeq = snapshot.clone();
+            let sel_serxeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_x_equal".to_string(),
+                description: "Add to selection entities whose X rotation equals value (±0.001 degrees); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serxeq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[0] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serxeq.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_x_between
+            let snap_serxbt = snapshot.clone();
+            let sel_serxbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_x_between".to_string(),
+                description: "Add to selection entities whose X rotation is in [min_value, max_value] inclusive; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serxbt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] >= min && r[0] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serxbt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_x_above
+            let snap_derxa = snapshot.clone();
+            let sel_derxa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_x_above".to_string(),
+                description: "Remove from selection entities whose X rotation is strictly above threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derxa.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derxa.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_x_below
+            let snap_derxb = snapshot.clone();
+            let sel_derxb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_x_below".to_string(),
+                description: "Remove from selection entities whose X rotation is strictly below threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derxb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derxb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_x_equal
+            let snap_derxeq = snapshot.clone();
+            let sel_derxeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_x_equal".to_string(),
+                description: "Remove from selection entities whose X rotation equals value (±0.001 degrees); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derxeq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[0] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derxeq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_x_between
+            let snap_derxbt = snapshot.clone();
+            let sel_derxbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_x_between".to_string(),
+                description: "Remove from selection entities whose X rotation is in [min_value, max_value] inclusive; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derxbt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0] >= min && r[0] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derxbt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_y_above
+            let snap_serya = snapshot.clone();
+            let sel_serya = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_y_above".to_string(),
+                description: "Add to selection entities whose Y rotation (degrees) is strictly above threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serya.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serya.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_y_below
+            let snap_seryb = snapshot.clone();
+            let sel_seryb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_y_below".to_string(),
+                description: "Add to selection entities whose Y rotation (degrees) is strictly below threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seryb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_seryb.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_y_equal
+            let snap_seryeq = snapshot.clone();
+            let sel_seryeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_y_equal".to_string(),
+                description: "Add to selection entities whose Y rotation equals value (±0.001 degrees); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_seryeq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[1] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_seryeq.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_y_between
+            let snap_serybt = snapshot.clone();
+            let sel_serybt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_y_between".to_string(),
+                description: "Add to selection entities whose Y rotation is in [min_value, max_value] inclusive; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serybt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] >= min && r[1] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serybt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_y_above
+            let snap_derya = snapshot.clone();
+            let sel_derya = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_y_above".to_string(),
+                description: "Remove from selection entities whose Y rotation is strictly above threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derya.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derya.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_y_below
+            let snap_deryb = snapshot.clone();
+            let sel_deryb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_y_below".to_string(),
+                description: "Remove from selection entities whose Y rotation is strictly below threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_deryb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_deryb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_y_equal
+            let snap_deryeq = snapshot.clone();
+            let sel_deryeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_y_equal".to_string(),
+                description: "Remove from selection entities whose Y rotation equals value (±0.001 degrees); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_deryeq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[1] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_deryeq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_y_between
+            let snap_derybt = snapshot.clone();
+            let sel_derybt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_y_between".to_string(),
+                description: "Remove from selection entities whose Y rotation is in [min_value, max_value] inclusive; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derybt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[1] >= min && r[1] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derybt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_z_above
+            let snap_serza = snapshot.clone();
+            let sel_serza = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_z_above".to_string(),
+                description: "Add to selection entities whose Z rotation (degrees) is strictly above threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serza.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serza.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_z_below
+            let snap_serzb = snapshot.clone();
+            let sel_serzb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_z_below".to_string(),
+                description: "Add to selection entities whose Z rotation (degrees) is strictly below threshold; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serzb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serzb.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_z_equal
+            let snap_servezeq = snapshot.clone();
+            let sel_servezeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_z_equal".to_string(),
+                description: "Add to selection entities whose Z rotation equals value (±0.001 degrees); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_servezeq.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[2] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_servezeq.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_rotation_z_between
+            let snap_serzbt = snapshot.clone();
+            let sel_serzbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_rotation_z_between".to_string(),
+                description: "Add to selection entities whose Z rotation is in [min_value, max_value] inclusive; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_serzbt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] >= min && r[2] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_serzbt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_z_above
+            let snap_derza = snapshot.clone();
+            let sel_derza = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_z_above".to_string(),
+                description: "Remove from selection entities whose Z rotation is strictly above threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derza.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derza.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_z_below
+            let snap_derzb = snapshot.clone();
+            let sel_derzb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_z_below".to_string(),
+                description: "Remove from selection entities whose Z rotation is strictly below threshold; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derzb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derzb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_z_equal
+            let snap_derzeq = snapshot.clone();
+            let sel_derzeq = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_z_equal".to_string(),
+                description: "Remove from selection entities whose Z rotation equals value (±0.001 degrees); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derzeq.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| (r[2] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derzeq.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_rotation_z_between
+            let snap_derzbt = snapshot.clone();
+            let sel_derzbt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_rotation_z_between".to_string(),
+                description: "Remove from selection entities whose Z rotation is in [min_value, max_value] inclusive; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_derzbt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[2] >= min && r[2] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_derzbt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // rename_selection_replace
             let snap_rsr2 = snapshot.clone();
             let sel_rsr2 = selection.clone();
@@ -61189,6 +61651,166 @@ mod tests {
             assert_eq!(ids.len(), 2);
             assert!(ids.contains(&id_b) && ids.contains(&id_c));
         }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_select_deselect_rotation_xyz() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn entities, then set_rotation for each
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [0.0, 0.0, 0.0]},
+                {"name": "C", "position": [0.0, 0.0, 0.0]},
+            ]})).unwrap();
+            drop(mcp);
+            app.update(); app.update();
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // A: rx=10, ry=20, rz=30; B: rx=50, ry=60, rz=70; C: rx=80, ry=80, rz=80
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_a, "rx": 10.0, "ry": 20.0, "rz": 30.0})).unwrap();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_b, "rx": 50.0, "ry": 60.0, "rz": 70.0})).unwrap();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_c, "rx": 80.0, "ry": 80.0, "rz": 80.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        // X select/deselect
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_x_above", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_x_above", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_x_below", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_x_below", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_x_equal", json!({"value": 50.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_x_equal", json!({"value": 50.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_x_between", json!({"min_value": 40.0, "max_value": 85.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_x_between", json!({"min_value": 40.0, "max_value": 85.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+
+        // Y select/deselect
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_y_above", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_y_above", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_y_below", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_y_below", json!({"threshold": 30.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_y_equal", json!({"value": 60.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_y_equal", json!({"value": 60.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_y_between", json!({"min_value": 55.0, "max_value": 85.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_y_between", json!({"min_value": 55.0, "max_value": 85.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+
+        // Z select/deselect
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_z_above", json!({"threshold": 40.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_z_above", json!({"threshold": 40.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_z_below", json!({"threshold": 40.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_z_below", json!({"threshold": 40.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_z_equal", json!({"value": 70.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_z_equal", json!({"value": 70.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("select_entities_with_rotation_z_between", json!({"min_value": 65.0, "max_value": 85.0})).unwrap();
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("deselect_entities_with_rotation_z_between", json!({"min_value": 65.0, "max_value": 85.0})).unwrap();
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+
         let _ = (id_a, id_b, id_c);
     }
 

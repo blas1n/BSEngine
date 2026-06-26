@@ -17286,6 +17286,149 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_position_x_above
+            let snap_gewpxa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_x_above".to_string(),
+                description: "Return entity IDs whose X position is strictly above the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpxa.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_x_below
+            let snap_gewpxb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_x_below".to_string(),
+                description: "Return entity IDs whose X position is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpxb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_x_equal
+            let snap_gewpxeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_x_equal".to_string(),
+                description: "Return entity IDs whose X position equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpxeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| (p[0] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_x_between
+            let snap_gewpxbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_x_between".to_string(),
+                description: "Return entity IDs whose X position is in [min_x, max_x] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"max_x":{"type":"number"}},"required":["min_x","max_x"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpxbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[0] >= min_x && p[0] <= max_x).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_y_equal
+            let snap_gewpyeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_y_equal".to_string(),
+                description: "Return entity IDs whose Y position equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpyeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| (p[1] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_y_between
+            let snap_gewpybt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_y_between".to_string(),
+                description: "Return entity IDs whose Y position is in [min_y, max_y] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_y":{"type":"number"},"max_y":{"type":"number"}},"required":["min_y","max_y"]})),
+                handler: Box::new(move |input| {
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpybt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[1] >= min_y && p[1] <= max_y).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_z_above
+            let snap_gewpza = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_z_above".to_string(),
+                description: "Return entity IDs whose Z position is strictly above the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpza.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] > t).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_z_below
+            let snap_gewpzb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_z_below".to_string(),
+                description: "Return entity IDs whose Z position is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpzb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] < t).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_z_equal
+            let snap_gewpzeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_z_equal".to_string(),
+                description: "Return entity IDs whose Z position equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpzeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| (p[2] - v).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_position_z_between
+            let snap_gewpzbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_position_z_between".to_string(),
+                description: "Return entity IDs whose Z position is in [min_z, max_z] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_z":{"type":"number"},"max_z":{"type":"number"}},"required":["min_z","max_z"]})),
+                handler: Box::new(move |input| {
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewpzbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.position.map(|p| p[2] >= min_z && p[2] <= max_z).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // set_selection_rotation
             let sel_ssr = selection.clone();
             let queue46 = cmd_queue.clone();
@@ -59969,6 +60112,118 @@ mod tests {
             assert!(ids.contains(&id_a),  "A(sz=3) < 7");
             assert!(ids.contains(&id_b),  "B(sz=6) < 7");
             assert!(!ids.contains(&id_c), "C(sz=9) not < 7");
+        }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_position_xyz_filters() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A(1,2,3), B(5,5,5), C(8,9,10)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 2.0, 3.0]},
+                {"name": "B", "position": [5.0, 5.0, 5.0]},
+                {"name": "C", "position": [8.0, 9.0, 10.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // x_above(4) → B(5), C(8)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_x_above", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b) && ids.contains(&id_c));
+        }
+        // x_below(4) → A(1)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_x_below", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_a]);
+        }
+        // x_equal(5.0) → B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_x_equal", json!({"value": 5.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+        // x_between(4, 9) → B(5), C(8)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_x_between", json!({"min_x": 4.0, "max_x": 9.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b) && ids.contains(&id_c));
+        }
+        // y_equal(9.0) → C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_y_equal", json!({"value": 9.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_c]);
+        }
+        // y_between(1, 6) → A(2), B(5)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_y_between", json!({"min_y": 1.0, "max_y": 6.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_a) && ids.contains(&id_b));
+        }
+        // z_above(4) → B(5), C(10)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_z_above", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b) && ids.contains(&id_c));
+        }
+        // z_below(4) → A(3)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_z_below", json!({"threshold": 4.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_a]);
+        }
+        // z_equal(5.0) → B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_z_equal", json!({"value": 5.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+        // z_between(4, 11) → B(5), C(10)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_position_z_between", json!({"min_z": 4.0, "max_z": 11.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b) && ids.contains(&id_c));
         }
         let _ = (id_a, id_b, id_c);
     }

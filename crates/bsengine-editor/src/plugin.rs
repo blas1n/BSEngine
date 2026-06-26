@@ -1666,6 +1666,38 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entity_with_most_tags
+            let snap_gewmt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_with_most_tags".to_string(),
+                description: "Return the entity with the highest tag count; returns {id, name, tag_count} or null if no entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewmt.lock().unwrap();
+                    if let Some(e) = s.entities.iter().max_by_key(|e| e.tags.len()) {
+                        McpToolOutput::success(json!({"id": e.id, "name": e.name.clone().unwrap_or_default(), "tag_count": e.tags.len()}))
+                    } else {
+                        McpToolOutput::success(json!(null))
+                    }
+                }),
+            });
+
+            // get_entity_with_fewest_tags
+            let snap_gewft = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entity_with_fewest_tags".to_string(),
+                description: "Return the entity with the lowest tag count; returns {id, name, tag_count} or null if no entities".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gewft.lock().unwrap();
+                    if let Some(e) = s.entities.iter().min_by_key(|e| e.tags.len()) {
+                        McpToolOutput::success(json!({"id": e.id, "name": e.name.clone().unwrap_or_default(), "tag_count": e.tags.len()}))
+                    } else {
+                        McpToolOutput::success(json!(null))
+                    }
+                }),
+            });
+
             // select_entities_with_tag_count_equal
             let snap_sewtceq = snapshot.clone();
             let sel_sewtceq = selection.clone();
@@ -23764,6 +23796,62 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_entity_with_most_and_fewest_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A → 0 tags, B → 1 tag, C → 3 tags
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_b, "t1"), (id_c, "t1"), (id_c, "t2"), (id_c, "t3")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // get_entity_with_most_tags → C (3 tags)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entity_with_most_tags", json!({})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["id"].as_u64().unwrap(), id_c);
+            assert_eq!(out.content["tag_count"].as_u64().unwrap(), 3);
+        }
+
+        // get_entity_with_fewest_tags → A (0 tags)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entity_with_fewest_tags", json!({})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["id"].as_u64().unwrap(), id_a);
+            assert_eq!(out.content["tag_count"].as_u64().unwrap(), 0);
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

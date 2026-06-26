@@ -3,6 +3,7 @@ pub mod app;
 pub mod damping;
 pub mod external_impulse;
 pub mod follow;
+pub mod gravity;
 pub mod lifetime;
 pub mod time;
 pub mod timer;
@@ -14,6 +15,7 @@ pub use app::{new_app, App, BsPlugin, Last, PostUpdate, PreUpdate, Startup, Upda
 pub use damping::DampingPlugin;
 pub use external_impulse::ExternalImpulsePlugin;
 pub use follow::FollowPlugin;
+pub use gravity::GravityPlugin;
 pub use lifetime::LifetimePlugin;
 pub use time::TimePlugin;
 pub use timer::TimerPlugin;

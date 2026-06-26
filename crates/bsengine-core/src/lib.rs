@@ -1,3 +1,4 @@
+pub mod aabb;
 pub mod angular_velocity;
 pub mod camera;
 pub mod global_transform;
@@ -13,6 +14,7 @@ pub mod transform;
 pub mod tween;
 pub mod velocity;
 
+pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
 pub use global_transform::GlobalTransform;

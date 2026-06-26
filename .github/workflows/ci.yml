@@ -56,7 +56,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && steps.cache-rusty-v8.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.rusty_v8
-          curl -fL "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz" \
+          curl -fL "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz" \
             -o ~/.rusty_v8/librusty_v8.a.gz
 
       - name: Download rusty_v8 (Windows)
@@ -64,7 +64,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force "$env:USERPROFILE\.rusty_v8" | Out-Null
-          Invoke-WebRequest "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/rusty_v8_release_x86_64-pc-windows-msvc.lib.gz" `
+          Invoke-WebRequest "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/rusty_v8_simdutf_release_x86_64-pc-windows-msvc.lib.gz" `
             -OutFile "$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz"
 
       - name: Set RUSTY_V8_ARCHIVE (Linux)

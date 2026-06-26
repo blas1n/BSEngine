@@ -1666,6 +1666,53 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_name_suffix
+            let snap_dewns = snapshot.clone();
+            let sel_dewns = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_name_suffix".to_string(),
+                description: "Deselect entities whose name ends with the given suffix; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "suffix": { "type": "string" }
+                    },
+                    "required": ["suffix"]
+                })),
+                handler: Box::new(move |input| {
+                    let suffix = input["suffix"].as_str().unwrap_or("").to_string();
+                    let s = snap_dewns.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.name.as_deref().unwrap_or("").ends_with(&suffix))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewns.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_entities_sorted_by_name_asc
+            let snap_gesbna = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_name_asc".to_string(),
+                description: "Return entities sorted by name alphabetically ascending (A→Z); returns {entities: [{id, name}]}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbna.lock().unwrap();
+                    let mut entries: Vec<(u64, String)> = s.entities.iter()
+                        .map(|e| (e.id, e.name.clone().unwrap_or_default()))
+                        .collect();
+                    entries.sort_by(|a, b| a.1.cmp(&b.1));
+                    let result: Vec<serde_json::Value> = entries.iter()
+                        .map(|(id, name)| json!({"id": id, "name": name}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
             // deselect_entities_with_name_prefix
             let snap_dewnp = snapshot.clone();
             let sel_dewnp = selection.clone();
@@ -23313,6 +23360,75 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_suffix_and_sort_by_name_asc() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Charlie", "position": [1.0, 0.0, 0.0]},
+                {"name": "Alice",   "position": [2.0, 0.0, 0.0]},
+                {"name": "Bob_X",   "position": [3.0, 0.0, 0.0]},
+                {"name": "Dave_X",  "position": [4.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_charlie, id_alice, id_bob, id_dave) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_charlie = entities.iter().find(|e| e["name"].as_str() == Some("Charlie")).unwrap()["id"].as_u64().unwrap();
+            let id_alice = entities.iter().find(|e| e["name"].as_str() == Some("Alice")).unwrap()["id"].as_u64().unwrap();
+            let id_bob = entities.iter().find(|e| e["name"].as_str() == Some("Bob_X")).unwrap()["id"].as_u64().unwrap();
+            let id_dave = entities.iter().find(|e| e["name"].as_str() == Some("Dave_X")).unwrap()["id"].as_u64().unwrap();
+            (id_charlie, id_alice, id_bob, id_dave)
+        };
+
+        // select all, then deselect_entities_with_name_suffix "_X" → removes Bob_X, Dave_X
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("select_all", json!({})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_with_name_suffix", json!({"suffix": "_X"})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 2);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_charlie));
+            assert!(ids.contains(&id_alice));
+            assert!(!ids.contains(&id_bob));
+            assert!(!ids.contains(&id_dave));
+        }
+
+        // get_entities_sorted_by_name_asc → Alice, Bob_X, Charlie, Dave_X
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_sorted_by_name_asc", json!({})).unwrap();
+            assert!(out.is_ok());
+            let entities = out.content["entities"].as_array().unwrap();
+            assert_eq!(entities.len(), 4);
+            assert_eq!(entities[0]["id"].as_u64().unwrap(), id_alice);
+            assert_eq!(entities[1]["id"].as_u64().unwrap(), id_bob);
+            assert_eq!(entities[2]["id"].as_u64().unwrap(), id_charlie);
+            assert_eq!(entities[3]["id"].as_u64().unwrap(), id_dave);
+        }
+        let _ = (id_charlie, id_alice, id_bob, id_dave);
     }
 
     #[test]

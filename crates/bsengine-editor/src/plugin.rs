@@ -1666,6 +1666,51 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_name_not_containing
+            let snap_gewntnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_name_not_containing".to_string(),
+                description: "Return entities whose name does NOT contain the given substring; returns {entities: [{id, name}]}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "substring": { "type": "string" }
+                    },
+                    "required": ["substring"]
+                })),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewntnc.lock().unwrap();
+                    let result: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| !e.name.as_deref().unwrap_or("").contains(&*sub))
+                        .map(|e| json!({"id": e.id, "name": e.name.clone().unwrap_or_default()}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
+            // count_entities_with_name_not_containing
+            let snap_cewntnc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_not_containing".to_string(),
+                description: "Count entities whose name does NOT contain the given substring; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "substring": { "type": "string" }
+                    },
+                    "required": ["substring"]
+                })),
+                handler: Box::new(move |input| {
+                    let sub = input["substring"].as_str().unwrap_or("").to_string();
+                    let s = snap_cewntnc.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| !e.name.as_deref().unwrap_or("").contains(&*sub))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // deselect_entities_with_name_suffix
             let snap_dewns = snapshot.clone();
             let sel_dewns = selection.clone();
@@ -23360,6 +23405,56 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_name_not_containing_get_and_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Enemy_Grunt",  "position": [1.0, 0.0, 0.0]},
+                {"name": "Enemy_Boss",   "position": [2.0, 0.0, 0.0]},
+                {"name": "Player_Hero",  "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_grunt, id_boss, id_hero) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_grunt = entities.iter().find(|e| e["name"].as_str() == Some("Enemy_Grunt")).unwrap()["id"].as_u64().unwrap();
+            let id_boss = entities.iter().find(|e| e["name"].as_str() == Some("Enemy_Boss")).unwrap()["id"].as_u64().unwrap();
+            let id_hero = entities.iter().find(|e| e["name"].as_str() == Some("Player_Hero")).unwrap()["id"].as_u64().unwrap();
+            (id_grunt, id_boss, id_hero)
+        };
+
+        // get_entities_with_name_not_containing "Enemy" → Player_Hero
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_name_not_containing", json!({"substring": "Enemy"})).unwrap();
+            assert!(out.is_ok());
+            let ids: std::collections::HashSet<u64> = out.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_grunt));
+            assert!(!ids.contains(&id_boss));
+            assert!(ids.contains(&id_hero));
+        }
+
+        // count_entities_with_name_not_containing "Enemy" → 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_name_not_containing", json!({"substring": "Enemy"})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+        let _ = (id_grunt, id_boss, id_hero);
     }
 
     #[test]

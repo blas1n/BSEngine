@@ -14,6 +14,7 @@ pub mod time;
 pub mod transform;
 pub mod tween;
 pub mod velocity;
+pub mod visible;
 
 pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
@@ -31,6 +32,7 @@ pub use time::Time;
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use velocity::Velocity;
+pub use visible::Visible;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

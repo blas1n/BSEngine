@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod damping;
 pub mod global_transform;
 pub mod lifetime;
 pub mod light;
@@ -13,6 +14,7 @@ pub mod tween;
 pub mod velocity;
 
 pub use camera::Camera;
+pub use damping::Damping;
 pub use global_transform::GlobalTransform;
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};

@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-app"
+description = "Application entry point and plugin-based app loop (bevy_app)"
 version.workspace = true
 edition.workspace = true
 

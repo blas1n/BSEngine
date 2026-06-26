@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-window"
+description = "Platform window management via winit"
 version.workspace = true
 edition.workspace = true
 

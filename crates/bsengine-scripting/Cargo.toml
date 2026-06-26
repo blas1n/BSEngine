@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-scripting"
+description = "JavaScript scripting runtime via Deno Core (V8) with ECS op bindings"
 version.workspace = true
 edition.workspace = true
 

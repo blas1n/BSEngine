@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-mcp"
+description = "Model Context Protocol runtime — tool registration and JSON-RPC dispatch"
 version.workspace = true
 edition.workspace = true
 

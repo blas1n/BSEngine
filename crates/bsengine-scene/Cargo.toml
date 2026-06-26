@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-scene"
+description = "Scene graph — entity hierarchy, transforms, scene save/load (RON)"
 version.workspace = true
 edition.workspace = true
 

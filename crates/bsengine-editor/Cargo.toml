@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-editor"
+description = "AI-native editor backend — 700+ MCP tools for scene and entity manipulation"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

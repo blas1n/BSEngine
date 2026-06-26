@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-rhi-wgpu"
+description = "wgpu implementation of bsengine-rhi — GPU surface, pipelines, buffers"
 version.workspace = true
 edition.workspace = true
 

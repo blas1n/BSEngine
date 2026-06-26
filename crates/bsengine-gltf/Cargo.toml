@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-gltf"
+description = "GLTF/GLB import — mesh, material, and texture extraction"
 version.workspace = true
 edition.workspace = true
 

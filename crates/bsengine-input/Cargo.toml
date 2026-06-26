@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-input"
+description = "Keyboard and mouse input abstraction backed by winit events"
 version.workspace = true
 edition.workspace = true
 

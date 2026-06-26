@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-plugin"
+description = "Runtime plugin loader — discover and register plugins from TOML manifests"
 version.workspace = true
 edition.workspace = true
 

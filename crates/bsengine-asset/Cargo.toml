@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-asset"
+description = "Asset management — texture and mesh loading pipeline"
 version.workspace = true
 edition.workspace = true
 

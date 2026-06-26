@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-core"
+description = "Shared primitives — math types, error handling, logging setup"
 version.workspace = true
 edition.workspace = true
 

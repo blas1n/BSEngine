@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-ecs"
+description = "ECS layer — thin wrappers and re-exports around bevy_ecs"
 version.workspace = true
 edition.workspace = true
 

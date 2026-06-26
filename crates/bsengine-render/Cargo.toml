@@ -1,5 +1,6 @@
 [package]
 name = "bsengine-render"
+description = "Scene rendering pipeline — PBR, shadows, lights, frustum culling"
 version.workspace = true
 edition.workspace = true
 

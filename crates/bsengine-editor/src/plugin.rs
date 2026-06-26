@@ -15442,6 +15442,35 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for directional_light, spot_light, point_light, light_type
+            let snap_sewdl = snapshot.clone(); let sel_sewdl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_directional_light".to_string(), description: "Add to selection entities with a directional light; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewdl.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("directional")).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewdl.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewdl = snapshot.clone(); let sel_dewdl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_directional_light".to_string(), description: "Remove from selection entities with a directional light; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewdl.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("directional")).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewdl.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewdl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_directional_light".to_string(), description: "Return count of entities with a directional light; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewdl.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("directional")).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewsl = snapshot.clone(); let sel_sewsl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_spot_light".to_string(), description: "Add to selection entities with a spot light; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewsl.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("spot")).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewsl.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewsl = snapshot.clone(); let sel_dewsl = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_spot_light".to_string(), description: "Remove from selection entities with a spot light; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewsl.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("spot")).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewsl.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewsl = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_spot_light".to_string(), description: "Return count of entities with a spot light; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewsl.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("spot")).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewpla = snapshot.clone(); let sel_sewpla = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_point_light".to_string(), description: "Add to selection entities with a point light; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewpla.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("point")).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewpla.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewpla = snapshot.clone(); let sel_dewpla = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_point_light".to_string(), description: "Remove from selection entities with a point light; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewpla.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("point")).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewpla.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewpla = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_point_light".to_string(), description: "Return count of entities with a point light; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewpla.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_type.as_deref() == Some("point")).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewlt = snapshot.clone(); let sel_sewlt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_light_type".to_string(), description: "Add to selection entities whose light_type matches the given type (point/directional/spot); returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"light_type":{"type":"string"}},"required":["light_type"]})), handler: Box::new(move |input| { let lt = input["light_type"].as_str().unwrap_or("").to_string(); let s = snap_sewlt.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some(lt.as_str())).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewlt.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewlt = snapshot.clone(); let sel_dewlt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_light_type".to_string(), description: "Remove from selection entities whose light_type matches the given type; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"light_type":{"type":"string"}},"required":["light_type"]})), handler: Box::new(move |input| { let lt = input["light_type"].as_str().unwrap_or("").to_string(); let s = snap_dewlt.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_type.as_deref() == Some(lt.as_str())).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewlt.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewlt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_light_type".to_string(), description: "Return count of entities whose light_type matches the given type; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"light_type":{"type":"string"}},"required":["light_type"]})), handler: Box::new(move |input| { let lt = input["light_type"].as_str().unwrap_or("").to_string(); let s = snap_cewlt.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_type.as_deref() == Some(lt.as_str())).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // get_entities_with_light_intensity_above
             let snap_gewlia = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -61584,6 +61613,45 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_light_type_select_deselect_count_494() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            lock.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0,1.0,1.0], "ambient": [0.1,0.1,0.1]})).unwrap();
+            lock.execute("spawn_point_light", json!({"color": [1.0,0.0,0.0], "intensity": 100.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            lock.execute("spawn_point_light", json!({"color": [0.0,1.0,0.0], "intensity": 200.0, "range": 5.0, "position": [1.0,0.0,0.0]})).unwrap();
+            lock.execute("spawn_spot_light", json!({"color": [0.0,0.0,1.0], "intensity": 50.0, "range": 8.0, "inner_angle": 10.0, "outer_angle": 30.0, "position": [2.0,0.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            assert_eq!(lock.execute("count_entities_with_directional_light", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_directional_light", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_directional_light", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            assert_eq!(lock.execute("count_entities_with_point_light", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_point_light", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_point_light", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            assert_eq!(lock.execute("count_entities_with_spot_light", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_spot_light", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_spot_light", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            assert_eq!(lock.execute("count_entities_with_light_type", json!({"light_type": "point"})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_light_type", json!({"light_type": "directional"})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_light_type", json!({"light_type": "directional"})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_light_type", json!({"light_type": "spot"})).unwrap().content["count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

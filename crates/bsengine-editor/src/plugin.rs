@@ -1666,6 +1666,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_tag_count_between
+            let snap_dewtcb = snapshot.clone();
+            let sel_dewtcb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_tag_count_between".to_string(),
+                description: "Deselect all entities whose tag count is between min_count and max_count (inclusive); returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_count": { "type": "integer", "minimum": 0 },
+                        "max_count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["min_count", "max_count"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min_count"].as_u64().unwrap_or(0) as usize;
+                    let max = input["max_count"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let s = snap_dewtcb.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.len() >= min && e.tags.len() <= max)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewtcb.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // get_all_unique_tags
+            let snap_gaut = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_all_unique_tags".to_string(),
+                description:
+                    "Return the sorted list of all unique tags used by any entity; returns {tags}"
+                        .to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gaut.lock().unwrap();
+                    let mut unique: std::collections::BTreeSet<String> =
+                        std::collections::BTreeSet::new();
+                    for e in &s.entities {
+                        for t in &e.tags {
+                            unique.insert(t.clone());
+                        }
+                    }
+                    let tags: Vec<String> = unique.into_iter().collect();
+                    McpToolOutput::success(json!({"tags": tags}))
+                }),
+            });
+
             // count_entities_with_tag_count_between
             let snap_cewtcb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -21716,6 +21768,126 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_with_tag_count_between_and_get_all_unique_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → 3 tags (t1,t2,t3), B → 1 tag (t1), C → 0 tags
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "t1"), (id_a, "t2"), (id_a, "t3"), (id_b, "t1")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // get_all_unique_tags → should contain t1, t2, t3
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_all_unique_tags", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            let tags: std::collections::HashSet<String> = out.content["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
+            assert!(tags.contains("t1"));
+            assert!(tags.contains("t2"));
+            assert!(tags.contains("t3"));
+            assert_eq!(tags.len(), 3);
+        }
+
+        // select_all then deselect_entities_with_tag_count_between 1 2 → removes B (1 tag)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_tag_count_between",
+                    json!({"min_count": 1, "max_count": 2}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

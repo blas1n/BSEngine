@@ -1,3 +1,4 @@
+pub mod aabb;
 pub mod angular_velocity;
 pub mod camera;
 pub mod color;
@@ -9,12 +10,14 @@ pub mod logging;
 pub mod material;
 pub mod name;
 pub mod parent;
+pub mod ray;
 pub mod tag;
 pub mod time;
 pub mod transform;
 pub mod tween;
 pub mod velocity;
 
+pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
 pub use color::Color;
@@ -26,6 +29,7 @@ pub use logging::init_logging;
 pub use material::Material;
 pub use name::Name;
 pub use parent::Parent;
+pub use ray::Ray;
 pub use tag::Tag;
 pub use time::Time;
 pub use transform::Transform;

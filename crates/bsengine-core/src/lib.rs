@@ -1,11 +1,16 @@
 pub mod aabb;
 pub mod angular_velocity;
 pub mod animation_player;
+pub mod audio_emitter;
 pub mod camera;
 pub mod capsule;
 pub mod color;
 pub mod damping;
+pub mod external_impulse;
+pub mod follow;
+pub mod friction;
 pub mod global_transform;
+pub mod health;
 pub mod layer;
 pub mod lifetime;
 pub mod light;
@@ -15,6 +20,9 @@ pub mod material;
 pub mod name;
 pub mod parent;
 pub mod ray;
+pub mod restitution;
+pub mod rigid_body;
+pub mod sphere;
 pub mod tag;
 pub mod time;
 pub mod timer;
@@ -27,11 +35,16 @@ pub mod z_index;
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
 pub use animation_player::AnimationPlayer;
+pub use audio_emitter::{AudioEmitter, AudioListener};
 pub use camera::Camera;
 pub use capsule::Capsule;
 pub use color::Color;
 pub use damping::Damping;
+pub use external_impulse::ExternalImpulse;
+pub use follow::{Follow, LookAt};
+pub use friction::Friction;
 pub use global_transform::GlobalTransform;
+pub use health::Health;
 pub use layer::Layer;
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};
@@ -41,6 +54,9 @@ pub use material::Material;
 pub use name::Name;
 pub use parent::Parent;
 pub use ray::Ray;
+pub use restitution::Restitution;
+pub use rigid_body::RigidBody;
+pub use sphere::Sphere;
 pub use tag::Tag;
 pub use time::Time;
 pub use timer::Timer;
@@ -55,18 +71,15 @@ pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use glam::Mat4;
     use std::collections::HashMap;
 
-    // Collect: entity → (local matrix, parent entity)
     let mut query = world.query::<(Entity, &Transform, Option<&Parent>)>();
     let entries: Vec<(Entity, Mat4, Option<Entity>)> = query
         .iter(world)
         .map(|(e, t, p)| (e, t.to_matrix(), p.map(|p| p.0)))
         .collect();
 
-    // Initialize global matrices with local transforms
     let mut globals: HashMap<Entity, Mat4> =
         entries.iter().map(|(e, local, _)| (*e, *local)).collect();
 
-    // Propagate up to 8 levels deep
     for _ in 0..8 {
         for (e, local, parent) in &entries {
             if let Some(parent_e) = parent {
@@ -77,7 +90,6 @@ pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
         }
     }
 
-    // Write results back
     let mut gt_query = world.query::<(Entity, &mut GlobalTransform)>();
     for (e, mut gt) in gt_query.iter_mut(world) {
         if let Some(&mat) = globals.get(&e) {

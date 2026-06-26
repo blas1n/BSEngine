@@ -1666,6 +1666,51 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_tag_count_equal
+            let snap_gewtceq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag_count_equal".to_string(),
+                description: "Return entities that have exactly the given number of tags; returns {entities: [{id, name, tag_count}]}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["count"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_gewtceq.lock().unwrap();
+                    let result: Vec<serde_json::Value> = s.entities.iter()
+                        .filter(|e| e.tags.len() == target)
+                        .map(|e| json!({"id": e.id, "name": e.name.clone().unwrap_or_default(), "tag_count": e.tags.len()}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
+            // count_entities_with_tag_count_equal
+            let snap_cewtceq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_tag_count_equal".to_string(),
+                description: "Count entities that have exactly the given number of tags; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["count"]
+                })),
+                handler: Box::new(move |input| {
+                    let target = input["count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewtceq.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.tags.len() == target)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_tag_count_above
             let snap_gewtca = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -23507,6 +23552,67 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_tag_count_equal_get_and_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A → 0 tags, B → 2 tags, C → 2 tags, D → 3 tags
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+                {"name": "D", "position": [4.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c, id_d) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            let id_d = entities.iter().find(|e| e["name"].as_str() == Some("D")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c, id_d)
+        };
+        for (id, tag) in [(id_b, "t1"), (id_b, "t2"), (id_c, "t1"), (id_c, "t2"), (id_d, "t1"), (id_d, "t2"), (id_d, "t3")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // get_entities_with_tag_count_equal 2 → B, C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_tag_count_equal", json!({"count": 2})).unwrap();
+            assert!(out.is_ok());
+            let ids: std::collections::HashSet<u64> = out.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_a));
+            assert!(ids.contains(&id_b));
+            assert!(ids.contains(&id_c));
+            assert!(!ids.contains(&id_d));
+        }
+
+        // count_entities_with_tag_count_equal 2 → 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_tag_count_equal", json!({"count": 2})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+        }
+        let _ = (id_a, id_b, id_c, id_d);
     }
 
     #[test]

@@ -1666,6 +1666,64 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_shared_tags
+            let snap_cewst = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_shared_tags".to_string(),
+                description: "Count other entities that share at least one tag with the given entity; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_cewst.lock().unwrap();
+                    let target_tags: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let count = s.entities.iter()
+                        .filter(|e| e.id != target_id && e.tags.iter().any(|t| target_tags.contains(t.as_str())))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // select_entities_with_shared_tags
+            let snap_sewst = snapshot.clone();
+            let sel_sewst = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_shared_tags".to_string(),
+                description: "Select other entities that share at least one tag with the given entity; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let target_id = input["entity_id"].as_u64().unwrap_or(0);
+                    let s = snap_sewst.lock().unwrap();
+                    let target_tags: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == target_id)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.id != target_id && e.tags.iter().any(|t| target_tags.contains(t.as_str())))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewst.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // get_top_n_tags
             let snap_gtnt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -21859,6 +21917,129 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_and_select_entities_with_shared_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → [x, y], B → [x], C → [z]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "x"), (id_a, "y"), (id_b, "x"), (id_c, "z")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // count_entities_with_shared_tags A → B (shares x) = 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "count_entities_with_shared_tags",
+                    json!({"entity_id": id_a}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // select_entities_with_shared_tags A → selects B (shares x)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_shared_tags",
+                    json!({"entity_id": id_a}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selected_entities", json!({}))
+                .unwrap();
+            let sel_ids: std::collections::HashSet<u64> = sel_out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["id"].as_u64().unwrap())
+                .collect();
+            assert!(sel_ids.contains(&id_b));
+            assert!(!sel_ids.contains(&id_a));
+            assert!(!sel_ids.contains(&id_c));
+        }
     }
 
     #[test]

@@ -1,5 +1,6 @@
 pub mod aabb;
 pub mod angular_velocity;
+pub mod audio_emitter;
 pub mod camera;
 pub mod capsule;
 pub mod color;
@@ -24,6 +25,7 @@ pub mod visible;
 
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
+pub use audio_emitter::{AudioEmitter, AudioListener};
 pub use camera::Camera;
 pub use capsule::Capsule;
 pub use color::Color;

@@ -3295,6 +3295,21 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_tag_overlap
+            let snap_cewto = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_tag_overlap".to_string(),
+                description: "Return count of entities that have both tag_a and tag_b; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"tag_a":{"type":"string"},"tag_b":{"type":"string"}},"required":["tag_a","tag_b"]})),
+                handler: Box::new(move |input| {
+                    let tag_a = input["tag_a"].as_str().unwrap_or("").to_string();
+                    let tag_b = input["tag_b"].as_str().unwrap_or("").to_string();
+                    let s = snap_cewto.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.contains(&tag_a) && e.tags.contains(&tag_b)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_tag_overlap
             let snap_gewto = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -20191,6 +20206,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_tag_prefix
+            let snap_sewtp = snapshot.clone();
+            let sel_sewtp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_tag_prefix".to_string(),
+                description: "Add to selection entities that have at least one tag starting with prefix; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"prefix":{"type":"string"}},"required":["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_sewtp.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.tags.iter().any(|t| t.starts_with(&prefix))).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewtp.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_tag_prefix
+            let snap_dewtp = snapshot.clone();
+            let sel_dewtp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_tag_prefix".to_string(),
+                description: "Remove from selection entities that have at least one tag starting with prefix; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"prefix":{"type":"string"}},"required":["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_dewtp.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.tags.iter().any(|t| t.starts_with(&prefix))).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewtp.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_tag_prefix
+            let snap_cewtp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_tag_prefix".to_string(),
+                description: "Return count of entities that have at least one tag starting with prefix; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"prefix":{"type":"string"}},"required":["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = input["prefix"].as_str().unwrap_or("").to_string();
+                    let s = snap_cewtp.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.tags.iter().any(|t| t.starts_with(&prefix))).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_first_entity_with_tag
             let snap_gfewt = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22044,6 +22111,67 @@ impl Plugin for EditorPlugin {
                         .map(|e| json!({"id": e.id, "name": e.name}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_tag_any
+            let snap_sewta = snapshot.clone();
+            let sel_sewta = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_tag_any".to_string(),
+                description: "Add to selection entities that have at least one of the specified tags (OR logic); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"tags":{"type":"array","items":{"type":"string"}}},"required":["tags"]})),
+                handler: Box::new(move |input| {
+                    let tags: Vec<String> = match input["tags"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect(),
+                        None => return McpToolOutput::error("missing tags array"),
+                    };
+                    let s = snap_sewta.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| tags.iter().any(|t| e.tags.contains(t))).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewta.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_tag_any
+            let snap_dewta = snapshot.clone();
+            let sel_dewta = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_tag_any".to_string(),
+                description: "Remove from selection entities that have at least one of the specified tags (OR logic); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"tags":{"type":"array","items":{"type":"string"}}},"required":["tags"]})),
+                handler: Box::new(move |input| {
+                    let tags: Vec<String> = match input["tags"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect(),
+                        None => return McpToolOutput::error("missing tags array"),
+                    };
+                    let s = snap_dewta.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| tags.iter().any(|t| e.tags.contains(t))).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewta.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_tag_any
+            let snap_cewta = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_tag_any".to_string(),
+                description: "Return count of entities that have at least one of the specified tags (OR logic); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"tags":{"type":"array","items":{"type":"string"}}},"required":["tags"]})),
+                handler: Box::new(move |input| {
+                    let tags: Vec<String> = match input["tags"].as_array() {
+                        Some(arr) => arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect(),
+                        None => return McpToolOutput::error("missing tags array"),
+                    };
+                    let s = snap_cewta.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| tags.iter().any(|t| e.tags.contains(t))).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -60466,6 +60594,74 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_tag_overlap_any_prefix_gaps() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn 3 entities
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "TagA"},
+                {"name": "TagB"},
+                {"name": "TagC"},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let ids: Vec<u64> = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("TagA")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("TagB")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("TagC")).unwrap()["id"].as_u64().unwrap();
+            vec![id_a, id_b, id_c]
+        };
+
+        // tag A: "alpha", "beta"  B: "alpha", "gamma"  C: "delta"
+        for (id, tag) in [(ids[0], "alpha"), (ids[0], "beta"), (ids[1], "alpha"), (ids[1], "gamma"), (ids[2], "delta")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // count_entities_with_tag_overlap: both alpha and beta → only A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_tag_overlap", json!({"tag_a": "alpha", "tag_b": "beta"})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_tag_overlap", json!({"tag_a": "alpha", "tag_b": "gamma"})).unwrap().content["count"].as_u64().unwrap(), 1);
+        }
+
+        // select/deselect/count tag_any: ["alpha","delta"] → A, B, C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            let r = lock.execute("select_entities_with_tag_any", json!({"tags": ["alpha","delta"]})).unwrap();
+            assert_eq!(r.content["added_count"].as_u64().unwrap(), 3);
+            let r2 = lock.execute("count_entities_with_tag_any", json!({"tags": ["gamma"]})).unwrap();
+            assert_eq!(r2.content["count"].as_u64().unwrap(), 1);
+            let r3 = lock.execute("deselect_entities_with_tag_any", json!({"tags": ["delta"]})).unwrap();
+            assert_eq!(r3.content["removed_count"].as_u64().unwrap(), 1);
+        }
+
+        // tag prefix "al" → A (alpha), B (alpha) = 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_tag_prefix", json!({"prefix": "al"})).unwrap().content["count"].as_u64().unwrap(), 2);
+            let r = lock.execute("select_entities_with_tag_prefix", json!({"prefix": "de"})).unwrap();
+            assert_eq!(r.content["added_count"].as_u64().unwrap(), 1);
+            let r2 = lock.execute("deselect_entities_with_tag_prefix", json!({"prefix": "de"})).unwrap();
+            assert_eq!(r2.content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

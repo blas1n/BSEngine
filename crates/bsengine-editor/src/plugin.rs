@@ -12782,6 +12782,27 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_fov_equal
+            let snap_gewfeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_fov_equal".to_string(),
+                description: "Return entity IDs (cameras) whose field-of-view equals fov (within 0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "fov": { "type": "number" } },
+                    "required": ["fov"]
+                })),
+                handler: Box::new(move |input| {
+                    let fov = input["fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewfeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.camera_fov.map(|f| (f - fov).abs() < 0.001).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_same_parent
             let snap_gewsp = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14392,6 +14413,27 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_light_range_below
+            let snap_gewlrb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_range_below".to_string(),
+                description: "Return entity IDs whose light range is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlrb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_range.map(|r| r < threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_directional_light
             let snap_gewdl = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14464,6 +14506,27 @@ impl Plugin for EditorPlugin {
                     let s = snap_gewlia.lock().unwrap();
                     let ids: Vec<u64> = s.entities.iter()
                         .filter(|e| e.light_intensity.map(|i| i > threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_light_intensity_below
+            let snap_gewlib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_intensity_below".to_string(),
+                description: "Return entity IDs whose light intensity is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlib.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_intensity.map(|i| i < threshold).unwrap_or(false))
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
@@ -56902,6 +56965,73 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_light_range_below_intensity_below_fov_equal() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Two point lights: range=5 (near), range=50 (far), intensity=10 (dim), intensity=100 (bright)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 10.0, "range": 5.0,  "position": [0.0, 0.0, 0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 50.0, "position": [1.0, 0.0, 0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // Two cameras: fov=45, fov=90
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_camera", json!({"fov_y_degrees": 45.0, "position": [0.0, 5.0, 0.0]})).unwrap();
+            m.execute("spawn_camera", json!({"fov_y_degrees": 90.0, "position": [1.0, 5.0, 0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (near_id, far_id, cam45_id, cam90_id) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let near_id  = entities.iter().find(|e| e["light_range"].as_f64().map(|v| (v - 5.0).abs() < 1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let far_id   = entities.iter().find(|e| e["light_range"].as_f64().map(|v| v > 40.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let cam45_id = entities.iter().find(|e| e["camera_fov"].as_f64().map(|v| (v - 45.0).abs() < 1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let cam90_id = entities.iter().find(|e| e["camera_fov"].as_f64().map(|v| (v - 90.0).abs() < 1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            (near_id, far_id, cam45_id, cam90_id)
+        };
+
+        // get_entities_with_light_range_below(20) → near_id only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_light_range_below", json!({"threshold": 20.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(ids.contains(&near_id), "near(range=5) below 20");
+            assert!(!ids.contains(&far_id), "far(range=50) not below 20");
+        }
+
+        // get_entities_with_light_intensity_below(50) → dim (10) only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_light_intensity_below", json!({"threshold": 50.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(ids.iter().any(|id| *id == near_id), "dim(intensity=10) below 50");
+            assert!(!ids.iter().any(|id| *id == far_id), "bright(intensity=100) not below 50");
+        }
+
+        // get_entities_with_fov_equal(45) → cam45 only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_fov_equal", json!({"fov": 45.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(ids.contains(&cam45_id), "cam45 matches fov=45");
+            assert!(!ids.contains(&cam90_id), "cam90 does not match fov=45");
+        }
+        let _ = (near_id, far_id, cam45_id, cam90_id);
     }
 
     #[test]

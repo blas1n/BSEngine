@@ -1,4 +1,5 @@
 pub mod aabb;
+pub mod ability;
 pub mod ambient_occlusion;
 pub mod angular_velocity;
 pub mod animation_player;
@@ -82,6 +83,7 @@ pub mod wind;
 pub mod z_index;
 
 pub use aabb::Aabb;
+pub use ability::Ability;
 pub use ambient_occlusion::AmbientOcclusion;
 pub use angular_velocity::AngularVelocity;
 pub use animation_player::AnimationPlayer;

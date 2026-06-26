@@ -12782,6 +12782,31 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_fov_between
+            let snap_gewfbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_fov_between".to_string(),
+                description: "Return entity IDs (cameras) whose field-of-view is strictly between min_fov and max_fov (exclusive); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_fov": { "type": "number" },
+                        "max_fov": { "type": "number" }
+                    },
+                    "required": ["min_fov", "max_fov"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewfbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.camera_fov.map(|f| f > min_fov && f < max_fov).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_fov_equal
             let snap_gewfeq = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -14506,6 +14531,31 @@ impl Plugin for EditorPlugin {
                     let s = snap_gewlia.lock().unwrap();
                     let ids: Vec<u64> = s.entities.iter()
                         .filter(|e| e.light_intensity.map(|i| i > threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_light_intensity_between
+            let snap_gewlibt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_light_intensity_between".to_string(),
+                description: "Return entity IDs whose light intensity is strictly between min and max (exclusive); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min": { "type": "number" },
+                        "max": { "type": "number" }
+                    },
+                    "required": ["min", "max"]
+                })),
+                handler: Box::new(move |input| {
+                    let min = input["min"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewlibt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.light_intensity.map(|i| i > min && i < max).unwrap_or(false))
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
@@ -56965,6 +57015,71 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_light_intensity_between_and_fov_between() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // intensity: 10 (dim), 50 (mid), 200 (bright)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":10.0,"range":5.0,"position":[0.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":50.0,"range":5.0,"position":[1.0,0.0,0.0]})).unwrap();
+            m.execute("spawn_point_light", json!({"color":[1.0,1.0,1.0],"intensity":200.0,"range":5.0,"position":[2.0,0.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // fov: 30, 60, 120
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("spawn_camera", json!({"fov_y_degrees":30.0,"position":[0.0,5.0,0.0]})).unwrap();
+            m.execute("spawn_camera", json!({"fov_y_degrees":60.0,"position":[1.0,5.0,0.0]})).unwrap();
+            m.execute("spawn_camera", json!({"fov_y_degrees":120.0,"position":[2.0,5.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_dim, id_mid, id_bright, id_30, id_60, id_120) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_dim    = es.iter().find(|e| e["light_intensity"].as_f64().map(|v| (v-10.0).abs()<1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_mid    = es.iter().find(|e| e["light_intensity"].as_f64().map(|v| (v-50.0).abs()<1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_bright = es.iter().find(|e| e["light_intensity"].as_f64().map(|v| (v-200.0).abs()<1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_30  = es.iter().find(|e| e["camera_fov"].as_f64().map(|v| (v-30.0).abs()<1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_60  = es.iter().find(|e| e["camera_fov"].as_f64().map(|v| (v-60.0).abs()<1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            let id_120 = es.iter().find(|e| e["camera_fov"].as_f64().map(|v| (v-120.0).abs()<1.0).unwrap_or(false)).unwrap()["id"].as_u64().unwrap();
+            (id_dim, id_mid, id_bright, id_30, id_60, id_120)
+        };
+
+        // get_entities_with_light_intensity_between(20, 100) → mid(50) only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_light_intensity_between", json!({"min": 20.0, "max": 100.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_dim),    "dim(10) not in [20,100]");
+            assert!(ids.contains(&id_mid),     "mid(50) in [20,100]");
+            assert!(!ids.contains(&id_bright), "bright(200) not in [20,100]");
+        }
+
+        // get_entities_with_fov_between(40, 90) → id_60 only
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_fov_between", json!({"min_fov": 40.0, "max_fov": 90.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_30),  "fov=30 not in (40,90)");
+            assert!(ids.contains(&id_60),   "fov=60 in (40,90)");
+            assert!(!ids.contains(&id_120), "fov=120 not in (40,90)");
+        }
+        let _ = (id_dim, id_mid, id_bright, id_30, id_60, id_120);
     }
 
     #[test]

@@ -4,6 +4,7 @@ pub mod light;
 pub mod logging;
 pub mod material;
 pub mod parent;
+pub mod time;
 pub mod transform;
 
 pub use camera::Camera;
@@ -12,6 +13,7 @@ pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;
 pub use material::Material;
 pub use parent::Parent;
+pub use time::Time;
 pub use transform::Transform;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

@@ -43,6 +43,8 @@ mod tests {
         let world = AudioWorld::default();
         // availability depends on the runner, but it must not panic
         let _ = world.is_available();
+        // Leak to avoid WASAPI teardown crash on Windows (COM from worker thread).
+        std::mem::forget(world);
     }
 
     #[test]

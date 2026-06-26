@@ -12,6 +12,7 @@ members = [
     "crates/bsengine-scene",
     "crates/bsengine-asset",
     "crates/bsengine-scripting",
+    "crates/bsengine-physics",
     "crates/bsengine-plugin",
     "crates/bsengine-mcp",
     "crates/bsengine-gltf",
@@ -56,3 +57,5 @@ gltf              = "1"
 image             = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 bsengine-gltf     = { path = "crates/bsengine-gltf" }
 bsengine-editor   = { path = "crates/bsengine-editor" }
+bsengine-physics  = { path = "crates/bsengine-physics" }
+rapier3d          = { version = "0.33", features = ["default"] }

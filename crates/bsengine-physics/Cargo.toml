@@ -1,0 +1,19 @@
+[package]
+name = "bsengine-physics"
+description = "Rigid-body physics via Rapier3d — RigidBody/Collider components and PhysicsPlugin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+bsengine-core    = { workspace = true }
+bsengine-ecs     = { workspace = true }
+bevy_app         = { workspace = true }
+bevy_ecs         = { workspace = true }
+rapier3d         = { workspace = true }
+glam             = { workspace = true }
+tracing          = { workspace = true }
+
+[dev-dependencies]
+bsengine-app = { workspace = true }

@@ -7,8 +7,10 @@ edition.workspace = true
 [dependencies]
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
+bsengine-gltf.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+glam.workspace = true
 ron.workspace = true
 serde.workspace = true
 

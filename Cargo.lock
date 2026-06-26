@@ -673,6 +673,8 @@ dependencies = [
  "bsengine-app",
  "bsengine-core",
  "bsengine-ecs",
+ "bsengine-gltf",
+ "glam 0.29.3",
  "ron",
  "serde",
 ]

@@ -693,6 +693,10 @@ impl Plugin for EditorPlugin {
                                 EntityDescriptor {
                                     name: name.clone(),
                                     components,
+                                    transform: None,
+                                    gltf: None,
+                                    camera: false,
+                                    directional_light: None,
                                 }
                             })
                         })

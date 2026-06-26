@@ -1,30 +1,40 @@
+pub mod angular_velocity;
 pub mod camera;
+pub mod color;
 pub mod global_transform;
 pub mod gravity;
+pub mod layer;
 pub mod lifetime;
 pub mod light;
 pub mod logging;
 pub mod material;
 pub mod name;
 pub mod parent;
+pub mod tag;
 pub mod time;
 pub mod transform;
 pub mod tween;
 pub mod velocity;
+pub mod visible;
 
+pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
+pub use color::Color;
 pub use global_transform::GlobalTransform;
 pub use gravity::{Gravity, GravityScale};
+pub use layer::Layer;
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;
 pub use material::Material;
 pub use name::Name;
 pub use parent::Parent;
+pub use tag::Tag;
 pub use time::Time;
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use velocity::Velocity;
+pub use visible::Visible;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

@@ -76,9 +76,9 @@ jobs:
         shell: pwsh
         run: echo "RUSTY_V8_ARCHIVE=$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz" >> $env:GITHUB_ENV
 
-      - name: Install Vulkan software driver (Ubuntu)
+      - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y mesa-vulkan-drivers
+        run: sudo apt-get install -y mesa-vulkan-drivers libasound2-dev
 
       - name: Format check
         run: cargo +nightly fmt --all -- --check

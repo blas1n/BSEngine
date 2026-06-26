@@ -13,6 +13,7 @@ members = [
     "crates/bsengine-asset",
     "crates/bsengine-scripting",
     "crates/bsengine-physics",
+    "crates/bsengine-audio",
     "crates/bsengine-plugin",
     "crates/bsengine-mcp",
     "crates/bsengine-gltf",
@@ -58,4 +59,6 @@ image             = { version = "0.25", default-features = false, features = ["p
 bsengine-gltf     = { path = "crates/bsengine-gltf" }
 bsengine-editor   = { path = "crates/bsengine-editor" }
 bsengine-physics  = { path = "crates/bsengine-physics" }
+bsengine-audio    = { path = "crates/bsengine-audio" }
 rapier3d          = { version = "0.33", features = ["default"] }
+kira              = { version = "0.12", default-features = false, features = ["cpal"] }

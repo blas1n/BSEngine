@@ -16193,6 +16193,177 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_scale_x_above
+            let snap_cesxa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_x_above".to_string(),
+                description: "Return count of entities whose X scale is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesxa.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_x_below
+            let snap_cesxb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_x_below".to_string(),
+                description: "Return count of entities whose X scale is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesxb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_x_equal
+            let snap_cesxeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_x_equal".to_string(),
+                description: "Return count of entities whose X scale equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesxeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_x_between
+            let snap_cesxbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_x_between".to_string(),
+                description: "Return count of entities whose X scale is in [min_value, max_value] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesxbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] >= min && sc[0] <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_y_above
+            let snap_cesya = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_y_above".to_string(),
+                description: "Return count of entities whose Y scale is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesya.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[1] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_y_below
+            let snap_cesyb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_y_below".to_string(),
+                description: "Return count of entities whose Y scale is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesyb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[1] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_y_equal
+            let snap_cesyeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_y_equal".to_string(),
+                description: "Return count of entities whose Y scale equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesyeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[1] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_y_between
+            let snap_cesybt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_y_between".to_string(),
+                description: "Return count of entities whose Y scale is in [min_value, max_value] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesybt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[1] >= min && sc[1] <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_z_above
+            let snap_cesza = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_z_above".to_string(),
+                description: "Return count of entities whose Z scale is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cesza.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[2] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_z_below
+            let snap_ceszb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_z_below".to_string(),
+                description: "Return count of entities whose Z scale is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceszb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[2] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_z_equal
+            let snap_ceszeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_z_equal".to_string(),
+                description: "Return count of entities whose Z scale equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceszeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[2] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_scale_z_between
+            let snap_ceszbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_scale_z_between".to_string(),
+                description: "Return count of entities whose Z scale is in [min_value, max_value] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_ceszbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[2] >= min && sc[2] <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_rotation_x_below
             let snap_gewrxb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -62193,6 +62364,64 @@ mod tests {
             assert_eq!(ids.len(), 2);
             assert!(ids.contains(&id_b) && ids.contains(&id_c));
         }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_count_scale_xyz() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [0.0, 0.0, 0.0]},
+                {"name": "C", "position": [0.0, 0.0, 0.0]},
+            ]})).unwrap();
+            drop(mcp);
+            app.update(); app.update();
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // A(1,2,3), B(5,5,5), C(8,9,10)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_a, "sx": 1.0, "sy": 2.0, "sz": 3.0})).unwrap();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_b, "sx": 5.0, "sy": 5.0, "sz": 5.0})).unwrap();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_c, "sx": 8.0, "sy": 9.0, "sz": 10.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_scale_x_above", json!({"threshold": 3.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_scale_x_below", json!({"threshold": 3.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_scale_x_equal", json!({"value": 5.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_scale_x_between", json!({"min_value": 4.0, "max_value": 9.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_scale_y_above", json!({"threshold": 3.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_scale_y_below", json!({"threshold": 3.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_scale_y_equal", json!({"value": 9.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_scale_y_between", json!({"min_value": 4.0, "max_value": 10.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_scale_z_above", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_scale_z_below", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_scale_z_equal", json!({"value": 5.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_scale_z_between", json!({"min_value": 4.0, "max_value": 11.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+
         let _ = (id_a, id_b, id_c);
     }
 

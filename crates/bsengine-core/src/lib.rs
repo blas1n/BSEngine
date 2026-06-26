@@ -1,6 +1,7 @@
 pub mod aabb;
 pub mod angular_velocity;
 pub mod camera;
+pub mod capsule;
 pub mod color;
 pub mod global_transform;
 pub mod layer;
@@ -20,6 +21,7 @@ pub mod visible;
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
+pub use capsule::Capsule;
 pub use color::Color;
 pub use global_transform::GlobalTransform;
 pub use layer::Layer;

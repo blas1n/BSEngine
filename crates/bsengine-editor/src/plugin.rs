@@ -1666,6 +1666,42 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // deselect_entities_with_tag_overlap
+            let snap_dewto = snapshot.clone();
+            let sel_dewto = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_tag_overlap".to_string(),
+                description:
+                    "Deselect all entities that have both tag_a and tag_b; returns {removed_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tag_a": { "type": "string" },
+                        "tag_b": { "type": "string" }
+                    },
+                    "required": ["tag_a", "tag_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_a = input["tag_a"].as_str().unwrap_or("").to_string();
+                    let tag_b = input["tag_b"].as_str().unwrap_or("").to_string();
+                    let s = snap_dewto.lock().unwrap();
+                    let to_remove: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.contains(&tag_a) && e.tags.contains(&tag_b))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewto.lock().unwrap();
+                    for id in &to_remove {
+                        sel.remove(id);
+                    }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_with_tag_overlap
             let snap_gewto = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22167,6 +22203,140 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_deselect_entities_with_tag_overlap_and_count() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → [foo, bar], B → [foo], C → [bar]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "foo"), (id_a, "bar"), (id_b, "foo"), (id_c, "bar")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // count_entities_with_tag_overlap foo bar → only A has both = 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "get_tag_overlap_count",
+                    json!({"tag_a": "foo", "tag_b": "bar"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // select all, then deselect_entities_with_tag_overlap foo bar → removes A (only entity with both)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("select_all", json!({}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "deselect_entities_with_tag_overlap",
+                    json!({"tag_a": "foo", "tag_b": "bar"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            // 1 entity matched filter (A has both foo and bar)
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selected_entities", json!({}))
+                .unwrap();
+            let sel_ids: std::collections::HashSet<u64> = sel_out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["id"].as_u64().unwrap())
+                .collect();
+            assert!(!sel_ids.contains(&id_a));
+            assert!(sel_ids.contains(&id_b));
+            assert!(sel_ids.contains(&id_c));
+        }
     }
 
     #[test]

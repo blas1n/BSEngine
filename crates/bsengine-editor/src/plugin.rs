@@ -20376,6 +20376,14 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for non_default_scale
+            let snap_sewnds = snapshot.clone(); let sel_sewnds = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_non_default_scale".to_string(), description: "Add to selection entities whose scale differs from (1,1,1) by more than 0.001; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewnds.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-1.0).abs()>0.001||(sc[1]-1.0).abs()>0.001||(sc[2]-1.0).abs()>0.001).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewnds.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewnds = snapshot.clone(); let sel_dewnds = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_non_default_scale".to_string(), description: "Remove from selection entities whose scale differs from (1,1,1) by more than 0.001; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewnds.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-1.0).abs()>0.001||(sc[1]-1.0).abs()>0.001||(sc[2]-1.0).abs()>0.001).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewnds.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewnds = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_non_default_scale".to_string(), description: "Return count of entities whose scale differs from (1,1,1) by more than 0.001; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewnds.lock().unwrap(); let count = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0]-1.0).abs()>0.001||(sc[1]-1.0).abs()>0.001||(sc[2]-1.0).abs()>0.001).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // snap_selection_to_grid
             let snap_sstg = snapshot.clone();
             let sel_sstg = selection.clone();
@@ -20494,6 +20502,14 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"entities": entities}))
                 }),
             });
+
+            // select/deselect/count for non_default_rotation
+            let snap_sewndr = snapshot.clone(); let sel_sewndr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_non_default_rotation".to_string(), description: "Add to selection entities whose rotation is not (0,0,0); returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewndr.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0].abs()>0.001||r[1].abs()>0.001||r[2].abs()>0.001).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewndr.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewndr = snapshot.clone(); let sel_dewndr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_non_default_rotation".to_string(), description: "Remove from selection entities whose rotation is not (0,0,0); returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewndr.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.rotation.map(|r| r[0].abs()>0.001||r[1].abs()>0.001||r[2].abs()>0.001).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewndr.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewndr = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_non_default_rotation".to_string(), description: "Return count of entities whose rotation is not (0,0,0); returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewndr.lock().unwrap(); let count = s.entities.iter().filter(|e| e.rotation.map(|r| r[0].abs()>0.001||r[1].abs()>0.001||r[2].abs()>0.001).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
 
             // get_entities_matching_regex
             let snap_gemr = snapshot.clone();
@@ -20769,6 +20785,21 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"entities": entities}))
                 }),
             });
+
+            // select/deselect/count for scale_above, scale_below
+            let snap_sewsa = snapshot.clone(); let sel_sewsa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_scale_above".to_string(), description: "Add to selection entities whose max scale component exceeds min_scale; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_scale":{"type":"number"}},"required":["min_scale"]})), handler: Box::new(move |input| { let min_scale = input["min_scale"].as_f64().unwrap_or(0.0) as f32; let s = snap_sewsa.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0].max(sc[1]).max(sc[2]) > min_scale).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewsa.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewsa = snapshot.clone(); let sel_dewsa = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_scale_above".to_string(), description: "Remove from selection entities whose max scale component exceeds min_scale; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_scale":{"type":"number"}},"required":["min_scale"]})), handler: Box::new(move |input| { let min_scale = input["min_scale"].as_f64().unwrap_or(0.0) as f32; let s = snap_dewsa.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0].max(sc[1]).max(sc[2]) > min_scale).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewsa.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewsa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_scale_above".to_string(), description: "Return count of entities whose max scale component exceeds min_scale; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_scale":{"type":"number"}},"required":["min_scale"]})), handler: Box::new(move |input| { let min_scale = input["min_scale"].as_f64().unwrap_or(0.0) as f32; let s = snap_cewsa.lock().unwrap(); let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0].max(sc[1]).max(sc[2]) > min_scale).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewsb = snapshot.clone(); let sel_sewsb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_scale_below".to_string(), description: "Add to selection entities whose max scale component is less than max_scale; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"max_scale":{"type":"number"}},"required":["max_scale"]})), handler: Box::new(move |input| { let max_scale = input["max_scale"].as_f64().unwrap_or(f64::MAX) as f32; let s = snap_sewsb.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0].max(sc[1]).max(sc[2]) < max_scale).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewsb.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewsb = snapshot.clone(); let sel_dewsb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_scale_below".to_string(), description: "Remove from selection entities whose max scale component is less than max_scale; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"max_scale":{"type":"number"}},"required":["max_scale"]})), handler: Box::new(move |input| { let max_scale = input["max_scale"].as_f64().unwrap_or(f64::MAX) as f32; let s = snap_dewsb.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0].max(sc[1]).max(sc[2]) < max_scale).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewsb.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewsb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_scale_below".to_string(), description: "Return count of entities whose max scale component is less than max_scale; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"max_scale":{"type":"number"}},"required":["max_scale"]})), handler: Box::new(move |input| { let max_scale = input["max_scale"].as_f64().unwrap_or(f64::MAX) as f32; let s = snap_cewsb.lock().unwrap(); let count = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0].max(sc[1]).max(sc[2]) < max_scale).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
 
             // get_entities_sorted_by_distance_from
             let snap_gesbdf = snapshot.clone();
@@ -61662,6 +61693,76 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_scale_rotation_gaps_497() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "BigScale", "position": [0.0, 0.0, 0.0]},
+                {"name": "SmallScale", "position": [1.0, 0.0, 0.0]},
+                {"name": "DefaultScale", "position": [2.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // Get entity IDs
+        let (id_big, id_small, id_default) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            let list = lock.execute("list_entities", json!({})).unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let find = |n: &str| entities.iter().find(|e| e["name"].as_str() == Some(n)).unwrap()["id"].as_u64().unwrap();
+            (find("BigScale"), find("SmallScale"), find("DefaultScale"))
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_big, "sx": 3.0, "sy": 3.0, "sz": 3.0})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id_small, "sx": 0.5, "sy": 0.5, "sz": 0.5})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_rotation", json!({"entity_id": id_big, "rx": 45.0, "ry": 0.0, "rz": 0.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // non_default_scale: BigScale(3,3,3), SmallScale(0.5,0.5,0.5) = 2
+            assert_eq!(lock.execute("count_entities_with_non_default_scale", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_non_default_scale", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_non_default_scale", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // non_default_rotation: only BigScale(45,0,0) = 1
+            assert_eq!(lock.execute("count_entities_with_non_default_rotation", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_non_default_rotation", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_non_default_rotation", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // scale_above(1.0): BigScale(max=3) = 1
+            assert_eq!(lock.execute("count_entities_with_scale_above", json!({"min_scale": 1.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_scale_above", json!({"min_scale": 1.0})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_scale_above", json!({"min_scale": 1.0})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // scale_below(1.0): SmallScale(max=0.5) = 1
+            assert_eq!(lock.execute("count_entities_with_scale_below", json!({"max_scale": 1.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_scale_below", json!({"max_scale": 1.0})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_scale_below", json!({"max_scale": 1.0})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            let _ = id_default;
+        }
     }
 
     #[test]

@@ -1,6 +1,13 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Entity, Event};
 use glam::{Quat, Vec3};
 use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct CollisionEvent {
+    pub entity_a: Entity,
+    pub entity_b: Entity,
+    pub started: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RigidBodyType {

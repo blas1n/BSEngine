@@ -1,12 +1,16 @@
+use std::sync::Mutex;
+
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use glam::{Quat, Vec3};
+use rapier3d::geometry::{CollisionEvent as RapierCollisionEvent, ContactPair};
+use rapier3d::pipeline::EventHandler;
 use rapier3d::prelude::*;
 
 use crate::{
     components::{
-        Collider, ColliderShape, PhysicsHandles, PhysicsInput, PhysicsTransform, RigidBody,
-        RigidBodyType,
+        Collider, ColliderShape, CollisionEvent, PhysicsHandles, PhysicsInput, PhysicsTransform,
+        RigidBody, RigidBodyType,
     },
     world::PhysicsWorld,
 };
@@ -16,26 +20,49 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
+        app.add_event::<CollisionEvent>();
         app.add_systems(Update, (spawn_bodies, step_world, sync_from_rapier).chain());
     }
 }
 
-// Convert project glam 0.29 Vec3 → rapier math Vec3 (glam 0.33) via raw floats
+struct CollisionBuffer {
+    events: Mutex<Vec<RapierCollisionEvent>>,
+}
+
+impl EventHandler for CollisionBuffer {
+    fn handle_collision_event(
+        &self,
+        _bodies: &RigidBodySet,
+        _colliders: &ColliderSet,
+        event: RapierCollisionEvent,
+        _contact_pair: Option<&ContactPair>,
+    ) {
+        self.events.lock().unwrap().push(event);
+    }
+
+    fn handle_contact_force_event(
+        &self,
+        _dt: rapier3d::math::Real,
+        _bodies: &RigidBodySet,
+        _colliders: &ColliderSet,
+        _contact_pair: &ContactPair,
+        _total_force_magnitude: rapier3d::math::Real,
+    ) {
+    }
+}
+
 fn to_rapier_vec(v: Vec3) -> Vector {
     Vector::new(v.x, v.y, v.z)
 }
 
-// Convert project glam 0.29 Quat → rapier Rotation (glam 0.33 Quat) via raw floats
 fn to_rapier_rot(q: Quat) -> Rotation {
     Rotation::from_xyzw(q.x, q.y, q.z, q.w)
 }
 
-// Convert rapier math Vec3 (glam 0.33) → project glam 0.29 Vec3
 fn from_rapier_vec(v: Vector) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
 }
 
-// Convert rapier Rotation (glam 0.33 Quat) → project glam 0.29 Quat
 fn from_rapier_rot(r: Rotation) -> Quat {
     Quat::from_xyzw(r.x, r.y, r.z, r.w)
 }
@@ -53,13 +80,13 @@ fn spawn_bodies(
 
         let rb = match rigid_body.body_type {
             RigidBodyType::Dynamic => RigidBodyBuilder::dynamic()
-                .position(pose)
+                .pose(pose)
                 .linear_damping(rigid_body.linear_damping)
                 .angular_damping(rigid_body.angular_damping)
                 .build(),
-            RigidBodyType::Static => RigidBodyBuilder::fixed().position(pose).build(),
+            RigidBodyType::Static => RigidBodyBuilder::fixed().pose(pose).build(),
             RigidBodyType::KinematicPosition => RigidBodyBuilder::kinematic_position_based()
-                .position(pose)
+                .pose(pose)
                 .build(),
         };
 
@@ -70,9 +97,11 @@ fn spawn_bodies(
             .restitution(collider.restitution)
             .friction(collider.friction)
             .density(collider.density)
+            .active_events(ActiveEvents::COLLISION_EVENTS)
             .build();
 
         let collider_handle = world.add_collider(coll, body_handle);
+        world.collider_entity_map.insert(collider_handle, entity);
 
         commands.entity(entity).insert((
             PhysicsHandles {
@@ -90,6 +119,7 @@ fn spawn_bodies(
 fn step_world(
     mut world: ResMut<PhysicsWorld>,
     query: Query<(&PhysicsHandles, &PhysicsInput), With<RigidBody>>,
+    mut collision_events: EventWriter<CollisionEvent>,
 ) {
     for (handles, input) in query.iter() {
         if let Some(body) = world.rigid_body_set.get_mut(handles.body_handle) {
@@ -102,7 +132,27 @@ fn step_world(
         }
     }
 
-    world.step();
+    let buffer = CollisionBuffer {
+        events: Mutex::new(Vec::new()),
+    };
+    world.step(&buffer);
+
+    for event in buffer.events.into_inner().unwrap() {
+        let (h1, h2, started) = match event {
+            RapierCollisionEvent::Started(h1, h2, _) => (h1, h2, true),
+            RapierCollisionEvent::Stopped(h1, h2, _) => (h1, h2, false),
+        };
+        if let (Some(&e1), Some(&e2)) = (
+            world.collider_entity_map.get(&h1),
+            world.collider_entity_map.get(&h2),
+        ) {
+            collision_events.send(CollisionEvent {
+                entity_a: e1,
+                entity_b: e2,
+                started,
+            });
+        }
+    }
 }
 
 fn sync_from_rapier(

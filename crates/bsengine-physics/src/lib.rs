@@ -3,7 +3,8 @@ pub mod plugin;
 pub mod world;
 
 pub use components::{
-    Collider, ColliderShape, PhysicsInput, PhysicsTransform, RigidBody, RigidBodyType,
+    Collider, ColliderShape, CollisionEvent, PhysicsInput, PhysicsTransform, RigidBody,
+    RigidBodyType,
 };
 pub use plugin::PhysicsPlugin;
 pub use world::PhysicsWorld;
@@ -116,6 +117,46 @@ mod tests {
             transform.translation.y > 0.0,
             "ball should rest above floor, got y={}",
             transform.translation.y
+        );
+    }
+
+    #[test]
+    fn collision_event_fires_when_bodies_touch() {
+        use bevy_ecs::event::Events;
+
+        let mut app = new_app();
+
+        app.world_mut().spawn((
+            RigidBody::fixed(),
+            Collider::cuboid(10.0, 0.1, 10.0),
+            PhysicsInput {
+                translation: Vec3::ZERO,
+                rotation: Default::default(),
+            },
+        ));
+
+        app.world_mut().spawn((
+            RigidBody::dynamic(),
+            Collider::ball(0.5),
+            PhysicsInput {
+                translation: Vec3::new(0.0, 1.0, 0.0),
+                rotation: Default::default(),
+            },
+        ));
+
+        let mut received = false;
+        for _ in 0..200 {
+            app.update();
+            let events = app.world().resource::<Events<CollisionEvent>>();
+            let mut reader = events.get_reader();
+            if reader.read(events).next().is_some() {
+                received = true;
+                break;
+            }
+        }
+        assert!(
+            received,
+            "expected collision event when ball lands on floor"
         );
     }
 

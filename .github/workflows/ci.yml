@@ -36,6 +36,46 @@ jobs:
           # Cache key includes OS so Windows/Linux don't share V8 artifacts
           key: ${{ matrix.os }}
 
+      # Cache librusty_v8.a keyed by v8 crate version + OS, independent of
+      # Cargo.lock so adding unrelated crates never forces a re-download.
+      - name: Resolve v8 crate version
+        id: v8ver
+        shell: bash
+        run: |
+          VER=$(grep -A 2 'name = "v8"' Cargo.lock | grep 'version =' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "ver=$VER" >> $GITHUB_OUTPUT
+
+      - name: Cache rusty_v8 prebuilt binary
+        id: cache-rusty-v8
+        uses: actions/cache@v4
+        with:
+          path: ~/.rusty_v8
+          key: rusty-v8-${{ runner.os }}-${{ steps.v8ver.outputs.ver }}
+
+      - name: Download rusty_v8 (Linux)
+        if: matrix.os == 'ubuntu-latest' && steps.cache-rusty-v8.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.rusty_v8
+          curl -fL "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz" \
+            -o ~/.rusty_v8/librusty_v8.a.gz
+
+      - name: Download rusty_v8 (Windows)
+        if: matrix.os == 'windows-latest' && steps.cache-rusty-v8.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:USERPROFILE\.rusty_v8" | Out-Null
+          Invoke-WebRequest "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/rusty_v8_simdutf_release_x86_64-pc-windows-msvc.lib.gz" `
+            -OutFile "$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz"
+
+      - name: Set RUSTY_V8_ARCHIVE (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: echo "RUSTY_V8_ARCHIVE=$HOME/.rusty_v8/librusty_v8.a.gz" >> $GITHUB_ENV
+
+      - name: Set RUSTY_V8_ARCHIVE (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: echo "RUSTY_V8_ARCHIVE=$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz" >> $env:GITHUB_ENV
+
       - name: Install Vulkan software driver (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y mesa-vulkan-drivers

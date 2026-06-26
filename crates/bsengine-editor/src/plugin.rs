@@ -1666,6 +1666,65 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_tag_symmetric_difference
+            let snap_gtsd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tag_symmetric_difference".to_string(),
+                description: "Return tags in either entity_a or entity_b but NOT both (symmetric difference); returns {tags}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_a_id": { "type": "integer" },
+                        "entity_b_id": { "type": "integer" }
+                    },
+                    "required": ["entity_a_id", "entity_b_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let id_a = input["entity_a_id"].as_u64().unwrap_or(0);
+                    let id_b = input["entity_b_id"].as_u64().unwrap_or(0);
+                    let s = snap_gtsd.lock().unwrap();
+                    let tags_a: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_a)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let tags_b: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_b)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let mut sym_diff: Vec<&str> = tags_a.symmetric_difference(&tags_b).copied().collect();
+                    sym_diff.sort();
+                    McpToolOutput::success(json!({"tags": sym_diff}))
+                }),
+            });
+
+            // get_entities_with_tag_in_list
+            let snap_gewtil = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag_in_list".to_string(),
+                description: "Return IDs of entities that have at least one tag from the given list; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_list: std::collections::HashSet<String> = input["tags"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    let s = snap_gewtil.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.iter().any(|t| tag_list.contains(t)))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_tag_union
             let snap_gtu = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22444,6 +22503,67 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_tag_symmetric_difference_and_entities_with_tag_in_list() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // A → [a, b, c], B → [b, c, d], C → [e]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "a"), (id_a, "b"), (id_a, "c"), (id_b, "b"), (id_b, "c"), (id_b, "d"), (id_c, "e")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // get_tag_symmetric_difference A B → {a, d} (a only in A, d only in B)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_tag_symmetric_difference", json!({"entity_a_id": id_a, "entity_b_id": id_b})).unwrap();
+            assert!(out.is_ok());
+            let mut tags: Vec<String> = out.content["tags"].as_array().unwrap()
+                .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            tags.sort();
+            assert_eq!(tags, vec!["a", "d"]);
+        }
+
+        // get_entities_with_tag_in_list [d, e] → B (has d), C (has e)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_tag_in_list", json!({"tags": ["d", "e"]})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap()
+                .iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b));
+            assert!(ids.contains(&id_c));
+            assert!(!ids.contains(&id_a));
+        }
     }
 
     #[test]

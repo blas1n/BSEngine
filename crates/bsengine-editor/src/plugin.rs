@@ -1666,6 +1666,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_name_length_above
+            let snap_cewtlna = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_length_above".to_string(),
+                description: "Count entities whose name length is strictly greater than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "length": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["length"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewtlna.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.name.as_deref().unwrap_or("").len() > threshold)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_name_length_below
+            let snap_cewtlnb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_length_below".to_string(),
+                description: "Count entities whose name length is strictly less than the given value; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "length": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["length"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["length"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_cewtlnb.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| e.name.as_deref().unwrap_or("").len() < threshold)
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_name_length_below
             let snap_gewtlnb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22995,6 +23039,43 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_name_length_above_and_below() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // names: "A"(1), "BB"(2), "CCC"(3), "DDDD"(4)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A",    "position": [1.0, 0.0, 0.0]},
+                {"name": "BB",   "position": [2.0, 0.0, 0.0]},
+                {"name": "CCC",  "position": [3.0, 0.0, 0.0]},
+                {"name": "DDDD", "position": [4.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // count_entities_with_name_length_above 2 → CCC(3), DDDD(4) = 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_name_length_above", json!({"length": 2})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+        }
+
+        // count_entities_with_name_length_below 3 → A(1), BB(2) = 2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_name_length_below", json!({"length": 3})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 2);
+        }
     }
 
     #[test]

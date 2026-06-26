@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod color;
 pub mod global_transform;
 pub mod light;
 pub mod logging;
@@ -10,6 +11,7 @@ pub mod transform;
 pub mod tween;
 
 pub use camera::Camera;
+pub use color::Color;
 pub use global_transform::GlobalTransform;
 pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;

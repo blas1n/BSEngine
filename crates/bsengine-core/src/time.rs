@@ -29,4 +29,9 @@ impl Time {
         self.elapsed_seconds = now.duration_since(self.startup).as_secs_f32();
         self.last_tick = now;
     }
+
+    /// Override delta_seconds directly — for use in tests only.
+    pub fn set_delta_for_test(&mut self, delta: f32) {
+        self.delta_seconds = delta;
+    }
 }

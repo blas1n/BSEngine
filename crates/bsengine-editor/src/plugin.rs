@@ -1666,6 +1666,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_no_tags_in_list
+            let snap_cewtnil = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_no_tags_in_list".to_string(),
+                description: "Count entities that have NONE of the tags in the given list; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_list: std::collections::HashSet<String> = input["tags"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    let s = snap_cewtnil.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| !e.tags.iter().any(|t| tag_list.contains(t)))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_entities_sorted_by_name_length_asc
+            let snap_gesbtnla = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_name_length_asc".to_string(),
+                description: "Return entities sorted by name length ascending (shortest name first); returns {entities: [{id, name, name_length}]}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbtnla.lock().unwrap();
+                    let mut entries: Vec<(u64, String, usize)> = s.entities.iter()
+                        .map(|e| {
+                            let name = e.name.clone().unwrap_or_default();
+                            let len = name.len();
+                            (e.id, name, len)
+                        })
+                        .collect();
+                    entries.sort_by_key(|(_, _, l)| *l);
+                    let result: Vec<serde_json::Value> = entries.iter()
+                        .map(|(id, name, len)| json!({"id": id, "name": name, "name_length": len}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
             // select_entities_with_no_tags_in_list
             let snap_sewtnil = snapshot.clone();
             let sel_sewtnil = selection.clone();
@@ -22811,6 +22861,67 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_no_tags_in_list_and_sort_by_name_length() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Al", "position": [1.0, 0.0, 0.0]},
+                {"name": "Bob", "position": [2.0, 0.0, 0.0]},
+                {"name": "Charlie", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // Al → [x], Bob → [x], Charlie → [] (no tags)
+        let (id_al, id_bob, id_charlie) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_al = entities.iter().find(|e| e["name"].as_str() == Some("Al")).unwrap()["id"].as_u64().unwrap();
+            let id_bob = entities.iter().find(|e| e["name"].as_str() == Some("Bob")).unwrap()["id"].as_u64().unwrap();
+            let id_charlie = entities.iter().find(|e| e["name"].as_str() == Some("Charlie")).unwrap()["id"].as_u64().unwrap();
+            (id_al, id_bob, id_charlie)
+        };
+        for (id, tag) in [(id_al, "x"), (id_bob, "x")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // count_entities_with_no_tags_in_list [x] → Charlie (no x tag) = 1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_no_tags_in_list", json!({"tags": ["x"]})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // get_entities_sorted_by_name_length_asc → Al(2), Bob(3), Charlie(7)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_sorted_by_name_length_asc", json!({})).unwrap();
+            assert!(out.is_ok());
+            let entities = out.content["entities"].as_array().unwrap();
+            assert_eq!(entities.len(), 3);
+            assert_eq!(entities[0]["id"].as_u64().unwrap(), id_al);
+            assert_eq!(entities[0]["name_length"].as_u64().unwrap(), 2);
+            assert_eq!(entities[1]["id"].as_u64().unwrap(), id_bob);
+            assert_eq!(entities[1]["name_length"].as_u64().unwrap(), 3);
+            assert_eq!(entities[2]["id"].as_u64().unwrap(), id_charlie);
+            assert_eq!(entities[2]["name_length"].as_u64().unwrap(), 7);
+        }
+        let _ = (id_al, id_bob, id_charlie);
     }
 
     #[test]

@@ -4,7 +4,7 @@ use bsengine_ecs::IntoSystemConfigs;
 
 use crate::{
     state::Input,
-    types::{CursorMoved, ElementState, KeyCode, KeyInput, MouseButton, MouseInput},
+    types::{CursorMoved, ElementState, KeyCode, KeyInput, MouseButton, MouseInput, MouseMotion},
 };
 
 pub struct InputPlugin;
@@ -14,6 +14,7 @@ impl Plugin for InputPlugin {
         app.add_event::<KeyInput>()
             .add_event::<MouseInput>()
             .add_event::<CursorMoved>()
+            .add_event::<MouseMotion>()
             .insert_resource(Input::<KeyCode>::default())
             .insert_resource(Input::<MouseButton>::default())
             .add_systems(
@@ -53,7 +54,7 @@ fn update_mouse_state(
 mod tests {
     use crate::{
         state::Input, CursorMoved, ElementState, InputPlugin, KeyCode, KeyInput, MouseButton,
-        MouseInput,
+        MouseInput, MouseMotion,
     };
     use bevy_ecs::event::Events;
     use bsengine_app::new_app;
@@ -77,6 +78,13 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(InputPlugin);
         assert!(app.world().get_resource::<Events<CursorMoved>>().is_some());
+    }
+
+    #[test]
+    fn input_plugin_registers_mouse_motion_events() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+        assert!(app.world().get_resource::<Events<MouseMotion>>().is_some());
     }
 
     #[test]

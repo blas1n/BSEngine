@@ -82,6 +82,15 @@ pub struct CursorMoved {
     pub y: f64,
 }
 
+/// Raw mouse movement delta from the OS device event stream.
+/// Unlike CursorMoved, this is not affected by cursor acceleration or screen bounds.
+/// Use this for FPS-style camera rotation.
+#[derive(Event, Debug, Clone)]
+pub struct MouseMotion {
+    pub dx: f64,
+    pub dy: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

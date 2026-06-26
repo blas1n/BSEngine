@@ -2,7 +2,7 @@ use bevy_app::{App, AppExit};
 use bevy_ecs::event::Events;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{DeviceEvent, DeviceId, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
@@ -128,6 +128,24 @@ impl ApplicationHandler for BsWinitApp {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
+            use bsengine_input::MouseMotion;
+            if let Some(mut events) = self
+                .ecs_app
+                .world_mut()
+                .get_resource_mut::<Events<MouseMotion>>()
+            {
+                events.send(MouseMotion { dx, dy });
+            }
         }
     }
 }

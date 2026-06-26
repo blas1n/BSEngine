@@ -18067,6 +18067,68 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_in_y_range
+            let snap_seiyr = snapshot.clone();
+            let sel_seiyr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_in_y_range".to_string(),
+                description: "Add to selection all entities whose Y position is within [min_y, max_y]; returns {selected_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_y": { "type": "number" },
+                        "max_y": { "type": "number" }
+                    },
+                    "required": ["min_y", "max_y"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_y = input["min_y"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_seiyr.lock().unwrap();
+                    let mut sel = sel_seiyr.lock().unwrap();
+                    let mut count = 0u64;
+                    for e in &s.entities {
+                        if let Some(p) = e.position {
+                            if p[1] >= min_y && p[1] <= max_y {
+                                sel.insert(e.id);
+                                count += 1;
+                            }
+                        }
+                    }
+                    McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // deselect_entities_in_y_range
+            let snap_deiyr = snapshot.clone();
+            let sel_deiyr = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_in_y_range".to_string(),
+                description: "Remove from selection all entities whose Y position is within [min_y, max_y]; returns {removed_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "min_y": { "type": "number" },
+                        "max_y": { "type": "number" }
+                    },
+                    "required": ["min_y", "max_y"]
+                })),
+                handler: Box::new(move |input| {
+                    let min_y = input["min_y"].as_f64().unwrap_or(f64::NEG_INFINITY) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(f64::INFINITY) as f32;
+                    let s = snap_deiyr.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.position.map(|p| p[1] >= min_y && p[1] <= max_y).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_deiyr.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // select_entities_in_z_range
             let snap_seizr = snapshot.clone();
             let sel_seizr = selection.clone();
@@ -67029,6 +67091,78 @@ mod tests {
             .unwrap();
         assert!(out.is_ok());
         assert_eq!(out.content["count"].as_u64().unwrap(), 2, "2 cameras");
+    }
+
+    #[test]
+    fn mcp_select_and_deselect_entities_in_y_range() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A at y=0, B at y=5, C at y=15
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [0.0, 5.0, 0.0]},
+                {"name": "C", "position": [0.0, 15.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = es.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = es.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = es.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+
+        // select_entities_in_y_range [2, 10] → B only; selected_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_in_y_range", json!({"min_y": 2.0, "max_y": 10.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["selected_count"].as_u64().unwrap(), 1);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_a), "A(y=0) not in [2,10]");
+            assert!(ids.contains(&id_b),  "B(y=5) in [2,10]");
+            assert!(!ids.contains(&id_c), "C(y=15) not in [2,10]");
+        }
+
+        // select_all, then deselect_entities_in_y_range [2, 10] → removes B; removed_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("select_all", json!({})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("deselect_entities_in_y_range", json!({"min_y": 2.0, "max_y": 10.0})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["removed_count"].as_u64().unwrap(), 1);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_a),  "A(y=0) still selected");
+            assert!(!ids.contains(&id_b), "B(y=5) deselected");
+            assert!(ids.contains(&id_c),  "C(y=15) still selected");
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

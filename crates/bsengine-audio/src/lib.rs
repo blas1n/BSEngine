@@ -51,5 +51,7 @@ mod tests {
         app.add_plugins(AudioPlugin);
         // plugin registered the resource without panicking
         assert!(app.world().contains_resource::<AudioWorld>());
+        // Leak the app to avoid AudioManager's COM teardown crashing on Windows CI.
+        std::mem::forget(app);
     }
 }

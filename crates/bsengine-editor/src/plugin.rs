@@ -8037,6 +8037,12 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect for no_name
+            let snap_sewnn = snapshot.clone(); let sel_sewnn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_no_name".to_string(), description: "Add to selection entities that have no name (None); returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewnn.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.is_none()).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewnn.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewnn = snapshot.clone(); let sel_dewnn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_no_name".to_string(), description: "Remove from selection entities that have no name (None); returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewnn.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.is_none()).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewnn.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+
             // deselect_entities_within_aabb
             let snap_dewab = snapshot.clone();
             let sel_dewab = selection.clone();
@@ -13397,6 +13403,14 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for same_parent
+            let snap_sewsp = snapshot.clone(); let sel_sewsp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_same_parent".to_string(), description: "Add to selection entities sharing the same parent as the given entity (siblings, excluding itself); returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"entity_id":{"type":"integer"}},"required":["entity_id"]})), handler: Box::new(move |input| { let eid = match input["entity_id"].as_u64() { Some(id) => id, None => return McpToolOutput::error("missing entity_id") }; let s = snap_sewsp.lock().unwrap(); let parent_id = s.entities.iter().find(|e| e.id == eid).and_then(|e| e.parent_id); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.id != eid && e.parent_id == parent_id).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewsp.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewsp = snapshot.clone(); let sel_dewsp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_same_parent".to_string(), description: "Remove from selection entities sharing the same parent as the given entity (siblings, excluding itself); returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"entity_id":{"type":"integer"}},"required":["entity_id"]})), handler: Box::new(move |input| { let eid = match input["entity_id"].as_u64() { Some(id) => id, None => return McpToolOutput::error("missing entity_id") }; let s = snap_dewsp.lock().unwrap(); let parent_id = s.entities.iter().find(|e| e.id == eid).and_then(|e| e.parent_id); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.id != eid && e.parent_id == parent_id).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewsp.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewsp = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_same_parent".to_string(), description: "Return count of entities sharing the same parent as the given entity (siblings, excluding itself); returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"entity_id":{"type":"integer"}},"required":["entity_id"]})), handler: Box::new(move |input| { let eid = match input["entity_id"].as_u64() { Some(id) => id, None => return McpToolOutput::error("missing entity_id") }; let s = snap_cewsp.lock().unwrap(); let parent_id = s.entities.iter().find(|e| e.id == eid).and_then(|e| e.parent_id); let count = s.entities.iter().filter(|e| e.id != eid && e.parent_id == parent_id).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // get_entities_at_z_zero
             let snap_geazz = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -17920,6 +17934,21 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for duplicate_names, empty_name
+            let snap_sewdn = snapshot.clone(); let sel_sewdn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_duplicate_names".to_string(), description: "Add to selection entities that share a name with at least one other entity; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewdn.lock().unwrap(); let mut nc: std::collections::HashMap<&str,u32> = std::collections::HashMap::new(); for e in s.entities.iter() { if let Some(n) = e.name.as_deref() { *nc.entry(n).or_insert(0) += 1; } } let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| nc.get(n).copied().unwrap_or(0) > 1).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewdn.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewdn = snapshot.clone(); let sel_dewdn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_duplicate_names".to_string(), description: "Remove from selection entities that share a name with at least one other entity; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewdn.lock().unwrap(); let mut nc: std::collections::HashMap<&str,u32> = std::collections::HashMap::new(); for e in s.entities.iter() { if let Some(n) = e.name.as_deref() { *nc.entry(n).or_insert(0) += 1; } } let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| nc.get(n).copied().unwrap_or(0) > 1).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewdn.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewdn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_duplicate_names".to_string(), description: "Return count of entities that share a name with at least one other entity; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewdn.lock().unwrap(); let mut nc: std::collections::HashMap<&str,u32> = std::collections::HashMap::new(); for e in s.entities.iter() { if let Some(n) = e.name.as_deref() { *nc.entry(n).or_insert(0) += 1; } } let count = s.entities.iter().filter(|e| e.name.as_deref().map(|n| nc.get(n).copied().unwrap_or(0) > 1).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sewen = snapshot.clone(); let sel_sewen = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_empty_name".to_string(), description: "Add to selection entities whose name is empty string or None; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_sewen.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.is_empty()).unwrap_or(true)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewen.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewen = snapshot.clone(); let sel_dewen = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_empty_name".to_string(), description: "Remove from selection entities whose name is empty string or None; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_dewen.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.is_empty()).unwrap_or(true)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewen.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewen = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_empty_name".to_string(), description: "Return count of entities whose name is empty string or None; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_cewen.lock().unwrap(); let count = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.is_empty()).unwrap_or(true)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // select_entities_name_contains
             let snap_senc = snapshot.clone();
             let sel_senc = selection.clone();
@@ -18823,6 +18852,14 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for child_count
+            let snap_sewcc = snapshot.clone(); let sel_sewcc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_child_count".to_string(), description: "Add to selection entities that have exactly n direct children; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})), handler: Box::new(move |input| { let n = input["n"].as_u64().unwrap_or(0); let s = snap_sewcc.lock().unwrap(); let mut cc: std::collections::HashMap<u64,u64> = std::collections::HashMap::new(); for e in &s.entities { if let Some(pid) = e.parent_id { *cc.entry(pid).or_insert(0) += 1; } } let to_add: Vec<u64> = s.entities.iter().filter(|e| cc.get(&e.id).copied().unwrap_or(0) == n).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sewcc.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dewcc = snapshot.clone(); let sel_dewcc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_child_count".to_string(), description: "Remove from selection entities that have exactly n direct children; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})), handler: Box::new(move |input| { let n = input["n"].as_u64().unwrap_or(0); let s = snap_dewcc.lock().unwrap(); let mut cc: std::collections::HashMap<u64,u64> = std::collections::HashMap::new(); for e in &s.entities { if let Some(pid) = e.parent_id { *cc.entry(pid).or_insert(0) += 1; } } let to_remove: Vec<u64> = s.entities.iter().filter(|e| cc.get(&e.id).copied().unwrap_or(0) == n).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dewcc.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cewcc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_child_count".to_string(), description: "Return count of entities that have exactly n direct children; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})), handler: Box::new(move |input| { let n = input["n"].as_u64().unwrap_or(0); let s = snap_cewcc.lock().unwrap(); let mut cc: std::collections::HashMap<u64,u64> = std::collections::HashMap::new(); for e in &s.entities { if let Some(pid) = e.parent_id { *cc.entry(pid).or_insert(0) += 1; } } let count = s.entities.iter().filter(|e| cc.get(&e.id).copied().unwrap_or(0) == n).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // get_entities_on_ground_level
             let snap_geogr = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -19282,6 +19319,14 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"entities": entities}))
                 }),
             });
+
+            // select/deselect/count for exactly_one_child
+            let snap_seweoc = snapshot.clone(); let sel_seweoc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_exactly_one_child".to_string(), description: "Add to selection entities that have exactly one direct child; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_seweoc.lock().unwrap(); let mut cc: std::collections::HashMap<u64,usize> = std::collections::HashMap::new(); for e in &s.entities { if let Some(pid) = e.parent_id { *cc.entry(pid).or_insert(0) += 1; } } let to_add: Vec<u64> = s.entities.iter().filter(|e| cc.get(&e.id).copied().unwrap_or(0) == 1).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_seweoc.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_deweoc = snapshot.clone(); let sel_deweoc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_exactly_one_child".to_string(), description: "Remove from selection entities that have exactly one direct child; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_deweoc.lock().unwrap(); let mut cc: std::collections::HashMap<u64,usize> = std::collections::HashMap::new(); for e in &s.entities { if let Some(pid) = e.parent_id { *cc.entry(pid).or_insert(0) += 1; } } let to_remove: Vec<u64> = s.entities.iter().filter(|e| cc.get(&e.id).copied().unwrap_or(0) == 1).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_deweoc.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_ceweoc = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_exactly_one_child".to_string(), description: "Return count of entities that have exactly one direct child; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{}})), handler: Box::new(move |_input| { let s = snap_ceweoc.lock().unwrap(); let mut cc: std::collections::HashMap<u64,usize> = std::collections::HashMap::new(); for e in &s.entities { if let Some(pid) = e.parent_id { *cc.entry(pid).or_insert(0) += 1; } } let count = s.entities.iter().filter(|e| cc.get(&e.id).copied().unwrap_or(0) == 1).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
 
             // align_selection_to_ground
             let snap_astg = snapshot.clone();
@@ -22144,6 +22189,10 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"entities": entities}))
                 }),
             });
+
+            // count_entities_with_all_of_tags
+            let snap_cewaat = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_all_of_tags".to_string(), description: "Return count of entities that have ALL of the given tags; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"tags":{"type":"array","items":{"type":"string"}}},"required":["tags"]})), handler: Box::new(move |input| { let tags: Vec<String> = input["tags"].as_array().map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(); let s = snap_cewaat.lock().unwrap(); let count = s.entities.iter().filter(|e| tags.iter().all(|t| e.tags.iter().any(|et| et == t))).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
 
             // get_entities_sorted_by_light_intensity
             let snap_gesli = snapshot.clone();
@@ -61693,6 +61742,81 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_final_gaps_498() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn: Parent with 2 children, one unnamed, one empty-named, two with same name "Dup"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "Parent", "position": [0.0,0.0,0.0]},
+                {"name": "Child1", "position": [1.0,0.0,0.0]},
+                {"name": "Child2", "position": [2.0,0.0,0.0]},
+                {"name": "Dup", "position": [3.0,0.0,0.0]},
+                {"name": "Dup", "position": [4.0,0.0,0.0]},
+                {"name": "", "position": [5.0,0.0,0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_parent, id_child1, id_child2) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            let list = lock.execute("list_entities", json!({})).unwrap();
+            let entities = list.content["entities"].as_array().unwrap();
+            let find = |n: &str| entities.iter().find(|e| e["name"].as_str() == Some(n)).unwrap()["id"].as_u64().unwrap();
+            (find("Parent"), find("Child1"), find("Child2"))
+        };
+
+        // Set Parent as parent of Child1 and Child2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": id_child1, "parent_id": id_parent})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": id_child2, "parent_id": id_parent})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // duplicate_names: 2 "Dup" entities
+            assert_eq!(lock.execute("count_entities_with_duplicate_names", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_duplicate_names", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_duplicate_names", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // empty_name: the "" entity = 1
+            assert_eq!(lock.execute("count_entities_with_empty_name", json!({})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_empty_name", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_empty_name", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // same_parent of Child1 → Child2 = 1
+            assert_eq!(lock.execute("count_entities_with_same_parent", json!({"entity_id": id_child1})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_same_parent", json!({"entity_id": id_child1})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_same_parent", json!({"entity_id": id_child1})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // child_count(n=2): Parent has 2 children = 1
+            assert_eq!(lock.execute("count_entities_with_child_count", json!({"n": 2})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_child_count", json!({"n": 2})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_child_count", json!({"n": 2})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // exactly_one_child: nobody = 0 (parent has 2 children)
+            assert_eq!(lock.execute("count_entities_with_exactly_one_child", json!({})).unwrap().content["count"].as_u64().unwrap(), 0);
+            assert_eq!(lock.execute("select_entities_with_exactly_one_child", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 0);
+            assert_eq!(lock.execute("deselect_entities_with_exactly_one_child", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 0);
+
+            // all_of_tags count: no tags → 0
+            assert_eq!(lock.execute("count_entities_with_all_of_tags", json!({"tags": ["missing"]})).unwrap().content["count"].as_u64().unwrap(), 0);
+        }
     }
 
     #[test]

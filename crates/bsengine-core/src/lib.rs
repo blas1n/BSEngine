@@ -50,6 +50,7 @@ pub mod transform;
 pub mod tween;
 pub mod velocity;
 pub mod viewport;
+pub mod vignette;
 pub mod visible;
 pub mod z_index;
 
@@ -105,6 +106,7 @@ pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use velocity::Velocity;
 pub use viewport::Viewport;
+pub use vignette::Vignette;
 pub use visible::Visible;
 pub use z_index::ZIndex;
 

@@ -1,7 +1,9 @@
+pub mod angular_velocity;
 pub mod app;
 pub mod time;
 pub mod tween;
 
+pub use angular_velocity::AngularVelocityPlugin;
 pub use app::{new_app, App, BsPlugin, Last, PostUpdate, PreUpdate, Startup, Update};
 pub use time::TimePlugin;
 pub use tween::TweenPlugin;

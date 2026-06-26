@@ -1,3 +1,4 @@
+pub mod angular_velocity;
 pub mod camera;
 pub mod global_transform;
 pub mod light;
@@ -9,6 +10,7 @@ pub mod time;
 pub mod transform;
 pub mod tween;
 
+pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
 pub use global_transform::GlobalTransform;
 pub use light::{DirectionalLight, PointLight, SpotLight};

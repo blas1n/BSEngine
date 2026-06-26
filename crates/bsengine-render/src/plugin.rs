@@ -2,6 +2,7 @@ use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, Without};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, Material, Parent, PointLight, SpotLight, Transform,
+    Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{
@@ -88,6 +89,7 @@ fn render_frame(
         &Transform,
         Option<&GlobalTransform>,
         Option<&Material>,
+        Option<&Visible>,
     )>,
     light_query: Query<&DirectionalLight>,
     point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
@@ -105,7 +107,10 @@ fn render_frame(
 
     let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams)> = mesh_query
         .iter()
-        .filter_map(|(mr, t, gt, mat)| {
+        .filter_map(|(mr, t, gt, mat, vis)| {
+            if !vis.map(|v| v.is_visible).unwrap_or(true) {
+                return None;
+            }
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
             if let Some((local_center, local_radius)) = registry.get_bounds(mr.mesh_id) {
                 let world_center = (model * local_center.extend(1.0)).truncate();

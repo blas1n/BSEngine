@@ -1,5 +1,6 @@
 pub mod angular_velocity;
 pub mod camera;
+pub mod color;
 pub mod global_transform;
 pub mod lifetime;
 pub mod light;
@@ -15,6 +16,7 @@ pub mod velocity;
 
 pub use angular_velocity::AngularVelocity;
 pub use camera::Camera;
+pub use color::Color;
 pub use global_transform::GlobalTransform;
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};

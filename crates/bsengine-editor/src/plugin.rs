@@ -1666,6 +1666,62 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_tag_count_above
+            let snap_sewtca = snapshot.clone();
+            let sel_sewtca = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_tag_count_above".to_string(),
+                description: "Select entities that have strictly more than the given number of tags; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["count"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewtca.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.len() > threshold)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewtca.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // select_entities_with_tag_count_below
+            let snap_sewtcb = snapshot.clone();
+            let sel_sewtcb = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_tag_count_below".to_string(),
+                description: "Select entities that have strictly fewer than the given number of tags; returns {added_count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["count"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["count"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewtcb.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.tags.len() < threshold)
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewtcb.lock().unwrap();
+                    for id in to_add { sel.insert(id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // count_entities_with_tag_count_above
             let snap_cewtca = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -23596,6 +23652,85 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_select_tag_count_above_and_below() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A → 0 tags, B → 1 tag, C → 3 tags
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_b, "t1"), (id_c, "t1"), (id_c, "t2"), (id_c, "t3")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // select_entities_with_tag_count_above 1 → C(3); added_count=1
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_tag_count_above", json!({"count": 1})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(!ids.contains(&id_a));
+            assert!(!ids.contains(&id_b));
+            assert!(ids.contains(&id_c));
+        }
+
+        // deselect all, then select_entities_with_tag_count_below 2 → A(0), B(1); added_count=2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("deselect_all", json!({})).unwrap();
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("select_entities_with_tag_count_below", json!({"count": 2})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 2);
+        }
+        app.update(); app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel = mcp.0.lock().unwrap().execute("get_selected_entities", json!({})).unwrap();
+            let ids: std::collections::HashSet<u64> = sel.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_a));
+            assert!(ids.contains(&id_b));
+            assert!(!ids.contains(&id_c));
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

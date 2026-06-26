@@ -18512,6 +18512,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_fewer_than_n_tags
+            let snap_sewftnt = snapshot.clone();
+            let sel_sewftnt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_fewer_than_n_tags".to_string(),
+                description: "Add to selection entities whose tag count is strictly less than n; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewftnt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() < n).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewftnt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_fewer_than_n_tags
+            let snap_dewftnt = snapshot.clone();
+            let sel_dewftnt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_fewer_than_n_tags".to_string(),
+                description: "Remove from selection entities whose tag count is strictly less than n; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewftnt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() < n).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewftnt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // center_selection
             let snap_cs = snapshot.clone();
             let sel_cs = selection.clone();
@@ -18592,6 +18630,44 @@ impl Plugin for EditorPlugin {
                         .map(|e| json!({"id": e.id, "name": e.name, "tags": e.tags}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
+                }),
+            });
+
+            // select_entities_with_more_than_n_tags
+            let snap_sewmtnt = snapshot.clone();
+            let sel_sewmtnt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_more_than_n_tags".to_string(),
+                description: "Add to selection entities whose tag count is strictly greater than n; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewmtnt.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() > n).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewmtnt.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_more_than_n_tags
+            let snap_dewmtnt = snapshot.clone();
+            let sel_dewmtnt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_more_than_n_tags".to_string(),
+                description: "Remove from selection entities whose tag count is strictly greater than n; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewmtnt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() > n).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewmtnt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
                 }),
             });
 
@@ -20851,6 +20927,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_no_children
+            let snap_sewnc = snapshot.clone();
+            let sel_sewnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_no_children".to_string(),
+                description: "Add to selection all entities that have no direct children (leaf nodes); returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewnc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> = s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| !parent_ids.contains(&e.id)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewnc.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_no_children
+            let snap_dewnc = snapshot.clone();
+            let sel_dewnc = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_no_children".to_string(),
+                description: "Remove from selection all entities that have no direct children (leaf nodes); returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewnc.lock().unwrap();
+                    let parent_ids: std::collections::HashSet<u64> = s.entities.iter().filter_map(|e| e.parent_id).collect();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| !parent_ids.contains(&e.id)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewnc.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // move_selection_by
             let sel_msb = selection.clone();
             let queue40 = cmd_queue.clone();
@@ -21003,6 +21117,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_exactly_n_tags
+            let snap_sewent = snapshot.clone();
+            let sel_sewent = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_exactly_n_tags".to_string(),
+                description: "Add to selection entities that have exactly n tags; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewent.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() == n).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewent.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_exactly_n_tags
+            let snap_dewent = snapshot.clone();
+            let sel_dewent = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_exactly_n_tags".to_string(),
+                description: "Remove from selection entities that have exactly n tags; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewent.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() == n).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewent.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entities_sorted_by_children_count
             let snap_gescc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -21070,6 +21222,44 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_at_least_n_tags
+            let snap_sewant = snapshot.clone();
+            let sel_sewant = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_at_least_n_tags".to_string(),
+                description: "Add to selection entities that have at least n tags; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_sewant.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() >= n).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewant.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_at_least_n_tags
+            let snap_dewant = snapshot.clone();
+            let sel_dewant = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_at_least_n_tags".to_string(),
+                description: "Remove from selection entities that have at least n tags; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]})),
+                handler: Box::new(move |input| {
+                    let n = input["n"].as_u64().unwrap_or(0) as usize;
+                    let s = snap_dewant.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.tags.len() >= n).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewant.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // select_entities_with_all_of_tags
             let snap_sewalt = snapshot.clone();
             let sel_sewalt = selection.clone();
@@ -21099,6 +21289,29 @@ impl Plugin for EditorPlugin {
                         }
                     }
                     McpToolOutput::success(json!({"selected_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_all_of_tags
+            let snap_dewalt = snapshot.clone();
+            let sel_dewalt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_all_of_tags".to_string(),
+                description: "Remove from selection entities that have ALL of the given tags; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"tags":{"type":"array","items":{"type":"string"}}},"required":["tags"]})),
+                handler: Box::new(move |input| {
+                    let tags: Vec<String> = input["tags"].as_array()
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .unwrap_or_default();
+                    let s = snap_dewalt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter()
+                        .filter(|e| tags.iter().all(|t| e.tags.contains(t)))
+                        .map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewalt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
                 }),
             });
 
@@ -22651,6 +22864,50 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_parent
+            let snap_sewp = snapshot.clone();
+            let sel_sewp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_parent".to_string(),
+                description: "Add to selection all entities whose parent_id matches the given parent; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"parent_id":{"type":"integer"}},"required":["parent_id"]})),
+                handler: Box::new(move |input| {
+                    let parent_id = match input["parent_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing parent_id"),
+                    };
+                    let s = snap_sewp.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.parent_id == Some(parent_id)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewp.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_parent
+            let snap_dewp = snapshot.clone();
+            let sel_dewp = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_parent".to_string(),
+                description: "Remove from selection all entities whose parent_id matches the given parent; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"parent_id":{"type":"integer"}},"required":["parent_id"]})),
+                handler: Box::new(move |input| {
+                    let parent_id = match input["parent_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing parent_id"),
+                    };
+                    let s = snap_dewp.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.parent_id == Some(parent_id)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewp.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
             // get_entity_parent_name
             let snap_gepn = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -23318,6 +23575,28 @@ impl Plugin for EditorPlugin {
                         count += 1;
                     }
                     McpToolOutput::success(json!({"tag": tag, "selected_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_tag
+            let snap_dewt = snapshot.clone();
+            let sel_dewt = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_tag".to_string(),
+                description: "Remove from selection all entities that have a specific tag; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"tag":{"type":"string"}},"required":["tag"]})),
+                handler: Box::new(move |input| {
+                    let tag = match input["tag"].as_str() {
+                        Some(t) => t.to_string(),
+                        None => return McpToolOutput::error("missing tag"),
+                    };
+                    let s = snap_dewt.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.tags.contains(&tag)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewt.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
                 }),
             });
 
@@ -60594,6 +60873,98 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_select_deselect_n_tags_parent_no_children() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn 3 entities
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "P1"}, {"name": "P2"}, {"name": "P3"},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id1, id2, id3) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let f = |n: &str| es.iter().find(|e| e["name"].as_str() == Some(n)).unwrap()["id"].as_u64().unwrap();
+            (f("P1"), f("P2"), f("P3"))
+        };
+
+        // give P1: 1 tag, P2: 2 tags, P3: 3 tags
+        for (id, tag) in [(id1, "a"), (id2, "a"), (id2, "b"), (id3, "a"), (id3, "b"), (id3, "c")] {
+            { let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>(); mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap(); }
+            app.update(); app.update();
+        }
+
+        // fewer_than_n_tags: n=2 → only P1 (1 tag)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("select_entities_with_fewer_than_n_tags", json!({"n": 2})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_fewer_than_n_tags", json!({"n": 2})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
+        // more_than_n_tags: n=1 → P2 and P3
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("select_entities_with_more_than_n_tags", json!({"n": 1})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_more_than_n_tags", json!({"n": 1})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
+        // exactly_n_tags: n=2 → only P2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("select_entities_with_exactly_n_tags", json!({"n": 2})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_exactly_n_tags", json!({"n": 2})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
+        // at_least_n_tags: n=2 → P2 and P3
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("select_entities_with_at_least_n_tags", json!({"n": 2})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_at_least_n_tags", json!({"n": 2})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
+        // all_of_tags deselect: give P1,P2,P3 to selection first
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            lock.execute("select_entities_with_tag", json!({"tag": "a"})).unwrap(); // selects all 3
+            // deselect those with all_of_tags ["a","b"] → P2, P3
+            assert_eq!(lock.execute("deselect_entities_with_all_of_tags", json!({"tags": ["a","b"]})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
+        // deselect bare tag: select P1 first, then deselect_entities_with_tag "a"
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            lock.execute("select_entities_with_tag", json!({"tag": "a"})).unwrap();
+            assert_eq!(lock.execute("deselect_entities_with_tag", json!({"tag": "a"})).unwrap().content["removed_count"].as_u64().unwrap(), 3);
+        }
+
+        // parent/no_children: make P1 parent of P2
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_parent", json!({"entity_id": id2, "parent_id": id1})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            // select_entities_with_parent: id1 is parent of id2 → 1
+            assert_eq!(lock.execute("select_entities_with_parent", json!({"parent_id": id1})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_parent", json!({"parent_id": id1})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+            // no_children: P2 has no children, P3 has no children → 2 (P1 is parent of P2)
+            assert_eq!(lock.execute("select_entities_with_no_children", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_no_children", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
     }
 
     #[test]

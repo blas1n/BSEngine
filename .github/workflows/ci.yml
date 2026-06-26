@@ -92,4 +92,9 @@ jobs:
       - name: Test
         env:
           RUST_MIN_STACK: 8388608
-        run: cargo test --all
+        run: cargo test --workspace --exclude bsengine-editor
+
+      - name: Test (editor, isolated)
+        env:
+          RUST_MIN_STACK: 8388608
+        run: cargo test -p bsengine-editor

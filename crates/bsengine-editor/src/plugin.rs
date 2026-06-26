@@ -1666,6 +1666,71 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_tag_overlap
+            let snap_gewto = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_tag_overlap".to_string(),
+                description:
+                    "Return IDs of entities that have both tag_a and tag_b; returns {entity_ids}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tag_a": { "type": "string" },
+                        "tag_b": { "type": "string" }
+                    },
+                    "required": ["tag_a", "tag_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_a = input["tag_a"].as_str().unwrap_or("").to_string();
+                    let tag_b = input["tag_b"].as_str().unwrap_or("").to_string();
+                    let s = snap_gewto.lock().unwrap();
+                    let ids: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.contains(&tag_a) && e.tags.contains(&tag_b))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // select_entities_with_tag_overlap
+            let snap_sewto = snapshot.clone();
+            let sel_sewto = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_tag_overlap".to_string(),
+                description:
+                    "Select all entities that have both tag_a and tag_b; returns {added_count}"
+                        .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tag_a": { "type": "string" },
+                        "tag_b": { "type": "string" }
+                    },
+                    "required": ["tag_a", "tag_b"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_a = input["tag_a"].as_str().unwrap_or("").to_string();
+                    let tag_b = input["tag_b"].as_str().unwrap_or("").to_string();
+                    let s = snap_sewto.lock().unwrap();
+                    let to_add: Vec<u64> = s
+                        .entities
+                        .iter()
+                        .filter(|e| e.tags.contains(&tag_a) && e.tags.contains(&tag_b))
+                        .map(|e| e.id)
+                        .collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewto.lock().unwrap();
+                    for id in to_add {
+                        sel.insert(id);
+                    }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
             // deselect_entities_with_no_shared_tags
             let snap_dewnst = snapshot.clone();
             let sel_dewnst = selection.clone();
@@ -22102,6 +22167,143 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_get_and_select_entities_with_tag_overlap() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → [alpha, beta], B → [alpha], C → [beta]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [
+            (id_a, "alpha"),
+            (id_a, "beta"),
+            (id_b, "alpha"),
+            (id_c, "beta"),
+        ] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // get_entities_with_tag_overlap alpha beta → only A (has both)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "get_entities_with_tag_overlap",
+                    json!({"tag_a": "alpha", "tag_b": "beta"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert_eq!(ids.len(), 1);
+            assert!(ids.contains(&id_a));
+            assert!(!ids.contains(&id_b));
+            assert!(!ids.contains(&id_c));
+        }
+
+        // select_entities_with_tag_overlap alpha beta → selects A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "select_entities_with_tag_overlap",
+                    json!({"tag_a": "alpha", "tag_b": "beta"}),
+                )
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["added_count"].as_u64().unwrap(), 1);
+        }
+        app.update();
+        app.update();
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let sel_out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_selected_entities", json!({}))
+                .unwrap();
+            let sel_ids: std::collections::HashSet<u64> = sel_out.content["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["id"].as_u64().unwrap())
+                .collect();
+            assert!(sel_ids.contains(&id_a));
+            assert!(!sel_ids.contains(&id_b));
+            assert!(!sel_ids.contains(&id_c));
+        }
     }
 
     #[test]

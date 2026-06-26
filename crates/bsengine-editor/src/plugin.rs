@@ -8910,6 +8910,63 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_light_range_above
+            let snap_cewlra = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_range_above".to_string(),
+                description: "Return count of entities whose light range is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlra.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_range.map(|r| r > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_range_below
+            let snap_cewlrb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_range_below".to_string(),
+                description: "Return count of entities whose light range is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlrb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_range.map(|r| r < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_range_equal
+            let snap_cewlreq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_range_equal".to_string(),
+                description: "Return count of entities whose light range equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlreq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_range.map(|r| (r - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_range_between
+            let snap_cewlrbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_range_between".to_string(),
+                description: "Return count of entities whose light range is in [min_range, max_range] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"},"max_range":{"type":"number"}},"required":["min_range","max_range"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_range"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_range"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlrbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_range.map(|r| r >= min && r <= max).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // count_entities_with_light_color
             let snap_cewlc = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -8955,6 +9012,63 @@ impl Plugin for EditorPlugin {
                 handler: Box::new(move |_input| {
                     let s = snap_cewli.lock().unwrap();
                     let count = s.entities.iter().filter(|e| e.light_intensity.is_some()).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_intensity_above
+            let snap_cewlia = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_intensity_above".to_string(),
+                description: "Return count of entities whose light intensity is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlia.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_intensity.map(|i| i > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_intensity_below
+            let snap_cewlib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_intensity_below".to_string(),
+                description: "Return count of entities whose light intensity is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlib.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_intensity.map(|i| i < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_intensity_equal
+            let snap_cewlieq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_intensity_equal".to_string(),
+                description: "Return count of entities whose light intensity equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlieq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_intensity.map(|i| (i - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_light_intensity_between
+            let snap_cewlibt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_light_intensity_between".to_string(),
+                description: "Return count of entities whose light intensity is in [min_intensity, max_intensity] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_intensity":{"type":"number"},"max_intensity":{"type":"number"}},"required":["min_intensity","max_intensity"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_intensity"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_intensity"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewlibt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.light_intensity.map(|i| i >= min && i <= max).unwrap_or(false)).count() as u64;
                     McpToolOutput::success(json!({"count": count}))
                 }),
             });
@@ -12979,6 +13093,63 @@ impl Plugin for EditorPlugin {
                     let mut sel = sel_dewfbt.lock().unwrap();
                     for id in &to_remove { sel.remove(id); }
                     McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_fov_above
+            let snap_cewfa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_fov_above".to_string(),
+                description: "Return count of cameras whose FOV is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewfa.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.map(|f| f > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_fov_below
+            let snap_cewfb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_fov_below".to_string(),
+                description: "Return count of cameras whose FOV is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewfb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.map(|f| f < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_fov_equal
+            let snap_cewfeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_fov_equal".to_string(),
+                description: "Return count of cameras whose FOV equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewfeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.map(|f| (f - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_fov_between
+            let snap_cewfbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_fov_between".to_string(),
+                description: "Return count of cameras whose FOV is strictly between min_fov and max_fov (exclusive); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_fov":{"type":"number"},"max_fov":{"type":"number"}},"required":["min_fov","max_fov"]})),
+                handler: Box::new(move |input| {
+                    let min_fov = input["min_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let max_fov = input["max_fov"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewfbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.camera_fov.map(|f| f > min_fov && f < max_fov).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -60295,6 +60466,59 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_count_light_range_intensity_fov() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // spawn 3 point lights with varying intensity/range
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 5.0, "position": [0.0,0.0,0.0]})).unwrap();
+            mcp.0.lock().unwrap().execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 500.0, "range": 15.0, "position": [1.0,0.0,0.0]})).unwrap();
+            mcp.0.lock().unwrap().execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 900.0, "range": 25.0, "position": [2.0,0.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // light_range counts
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_light_range_above", json!({"threshold": 10.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_light_range_below", json!({"threshold": 10.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_light_range_equal", json!({"value": 15.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_light_range_between", json!({"min_range": 10.0, "max_range": 26.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        // light_intensity counts
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_light_intensity_above", json!({"threshold": 200.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_light_intensity_below", json!({"threshold": 200.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_light_intensity_equal", json!({"value": 500.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_light_intensity_between", json!({"min_intensity": 400.0, "max_intensity": 1000.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+
+        // spawn 2 cameras with varying FOV
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("spawn_camera", json!({"fov_y_degrees": 45.0, "position": [0.0,5.0,0.0]})).unwrap();
+            mcp.0.lock().unwrap().execute("spawn_camera", json!({"fov_y_degrees": 90.0, "position": [1.0,5.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // fov counts
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_fov_above", json!({"threshold": 60.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_fov_below", json!({"threshold": 60.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_fov_equal", json!({"value": 45.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_fov_between", json!({"min_fov": 40.0, "max_fov": 95.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
     }
 
     #[test]

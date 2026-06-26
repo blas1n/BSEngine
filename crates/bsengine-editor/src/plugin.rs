@@ -1666,6 +1666,39 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_all_unique_tags
+            let snap_caut = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_all_unique_tags".to_string(),
+                description: "Return the total number of unique tags used across all entities; returns {count}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_caut.lock().unwrap();
+                    let unique: std::collections::HashSet<&str> = s.entities.iter()
+                        .flat_map(|e| e.tags.iter().map(|t| t.as_str()))
+                        .collect();
+                    let count = unique.len() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_entities_sorted_by_tag_count_desc
+            let snap_gestcd = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_tag_count_desc".to_string(),
+                description: "Return entity IDs sorted by tag count descending (most tags first); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}, "required": []})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gestcd.lock().unwrap();
+                    let mut pairs: Vec<(u64, usize)> = s.entities.iter()
+                        .map(|e| (e.id, e.tags.len()))
+                        .collect();
+                    pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+                    let ids: Vec<u64> = pairs.into_iter().map(|(id, _)| id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // deselect_entities_with_tag_count_between
             let snap_dewtcb = snapshot.clone();
             let sel_dewtcb = selection.clone();
@@ -21768,6 +21801,115 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_unique_tags_and_sorted_by_tag_count_desc() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "A", "position": [1.0, 0.0, 0.0]},
+                        {"name": "B", "position": [2.0, 0.0, 0.0]},
+                        {"name": "C", "position": [3.0, 0.0, 0.0]},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // A → 3 tags (ta,tb,tc), B → 1 tag (ta), C → 0 tags
+        let (id_a, id_b, _id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let id_a = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("A"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_b = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("B"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            let id_c = entities
+                .iter()
+                .find(|e| e["name"].as_str() == Some("C"))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "ta"), (id_a, "tb"), (id_a, "tc"), (id_b, "ta")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
+                    .unwrap();
+            }
+            app.update();
+            app.update();
+        }
+
+        // count_all_unique_tags → 3 (ta, tb, tc)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("count_all_unique_tags", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 3);
+        }
+
+        // get_entities_sorted_by_tag_count_desc → A first (3 tags), then B (1), then C (0)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("get_entities_sorted_by_tag_count_desc", json!({}))
+                .unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            assert!(ids.len() >= 3);
+            let pos_a = ids.iter().position(|&x| x == id_a).unwrap();
+            let pos_b = ids.iter().position(|&x| x == id_b).unwrap();
+            assert!(
+                pos_a < pos_b,
+                "A (3 tags) should appear before B (1 tag) in desc order"
+            );
+        }
     }
 
     #[test]

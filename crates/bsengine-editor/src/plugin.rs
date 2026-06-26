@@ -8231,6 +8231,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_duplicate_name
+            let snap_sewdn = snapshot.clone();
+            let sel_sewdn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_duplicate_name".to_string(),
+                description: "Add to selection all entities whose name is shared by at least one other entity; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_sewdn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities { if let Some(n) = &e.name { *name_counts.entry(n.clone()).or_insert(0) += 1; } }
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().map(|n| name_counts.get(n).copied().unwrap_or(0) > 1).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewdn.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_duplicate_name
+            let snap_dewdn = snapshot.clone();
+            let sel_dewdn = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_duplicate_name".to_string(),
+                description: "Remove from selection all entities whose name is shared by at least one other entity; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_dewdn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities { if let Some(n) = &e.name { *name_counts.entry(n.clone()).or_insert(0) += 1; } }
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().map(|n| name_counts.get(n).copied().unwrap_or(0) > 1).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewdn.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_duplicate_name
+            let snap_cewdn = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_duplicate_name".to_string(),
+                description: "Return count of entities whose name is shared by at least one other entity; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_cewdn.lock().unwrap();
+                    let mut name_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                    for e in &s.entities { if let Some(n) = &e.name { *name_counts.entry(n.clone()).or_insert(0) += 1; } }
+                    let count = s.entities.iter().filter(|e| e.name.as_ref().map(|n| name_counts.get(n).copied().unwrap_or(0) > 1).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_nearest_entity_to
             let snap_gnet = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12327,6 +12382,58 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select_entities_with_name_starting
+            let snap_sewns = snapshot.clone();
+            let sel_sewns = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_name_starting".to_string(),
+                description: "Add to selection entities whose name starts with the given prefix; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"prefix":{"type":"string"}},"required":["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() { Some(p) => p.to_string(), None => return McpToolOutput::error("missing prefix") };
+                    let s = snap_sewns.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.starts_with(&prefix)).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewns.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_name_starting
+            let snap_dewns = snapshot.clone();
+            let sel_dewns = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_name_starting".to_string(),
+                description: "Remove from selection entities whose name starts with the given prefix; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"prefix":{"type":"string"}},"required":["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() { Some(p) => p.to_string(), None => return McpToolOutput::error("missing prefix") };
+                    let s = snap_dewns.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.starts_with(&prefix)).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewns.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_name_starting
+            let snap_cewns = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_starting".to_string(),
+                description: "Return count of entities whose name starts with the given prefix; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"prefix":{"type":"string"}},"required":["prefix"]})),
+                handler: Box::new(move |input| {
+                    let prefix = match input["prefix"].as_str() { Some(p) => p.to_string(), None => return McpToolOutput::error("missing prefix") };
+                    let s = snap_cewns.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.starts_with(&prefix)).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // get_entities_with_name_ending
             let snap_gewne = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -12357,6 +12464,58 @@ impl Plugin for EditorPlugin {
                         .map(|e| e.id)
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // select_entities_with_name_ending
+            let snap_sewne = snapshot.clone();
+            let sel_sewne = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "select_entities_with_name_ending".to_string(),
+                description: "Add to selection entities whose name ends with the given suffix; returns {added_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"suffix":{"type":"string"}},"required":["suffix"]})),
+                handler: Box::new(move |input| {
+                    let suffix = match input["suffix"].as_str() { Some(s) => s.to_string(), None => return McpToolOutput::error("missing suffix") };
+                    let s = snap_sewne.lock().unwrap();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.ends_with(&suffix)).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_add.len() as u64;
+                    drop(s);
+                    let mut sel = sel_sewne.lock().unwrap();
+                    for id in &to_add { sel.insert(*id); }
+                    McpToolOutput::success(json!({"added_count": count}))
+                }),
+            });
+
+            // deselect_entities_with_name_ending
+            let snap_dewne = snapshot.clone();
+            let sel_dewne = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "deselect_entities_with_name_ending".to_string(),
+                description: "Remove from selection entities whose name ends with the given suffix; returns {removed_count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"suffix":{"type":"string"}},"required":["suffix"]})),
+                handler: Box::new(move |input| {
+                    let suffix = match input["suffix"].as_str() { Some(s) => s.to_string(), None => return McpToolOutput::error("missing suffix") };
+                    let s = snap_dewne.lock().unwrap();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.ends_with(&suffix)).unwrap_or(false)).map(|e| e.id).collect();
+                    let count = to_remove.len() as u64;
+                    drop(s);
+                    let mut sel = sel_dewne.lock().unwrap();
+                    for id in &to_remove { sel.remove(id); }
+                    McpToolOutput::success(json!({"removed_count": count}))
+                }),
+            });
+
+            // count_entities_with_name_ending
+            let snap_cewne = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_name_ending".to_string(),
+                description: "Return count of entities whose name ends with the given suffix; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"suffix":{"type":"string"}},"required":["suffix"]})),
+                handler: Box::new(move |input| {
+                    let suffix = match input["suffix"].as_str() { Some(s) => s.to_string(), None => return McpToolOutput::error("missing suffix") };
+                    let s = snap_cewne.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.name.as_deref().map(|n| n.ends_with(&suffix)).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
                 }),
             });
 
@@ -60873,6 +61032,46 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_name_starting_ending_duplicate_tools() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "PrefixAlpha"},
+                {"name": "PrefixBeta"},
+                {"name": "GammaEnd"},
+                {"name": "DeltaEnd"},
+                {"name": "Unique"},
+                {"name": "Unique"},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // name_starting
+            assert_eq!(lock.execute("count_entities_with_name_starting", json!({"prefix": "Prefix"})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_name_starting", json!({"prefix": "Prefix"})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_name_starting", json!({"prefix": "Prefix"})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // name_ending
+            assert_eq!(lock.execute("count_entities_with_name_ending", json!({"suffix": "End"})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_name_ending", json!({"suffix": "End"})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_name_ending", json!({"suffix": "End"})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+
+            // duplicate_name: 2 entities named "Unique"
+            assert_eq!(lock.execute("count_entities_with_duplicate_name", json!({})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("select_entities_with_duplicate_name", json!({})).unwrap().content["added_count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("deselect_entities_with_duplicate_name", json!({})).unwrap().content["removed_count"].as_u64().unwrap(), 2);
+        }
     }
 
     #[test]

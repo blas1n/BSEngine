@@ -15644,6 +15644,93 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_scale_x_equal
+            let snap_gewsxeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_x_equal".to_string(),
+                description: "Return entity IDs whose X scale equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsxeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[0] - value).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_x_between
+            let snap_gewsxbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_x_between".to_string(),
+                description: "Return entity IDs whose X scale is in [min_value, max_value] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsxbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[0] >= min && sc[0] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_y_equal
+            let snap_gewsyeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_y_equal".to_string(),
+                description: "Return entity IDs whose Y scale equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsyeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[1] - value).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_y_between
+            let snap_gewsybt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_y_between".to_string(),
+                description: "Return entity IDs whose Y scale is in [min_value, max_value] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsybt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[1] >= min && sc[1] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_z_equal
+            let snap_gewszeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_z_equal".to_string(),
+                description: "Return entity IDs whose Z scale equals the given value (±0.001); returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let value = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewszeq.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| (sc[2] - value).abs() < 0.001).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_z_between
+            let snap_gewszbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_z_between".to_string(),
+                description: "Return entity IDs whose Z scale is in [min_value, max_value] inclusive; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_value":{"type":"number"},"max_value":{"type":"number"}},"required":["min_value","max_value"]})),
+                handler: Box::new(move |input| {
+                    let min = input["min_value"].as_f64().unwrap_or(0.0) as f32;
+                    let max = input["max_value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewszbt.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter().filter(|e| e.scale.map(|sc| sc[2] >= min && sc[2] <= max).unwrap_or(false)).map(|e| e.id).collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_rotation_x_below
             let snap_gewrxb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -59882,6 +59969,97 @@ mod tests {
             assert!(ids.contains(&id_a),  "A(sz=3) < 7");
             assert!(ids.contains(&id_b),  "B(sz=6) < 7");
             assert!(!ids.contains(&id_c), "C(sz=9) not < 7");
+        }
+        let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_scale_xyz_equal_between() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [1.0, 0.0, 0.0]},
+                {"name": "C", "position": [2.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
+            let get = |name: &str| es.iter().find(|e| e["name"].as_str() == Some(name)).unwrap()["id"].as_u64().unwrap();
+            (get("A"), get("B"), get("C"))
+        };
+
+        // A: sx=1 sy=2 sz=3; B: sx=5 sy=5 sz=5; C: sx=8 sy=9 sz=10
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            m.execute("set_scale", json!({"entity_id": id_a, "sx": 1.0, "sy": 2.0, "sz": 3.0})).unwrap();
+            m.execute("set_scale", json!({"entity_id": id_b, "sx": 5.0, "sy": 5.0, "sz": 5.0})).unwrap();
+            m.execute("set_scale", json!({"entity_id": id_c, "sx": 8.0, "sy": 9.0, "sz": 10.0})).unwrap();
+        }
+        app.update(); app.update();
+
+        // scale_x_equal(5.0) → B
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_x_equal", json!({"value": 5.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+
+        // scale_x_between(3, 7) → B(5)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_x_between", json!({"min_value": 3.0, "max_value": 7.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_b]);
+        }
+
+        // scale_y_equal(9.0) → C
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_y_equal", json!({"value": 9.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_c]);
+        }
+
+        // scale_y_between(1, 6) → A(2), B(5)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_y_between", json!({"min_value": 1.0, "max_value": 6.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_a) && ids.contains(&id_b));
+        }
+
+        // scale_z_equal(3.0) → A
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_z_equal", json!({"value": 3.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids, vec![id_a]);
+        }
+
+        // scale_z_between(4, 11) → B(5), C(10)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_z_between", json!({"min_value": 4.0, "max_value": 11.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&id_b) && ids.contains(&id_c));
         }
         let _ = (id_a, id_b, id_c);
     }

@@ -22754,6 +22754,28 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // select/deselect/count for intensity_above, intensity_below, range_above
+            let snap_seia = snapshot.clone(); let sel_seia = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_intensity_above".to_string(), description: "Add to selection light entities whose intensity exceeds min_intensity; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_intensity":{"type":"number"}},"required":["min_intensity"]})), handler: Box::new(move |input| { let min = input["min_intensity"].as_f64().unwrap_or(0.0) as f32; let s = snap_seia.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_intensity.map(|i| i > min).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_seia.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_deia = snapshot.clone(); let sel_deia = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_intensity_above".to_string(), description: "Remove from selection light entities whose intensity exceeds min_intensity; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_intensity":{"type":"number"}},"required":["min_intensity"]})), handler: Box::new(move |input| { let min = input["min_intensity"].as_f64().unwrap_or(0.0) as f32; let s = snap_deia.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_intensity.map(|i| i > min).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_deia.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_ceia = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_intensity_above".to_string(), description: "Return count of light entities whose intensity exceeds min_intensity; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_intensity":{"type":"number"}},"required":["min_intensity"]})), handler: Box::new(move |input| { let min = input["min_intensity"].as_f64().unwrap_or(0.0) as f32; let s = snap_ceia.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_intensity.map(|i| i > min).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_seib = snapshot.clone(); let sel_seib = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_intensity_below".to_string(), description: "Add to selection light entities whose intensity is less than max_intensity; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"max_intensity":{"type":"number"}},"required":["max_intensity"]})), handler: Box::new(move |input| { let max = input["max_intensity"].as_f64().unwrap_or(f64::MAX) as f32; let s = snap_seib.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_intensity.map(|i| i < max).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_seib.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_deib = snapshot.clone(); let sel_deib = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_intensity_below".to_string(), description: "Remove from selection light entities whose intensity is less than max_intensity; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"max_intensity":{"type":"number"}},"required":["max_intensity"]})), handler: Box::new(move |input| { let max = input["max_intensity"].as_f64().unwrap_or(f64::MAX) as f32; let s = snap_deib.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_intensity.map(|i| i < max).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_deib.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_ceib = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_intensity_below".to_string(), description: "Return count of light entities whose intensity is less than max_intensity; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"max_intensity":{"type":"number"}},"required":["max_intensity"]})), handler: Box::new(move |input| { let max = input["max_intensity"].as_f64().unwrap_or(f64::MAX) as f32; let s = snap_ceib.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_intensity.map(|i| i < max).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
+            let snap_sera = snapshot.clone(); let sel_sera = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "select_entities_with_range_above".to_string(), description: "Add to selection light entities whose range exceeds min_range; returns {added_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"}},"required":["min_range"]})), handler: Box::new(move |input| { let min = input["min_range"].as_f64().unwrap_or(0.0) as f32; let s = snap_sera.lock().unwrap(); let to_add: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r > min).unwrap_or(false)).map(|e| e.id).collect(); let count = to_add.len() as u64; drop(s); let mut sel = sel_sera.lock().unwrap(); for id in &to_add { sel.insert(*id); } McpToolOutput::success(json!({"added_count": count})) }) });
+            let snap_dera = snapshot.clone(); let sel_dera = selection.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "deselect_entities_with_range_above".to_string(), description: "Remove from selection light entities whose range exceeds min_range; returns {removed_count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"}},"required":["min_range"]})), handler: Box::new(move |input| { let min = input["min_range"].as_f64().unwrap_or(0.0) as f32; let s = snap_dera.lock().unwrap(); let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.light_range.map(|r| r > min).unwrap_or(false)).map(|e| e.id).collect(); let count = to_remove.len() as u64; drop(s); let mut sel = sel_dera.lock().unwrap(); for id in &to_remove { sel.remove(id); } McpToolOutput::success(json!({"removed_count": count})) }) });
+            let snap_cera = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool { name: "count_entities_with_range_above".to_string(), description: "Return count of light entities whose range exceeds min_range; returns {count}".to_string(), input_schema: Some(json!({"type":"object","properties":{"min_range":{"type":"number"}},"required":["min_range"]})), handler: Box::new(move |input| { let min = input["min_range"].as_f64().unwrap_or(0.0) as f32; let s = snap_cera.lock().unwrap(); let count = s.entities.iter().filter(|e| e.light_range.map(|r| r > min).unwrap_or(false)).count() as u64; McpToolOutput::success(json!({"count": count})) }) });
+
             // get_entities_with_scale
             let snap_gews = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -61613,6 +61635,42 @@ mod tests {
             .collect();
         assert!(ids.contains(&plain_id), "Plain entity (no light) included");
         assert!(!ids.contains(&light_id), "Light entity excluded");
+    }
+
+    #[test]
+    fn mcp_intensity_range_select_deselect_count_495() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            // point lights: intensity 100, 500 / range 10, 30
+            lock.execute("spawn_point_light", json!({"color": [1.0,0.0,0.0], "intensity": 100.0, "range": 10.0, "position": [0.0,0.0,0.0]})).unwrap();
+            lock.execute("spawn_point_light", json!({"color": [0.0,1.0,0.0], "intensity": 500.0, "range": 30.0, "position": [1.0,0.0,0.0]})).unwrap();
+        }
+        app.update(); app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+
+            // intensity_above(200) → only 500 = 1
+            assert_eq!(lock.execute("count_entities_with_intensity_above", json!({"min_intensity": 200.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_intensity_above", json!({"min_intensity": 200.0})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_intensity_above", json!({"min_intensity": 200.0})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // intensity_below(200) → only 100 = 1
+            assert_eq!(lock.execute("count_entities_with_intensity_below", json!({"max_intensity": 200.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_intensity_below", json!({"max_intensity": 200.0})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_intensity_below", json!({"max_intensity": 200.0})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+
+            // range_above(15) → only 30 = 1
+            assert_eq!(lock.execute("count_entities_with_range_above", json!({"min_range": 15.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("select_entities_with_range_above", json!({"min_range": 15.0})).unwrap().content["added_count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("deselect_entities_with_range_above", json!({"min_range": 15.0})).unwrap().content["removed_count"].as_u64().unwrap(), 1);
+        }
     }
 
     #[test]

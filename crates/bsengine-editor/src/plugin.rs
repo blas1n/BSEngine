@@ -1666,6 +1666,61 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_all_tags_in_list
+            let snap_cewatil = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_all_tags_in_list".to_string(),
+                description: "Count entities that have ALL tags from the given list; returns {count}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_list: Vec<String> = input["tags"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    let s = snap_cewatil.lock().unwrap();
+                    let count = s.entities.iter()
+                        .filter(|e| tag_list.iter().all(|t| e.tags.contains(t)))
+                        .count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // get_entities_with_no_tags_in_list
+            let snap_gewtnil = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_no_tags_in_list".to_string(),
+                description: "Return IDs of entities that have NONE of the tags in the given list; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tags"]
+                })),
+                handler: Box::new(move |input| {
+                    let tag_list: std::collections::HashSet<String> = input["tags"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    let s = snap_gewtnil.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| !e.tags.iter().any(|t| tag_list.contains(t)))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // select_entities_with_all_tags_in_list
             let snap_sewatil = snapshot.clone();
             let sel_sewatil = selection.clone();
@@ -22690,6 +22745,67 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_count_all_tags_in_list_and_get_no_tags_in_list() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // A → [j, k], B → [j], C → [l]
+        // has_all[j,k]: A only → count=1
+        // has_none[j,k]: C (has l, not j or k) → entity_ids=[C]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "j"), (id_a, "k"), (id_b, "j"), (id_c, "l")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // count_entities_with_all_tags_in_list [j, k] → 1 (only A has both)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("count_entities_with_all_tags_in_list", json!({"tags": ["j", "k"]})).unwrap();
+            assert!(out.is_ok());
+            assert_eq!(out.content["count"].as_u64().unwrap(), 1);
+        }
+
+        // get_entities_with_no_tags_in_list [j, k] → C (has l, no j or k); B has j → excluded
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_with_no_tags_in_list", json!({"tags": ["j", "k"]})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap()
+                .iter().map(|v| v.as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 1);
+            assert!(ids.contains(&id_c));
+            assert!(!ids.contains(&id_a));
+            assert!(!ids.contains(&id_b));
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

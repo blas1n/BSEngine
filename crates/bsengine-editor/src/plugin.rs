@@ -15119,6 +15119,69 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_with_scale_x_below
+            let snap_gewsxb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_x_below".to_string(),
+                description: "Return entity IDs whose X scale is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsxb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.scale.map(|sc| sc[0] < threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_y_below
+            let snap_gewsyb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_y_below".to_string(),
+                description: "Return entity IDs whose Y scale is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewsyb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.scale.map(|sc| sc[1] < threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
+            // get_entities_with_scale_z_below
+            let snap_gewszb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_with_scale_z_below".to_string(),
+                description: "Return entity IDs whose Z scale is strictly below the threshold; returns {entity_ids}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": { "threshold": { "type": "number" } },
+                    "required": ["threshold"]
+                })),
+                handler: Box::new(move |input| {
+                    let threshold = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_gewszb.lock().unwrap();
+                    let ids: Vec<u64> = s.entities.iter()
+                        .filter(|e| e.scale.map(|sc| sc[2] < threshold).unwrap_or(false))
+                        .map(|e| e.id)
+                        .collect();
+                    McpToolOutput::success(json!({"entity_ids": ids}))
+                }),
+            });
+
             // get_entities_with_rotation_x_below
             let snap_gewrxb = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -58665,6 +58728,74 @@ mod tests {
             "NonUniform(2,3,1) has non-uniform scale"
         );
         assert!(!ids.contains(&uniform_id), "Uniform(2,2,2) excluded");
+    }
+
+    #[test]
+    fn mcp_scale_xyz_below_filters() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [0.0, 0.0, 0.0]},
+                {"name": "B", "position": [1.0, 0.0, 0.0]},
+                {"name": "C", "position": [2.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = es.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = es.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = es.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+
+        // Set scales: A=(1,2,3), B=(4,5,6), C=(7,8,9)
+        for (id, sx, sy, sz) in [(id_a, 1.0f64, 2.0f64, 3.0f64), (id_b, 4.0, 5.0, 6.0), (id_c, 7.0, 8.0, 9.0)] {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("set_scale", json!({"entity_id": id, "sx": sx, "sy": sy, "sz": sz})).unwrap();
+            app.update(); app.update();
+        }
+
+        // scale_x_below(5) → A(1), B(4)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_x_below", json!({"threshold": 5.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_a),  "A(sx=1) < 5");
+            assert!(ids.contains(&id_b),  "B(sx=4) < 5");
+            assert!(!ids.contains(&id_c), "C(sx=7) not < 5");
+        }
+
+        // scale_y_below(6) → A(2), B(5)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_y_below", json!({"threshold": 6.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_a),  "A(sy=2) < 6");
+            assert!(ids.contains(&id_b),  "B(sy=5) < 6");
+            assert!(!ids.contains(&id_c), "C(sy=8) not < 6");
+        }
+
+        // scale_z_below(7) → A(3), B(6)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap().execute("get_entities_with_scale_z_below", json!({"threshold": 7.0})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+            assert!(ids.contains(&id_a),  "A(sz=3) < 7");
+            assert!(ids.contains(&id_b),  "B(sz=6) < 7");
+            assert!(!ids.contains(&id_c), "C(sz=9) not < 7");
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

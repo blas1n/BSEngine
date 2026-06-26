@@ -1,0 +1,21 @@
+[package]
+name = "bsengine-demo"
+description = "BSEngine demo — spinning cube with lighting"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "demo"
+path = "src/main.rs"
+
+[dependencies]
+bsengine-app.workspace = true
+bsengine-core.workspace = true
+bsengine-gltf.workspace = true
+bsengine-render.workspace = true
+bsengine-rhi-wgpu.workspace = true
+bsengine-window.workspace = true
+bevy_ecs.workspace = true
+glam.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

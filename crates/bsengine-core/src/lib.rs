@@ -1,6 +1,7 @@
 pub mod aabb;
 pub mod angular_velocity;
 pub mod audio_emitter;
+pub mod billboard;
 pub mod camera;
 pub mod capsule;
 pub mod color;
@@ -34,6 +35,7 @@ pub mod z_index;
 pub use aabb::Aabb;
 pub use angular_velocity::AngularVelocity;
 pub use audio_emitter::{AudioEmitter, AudioListener};
+pub use billboard::{Billboard, BillboardMode};
 pub use camera::Camera;
 pub use capsule::Capsule;
 pub use color::Color;

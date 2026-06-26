@@ -17891,6 +17891,177 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // count_entities_with_position_x_above
+            let snap_cewpxa = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_x_above".to_string(),
+                description: "Return count of entities whose X position is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpxa.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[0] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_x_below
+            let snap_cewpxb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_x_below".to_string(),
+                description: "Return count of entities whose X position is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpxb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[0] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_x_equal
+            let snap_cewpxeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_x_equal".to_string(),
+                description: "Return count of entities whose X position equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpxeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| (p[0] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_x_between
+            let snap_cewpxbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_x_between".to_string(),
+                description: "Return count of entities whose X position is in [min_x, max_x] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_x":{"type":"number"},"max_x":{"type":"number"}},"required":["min_x","max_x"]})),
+                handler: Box::new(move |input| {
+                    let min_x = input["min_x"].as_f64().unwrap_or(0.0) as f32;
+                    let max_x = input["max_x"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpxbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[0] >= min_x && p[0] <= max_x).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_y_above
+            let snap_cewpya = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_y_above".to_string(),
+                description: "Return count of entities whose Y position is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpya.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_y_below
+            let snap_cewpyb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_y_below".to_string(),
+                description: "Return count of entities whose Y position is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpyb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_y_equal
+            let snap_cewpyeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_y_equal".to_string(),
+                description: "Return count of entities whose Y position equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpyeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| (p[1] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_y_between
+            let snap_cewpybt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_y_between".to_string(),
+                description: "Return count of entities whose Y position is in [min_y, max_y] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_y":{"type":"number"},"max_y":{"type":"number"}},"required":["min_y","max_y"]})),
+                handler: Box::new(move |input| {
+                    let min_y = input["min_y"].as_f64().unwrap_or(0.0) as f32;
+                    let max_y = input["max_y"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpybt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[1] >= min_y && p[1] <= max_y).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_z_above
+            let snap_cewpza = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_z_above".to_string(),
+                description: "Return count of entities whose Z position is strictly above threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpza.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[2] > t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_z_below
+            let snap_cewpzb = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_z_below".to_string(),
+                description: "Return count of entities whose Z position is strictly below threshold; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"threshold":{"type":"number"}},"required":["threshold"]})),
+                handler: Box::new(move |input| {
+                    let t = input["threshold"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpzb.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[2] < t).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_z_equal
+            let snap_cewpzeq = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_z_equal".to_string(),
+                description: "Return count of entities whose Z position equals value (±0.001); returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"value":{"type":"number"}},"required":["value"]})),
+                handler: Box::new(move |input| {
+                    let v = input["value"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpzeq.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| (p[2] - v).abs() < 0.001).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
+            // count_entities_with_position_z_between
+            let snap_cewpzbt = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "count_entities_with_position_z_between".to_string(),
+                description: "Return count of entities whose Z position is in [min_z, max_z] inclusive; returns {count}".to_string(),
+                input_schema: Some(json!({"type":"object","properties":{"min_z":{"type":"number"},"max_z":{"type":"number"}},"required":["min_z","max_z"]})),
+                handler: Box::new(move |input| {
+                    let min_z = input["min_z"].as_f64().unwrap_or(0.0) as f32;
+                    let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
+                    let s = snap_cewpzbt.lock().unwrap();
+                    let count = s.entities.iter().filter(|e| e.position.map(|p| p[2] >= min_z && p[2] <= max_z).unwrap_or(false)).count() as u64;
+                    McpToolOutput::success(json!({"count": count}))
+                }),
+            });
+
             // set_selection_rotation
             let sel_ssr = selection.clone();
             let queue46 = cmd_queue.clone();
@@ -60576,6 +60747,52 @@ mod tests {
             assert!(!ids.contains(&id_c), "C(sz=9) not < 7");
         }
         let _ = (id_a, id_b, id_c);
+    }
+
+    #[test]
+    fn mcp_count_position_xyz() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // A(1,2,3), B(5,5,5), C(8,9,10)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 2.0, 3.0]},
+                {"name": "B", "position": [5.0, 5.0, 5.0]},
+                {"name": "C", "position": [8.0, 9.0, 10.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // X counts
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_position_x_above", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_position_x_below", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_position_x_equal", json!({"value": 5.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_position_x_between", json!({"min_x": 4.0, "max_x": 9.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        // Y counts
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_position_y_above", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_position_y_below", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_position_y_equal", json!({"value": 9.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_position_y_between", json!({"min_y": 1.0, "max_y": 6.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
+        // Z counts
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let lock = mcp.0.lock().unwrap();
+            assert_eq!(lock.execute("count_entities_with_position_z_above", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+            assert_eq!(lock.execute("count_entities_with_position_z_below", json!({"threshold": 4.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_position_z_equal", json!({"value": 5.0})).unwrap().content["count"].as_u64().unwrap(), 1);
+            assert_eq!(lock.execute("count_entities_with_position_z_between", json!({"min_z": 4.0, "max_z": 11.0})).unwrap().content["count"].as_u64().unwrap(), 2);
+        }
     }
 
     #[test]

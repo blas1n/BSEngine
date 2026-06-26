@@ -1666,6 +1666,56 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // get_entities_sorted_by_tag_count_asc
+            let snap_gesbta = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_entities_sorted_by_tag_count_asc".to_string(),
+                description: "Return all entities sorted by tag count ascending (fewest tags first); returns {entities: [{id, tag_count}]}".to_string(),
+                input_schema: Some(json!({"type": "object", "properties": {}})),
+                handler: Box::new(move |_input| {
+                    let s = snap_gesbta.lock().unwrap();
+                    let mut entries: Vec<(u64, usize)> = s.entities.iter()
+                        .map(|e| (e.id, e.tags.len()))
+                        .collect();
+                    entries.sort_by_key(|(_, c)| *c);
+                    let result: Vec<serde_json::Value> = entries.iter()
+                        .map(|(id, c)| json!({"id": id, "tag_count": c}))
+                        .collect();
+                    McpToolOutput::success(json!({"entities": result}))
+                }),
+            });
+
+            // get_tag_intersection
+            let snap_gti = snapshot.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "get_tag_intersection".to_string(),
+                description: "Return tags that both entity_a and entity_b share; returns {tags}".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_a_id": { "type": "integer" },
+                        "entity_b_id": { "type": "integer" }
+                    },
+                    "required": ["entity_a_id", "entity_b_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let id_a = input["entity_a_id"].as_u64().unwrap_or(0);
+                    let id_b = input["entity_b_id"].as_u64().unwrap_or(0);
+                    let s = snap_gti.lock().unwrap();
+                    let tags_a: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_a)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let tags_b: std::collections::HashSet<&str> = s.entities.iter()
+                        .find(|e| e.id == id_b)
+                        .map(|e| e.tags.iter().map(|t| t.as_str()).collect())
+                        .unwrap_or_default();
+                    let mut intersection: Vec<&str> = tags_a.intersection(&tags_b).copied().collect();
+                    intersection.sort();
+                    McpToolOutput::success(json!({"tags": intersection}))
+                }),
+            });
+
             // count_entities_with_tag_xor
             let snap_cetx = snapshot.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -22332,6 +22382,79 @@ mod tests {
             .collect();
         assert!(ids.contains(&cam_id), "camera selected");
         assert!(!ids.contains(&plain_id), "non-camera not selected");
+    }
+
+    #[test]
+    fn mcp_sorted_by_tag_count_asc_and_tag_intersection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0.lock().unwrap().execute("batch_spawn", json!({"entities": [
+                {"name": "A", "position": [1.0, 0.0, 0.0]},
+                {"name": "B", "position": [2.0, 0.0, 0.0]},
+                {"name": "C", "position": [3.0, 0.0, 0.0]},
+            ]})).unwrap();
+        }
+        app.update(); app.update();
+
+        // A → [p, q, r], B → [p, q], C → [p]
+        let (id_a, id_b, id_c) = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let entities = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap()
+                .content["entities"].as_array().unwrap().clone();
+            let id_a = entities.iter().find(|e| e["name"].as_str() == Some("A")).unwrap()["id"].as_u64().unwrap();
+            let id_b = entities.iter().find(|e| e["name"].as_str() == Some("B")).unwrap()["id"].as_u64().unwrap();
+            let id_c = entities.iter().find(|e| e["name"].as_str() == Some("C")).unwrap()["id"].as_u64().unwrap();
+            (id_a, id_b, id_c)
+        };
+        for (id, tag) in [(id_a, "p"), (id_a, "q"), (id_a, "r"), (id_b, "p"), (id_b, "q"), (id_c, "p")] {
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0.lock().unwrap().execute("tag_entity", json!({"entity_id": id, "tag": tag})).unwrap();
+            }
+            app.update(); app.update();
+        }
+
+        // get_entities_sorted_by_tag_count_asc → C(1), B(2), A(3)
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_entities_sorted_by_tag_count_asc", json!({})).unwrap();
+            assert!(out.is_ok());
+            let ids: Vec<u64> = out.content["entities"].as_array().unwrap()
+                .iter().map(|v| v["id"].as_u64().unwrap()).collect();
+            assert_eq!(ids.len(), 3);
+            assert_eq!(ids[0], id_c); // 1 tag
+            assert_eq!(ids[1], id_b); // 2 tags
+            assert_eq!(ids[2], id_a); // 3 tags
+        }
+
+        // get_tag_intersection A B → {p, q}
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_tag_intersection", json!({"entity_a_id": id_a, "entity_b_id": id_b})).unwrap();
+            assert!(out.is_ok());
+            let mut tags: Vec<String> = out.content["tags"].as_array().unwrap()
+                .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            tags.sort();
+            assert_eq!(tags, vec!["p", "q"]);
+        }
+
+        // get_tag_intersection A C → {p}
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp.0.lock().unwrap()
+                .execute("get_tag_intersection", json!({"entity_a_id": id_a, "entity_b_id": id_c})).unwrap();
+            assert!(out.is_ok());
+            let tags: Vec<String> = out.content["tags"].as_array().unwrap()
+                .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            assert_eq!(tags, vec!["p"]);
+        }
+        let _ = (id_a, id_b, id_c);
     }
 
     #[test]

@@ -1,0 +1,3 @@
+ignore = [
+    "crates/bsengine-editor/src/plugin.rs"
+]

@@ -544,6 +544,7 @@ pub mod zloty;
 pub mod zone;
 pub mod zoom;
 pub mod zori;
+pub mod zounds;
 pub mod zulu;
 
 pub use aabb::Aabb;
@@ -1092,6 +1093,7 @@ pub use zloty::Zloty;
 pub use zone::Zone;
 pub use zoom::Zoom;
 pub use zori::Zori;
+pub use zounds::Zounds;
 pub use zulu::Zulu;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

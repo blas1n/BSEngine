@@ -461,6 +461,7 @@ pub mod wreck;
 pub mod wren;
 pub mod yell;
 pub mod yoke;
+pub mod yowl;
 pub mod z_index;
 
 pub use aabb::Aabb;
@@ -926,6 +927,7 @@ pub use wreck::Wreck;
 pub use wren::Wren;
 pub use yell::Yell;
 pub use yoke::Yoke;
+pub use yowl::Yowl;
 pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

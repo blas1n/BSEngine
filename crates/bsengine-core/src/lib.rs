@@ -1,6 +1,7 @@
 pub mod aabb;
 pub mod ability;
 pub mod ability_slot;
+pub mod absorption;
 pub mod aggro;
 pub mod aim;
 pub mod ambient_occlusion;
@@ -229,6 +230,7 @@ pub mod z_index;
 pub use aabb::Aabb;
 pub use ability::Ability;
 pub use ability_slot::{AbilitySlot, Slot};
+pub use absorption::Absorption;
 pub use aggro::{Aggro, ThreatEntry};
 pub use aim::{Aim, AimMode};
 pub use ambient_occlusion::AmbientOcclusion;

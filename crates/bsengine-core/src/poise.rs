@@ -23,6 +23,11 @@ pub struct Poise {
     pub max: f32,
     /// Poise regenerated per second. Clamped ≥ 0.0.
     pub regen_rate: f32,
+    /// Latched true when current hits 0; cleared only when:
+    /// - `tick()` regens current back to `max`
+    /// - `restore()` brings current above 0
+    /// Use `is_broken()` — do not inspect this field directly.
+    pub broken: bool,
     pub just_broken: bool,
     pub just_restored: bool,
     pub enabled: bool,
@@ -35,6 +40,7 @@ impl Poise {
             current: max,
             max,
             regen_rate: regen_rate.max(0.0),
+            broken: false,
             just_broken: false,
             just_restored: false,
             enabled: true,
@@ -44,12 +50,12 @@ impl Poise {
     /// Reduce poise by `amount`. Sets `just_broken` if `current` crosses zero.
     /// No-op when disabled or already broken.
     pub fn damage(&mut self, amount: f32) {
-        if !self.enabled || self.is_broken() {
+        if !self.enabled || self.broken {
             return;
         }
-        let was_ok = !self.is_broken();
         self.current = (self.current - amount.max(0.0)).max(0.0);
-        if was_ok && self.is_broken() {
+        if self.current <= 0.0 {
+            self.broken = true;
             self.just_broken = true;
         }
     }
@@ -57,40 +63,42 @@ impl Poise {
     /// Force an immediate poise break regardless of current value. No-op when
     /// already broken or disabled.
     pub fn break_now(&mut self) {
-        if !self.enabled || self.is_broken() {
+        if !self.enabled || self.broken {
             return;
         }
         self.current = 0.0;
+        self.broken = true;
         self.just_broken = true;
     }
 
     /// Restore poise by `amount`, clamped at `max`. Sets `just_restored` when
-    /// the meter reaches `max` after a previous break (i.e., was 0 before).
+    /// the meter exits the broken state (current becomes > 0).
     pub fn restore(&mut self, amount: f32) {
-        let was_broken = self.is_broken();
+        let was_broken = self.broken;
         self.current = (self.current + amount.max(0.0)).min(self.max);
-        if was_broken && !self.is_broken() {
+        if was_broken && self.current > 0.0 {
+            self.broken = false;
             self.just_restored = true;
         }
     }
 
-    /// Advance regen; sets `just_restored` when poise fully recovers after a
-    /// break. Clears one-frame flags.
+    /// Advance regen; sets `just_restored` when poise fully recovers to `max`
+    /// after a break. Clears one-frame flags.
     pub fn tick(&mut self, dt: f32) {
         self.just_broken = false;
         self.just_restored = false;
 
         if self.enabled && self.regen_rate > 0.0 && self.current < self.max {
-            let was_broken = self.is_broken();
             self.current = (self.current + self.regen_rate * dt).min(self.max);
-            if was_broken && !self.is_broken() {
+            if self.broken && self.current >= self.max {
+                self.broken = false;
                 self.just_restored = true;
             }
         }
     }
 
     pub fn is_broken(&self) -> bool {
-        self.current <= 0.0
+        self.broken
     }
 
     pub fn is_full(&self) -> bool {

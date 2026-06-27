@@ -624,6 +624,7 @@ pub mod zoysia;
 pub mod zulu;
 pub mod zymase;
 pub mod zymogen;
+pub mod zymology;
 
 pub use aabb::Aabb;
 pub use ability::Ability;
@@ -1251,6 +1252,7 @@ pub use zoysia::Zoysia;
 pub use zulu::Zulu;
 pub use zymase::Zymase;
 pub use zymogen::Zymogen;
+pub use zymology::Zymology;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

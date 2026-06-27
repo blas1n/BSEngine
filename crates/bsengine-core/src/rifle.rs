@@ -36,7 +36,7 @@ impl Rifle {
         point_blank_penalty: f32,
     ) -> Self {
         let min = min_range.max(0.0);
-        let peak = peak_range.max(min + f32::EPSILON);
+        let peak = peak_range.max(min + 0.001);
         Self {
             min_range: min,
             peak_range: peak,

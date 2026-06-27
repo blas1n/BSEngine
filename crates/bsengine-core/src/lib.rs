@@ -637,6 +637,7 @@ pub mod zwieback;
 pub mod zymase;
 pub mod zymogen;
 pub mod zymology;
+pub mod zymosis;
 pub mod zymotic;
 pub mod zymurgy;
 
@@ -1279,6 +1280,7 @@ pub use zwieback::Zwieback;
 pub use zymase::Zymase;
 pub use zymogen::Zymogen;
 pub use zymology::Zymology;
+pub use zymosis::Zymosis;
 pub use zymotic::Zymotic;
 pub use zymurgy::Zymurgy;
 

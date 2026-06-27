@@ -481,6 +481,7 @@ pub mod yoke;
 pub mod young;
 pub mod yowl;
 pub mod yoyo;
+pub mod yuck;
 pub mod z_index;
 pub mod zest;
 
@@ -967,6 +968,7 @@ pub use yoke::Yoke;
 pub use young::Young;
 pub use yowl::Yowl;
 pub use yoyo::Yoyo;
+pub use yuck::Yuck;
 pub use z_index::ZIndex;
 pub use zest::Zest;
 

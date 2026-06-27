@@ -220,6 +220,7 @@ pub mod warp;
 pub mod water_body;
 pub mod weather;
 pub mod wind;
+pub mod wound;
 pub mod z_index;
 
 pub use aabb::Aabb;
@@ -444,6 +445,7 @@ pub use warp::{Warp, WarpPhase};
 pub use water_body::WaterBody;
 pub use weather::{Precipitation, Weather};
 pub use wind::Wind;
+pub use wound::Wound;
 pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

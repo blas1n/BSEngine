@@ -475,10 +475,14 @@ pub mod wren;
 pub mod wrest;
 pub mod xray;
 pub mod yak;
+<<<<<<< HEAD
 pub mod yam;
 pub mod yap;
 pub mod yaw;
 pub mod yawn;
+=======
+pub mod yap;
+>>>>>>> c1fa2fc3 (feat(core): add Yap on-demand emitter with cooldown rate limiting)
 pub mod yell;
 pub mod yelp;
 pub mod yen;
@@ -978,10 +982,14 @@ pub use wren::Wren;
 pub use wrest::Wrest;
 pub use xray::Xray;
 pub use yak::Yak;
+<<<<<<< HEAD
 pub use yam::Yam;
 pub use yap::Yap;
 pub use yaw::Yaw;
 pub use yawn::Yawn;
+=======
+pub use yap::Yap;
+>>>>>>> c1fa2fc3 (feat(core): add Yap on-demand emitter with cooldown rate limiting)
 pub use yell::Yell;
 pub use yelp::Yelp;
 pub use yen::Yen;

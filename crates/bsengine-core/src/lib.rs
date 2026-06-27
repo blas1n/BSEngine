@@ -445,6 +445,7 @@ pub mod woe;
 pub mod wound;
 pub mod wraith;
 pub mod wrath;
+pub mod wreck;
 pub mod yoke;
 pub mod z_index;
 
@@ -895,6 +896,7 @@ pub use woe::Woe;
 pub use wound::Wound;
 pub use wraith::Wraith;
 pub use wrath::Wrath;
+pub use wreck::Wreck;
 pub use yoke::Yoke;
 pub use z_index::ZIndex;
 

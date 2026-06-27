@@ -25,6 +25,10 @@ pub struct Morale {
     pub just_peaked: bool,
     pub just_broke: bool,
     pub enabled: bool,
+    /// True when morale was at 1.0 at the start of the most recent `tick()`.
+    /// Suppresses spurious `just_peaked` re-fires when morale barely decays
+    /// below 1.0 and immediately recovers (e.g. a single passive-decay tick).
+    pub at_peak: bool,
 }
 
 impl Morale {
@@ -37,19 +41,22 @@ impl Morale {
             just_peaked: false,
             just_broke: false,
             enabled: true,
+            at_peak: false,
         }
     }
 
     /// Increase morale by `amount`, clamped at 1.0. Sets `just_peaked` the
-    /// frame morale first reaches 1.0. No-op for `amount ≤ 0`.
+    /// frame morale first meaningfully reaches 1.0 (suppressed when morale was
+    /// at 1.0 at the start of the previous tick). No-op for `amount ≤ 0`.
     pub fn boost(&mut self, amount: f32) {
         if amount <= 0.0 {
             return;
         }
         let was_below_peak = self.morale < 1.0;
         self.morale = (self.morale + amount).min(1.0);
-        if was_below_peak && self.morale >= 1.0 {
+        if was_below_peak && self.morale >= 1.0 && !self.at_peak {
             self.just_peaked = true;
+            self.at_peak = true;
         }
     }
 
@@ -67,21 +74,23 @@ impl Morale {
     }
 
     /// Advance the passive decay. Sets `just_broke` when morale drops to 0.
-    /// Clears one-frame flags at the start of each tick.
+    /// Clears one-frame flags at the start of each tick. Carries `at_peak`
+    /// forward when morale was at 1.0 before decaying (suppresses spurious
+    /// `just_peaked` re-fires on the next boost after a trivial decay tick).
     pub fn tick(&mut self, dt: f32) {
+        let was_at_peak = self.morale >= 1.0;
         self.just_peaked = false;
         self.just_broke = false;
 
         if self.morale > 0.0 {
-            let was_positive = self.morale > 0.0;
             self.morale -= self.decay_rate * dt;
             if self.morale <= 0.0 {
                 self.morale = 0.0;
-                if was_positive {
-                    self.just_broke = true;
-                }
+                self.just_broke = true;
             }
         }
+
+        self.at_peak = was_at_peak;
     }
 
     pub fn is_broken(&self) -> bool {

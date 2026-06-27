@@ -458,6 +458,7 @@ pub mod wrap;
 pub mod wrath;
 pub mod wreck;
 pub mod yell;
+pub mod yelp;
 pub mod yoke;
 pub mod z_index;
 
@@ -921,6 +922,7 @@ pub use wrap::Wrap;
 pub use wrath::Wrath;
 pub use wreck::Wreck;
 pub use yell::Yell;
+pub use yelp::Yelp;
 pub use yoke::Yoke;
 pub use z_index::ZIndex;
 

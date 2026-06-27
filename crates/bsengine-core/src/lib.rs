@@ -601,6 +601,7 @@ pub mod zouave;
 pub mod zouk;
 pub mod zounds;
 pub mod zowie;
+pub mod zoysia;
 pub mod zulu;
 
 pub use aabb::Aabb;
@@ -1206,6 +1207,7 @@ pub use zouave::Zouave;
 pub use zouk::Zouk;
 pub use zounds::Zounds;
 pub use zowie::Zowie;
+pub use zoysia::Zoysia;
 pub use zulu::Zulu;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

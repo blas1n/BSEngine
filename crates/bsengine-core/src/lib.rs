@@ -434,6 +434,7 @@ pub mod windup;
 pub mod wisp;
 pub mod wither;
 pub mod wound;
+pub mod wraith;
 pub mod wrath;
 pub mod z_index;
 
@@ -873,6 +874,7 @@ pub use windup::Windup;
 pub use wisp::Wisp;
 pub use wither::Wither;
 pub use wound::Wound;
+pub use wraith::Wraith;
 pub use wrath::Wrath;
 pub use z_index::ZIndex;
 

@@ -571,6 +571,7 @@ pub mod zone;
 pub mod zoner;
 pub mod zoom;
 pub mod zori;
+pub mod zorse;
 pub mod zounds;
 pub mod zulu;
 
@@ -1147,6 +1148,7 @@ pub use zone::Zone;
 pub use zoner::Zoner;
 pub use zoom::Zoom;
 pub use zori::Zori;
+pub use zorse::Zorse;
 pub use zounds::Zounds;
 pub use zulu::Zulu;
 

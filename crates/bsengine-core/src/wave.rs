@@ -55,10 +55,11 @@ impl Wave {
     /// Advance the wave front by `dt` seconds. Returns `true` on the frame the
     /// wave dissipates.
     pub fn tick(&mut self, dt: f32) -> bool {
+        let was_just_emitted = self.just_emitted;
         self.just_emitted = false;
         self.just_dissipated = false;
 
-        if self.is_active() {
+        if was_just_emitted || (self.radius > 0.0 && self.radius < self.max_radius) {
             self.radius += self.expansion_rate * dt;
             if self.radius >= self.max_radius {
                 self.radius = self.max_radius;

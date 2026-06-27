@@ -437,6 +437,7 @@ pub mod wither;
 pub mod wound;
 pub mod wraith;
 pub mod wrath;
+pub mod yoke;
 pub mod z_index;
 
 pub use aabb::Aabb;
@@ -878,6 +879,7 @@ pub use wither::Wither;
 pub use wound::Wound;
 pub use wraith::Wraith;
 pub use wrath::Wrath;
+pub use yoke::Yoke;
 pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

@@ -447,12 +447,11 @@ mod tests {
     fn hold_release_hold_cycle() {
         let mut w = w();
         w.hold();
-        w.tick(1.0); // 5.0
-        w.tick(0.016);
+        w.tick(1.0); // 0 + 5.0*1.0 = 5.0
         w.release();
-        w.tick(1.0); // 5.0 - 2.0 = 3.0
+        w.tick(1.0); // 5.0 - 2.0*1.0 = 3.0
         w.hold();
-        w.tick(1.0); // 3.0 + 5.0 = 8.0
+        w.tick(1.0); // 3.0 + 5.0*1.0 = 8.0
         assert!((w.wrap_level - 8.0).abs() < 1e-4);
     }
 }

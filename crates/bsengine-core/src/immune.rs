@@ -9,7 +9,7 @@ use bevy_ecs::prelude::Component;
 /// (e.g. `DamageType::Fire as u32` → bit 2 → `1 << 2`).
 ///
 /// Query pattern:
-/// ```
+/// ```ignore
 /// if immune.has_damage_immunity(1 << DamageType::Fire as u32) {
 ///     // skip fire damage
 /// }

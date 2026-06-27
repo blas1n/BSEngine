@@ -407,6 +407,7 @@ pub mod wind;
 pub mod windup;
 pub mod wither;
 pub mod wound;
+pub mod wrath;
 pub mod z_index;
 
 pub use aabb::Aabb;
@@ -818,6 +819,7 @@ pub use wind::Wind;
 pub use windup::Windup;
 pub use wither::Wither;
 pub use wound::Wound;
+pub use wrath::Wrath;
 pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

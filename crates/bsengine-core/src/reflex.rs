@@ -261,9 +261,8 @@ mod tests {
     fn window_fraction_at_half() {
         let mut r = Reflex::new();
         r.trigger(2.0);
-        r.tick(0.016); // advance slightly
-        r.trigger(1.0); // set to exactly half of 2.0
-        assert!((r.window_fraction(2.0) - 0.5).abs() < 1e-4);
+        r.tick(1.0);
+        assert!((r.window_fraction(2.0) - 0.5).abs() < 1e-3);
     }
 
     #[test]

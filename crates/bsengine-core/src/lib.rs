@@ -477,6 +477,7 @@ pub mod yelp;
 pub mod yoke;
 pub mod yowl;
 pub mod yoyo;
+pub mod yuck;
 pub mod z_index;
 
 pub use aabb::Aabb;
@@ -958,6 +959,7 @@ pub use yelp::Yelp;
 pub use yoke::Yoke;
 pub use yowl::Yowl;
 pub use yoyo::Yoyo;
+pub use yuck::Yuck;
 pub use z_index::ZIndex;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {

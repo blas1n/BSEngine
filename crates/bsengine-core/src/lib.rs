@@ -486,6 +486,7 @@ pub mod z_index;
 pub mod zest;
 pub mod zing;
 pub mod zone;
+pub mod zoom;
 
 pub use aabb::Aabb;
 pub use ability::Ability;
@@ -975,6 +976,7 @@ pub use z_index::ZIndex;
 pub use zest::Zest;
 pub use zing::Zing;
 pub use zone::Zone;
+pub use zoom::Zoom;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

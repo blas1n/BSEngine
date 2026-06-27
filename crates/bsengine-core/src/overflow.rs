@@ -10,7 +10,7 @@ use bevy_ecs::prelude::Component;
 /// Overheal), temporary barriers granted by abilities.
 ///
 /// Usage pattern:
-/// ```
+/// ```ignore
 /// // On heal: store excess
 /// let excess = healing - (health.max - health.current);
 /// if excess > 0.0 { overflow.add(excess); }

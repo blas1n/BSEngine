@@ -631,6 +631,7 @@ pub mod zymase;
 pub mod zymogen;
 pub mod zymology;
 pub mod zymotic;
+pub mod zymurgy;
 
 pub use aabb::Aabb;
 pub use ability::Ability;
@@ -1265,6 +1266,7 @@ pub use zymase::Zymase;
 pub use zymogen::Zymogen;
 pub use zymology::Zymology;
 pub use zymotic::Zymotic;
+pub use zymurgy::Zymurgy;
 
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;

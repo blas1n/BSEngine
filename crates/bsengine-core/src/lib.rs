@@ -272,6 +272,7 @@ pub mod water_body;
 pub mod weaken;
 pub mod weather;
 pub mod wind;
+pub mod wither;
 pub mod wound;
 pub mod z_index;
 
@@ -549,6 +550,7 @@ pub use water_body::WaterBody;
 pub use weaken::Weaken;
 pub use weather::{Precipitation, Weather};
 pub use wind::Wind;
+pub use wither::Wither;
 pub use wound::Wound;
 pub use z_index::ZIndex;
 

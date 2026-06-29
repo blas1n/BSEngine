@@ -4,3 +4,8 @@
 # are on different drives (requires same-drive for symlink without admin rights).
 # CI overrides this via CARGO_TARGET_DIR env var in the workflow.
 target-dir = "C:\\BSEngine-target"
+
+[target.x86_64-pc-windows-msvc]
+# wgpu Vulkan layer enumeration exceeds Windows' default 1MB main-thread stack
+# in debug builds. 64MB gives ample headroom for both debug and release.
+rustflags = ["-C", "link-args=/STACK:67108864"]

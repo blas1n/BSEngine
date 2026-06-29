@@ -697,6 +697,8 @@ impl Plugin for EditorPlugin {
                                     gltf: None,
                                     camera: false,
                                     directional_light: None,
+                                    primitive: None,
+                                    script: None,
                                 }
                             })
                         })

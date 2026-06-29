@@ -1,9 +1,21 @@
+use bevy_ecs::prelude::Component;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneDescriptor {
     pub entities: Vec<EntityDescriptor>,
 }
+
+/// Built-in primitive mesh shapes that the runtime can spawn without an asset file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Primitive {
+    Cube,
+}
+
+/// Marker component inserted by `ScenePlugin` for entities with `primitive: Some(...)`.
+/// The runtime converts this into a `MeshRenderer` with registered GPU geometry.
+#[derive(Component, Debug, Clone)]
+pub struct PrimitiveMesh(pub Primitive);
 
 /// Describes a single entity in the scene file.
 ///
@@ -20,6 +32,10 @@ pub struct EntityDescriptor {
     pub camera: bool,
     #[serde(default)]
     pub directional_light: Option<DirectionalLightDescriptor>,
+    #[serde(default)]
+    pub primitive: Option<Primitive>,
+    #[serde(default)]
+    pub script: Option<String>,
     #[serde(default)]
     pub components: Vec<(String, String)>,
 }

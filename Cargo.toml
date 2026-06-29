@@ -19,6 +19,7 @@ members = [
     "crates/bsengine-gltf",
     "crates/bsengine-demo",
     "crates/bsengine-editor",
+    "crates/bsengine-runtime",
     "games/cube-roller",
 ]
 
@@ -59,6 +60,7 @@ glam              = "0.29"
 gltf              = "1"
 image             = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 bsengine-gltf     = { path = "crates/bsengine-gltf" }
+bsengine-runtime  = { path = "crates/bsengine-runtime" }
 bsengine-editor   = { path = "crates/bsengine-editor" }
 bsengine-physics  = { path = "crates/bsengine-physics" }
 bsengine-audio    = { path = "crates/bsengine-audio" }

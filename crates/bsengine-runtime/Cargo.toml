@@ -1,0 +1,23 @@
+[package]
+name = "bsengine-runtime"
+description = "BSEngine project runner — loads project.toml and entry scene, no game-specific Rust required"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "bsengine-runtime"
+path = "src/main.rs"
+
+[dependencies]
+bevy_app        = { workspace = true }
+bsengine-app    = { workspace = true }
+bsengine-core   = { workspace = true }
+bsengine-ecs    = { workspace = true }
+bsengine-input  = { workspace = true }
+bsengine-render = { workspace = true }
+bsengine-rhi-wgpu = { workspace = true }
+bsengine-scene  = { workspace = true }
+bsengine-window = { workspace = true }
+serde           = { workspace = true }
+toml            = { workspace = true }

@@ -1,6 +1,7 @@
 use bsengine_rhi::{RHIMesh, RHIShader, RHITexture, RHI};
 use wgpu::{Device, Queue};
 
+#[allow(dead_code)]
 pub struct WgpuRHI {
     pub(crate) device: Device,
     pub(crate) queue: Queue,

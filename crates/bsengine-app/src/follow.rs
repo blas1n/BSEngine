@@ -1,7 +1,7 @@
 use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Follow, GlobalTransform, LookAt, Time, Transform};
 use bsengine_ecs::{Query, Res};
-use glam::{Mat3, Mat4, Quat, Vec3};
+use glam::{Mat3, Quat, Vec3};
 
 pub struct FollowPlugin;
 
@@ -69,7 +69,7 @@ fn apply_look_at(mut lookers: Query<(&LookAt, &mut Transform)>, targets: Query<&
 mod tests {
     use super::*;
     use bsengine_core::{Follow, GlobalTransform, LookAt, Time, Transform};
-    use glam::Vec3;
+    use glam::{Mat4, Vec3};
 
     fn make_app() -> bevy_app::App {
         let mut app = crate::new_app();

@@ -30,7 +30,7 @@ pub struct Grace {
 }
 
 impl Grace {
-    pub fn new(charges: u32, min_hp_fraction: f32) -> Self {
+    pub fn new(_charges: u32, min_hp_fraction: f32) -> Self {
         Self {
             duration: 0.0,
             timer: 0.0,

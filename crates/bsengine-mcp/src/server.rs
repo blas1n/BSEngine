@@ -1,4 +1,4 @@
-use crate::{McpTool, McpToolOutput, McpToolRegistry};
+use crate::McpToolRegistry;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};

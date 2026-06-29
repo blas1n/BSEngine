@@ -499,7 +499,7 @@ impl WgpuSurface {
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &model_buffer,
                     offset: 0,
-                    size: wgpu::BufferSize::new(64),
+                    size: wgpu::BufferSize::new(96),
                 }),
             }],
         });

@@ -74,7 +74,9 @@ fn main() {
         .add_plugins(InputPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
-        .add_plugins(ScriptingPlugin { project_dir: project_dir.clone() })
+        .add_plugins(ScriptingPlugin {
+            project_dir: project_dir.clone(),
+        })
         .add_systems(PostStartup, resolve_primitives)
         .run();
 }

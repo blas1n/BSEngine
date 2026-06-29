@@ -41,9 +41,7 @@ impl ScriptRuntime {
 
     /// Call a named JS function if it exists, ignoring return value.
     pub fn call_fn(&mut self, fn_name: &str) -> Result<(), String> {
-        let src = format!(
-            "if (typeof {fn_name} === 'function') {{ {fn_name}(); }}"
-        );
+        let src = format!("if (typeof {fn_name} === 'function') {{ {fn_name}(); }}");
         self.exec_source(&src, "<call_fn>")
     }
 }

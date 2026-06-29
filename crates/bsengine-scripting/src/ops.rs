@@ -7,7 +7,12 @@ use serde::Serialize;
 
 #[derive(Clone)]
 pub enum ScriptCommand {
-    SetTransform { name: String, x: f32, y: f32, z: f32 },
+    SetTransform {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
 }
 
 thread_local! {
@@ -41,16 +46,19 @@ pub fn bsengine_version() -> String {
 #[serde]
 pub fn bsengine_get_transform(#[string] name: String) -> Option<Vec3Json> {
     TRANSFORM_SNAPSHOT.with(|s| {
-        s.borrow()
-            .get(&name)
-            .map(|t| Vec3Json { x: t.x, y: t.y, z: t.z })
+        s.borrow().get(&name).map(|t| Vec3Json {
+            x: t.x,
+            y: t.y,
+            z: t.z,
+        })
     })
 }
 
 #[op2(fast)]
 pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetTransform { name, x, y, z });
+        c.borrow_mut()
+            .push(ScriptCommand::SetTransform { name, x, y, z });
     });
 }
 
@@ -106,7 +114,9 @@ mod tests {
     fn bsengine_global_exposed_after_bootstrap() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        let r = rt.eval(r#"typeof Bsengine !== "undefined" ? "ok" : "missing""#).unwrap();
+        let r = rt
+            .eval(r#"typeof Bsengine !== "undefined" ? "ok" : "missing""#)
+            .unwrap();
         assert!(r.contains("ok"), "Bsengine global missing: {r}");
     }
 
@@ -114,15 +124,22 @@ mod tests {
     fn get_transform_returns_null_for_unknown() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        let r = rt.eval(r#"String(Bsengine.getTransform("NoSuchEntity"))"#).unwrap();
-        assert!(r.contains("null") || r.contains("undefined"), "expected null: {r}");
+        let r = rt
+            .eval(r#"String(Bsengine.getTransform("NoSuchEntity"))"#)
+            .unwrap();
+        assert!(
+            r.contains("null") || r.contains("undefined"),
+            "expected null: {r}"
+        );
     }
 
     #[test]
     fn is_key_pressed_returns_false_when_no_snapshot() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        let r = rt.eval(r#"Bsengine.isKeyPressed("W") ? "pressed" : "not""#).unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isKeyPressed("W") ? "pressed" : "not""#)
+            .unwrap();
         assert!(r.contains("not"), "expected not pressed: {r}");
     }
 }

@@ -29,7 +29,9 @@ pub struct ScriptingPlugin {
 
 impl Default for ScriptingPlugin {
     fn default() -> Self {
-        Self { project_dir: ".".to_string() }
+        Self {
+            project_dir: ".".to_string(),
+        }
     }
 }
 
@@ -75,7 +77,9 @@ fn load_scripts(world: &mut World) {
     for (entity, path) in scripts {
         match std::fs::read_to_string(&path) {
             Ok(source) => {
-                world.entity_mut(entity).insert(Script { source: source.clone() });
+                world.entity_mut(entity).insert(Script {
+                    source: source.clone(),
+                });
                 if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
                     if let Err(e) = rt.0.exec_source(&source, &path) {
                         tracing::error!("Script error in {path}: {e}");
@@ -97,18 +101,28 @@ fn run_scripts(world: &mut World) {
 
     let transform_snapshot: HashMap<String, Vec3> = {
         let mut q = world.query::<(&Name, &Transform)>();
-        q.iter(world).map(|(n, t)| (n.0.clone(), t.translation)).collect()
+        q.iter(world)
+            .map(|(n, t)| (n.0.clone(), t.translation))
+            .collect()
     };
 
     let key_snapshot: HashSet<String> = {
         let mappings = [
-            (KeyCode::W, "W"), (KeyCode::A, "A"), (KeyCode::S, "S"), (KeyCode::D, "D"),
-            (KeyCode::Space, "Space"), (KeyCode::Enter, "Enter"), (KeyCode::Escape, "Escape"),
-            (KeyCode::Up, "Up"), (KeyCode::Down, "Down"),
-            (KeyCode::Left, "Left"), (KeyCode::Right, "Right"),
+            (KeyCode::W, "W"),
+            (KeyCode::A, "A"),
+            (KeyCode::S, "S"),
+            (KeyCode::D, "D"),
+            (KeyCode::Space, "Space"),
+            (KeyCode::Enter, "Enter"),
+            (KeyCode::Escape, "Escape"),
+            (KeyCode::Up, "Up"),
+            (KeyCode::Down, "Down"),
+            (KeyCode::Left, "Left"),
+            (KeyCode::Right, "Right"),
         ];
         if let Some(input) = world.get_resource::<Input<KeyCode>>() {
-            mappings.iter()
+            mappings
+                .iter()
                 .filter(|(code, _)| input.is_pressed(code))
                 .map(|(_, name)| name.to_string())
                 .collect()

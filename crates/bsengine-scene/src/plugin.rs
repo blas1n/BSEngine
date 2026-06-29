@@ -1,4 +1,4 @@
-use crate::types::{PrimitiveMesh, SceneDescriptor};
+use crate::types::{PrimitiveMesh, SceneDescriptor, ScriptPath};
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Commands, Component};
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Transform};
@@ -64,6 +64,10 @@ impl Plugin for ScenePlugin {
 
                 if let Some(prim) = &entity.primitive {
                     builder.insert(PrimitiveMesh(prim.clone()));
+                }
+
+                if let Some(script) = &entity.script {
+                    builder.insert(ScriptPath(script.clone()));
                 }
             }
         });

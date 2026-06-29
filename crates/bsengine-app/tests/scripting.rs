@@ -4,7 +4,7 @@ use bsengine_scripting::{ScriptRuntimeResource, ScriptingPlugin};
 #[test]
 fn scripting_plugin_in_full_app() {
     let mut app = new_app();
-    app.add_plugins(ScriptingPlugin);
+    app.add_plugins(ScriptingPlugin::default());
     app.update();
 
     let result = app
@@ -20,7 +20,7 @@ fn scripting_plugin_in_full_app() {
 #[test]
 fn log_op_callable_in_full_app() {
     let mut app = new_app();
-    app.add_plugins(ScriptingPlugin);
+    app.add_plugins(ScriptingPlugin::default());
     app.update();
 
     let result = app

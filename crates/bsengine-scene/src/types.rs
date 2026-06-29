@@ -17,6 +17,10 @@ pub enum Primitive {
 #[derive(Component, Debug, Clone)]
 pub struct PrimitiveMesh(pub Primitive);
 
+/// Relative path to a JS script file, resolved against the project root by the scripting plugin.
+#[derive(Component, Debug, Clone)]
+pub struct ScriptPath(pub String);
+
 /// Describes a single entity in the scene file.
 ///
 /// All component fields are optional and default to absent; only `name` is

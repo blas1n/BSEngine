@@ -7,6 +7,7 @@ use bsengine_input::InputPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{cube_vertices, GpuMeshRegistry, WgpuRHIPlugin};
 use bsengine_scene::{Primitive, PrimitiveMesh, ScenePlugin};
+use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 use serde::Deserialize;
 
@@ -73,6 +74,7 @@ fn main() {
         .add_plugins(InputPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
+        .add_plugins(ScriptingPlugin { project_dir: project_dir.clone() })
         .add_systems(PostStartup, resolve_primitives)
         .run();
 }

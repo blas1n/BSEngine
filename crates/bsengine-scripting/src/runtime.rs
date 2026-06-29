@@ -30,6 +30,22 @@ impl ScriptRuntime {
         let value = result.open(scope);
         Ok(value.to_rust_string_lossy(scope))
     }
+
+    /// Execute a script without capturing its return value. Used for loading definitions.
+    pub fn exec_source(&mut self, src: &str, _name: &str) -> Result<(), String> {
+        self.runtime
+            .execute_script("<source>", src.to_string())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Call a named JS function if it exists, ignoring return value.
+    pub fn call_fn(&mut self, fn_name: &str) -> Result<(), String> {
+        let src = format!(
+            "if (typeof {fn_name} === 'function') {{ {fn_name}(); }}"
+        );
+        self.exec_source(&src, "<call_fn>")
+    }
 }
 
 impl Default for ScriptRuntime {

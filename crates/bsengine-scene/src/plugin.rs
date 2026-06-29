@@ -1,4 +1,4 @@
-use crate::types::SceneDescriptor;
+use crate::types::{PrimitiveMesh, SceneDescriptor};
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Commands, Component};
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Transform};
@@ -60,6 +60,10 @@ impl Plugin for ScenePlugin {
                         color: Vec3::from(dl.color),
                         ambient: Vec3::from(dl.ambient),
                     });
+                }
+
+                if let Some(prim) = &entity.primitive {
+                    builder.insert(PrimitiveMesh(prim.clone()));
                 }
             }
         });

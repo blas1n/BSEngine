@@ -3,5 +3,6 @@ pub mod types;
 
 pub use plugin::{Name, ScenePlugin};
 pub use types::{
-    DirectionalLightDescriptor, EntityDescriptor, SceneDescriptor, TransformDescriptor,
+    DirectionalLightDescriptor, EntityDescriptor, Primitive, PrimitiveMesh, SceneDescriptor,
+    TransformDescriptor,
 };

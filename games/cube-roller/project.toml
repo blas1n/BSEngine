@@ -1,0 +1,8 @@
+[project]
+name = "Cube Roller"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "Cube Roller"
+width = 1280
+height = 720

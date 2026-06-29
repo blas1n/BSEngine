@@ -1,0 +1,20 @@
+[package]
+name = "cube-roller"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cube-roller"
+path = "src/main.rs"
+
+[dependencies]
+bsengine-app    = { workspace = true }
+bsengine-core   = { workspace = true }
+bsengine-ecs    = { workspace = true }
+bsengine-input  = { workspace = true }
+bsengine-render = { workspace = true }
+bsengine-rhi-wgpu = { workspace = true }
+bsengine-window = { workspace = true }
+bevy_ecs        = { workspace = true }
+glam            = { workspace = true }

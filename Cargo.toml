@@ -19,6 +19,7 @@ members = [
     "crates/bsengine-gltf",
     "crates/bsengine-demo",
     "crates/bsengine-editor",
+    "games/cube-roller",
 ]
 
 [workspace.package]

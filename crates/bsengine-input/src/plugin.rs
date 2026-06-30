@@ -1,11 +1,20 @@
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{EventReader, ResMut};
+use bevy_ecs::prelude::{EventReader, Res, ResMut, Resource};
 use bsengine_ecs::IntoSystemConfigs;
 
 use crate::{
     state::Input,
     types::{CursorMoved, ElementState, KeyCode, KeyInput, MouseButton, MouseInput, MouseMotion},
 };
+
+/// Per-frame mouse position and raw movement delta.
+/// `position` tracks the last cursor position (pixels, top-left origin).
+/// `delta` accumulates raw mouse motion for the current frame and resets each frame.
+#[derive(Resource, Default, Clone)]
+pub struct MouseState {
+    pub position: (f64, f64),
+    pub delta: (f64, f64),
+}
 
 pub struct InputPlugin;
 
@@ -17,9 +26,16 @@ impl Plugin for InputPlugin {
             .add_event::<MouseMotion>()
             .insert_resource(Input::<KeyCode>::default())
             .insert_resource(Input::<MouseButton>::default())
+            .insert_resource(MouseState::default())
             .add_systems(
                 PreUpdate,
-                (clear_input_state, update_keyboard_state, update_mouse_state).chain(),
+                (
+                    clear_input_state,
+                    update_keyboard_state,
+                    update_mouse_button_state,
+                    update_mouse_position_state,
+                )
+                    .chain(),
             );
     }
 }
@@ -38,7 +54,7 @@ fn update_keyboard_state(mut keys: ResMut<Input<KeyCode>>, mut events: EventRead
     }
 }
 
-fn update_mouse_state(
+fn update_mouse_button_state(
     mut buttons: ResMut<Input<MouseButton>>,
     mut events: EventReader<MouseInput>,
 ) {
@@ -50,11 +66,26 @@ fn update_mouse_state(
     }
 }
 
+fn update_mouse_position_state(
+    mut mouse_state: ResMut<MouseState>,
+    mut cursor_events: EventReader<CursorMoved>,
+    mut motion_events: EventReader<MouseMotion>,
+) {
+    mouse_state.delta = (0.0, 0.0);
+    for ev in cursor_events.read() {
+        mouse_state.position = (ev.x, ev.y);
+    }
+    for ev in motion_events.read() {
+        mouse_state.delta.0 += ev.dx;
+        mouse_state.delta.1 += ev.dy;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
         state::Input, CursorMoved, ElementState, InputPlugin, KeyCode, KeyInput, MouseButton,
-        MouseInput, MouseMotion,
+        MouseInput, MouseMotion, MouseState,
     };
     use bevy_ecs::event::Events;
     use bsengine_app::new_app;
@@ -169,4 +200,62 @@ mod tests {
         let buttons = app.world().resource::<Input<MouseButton>>();
         assert!(buttons.is_pressed(&MouseButton::Left));
     }
+
+    #[test]
+    fn mouse_state_delta_accumulates_from_motion_events() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+
+        app.world_mut()
+            .resource_mut::<Events<MouseMotion>>()
+            .send(MouseMotion { dx: 3.0, dy: -2.0 });
+        app.world_mut()
+            .resource_mut::<Events<MouseMotion>>()
+            .send(MouseMotion { dx: 1.0, dy: 1.0 });
+
+        app.update();
+
+        let ms = app.world().resource::<MouseState>();
+        assert!((ms.delta.0 - 4.0).abs() < 1e-9, "delta.x should be 4.0");
+        assert!((ms.delta.1 + 1.0).abs() < 1e-9, "delta.y should be -1.0");
+    }
+
+    #[test]
+    fn mouse_state_delta_resets_each_frame() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+
+        app.world_mut()
+            .resource_mut::<Events<MouseMotion>>()
+            .send(MouseMotion { dx: 5.0, dy: 5.0 });
+        app.update();
+        app.update(); // no new events
+
+        let ms = app.world().resource::<MouseState>();
+        assert!((ms.delta.0).abs() < 1e-9, "delta should reset");
+    }
+
+    #[test]
+    fn cursor_moved_updates_position() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+
+        app.world_mut()
+            .resource_mut::<Events<CursorMoved>>()
+            .send(CursorMoved { x: 100.0, y: 200.0 });
+
+        app.update();
+
+        let ms = app.world().resource::<MouseState>();
+        assert!((ms.position.0 - 100.0).abs() < 1e-9);
+        assert!((ms.position.1 - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn input_plugin_registers_mouse_state_resource() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+        assert!(app.world().get_resource::<MouseState>().is_some());
+    }
+
 }

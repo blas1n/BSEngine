@@ -62,6 +62,7 @@ pub struct Collider {
     pub restitution: f32,
     pub friction: f32,
     pub density: f32,
+    pub sensor: bool,
 }
 
 impl Collider {
@@ -73,6 +74,7 @@ impl Collider {
             restitution: 0.0,
             friction: 0.5,
             density: 1.0,
+            sensor: false,
         }
     }
 
@@ -82,6 +84,7 @@ impl Collider {
             restitution: 0.0,
             friction: 0.5,
             density: 1.0,
+            sensor: false,
         }
     }
 
@@ -94,6 +97,7 @@ impl Collider {
             restitution: 0.0,
             friction: 0.5,
             density: 1.0,
+            sensor: false,
         }
     }
 
@@ -106,6 +110,20 @@ impl Collider {
         self.friction = friction;
         self
     }
+
+    pub fn with_sensor(mut self, sensor: bool) -> Self {
+        self.sensor = sensor;
+        self
+    }
+}
+
+/// Result of a raycast query.
+#[derive(Debug, Clone)]
+pub struct RaycastHit {
+    pub entity: Option<Entity>,
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub distance: f32,
 }
 
 /// Written by the physics system after each step — read this to get simulated position/rotation.

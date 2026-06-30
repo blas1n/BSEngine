@@ -5,10 +5,13 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+bsengine-audio.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bsengine-input.workspace = true
+bsengine-physics.workspace = true
 bsengine-scene.workspace = true
+kira = { workspace = true }
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 deno_core.workspace = true

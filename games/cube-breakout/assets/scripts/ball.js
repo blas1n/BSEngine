@@ -45,7 +45,7 @@ function resetGame() {
 function onUpdate(self) {
     if (gameOver || gameWon) {
         if (restartCooldown > 0) { restartCooldown--; return; }
-        if (Bsengine.isKeyPressed("Space")) resetGame();
+        if (Bsengine.isKeyDown("Space")) resetGame();
         return;
     }
 

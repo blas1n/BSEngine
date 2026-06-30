@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use bevy_ecs::prelude::{Entity, Resource};
+use glam::Vec3;
 use rapier3d::pipeline::EventHandler;
 use rapier3d::prelude::*;
+
+use crate::components::RaycastHit;
 
 #[derive(Resource)]
 pub struct PhysicsWorld {
@@ -76,5 +79,32 @@ impl PhysicsWorld {
 
     pub fn set_gravity(&mut self, magnitude: f32) {
         self.gravity = Vector::new(0.0, -magnitude, 0.0);
+    }
+
+    /// Cast a ray into the physics world. Returns hit info or None.
+    pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
+        // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            QueryFilter::default(),
+        );
+        let ray = Ray::new(
+            Vector::new(origin.x, origin.y, origin.z),
+            Vector::new(dir.x, dir.y, dir.z),
+        );
+        qp.cast_ray_and_get_normal(&ray, max_dist, true)
+            .map(|(handle, intersection)| {
+                let t = intersection.time_of_impact;
+                let p = ray.origin + ray.dir * t;
+                let n = intersection.normal;
+                RaycastHit {
+                    entity: self.collider_entity_map.get(&handle).copied(),
+                    point: Vec3::new(p.x, p.y, p.z),
+                    normal: Vec3::new(n.x, n.y, n.z),
+                    distance: t,
+                }
+            })
     }
 }

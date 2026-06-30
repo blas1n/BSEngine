@@ -1,6 +1,6 @@
-use crate::types::{PrimitiveMesh, SceneDescriptor, ScriptPath};
+use crate::types::{EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath};
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Commands, Component};
+use bevy_ecs::prelude::{Component, World};
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
@@ -23,69 +23,80 @@ impl ScenePlugin {
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         let path = self.path.clone();
-        app.add_systems(Startup, move |mut commands: Commands| {
+        app.add_systems(Startup, move |world: &mut World| {
             let content = std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("Failed to read scene {path}: {e}"));
             let scene: SceneDescriptor = ron::from_str(&content)
                 .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
+            spawn_scene_entities(world, &scene.entities);
+        });
+    }
+}
 
-            for entity in &scene.entities {
-                let mut builder = commands.spawn(Name(entity.name.clone()));
+/// Spawn entities from a list of descriptors into the given world.
+/// Called at startup by ScenePlugin and at runtime for scene transitions.
+pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
+    for entity in entities {
+        let mut builder = world.spawn(Name(entity.name.clone()));
 
-                if let Some(t) = &entity.transform {
-                    let mut rotation =
-                        Quat::from_xyzw(t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]);
-                    // look_at overrides the rotation for camera entities.
-                    if entity.camera {
-                        if let Some(target) = entity.look_at {
-                            let pos = Vec3::from(t.translation);
-                            let dir = Vec3::from(target) - pos;
-                            if dir.length_squared() > 1e-10 {
-                                rotation = Quat::from_rotation_arc(Vec3::NEG_Z, dir.normalize());
-                            }
-                        }
+        if let Some(t) = &entity.transform {
+            let mut rotation =
+                Quat::from_xyzw(t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]);
+            if entity.camera {
+                if let Some(target) = entity.look_at {
+                    let pos = Vec3::from(t.translation);
+                    let dir = Vec3::from(target) - pos;
+                    if dir.length_squared() > 1e-10 {
+                        rotation = Quat::from_rotation_arc(Vec3::NEG_Z, dir.normalize());
                     }
-                    let transform = Transform {
-                        translation: Vec3::from(t.translation),
-                        rotation,
-                        scale: Vec3::from(t.scale),
-                    };
-                    builder.insert((transform, GlobalTransform::default()));
-                }
-
-                if let Some(path) = &entity.gltf {
-                    builder.insert(GltfAsset::new(path.clone()));
-                }
-
-                if entity.camera {
-                    builder.insert(Camera::default());
-                }
-
-                if let Some(dl) = &entity.directional_light {
-                    builder.insert(DirectionalLight {
-                        direction: Vec3::from(dl.direction),
-                        color: Vec3::from(dl.color),
-                        ambient: Vec3::from(dl.ambient),
-                    });
-                }
-
-                if let Some(prim) = &entity.primitive {
-                    builder.insert(PrimitiveMesh(prim.clone()));
-                }
-
-                if let Some(script) = &entity.script {
-                    builder.insert(ScriptPath(script.clone()));
-                }
-
-                if entity.emissive.is_some() || entity.color.is_some() {
-                    builder.insert(Material {
-                        emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO),
-                        base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE),
-                        ..Default::default()
-                    });
                 }
             }
-        });
+            let transform = Transform {
+                translation: Vec3::from(t.translation),
+                rotation,
+                scale: Vec3::from(t.scale),
+            };
+            builder.insert((transform, GlobalTransform::default()));
+        }
+
+        if let Some(path) = &entity.gltf {
+            builder.insert(GltfAsset::new(path.clone()));
+        }
+
+        if entity.camera {
+            builder.insert(Camera::default());
+        }
+
+        if let Some(dl) = &entity.directional_light {
+            builder.insert(DirectionalLight {
+                direction: Vec3::from(dl.direction),
+                color: Vec3::from(dl.color),
+                ambient: Vec3::from(dl.ambient),
+            });
+        }
+
+        if let Some(prim) = &entity.primitive {
+            builder.insert(PrimitiveMesh(prim.clone()));
+        }
+
+        if let Some(script) = &entity.script {
+            builder.insert(ScriptPath(script.clone()));
+        }
+
+        if entity.emissive.is_some() || entity.color.is_some() {
+            builder.insert(Material {
+                emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO),
+                base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE),
+                ..Default::default()
+            });
+        }
+
+        if let (Some(rb), Some(col)) = (&entity.rigidbody, &entity.collider) {
+            builder.insert(PhysicsBodyDesc {
+                rigidbody: rb.clone(),
+                collider: col.clone(),
+            });
+        }
     }
 }
 

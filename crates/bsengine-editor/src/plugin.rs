@@ -702,6 +702,8 @@ impl Plugin for EditorPlugin {
                                     emissive: None,
                                     color: None,
                                     look_at: None,
+                                    rigidbody: None,
+                                    collider: None,
                                 }
                             })
                         })

@@ -1,8 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, Without};
+use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, Material, Parent, PointLight, SpotLight, Transform,
-    Visible,
+    Camera, DirectionalLight, GlobalTransform, HudTexts, Material, Parent, PointLight, SpotLight,
+    Transform, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{
@@ -80,9 +80,10 @@ fn propagate_children(
 }
 
 fn render_frame(
-    surface: Option<Res<WgpuSurfaceResource>>,
+    surface: Option<ResMut<WgpuSurfaceResource>>,
     registry: Option<Res<GpuMeshRegistry>>,
     tex_registry: Option<Res<GpuTextureRegistry>>,
+    hud_texts: Option<Res<HudTexts>>,
     camera_query: Query<(&Camera, &Transform)>,
     mesh_query: Query<(
         &MeshRenderer,
@@ -95,9 +96,11 @@ fn render_frame(
     point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
     spot_light_query: Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
 ) {
-    let (Some(surface), Some(registry)) = (surface, registry) else {
+    let (Some(mut surface), Some(registry)) = (surface, registry) else {
         return;
     };
+    let empty = std::collections::HashMap::new();
+    let hud_map = hud_texts.as_deref().map(|h| &h.0).unwrap_or(&empty);
 
     let (view_proj, cam_pos) = camera_query
         .iter()
@@ -201,6 +204,7 @@ fn render_frame(
         &registry,
         light,
         tex_reg_ref,
+        hud_map,
     ) {
         tracing::warn!("render_frame error: {e}");
     }

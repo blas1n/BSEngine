@@ -388,6 +388,8 @@ pub struct WgpuSurface {
     _shadow_map_texture: wgpu::Texture,
     shadow_map_view: wgpu::TextureView,
     _shadow_comparison_sampler: wgpu::Sampler,
+    egui_ctx: egui::Context,
+    egui_renderer: egui_wgpu::Renderer,
 }
 
 impl WgpuSurface {
@@ -715,6 +717,10 @@ impl WgpuSurface {
             cache: None,
         });
 
+        let egui_ctx = egui::Context::default();
+        let egui_renderer =
+            egui_wgpu::Renderer::new(&device, format, None, 1, false);
+
         Ok(Self {
             _window: window,
             surface,
@@ -737,6 +743,8 @@ impl WgpuSurface {
             _shadow_map_texture: shadow_map_texture,
             shadow_map_view,
             _shadow_comparison_sampler: shadow_comparison_sampler,
+            egui_ctx,
+            egui_renderer,
         })
     }
 
@@ -848,7 +856,7 @@ impl WgpuSurface {
     }
 
     pub fn render_frame(
-        &self,
+        &mut self,
         view_proj: Mat4,
         cam_pos: Vec3,
         light_view_proj: Mat4,
@@ -856,6 +864,7 @@ impl WgpuSurface {
         registry: &GpuMeshRegistry,
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
+        hud_texts: &std::collections::HashMap<String, String>,
     ) -> Result<(), String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1051,6 +1060,85 @@ impl WgpuSurface {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+        }
+
+        // HUD overlay via egui
+        if !hud_texts.is_empty() {
+            let screen_rect = egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(self.config.width as f32, self.config.height as f32),
+            );
+            let raw_input = egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            };
+            let full_output = self.egui_ctx.run(raw_input, |ctx| {
+                let painter = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("hud"),
+                ));
+                let mut sorted_keys: Vec<&String> = hud_texts.keys().collect();
+                sorted_keys.sort();
+                for (i, key) in sorted_keys.iter().enumerate() {
+                    let text = &hud_texts[*key];
+                    painter.text(
+                        egui::pos2(8.0, 8.0 + i as f32 * 24.0),
+                        egui::Align2::LEFT_TOP,
+                        text,
+                        egui::FontId::proportional(20.0),
+                        egui::Color32::WHITE,
+                    );
+                }
+            });
+
+            let clipped_primitives = self
+                .egui_ctx
+                .tessellate(full_output.shapes, full_output.pixels_per_point);
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [self.config.width, self.config.height],
+                pixels_per_point: full_output.pixels_per_point,
+            };
+
+            for (id, image_delta) in &full_output.textures_delta.set {
+                self.egui_renderer.update_texture(
+                    &self.device,
+                    &self.queue,
+                    *id,
+                    image_delta,
+                );
+            }
+            self.egui_renderer.update_buffers(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &clipped_primitives,
+                &screen_descriptor,
+            );
+            {
+                let mut egui_pass = encoder
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("egui hud pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        ..Default::default()
+                    })
+                    .forget_lifetime();
+                self.egui_renderer.render(
+                    &mut egui_pass,
+                    &clipped_primitives,
+                    &screen_descriptor,
+                );
+            }
+            for id in &full_output.textures_delta.free {
+                self.egui_renderer.free_texture(id);
             }
         }
 

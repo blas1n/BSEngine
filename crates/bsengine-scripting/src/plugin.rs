@@ -2,14 +2,20 @@ use std::collections::{HashMap, HashSet};
 
 use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
-use bsengine_core::{Material, Transform};
-use bsengine_input::{Input, KeyCode};
-use bsengine_scene::{Name, ScriptPath};
-use glam::Vec3;
+use bsengine_audio::AudioWorld;
+use bsengine_core::{GlobalTransform, HudTexts, Material, Transform};
+use bsengine_input::{Input, KeyCode, MouseButton, MouseState};
+use bsengine_physics::PhysicsWorld;
+use bsengine_physics::CollisionEvent;
+use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPath};
+use glam::{Quat, Vec3};
 
 use crate::ops::{
-    ScriptCommand, BOOTSTRAP_JS, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, KEY_SNAPSHOT,
-    TRANSFORM_SNAPSHOT,
+    ScriptCommand, SpawnParams, BOOTSTRAP_JS, COLLISION_SNAPSHOT, COMMAND_BUFFER,
+    ENTITY_NAME_MAP, ENTITY_NAMES_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -26,6 +32,10 @@ pub struct Script {
 // Not Send/Sync — stored as a non-send resource via insert_non_send_resource.
 pub struct ScriptRuntimeResource(pub ScriptRuntime);
 
+/// Stores kira sound handles by script-assigned id for stopSound support.
+#[derive(Resource, Default)]
+pub struct SoundHandles(pub HashMap<u32, kira::sound::static_sound::StaticSoundHandle>);
+
 pub struct ScriptingPlugin {
     pub project_dir: String,
 }
@@ -41,13 +51,40 @@ impl Default for ScriptingPlugin {
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ProjectDir(self.project_dir.clone()));
+        app.insert_resource(HudTexts::default());
+        app.insert_resource(SoundHandles::default());
         app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
+        // Register CollisionEvent so EventReader works even without PhysicsPlugin
+        app.add_event::<CollisionEvent>();
         app.add_systems(PostStartup, load_scripts);
-        app.add_systems(Update, run_scripts);
+        app.add_systems(
+            Update,
+            (capture_collision_events, run_scripts).chain(),
+        );
     }
 }
 
-fn load_scripts(world: &mut World) {
+/// Capture collision events each frame into a thread_local snapshot for scripts.
+fn capture_collision_events(
+    mut events: EventReader<CollisionEvent>,
+    name_query: Query<(Entity, &Name)>,
+) {
+    let name_map: HashMap<Entity, String> =
+        name_query.iter().map(|(e, n)| (e, n.0.clone())).collect();
+
+    let collisions: Vec<(String, String, bool)> = events
+        .read()
+        .filter_map(|ev| {
+            let a = name_map.get(&ev.entity_a)?.clone();
+            let b = name_map.get(&ev.entity_b)?.clone();
+            Some((a, b, ev.started))
+        })
+        .collect();
+
+    COLLISION_SNAPSHOT.with(|s| *s.borrow_mut() = collisions);
+}
+
+pub fn load_scripts(world: &mut World) {
     let project_dir = world
         .get_resource::<ProjectDir>()
         .map(|pd| pd.0.clone())
@@ -86,8 +123,6 @@ fn load_scripts(world: &mut World) {
     for (entity, path) in scripts {
         match std::fs::read_to_string(&path) {
             Ok(source) => {
-                // Wrap the script in a closure so its onUpdate doesn't overwrite others.
-                // The closure registers itself in Bsengine._scripts keyed by entity bit-ID.
                 let id = entity.to_bits();
                 let wrapped = format!(
                     "(function() {{\n{source}\nBsengine._scripts[\"{id}\"] = \
@@ -106,6 +141,20 @@ fn load_scripts(world: &mut World) {
     }
 }
 
+const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
+    (KeyCode::W, "W"),
+    (KeyCode::A, "A"),
+    (KeyCode::S, "S"),
+    (KeyCode::D, "D"),
+    (KeyCode::Space, "Space"),
+    (KeyCode::Enter, "Enter"),
+    (KeyCode::Escape, "Escape"),
+    (KeyCode::Up, "Up"),
+    (KeyCode::Down, "Down"),
+    (KeyCode::Left, "Left"),
+    (KeyCode::Right, "Right"),
+];
+
 fn run_scripts(world: &mut World) {
     {
         let mut q = world.query::<&Script>();
@@ -114,39 +163,72 @@ fn run_scripts(world: &mut World) {
         }
     }
 
-    let transform_snapshot: HashMap<String, Vec3> = {
+    let transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
         let mut q = world.query::<(&Name, &Transform)>();
         q.iter(world)
-            .map(|(n, t)| (n.0.clone(), t.translation))
+            .map(|(n, t)| (n.0.clone(), (t.translation, t.rotation, t.scale)))
             .collect()
     };
 
-    let key_snapshot: HashSet<String> = {
-        let mappings = [
-            (KeyCode::W, "W"),
-            (KeyCode::A, "A"),
-            (KeyCode::S, "S"),
-            (KeyCode::D, "D"),
-            (KeyCode::Space, "Space"),
-            (KeyCode::Enter, "Enter"),
-            (KeyCode::Escape, "Escape"),
-            (KeyCode::Up, "Up"),
-            (KeyCode::Down, "Down"),
-            (KeyCode::Left, "Left"),
-            (KeyCode::Right, "Right"),
-        ];
-        if let Some(input) = world.get_resource::<Input<KeyCode>>() {
-            mappings
-                .iter()
-                .filter(|(code, _)| input.is_pressed(code))
-                .map(|(_, name)| name.to_string())
-                .collect()
-        } else {
-            HashSet::new()
-        }
+    let (key_snapshot, key_just_pressed, key_just_released): (
+        HashSet<String>,
+        HashSet<String>,
+        HashSet<String>,
+    ) = if let Some(input) = world.get_resource::<Input<KeyCode>>() {
+        let pressed = KEY_MAPPINGS
+            .iter()
+            .filter(|(code, _)| input.is_pressed(code))
+            .map(|(_, name)| name.to_string())
+            .collect();
+        let just_pressed = KEY_MAPPINGS
+            .iter()
+            .filter(|(code, _)| input.just_pressed(code))
+            .map(|(_, name)| name.to_string())
+            .collect();
+        let just_released = KEY_MAPPINGS
+            .iter()
+            .filter(|(code, _)| input.just_released(code))
+            .map(|(_, name)| name.to_string())
+            .collect();
+        (pressed, just_pressed, just_released)
+    } else {
+        (HashSet::new(), HashSet::new(), HashSet::new())
     };
 
-    // Collect (entity_id, entity_name) for all scripted entities.
+    let (mb_pressed, mb_just_pressed, mb_just_released): (u8, u8, u8) =
+        if let Some(buttons) = world.get_resource::<Input<MouseButton>>() {
+            let mut p = 0u8;
+            let mut jp = 0u8;
+            let mut jr = 0u8;
+            if buttons.is_pressed(&MouseButton::Left)      { p  |= 1; }
+            if buttons.is_pressed(&MouseButton::Right)     { p  |= 2; }
+            if buttons.is_pressed(&MouseButton::Middle)    { p  |= 4; }
+            if buttons.just_pressed(&MouseButton::Left)    { jp |= 1; }
+            if buttons.just_pressed(&MouseButton::Right)   { jp |= 2; }
+            if buttons.just_pressed(&MouseButton::Middle)  { jp |= 4; }
+            if buttons.just_released(&MouseButton::Left)   { jr |= 1; }
+            if buttons.just_released(&MouseButton::Right)  { jr |= 2; }
+            if buttons.just_released(&MouseButton::Middle) { jr |= 4; }
+            (p, jp, jr)
+        } else {
+            (0, 0, 0)
+        };
+
+    let (mouse_pos, mouse_delta) = world
+        .get_resource::<MouseState>()
+        .map(|ms| (ms.position, ms.delta))
+        .unwrap_or(((0.0, 0.0), (0.0, 0.0)));
+
+    let physics_ptr = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| pw as *const PhysicsWorld)
+        .unwrap_or(std::ptr::null());
+
+    let entity_name_map: HashMap<u64, String> = {
+        let mut q = world.query::<(Entity, &Name)>();
+        q.iter(world).map(|(e, n)| (e.to_bits(), n.0.clone())).collect()
+    };
+
     let scripted: Vec<(String, String)> = {
         let mut q = world.query::<(Entity, &Name, &Script)>();
         q.iter(world)
@@ -154,24 +236,55 @@ fn run_scripts(world: &mut World) {
             .collect()
     };
 
-    // All entity names (not just scripted) for getEntityNames().
     let all_names: Vec<String> = {
         let mut q = world.query::<&Name>();
         q.iter(world).map(|n| n.0.clone()).collect()
     };
 
+    let collision_json = COLLISION_SNAPSHOT.with(|s| {
+        let evs = s.borrow();
+        serde_json::to_string(
+            &evs.iter()
+                .map(|(a, b, started)| {
+                    serde_json::json!({"nameA": a, "nameB": b, "started": started})
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".to_string())
+    });
+
     TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
+    KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
+    KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);
     ENTITY_NAMES_SNAPSHOT.with(|s| *s.borrow_mut() = all_names);
+    MOUSE_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_pressed);
+    MOUSE_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_pressed);
+    MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_released);
+    MOUSE_POS_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_pos);
+    MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
+    ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
+    PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = physics_ptr);
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+        // Dispatch collision events to JS before update
+        if collision_json != "[]" {
+            let call = format!("Bsengine._runCollisions({collision_json});");
+            if let Err(e) = rt.0.exec_source(&call, "<run_collisions>") {
+                tracing::error!("[scripting] _runCollisions error: {e}");
+            }
+        }
+
         let entities_json = serde_json::to_string(&scripted).unwrap_or_else(|_| "[]".to_string());
         let call = format!("Bsengine._runAll({entities_json});");
         if let Err(e) = rt.0.exec_source(&call, "<run_scripts>") {
             tracing::error!("[scripting] _runAll error: {e}");
         }
     }
+
+    // Clear physics pointer — must happen after all V8 execution is complete.
+    PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = std::ptr::null());
 
     let commands: Vec<ScriptCommand> = COMMAND_BUFFER.with(|c| c.borrow().clone());
     for cmd in commands {
@@ -181,6 +294,24 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         t.translation = Vec3::new(x, y, z);
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetRotation { name, rx, ry, rz, rw } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.rotation = Quat::from_xyzw(rx, ry, rz, rw);
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetScale { name, sx, sy, sz } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale = Vec3::new(sx, sy, sz);
                         break;
                     }
                 }
@@ -217,7 +348,104 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::Spawn(params) => {
+                spawn_entity(world, params);
+            }
+            ScriptCommand::Destroy { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    world.despawn(e);
+                }
+            }
+            ScriptCommand::PlaySound { id, path, volume, loop_ } => {
+                let project_dir = world
+                    .get_resource::<ProjectDir>()
+                    .map(|pd| pd.0.clone())
+                    .unwrap_or_default();
+                let full_path = if project_dir.is_empty() {
+                    path.clone()
+                } else {
+                    format!("{}/{}", project_dir, path)
+                };
+                match kira::sound::static_sound::StaticSoundData::from_file(&full_path) {
+                    Ok(data) => {
+                        use kira::Decibels;
+                        let volume_db = 20.0_f32 * volume.max(1e-10_f32).log10();
+                        let data = data.volume(Decibels(volume_db));
+                        let data = if loop_ { data.loop_region(..) } else { data };
+                        if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+                            if let Some(handle) = audio.play(data) {
+                                if let Some(mut handles) =
+                                    world.get_resource_mut::<SoundHandles>()
+                                {
+                                    handles.0.insert(id, handle);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("[audio] failed to load {full_path}: {e}"),
+                }
+            }
+            ScriptCommand::StopSound { id } => {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    if let Some(mut handle) = handles.0.remove(&id) {
+                        use kira::Tween;
+                        let _ = handle.stop(Tween::default());
+                    }
+                }
+            }
+            ScriptCommand::SetHudText { id, text } => {
+                if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
+                    hud.0.insert(id, text);
+                }
+            }
+            ScriptCommand::ClearHudText { id } => {
+                if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
+                    hud.0.remove(&id);
+                }
+            }
+            ScriptCommand::LoadScene { path } => {
+                world.insert_resource(PendingSceneLoad { path });
+            }
         }
+    }
+}
+
+fn spawn_entity(world: &mut World, params: SpawnParams) {
+    let prim = match params.primitive.as_str() {
+        "Sphere" => Primitive::Sphere,
+        "Plane" => Primitive::Plane,
+        "Capsule" => Primitive::Capsule,
+        _ => Primitive::Cube,
+    };
+
+    let transform = Transform {
+        translation: Vec3::new(params.x, params.y, params.z),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::new(params.sx, params.sy, params.sz),
+    };
+
+    let mut cmd = world.spawn((
+        Name(params.name.clone()),
+        transform,
+        GlobalTransform::default(),
+        PrimitiveMesh(prim),
+    ));
+
+    let has_color = params.color.is_some() || params.emissive.is_some();
+    if has_color {
+        cmd.insert(Material {
+            base_color: params.color.map(Vec3::from).unwrap_or(Vec3::ONE),
+            emissive: params.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO),
+            ..Default::default()
+        });
+    }
+
+    if let Some(script) = params.script {
+        cmd.insert(ScriptPath(script));
     }
 }
 

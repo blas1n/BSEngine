@@ -42,6 +42,12 @@ pub struct EntityDescriptor {
     pub script: Option<String>,
     #[serde(default)]
     pub emissive: Option<[f32; 3]>,
+    /// Albedo/base color as [r, g, b] in linear 0–1. Multiplies the mesh vertex color and texture.
+    #[serde(default)]
+    pub color: Option<[f32; 3]>,
+    /// Camera-only: point in world space the camera should face. Overrides the transform rotation.
+    #[serde(default)]
+    pub look_at: Option<[f32; 3]>,
     #[serde(default)]
     pub components: Vec<(String, String)>,
 }

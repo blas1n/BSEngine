@@ -24,6 +24,8 @@ struct ModelUniform {
     _pad1: f32,
     emissive: vec3<f32>,
     _pad2: f32,
+    base_color: vec3<f32>,
+    _pad3: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -130,7 +132,7 @@ fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
     let v = normalize(camera.cam_pos - in.world_pos);
-    let albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col;
+    let albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
     let metallic = model_data.metallic;
     let roughness = max(model_data.roughness, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
@@ -251,6 +253,7 @@ pub struct MaterialParams {
     pub metallic: f32,
     pub roughness: f32,
     pub emissive: Vec3,
+    pub base_color: Vec3,
 }
 
 impl Default for MaterialParams {
@@ -259,6 +262,7 @@ impl Default for MaterialParams {
             metallic: 0.0,
             roughness: 0.5,
             emissive: Vec3::ZERO,
+            base_color: Vec3::ONE,
         }
     }
 }
@@ -273,6 +277,8 @@ struct ModelUniformData {
     _pad1: f32,
     emissive: [f32; 3],
     _pad2: f32,
+    base_color: [f32; 3],
+    _pad3: f32,
 }
 
 /// A single point light entry for the GPU buffer.
@@ -939,6 +945,8 @@ impl WgpuSurface {
                 _pad1: 0.0,
                 emissive: mat.emissive.to_array(),
                 _pad2: 0.0,
+                base_color: mat.base_color.to_array(),
+                _pad3: 0.0,
             };
             self.queue.write_buffer(
                 &self.model_buffer,

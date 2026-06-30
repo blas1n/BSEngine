@@ -700,6 +700,8 @@ impl Plugin for EditorPlugin {
                                     primitive: None,
                                     script: None,
                                     emissive: None,
+                                    color: None,
+                                    look_at: None,
                                 }
                             })
                         })

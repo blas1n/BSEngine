@@ -15,6 +15,8 @@ SceneDescriptor(entities: [
       rotation:    (0.0, 0.0, 0.0, 1.0), // quaternion xyzw (optional, default identity)
       scale:       (1.0, 1.0, 1.0),      // optional, default 1 1 1
     )),
+    look_at: Some((0.0, 0.0, 0.0)),      // optional: auto-aim camera at this world point
+                                          // overrides rotation when set; useful for top-down/orbital cameras
   ),
   EntityDescriptor(
     name: "Sun",
@@ -28,6 +30,9 @@ SceneDescriptor(entities: [
     name: "Player",
     primitive: Some(Cube),     // available primitives: Cube only
     transform: Some((translation: (0.0, 0.5, 0.0))),
+    color: Some((1.0, 0.2, 0.2)),    // optional: albedo/base color [r, g, b] linear 0–1
+                                      // multiplies vertex color and texture; default white
+    emissive: Some((0.0, 0.0, 0.0)), // optional: self-illumination color; default black (none)
     script: Some("assets/scripts/player.js"),  // relative to game root
   ),
 ])
@@ -35,21 +40,37 @@ SceneDescriptor(entities: [
 Rules:
 - Always include a Camera entity (camera: true) for rendering
 - Always include a Sun entity (directional_light) or scene will be unlit
-- primitive: Some(Cube) renders a white cube; use scale to reshape
+- primitive: Some(Cube) renders a white cube; use color to tint it
+- look_at on a camera entity auto-computes rotation to face the target point
+- color sets the albedo/surface color; emissive makes the entity glow
 - name is the key used by JS Bsengine.getTransform/setTransform"#;
 
 const SCRIPT_API_DOCS: &str = r#"BSEngine JavaScript API (runs in V8 via Deno Core):
 
+Transform:
   Bsengine.getTransform(name: string) → { x, y, z } | null
     Get world position of an entity by name. Returns null if not found.
 
   Bsengine.setTransform(name: string, x: number, y: number, z: number)
     Set world position of an entity by name.
 
+Input:
   Bsengine.isKeyPressed(key: string) → boolean
     Check if a key is held. Available keys:
     "W" "A" "S" "D" "Space" "Enter" "Escape" "Up" "Down" "Left" "Right"
 
+Material:
+  Bsengine.setEmissive(name: string, r: number, g: number, b: number)
+    Set the emissive (glow) color of an entity at runtime. Values 0–1 linear.
+
+  Bsengine.setColor(name: string, r: number, g: number, b: number)
+    Set the albedo/base color of an entity at runtime. Values 0–1 linear.
+
+Scene:
+  Bsengine.getEntityNames() → string[]
+    Returns names of all entities currently in the scene.
+
+Logging:
   Bsengine.log(message: string)
     Print a message to the engine log (tracing INFO).
 
@@ -69,6 +90,14 @@ Example (WASD movement on the entity this script is attached to):
     if (Bsengine.isKeyPressed("A")) x -= SPEED;
     if (Bsengine.isKeyPressed("D")) x += SPEED;
     Bsengine.setTransform(self, x, y, z);
+  }
+
+Example (flash red when near origin):
+  function onUpdate(self) {
+    const t = Bsengine.getTransform(self);
+    if (!t) return;
+    const dist = Math.sqrt(t.x * t.x + t.z * t.z);
+    Bsengine.setEmissive(self, dist < 2.0 ? 1.0 : 0.0, 0.0, 0.0);
   }
 
 Example (controlling another entity by name from this script):

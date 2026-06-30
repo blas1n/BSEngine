@@ -7,6 +7,7 @@ pub struct Material {
     pub metallic: f32,
     pub roughness: f32,
     pub emissive: Vec3,
+    pub base_color: Vec3,
 }
 
 impl Default for Material {
@@ -16,6 +17,7 @@ impl Default for Material {
             metallic: 0.0,
             roughness: 0.5,
             emissive: Vec3::ZERO,
+            base_color: Vec3::ONE,
         }
     }
 }

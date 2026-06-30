@@ -709,7 +709,7 @@ impl Plugin for EditorPlugin {
                         })
                         .collect();
                     let count = entities.len();
-                    let scene = SceneDescriptor { entities };
+                    let scene = SceneDescriptor { entities, skybox: None };
                     match ron::to_string(&scene) {
                         Ok(ron_str) => match std::fs::write(&path, &ron_str) {
                             Ok(()) => McpToolOutput::success(json!({

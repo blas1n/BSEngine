@@ -1,8 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, HudTexts, Material, Parent, PointLight, SpotLight,
-    Transform, Visible,
+    Camera, DirectionalLight, GlobalTransform, HudTexts, Material, Parent, PointLight, SkyboxPath,
+    SpotLight, Transform, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_rhi_wgpu::{
@@ -10,7 +10,7 @@ use bsengine_rhi_wgpu::{
     SpotLightEntry, WgpuSurfaceResource,
 };
 use bsengine_window::WindowResized;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4};
 use std::collections::HashMap;
 
 use crate::components::MeshRenderer;
@@ -84,6 +84,7 @@ fn render_frame(
     registry: Option<Res<GpuMeshRegistry>>,
     tex_registry: Option<Res<GpuTextureRegistry>>,
     hud_texts: Option<Res<HudTexts>>,
+    skybox_path: Option<Res<SkyboxPath>>,
     camera_query: Query<(&Camera, &Transform)>,
     mesh_query: Query<(
         &MeshRenderer,
@@ -102,11 +103,39 @@ fn render_frame(
     let empty = std::collections::HashMap::new();
     let hud_map = hud_texts.as_deref().map(|h| &h.0).unwrap_or(&empty);
 
+    // Load or reload skybox when SkyboxPath changes
+    if let Some(sp) = &skybox_path {
+        let current = sp.0.as_deref();
+        let loaded = surface.0.loaded_skybox_path();
+        if current != loaded {
+            match current {
+                Some(p) => {
+                    if let Err(e) = surface.0.set_skybox(p) {
+                        tracing::warn!("skybox: {e}");
+                    }
+                }
+                None => surface.0.clear_skybox(),
+            }
+        }
+    }
+
     let (view_proj, cam_pos) = camera_query
         .iter()
         .next()
         .map(|(cam, t)| (cam.projection_matrix() * t.view_matrix(), t.translation))
         .unwrap_or((Mat4::IDENTITY, Vec3::ZERO));
+
+    // Rotation-only VP inverse for skybox (no translation → direction-only)
+    let sky_vp_inv: Option<Mat4> = if surface.0.has_skybox() {
+        camera_query.iter().next().map(|(cam, t)| {
+            let proj = cam.projection_matrix();
+            let view = t.view_matrix();
+            let view_rot = Mat4::from_cols(view.x_axis, view.y_axis, view.z_axis, Vec4::W);
+            (proj * view_rot).inverse()
+        })
+    } else {
+        None
+    };
 
     let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams)> = mesh_query
         .iter()
@@ -200,6 +229,7 @@ fn render_frame(
         view_proj,
         cam_pos,
         light_view_proj,
+        sky_vp_inv,
         &draw_calls,
         &registry,
         light,

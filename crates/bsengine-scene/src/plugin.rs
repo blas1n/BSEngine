@@ -1,7 +1,7 @@
 use crate::types::{EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath};
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Component, World};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, SkyboxPath, Transform};
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
 
@@ -29,6 +29,13 @@ impl Plugin for ScenePlugin {
             let scene: SceneDescriptor = ron::from_str(&content)
                 .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
             spawn_scene_entities(world, &scene.entities);
+            if let Some(skybox_rel) = &scene.skybox {
+                let scene_dir = std::path::Path::new(&path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."));
+                let skybox_full = scene_dir.join(skybox_rel).to_string_lossy().into_owned();
+                world.insert_resource(SkyboxPath(Some(skybox_full)));
+            }
         });
     }
 }

@@ -90,6 +90,9 @@ pub enum ScriptCommand {
     LoadScene {
         path: String,
     },
+    SetSkybox {
+        path: String,
+    },
 }
 
 thread_local! {
@@ -305,6 +308,11 @@ pub fn bsengine_load_scene(#[string] path: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LoadScene { path }));
 }
 
+#[op2(fast)]
+pub fn bsengine_set_skybox(#[string] path: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetSkybox { path }));
+}
+
 // --- Mouse ops ---
 
 #[op2(fast)]
@@ -478,6 +486,7 @@ deno_core::extension!(
         bsengine_get_left_stick,
         bsengine_get_right_stick,
         bsengine_get_gamepad_trigger,
+        bsengine_set_skybox,
     ],
 );
 
@@ -525,6 +534,9 @@ const Bsengine = {
     getLeftStick:        ()     => { const v = Deno.core.ops.bsengine_get_left_stick(); return { x: v[0], y: v[1] }; },
     getRightStick:       ()     => { const v = Deno.core.ops.bsengine_get_right_stick(); return { x: v[0], y: v[1] }; },
     getGamepadTrigger:   (side) => Deno.core.ops.bsengine_get_gamepad_trigger(side),
+
+    // Skybox
+    setSkybox:           (path) => Deno.core.ops.bsengine_set_skybox(path),
 
     // Timers — frame-based (1 frame ≈ 1 tick)
     _timers: [],

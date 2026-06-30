@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneDescriptor {
     pub entities: Vec<EntityDescriptor>,
+    /// Optional equirectangular skybox image path (relative to the scene file).
+    #[serde(default)]
+    pub skybox: Option<String>,
 }
 
 /// Built-in primitive mesh shapes that the runtime can spawn without an asset file.

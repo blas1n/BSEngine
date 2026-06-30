@@ -718,8 +718,7 @@ impl WgpuSurface {
         });
 
         let egui_ctx = egui::Context::default();
-        let egui_renderer =
-            egui_wgpu::Renderer::new(&device, format, None, 1, false);
+        let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
         Ok(Self {
             _window: window,
@@ -1101,12 +1100,8 @@ impl WgpuSurface {
             };
 
             for (id, image_delta) in &full_output.textures_delta.set {
-                self.egui_renderer.update_texture(
-                    &self.device,
-                    &self.queue,
-                    *id,
-                    image_delta,
-                );
+                self.egui_renderer
+                    .update_texture(&self.device, &self.queue, *id, image_delta);
             }
             self.egui_renderer.update_buffers(
                 &self.device,
@@ -1131,11 +1126,8 @@ impl WgpuSurface {
                         ..Default::default()
                     })
                     .forget_lifetime();
-                self.egui_renderer.render(
-                    &mut egui_pass,
-                    &clipped_primitives,
-                    &screen_descriptor,
-                );
+                self.egui_renderer
+                    .render(&mut egui_pass, &clipped_primitives, &screen_descriptor);
             }
             for id in &full_output.textures_delta.free {
                 self.egui_renderer.free_texture(id);

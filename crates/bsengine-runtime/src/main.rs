@@ -92,7 +92,10 @@ fn main() {
             project_dir: project_dir.clone(),
         })
         // PostStartup: resolve primitive meshes, then physics bodies
-        .add_systems(PostStartup, (resolve_primitives, resolve_physics_bodies).chain())
+        .add_systems(
+            PostStartup,
+            (resolve_primitives, resolve_physics_bodies).chain(),
+        )
         // Update: handle scene transitions first, then re-resolve newly spawned entities
         .add_systems(Update, handle_scene_load)
         .add_systems(Update, resolve_primitives.after(handle_scene_load))
@@ -149,9 +152,10 @@ fn resolve_physics_bodies(
         let col_base = match &desc.collider.shape {
             ColliderShapeDesc::Box { hx, hy, hz } => Collider::cuboid(*hx, *hy, *hz),
             ColliderShapeDesc::Sphere { radius } => Collider::ball(*radius),
-            ColliderShapeDesc::Capsule { half_height, radius } => {
-                Collider::capsule(*half_height, *radius)
-            }
+            ColliderShapeDesc::Capsule {
+                half_height,
+                radius,
+            } => Collider::capsule(*half_height, *radius),
         };
         let col = col_base
             .with_restitution(desc.collider.restitution)
@@ -232,18 +236,16 @@ fn resolve_physics_bodies_world(world: &mut World) {
         let col_base = match desc.collider.shape {
             ColliderShapeDesc::Box { hx, hy, hz } => Collider::cuboid(hx, hy, hz),
             ColliderShapeDesc::Sphere { radius } => Collider::ball(radius),
-            ColliderShapeDesc::Capsule { half_height, radius } => {
-                Collider::capsule(half_height, radius)
-            }
+            ColliderShapeDesc::Capsule {
+                half_height,
+                radius,
+            } => Collider::capsule(half_height, radius),
         };
         let col = col_base
             .with_restitution(desc.collider.restitution)
             .with_friction(desc.collider.friction)
             .with_sensor(desc.collider.sensor);
-        let t = world
-            .get::<Transform>(entity)
-            .cloned()
-            .unwrap_or_default();
+        let t = world.get::<Transform>(entity).cloned().unwrap_or_default();
         world.entity_mut(entity).insert((
             rb,
             col,

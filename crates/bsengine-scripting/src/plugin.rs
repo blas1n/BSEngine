@@ -5,17 +5,16 @@ use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{GlobalTransform, HudTexts, Material, Transform};
 use bsengine_input::{Input, KeyCode, MouseButton, MouseState};
-use bsengine_physics::PhysicsWorld;
 use bsengine_physics::CollisionEvent;
+use bsengine_physics::PhysicsWorld;
 use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPath};
 use glam::{Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, BOOTSTRAP_JS, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    ENTITY_NAME_MAP, ENTITY_NAMES_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
+    KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
+    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -57,10 +56,7 @@ impl Plugin for ScriptingPlugin {
         // Register CollisionEvent so EventReader works even without PhysicsPlugin
         app.add_event::<CollisionEvent>();
         app.add_systems(PostStartup, load_scripts);
-        app.add_systems(
-            Update,
-            (capture_collision_events, run_scripts).chain(),
-        );
+        app.add_systems(Update, (capture_collision_events, run_scripts).chain());
     }
 }
 
@@ -200,15 +196,33 @@ fn run_scripts(world: &mut World) {
             let mut p = 0u8;
             let mut jp = 0u8;
             let mut jr = 0u8;
-            if buttons.is_pressed(&MouseButton::Left)      { p  |= 1; }
-            if buttons.is_pressed(&MouseButton::Right)     { p  |= 2; }
-            if buttons.is_pressed(&MouseButton::Middle)    { p  |= 4; }
-            if buttons.just_pressed(&MouseButton::Left)    { jp |= 1; }
-            if buttons.just_pressed(&MouseButton::Right)   { jp |= 2; }
-            if buttons.just_pressed(&MouseButton::Middle)  { jp |= 4; }
-            if buttons.just_released(&MouseButton::Left)   { jr |= 1; }
-            if buttons.just_released(&MouseButton::Right)  { jr |= 2; }
-            if buttons.just_released(&MouseButton::Middle) { jr |= 4; }
+            if buttons.is_pressed(&MouseButton::Left) {
+                p |= 1;
+            }
+            if buttons.is_pressed(&MouseButton::Right) {
+                p |= 2;
+            }
+            if buttons.is_pressed(&MouseButton::Middle) {
+                p |= 4;
+            }
+            if buttons.just_pressed(&MouseButton::Left) {
+                jp |= 1;
+            }
+            if buttons.just_pressed(&MouseButton::Right) {
+                jp |= 2;
+            }
+            if buttons.just_pressed(&MouseButton::Middle) {
+                jp |= 4;
+            }
+            if buttons.just_released(&MouseButton::Left) {
+                jr |= 1;
+            }
+            if buttons.just_released(&MouseButton::Right) {
+                jr |= 2;
+            }
+            if buttons.just_released(&MouseButton::Middle) {
+                jr |= 4;
+            }
             (p, jp, jr)
         } else {
             (0, 0, 0)
@@ -226,7 +240,9 @@ fn run_scripts(world: &mut World) {
 
     let entity_name_map: HashMap<u64, String> = {
         let mut q = world.query::<(Entity, &Name)>();
-        q.iter(world).map(|(e, n)| (e.to_bits(), n.0.clone())).collect()
+        q.iter(world)
+            .map(|(e, n)| (e.to_bits(), n.0.clone()))
+            .collect()
     };
 
     let scripted: Vec<(String, String)> = {
@@ -298,7 +314,13 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
-            ScriptCommand::SetRotation { name, rx, ry, rz, rw } => {
+            ScriptCommand::SetRotation {
+                name,
+                rx,
+                ry,
+                rz,
+                rw,
+            } => {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
@@ -360,7 +382,12 @@ fn run_scripts(world: &mut World) {
                     world.despawn(e);
                 }
             }
-            ScriptCommand::PlaySound { id, path, volume, loop_ } => {
+            ScriptCommand::PlaySound {
+                id,
+                path,
+                volume,
+                loop_,
+            } => {
                 let project_dir = world
                     .get_resource::<ProjectDir>()
                     .map(|pd| pd.0.clone())
@@ -378,8 +405,7 @@ fn run_scripts(world: &mut World) {
                         let data = if loop_ { data.loop_region(..) } else { data };
                         if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
                             if let Some(handle) = audio.play(data) {
-                                if let Some(mut handles) =
-                                    world.get_resource_mut::<SoundHandles>()
+                                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>()
                                 {
                                     handles.0.insert(id, handle);
                                 }

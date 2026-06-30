@@ -257,5 +257,4 @@ mod tests {
         app.add_plugins(InputPlugin);
         assert!(app.world().get_resource::<MouseState>().is_some());
     }
-
 }

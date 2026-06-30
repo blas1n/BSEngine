@@ -209,10 +209,30 @@ pub fn sphere_vertices() -> (Vec<Vertex>, Vec<u32>) {
 
 pub fn plane_vertices() -> (Vec<Vertex>, Vec<u32>) {
     let verts = vec![
-        Vertex { position: [-0.5, 0.0, -0.5], color: [1.0; 3], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
-        Vertex { position: [ 0.5, 0.0, -0.5], color: [1.0; 3], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
-        Vertex { position: [ 0.5, 0.0,  0.5], color: [1.0; 3], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
-        Vertex { position: [-0.5, 0.0,  0.5], color: [1.0; 3], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
+        Vertex {
+            position: [-0.5, 0.0, -0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.0, 0.0],
+        },
+        Vertex {
+            position: [0.5, 0.0, -0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [1.0, 0.0],
+        },
+        Vertex {
+            position: [0.5, 0.0, 0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [1.0, 1.0],
+        },
+        Vertex {
+            position: [-0.5, 0.0, 0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.0, 1.0],
+        },
     ];
     let idx = vec![0, 2, 1, 0, 3, 2];
     (verts, idx)
@@ -247,7 +267,13 @@ pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
         let phi = std::f32::consts::FRAC_PI_2 * i as f32 / CAP_STACKS as f32;
         let (sin_p, cos_p) = phi.sin_cos();
         let uv_v = i as f32 / (2 * CAP_STACKS + 2) as f32;
-        push_ring(&mut verts, HALF_CYL + RADIUS * cos_p, RADIUS * sin_p, cos_p, uv_v);
+        push_ring(
+            &mut verts,
+            HALF_CYL + RADIUS * cos_p,
+            RADIUS * sin_p,
+            cos_p,
+            uv_v,
+        );
     }
 
     // bottom hemisphere: i=0→CAP_STACKS maps equator→bottom pole
@@ -255,7 +281,13 @@ pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
         let phi = std::f32::consts::FRAC_PI_2 * i as f32 / CAP_STACKS as f32;
         let (sin_p, cos_p) = phi.sin_cos();
         let uv_v = (CAP_STACKS + 1 + i) as f32 / (2 * CAP_STACKS + 2) as f32;
-        push_ring(&mut verts, -HALF_CYL - RADIUS * sin_p, RADIUS * cos_p, -sin_p, uv_v);
+        push_ring(
+            &mut verts,
+            -HALF_CYL - RADIUS * sin_p,
+            RADIUS * cos_p,
+            -sin_p,
+            uv_v,
+        );
     }
 
     let total_rings = 2 * CAP_STACKS + 2;

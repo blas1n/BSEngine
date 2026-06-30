@@ -165,18 +165,20 @@ pub fn bsengine_version() -> String {
 #[serde]
 pub fn bsengine_get_transform(#[string] name: String) -> Option<TransformJson> {
     TRANSFORM_SNAPSHOT.with(|s| {
-        s.borrow().get(&name).map(|(pos, rot, scale)| TransformJson {
-            x: pos.x,
-            y: pos.y,
-            z: pos.z,
-            rx: rot.x,
-            ry: rot.y,
-            rz: rot.z,
-            rw: rot.w,
-            sx: scale.x,
-            sy: scale.y,
-            sz: scale.z,
-        })
+        s.borrow()
+            .get(&name)
+            .map(|(pos, rot, scale)| TransformJson {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                rx: rot.x,
+                ry: rot.y,
+                rz: rot.z,
+                rw: rot.w,
+                sx: scale.x,
+                sy: scale.y,
+                sz: scale.z,
+            })
     })
 }
 
@@ -191,8 +193,13 @@ pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
 #[op2(fast)]
 pub fn bsengine_set_rotation(#[string] name: String, rx: f32, ry: f32, rz: f32, rw: f32) {
     COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetRotation { name, rx, ry, rz, rw });
+        c.borrow_mut().push(ScriptCommand::SetRotation {
+            name,
+            rx,
+            ry,
+            rz,
+            rw,
+        });
     });
 }
 
@@ -260,7 +267,12 @@ pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> 
         id
     });
     COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::PlaySound { id, path, volume, loop_ });
+        c.borrow_mut().push(ScriptCommand::PlaySound {
+            id,
+            path,
+            volume,
+            loop_,
+        });
     });
     id
 }
@@ -357,9 +369,9 @@ pub fn bsengine_raycast(
         let origin = Vec3::new(ox, oy, oz);
         let dir = dir_raw / len;
         pw.cast_ray(origin, dir, max_dist).map(|hit| {
-            let entity_name = hit.entity.and_then(|e| {
-                ENTITY_NAME_MAP.with(|m| m.borrow().get(&e.to_bits()).cloned())
-            });
+            let entity_name = hit
+                .entity
+                .and_then(|e| ENTITY_NAME_MAP.with(|m| m.borrow().get(&e.to_bits()).cloned()));
             RaycastHitJson {
                 entity_name,
                 point: [hit.point.x, hit.point.y, hit.point.z],
@@ -625,9 +637,7 @@ mod tests {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt
-            .eval(
-                r#"String(Bsengine.raycast({x:0,y:0,z:0}, {x:0,y:-1,z:0}, 100.0))"#,
-            )
+            .eval(r#"String(Bsengine.raycast({x:0,y:0,z:0}, {x:0,y:-1,z:0}, 100.0))"#)
             .unwrap();
         assert!(
             r.contains("null") || r.contains("undefined"),

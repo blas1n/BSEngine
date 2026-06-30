@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
-use bsengine_core::{GlobalTransform, HudTexts, Material, SkyboxPath, Transform};
+use bsengine_core::{GlobalTransform, HudTexts, Material, SkyboxPath, Transform, Visible};
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
 use bsengine_physics::PhysicsWorld;
@@ -16,7 +16,7 @@ use crate::ops::{
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -165,6 +165,13 @@ fn run_scripts(world: &mut World) {
         let mut q = world.query::<(&Name, &Transform)>();
         q.iter(world)
             .map(|(n, t)| (n.0.clone(), (t.translation, t.rotation, t.scale)))
+            .collect()
+    };
+
+    let visible_snapshot: HashMap<String, bool> = {
+        let mut q = world.query::<(&Name, &Visible)>();
+        q.iter(world)
+            .map(|(n, v)| (n.0.clone(), v.is_visible))
             .collect()
     };
 
@@ -327,6 +334,7 @@ fn run_scripts(world: &mut World) {
     });
 
     TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
+    VISIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = visible_snapshot);
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
     KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
     KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);
@@ -496,6 +504,15 @@ fn run_scripts(world: &mut World) {
             }
             ScriptCommand::LoadScene { path } => {
                 world.insert_resource(PendingSceneLoad { path });
+            }
+            ScriptCommand::SetVisible { name, visible } => {
+                let mut q = world.query::<(&Name, &mut Visible)>();
+                for (n, mut v) in q.iter_mut(world) {
+                    if n.0 == name {
+                        v.is_visible = visible;
+                        break;
+                    }
+                }
             }
             ScriptCommand::SetSkybox { path } => {
                 let project_dir = world

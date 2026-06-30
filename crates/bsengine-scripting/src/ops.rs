@@ -302,6 +302,27 @@ pub fn bsengine_get_visible(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
+    let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
+    if let Some(pos) = origin {
+        let dir = Vec3::new(tx - pos.x, ty - pos.y, tz - pos.z);
+        if dir.length_squared() < 1e-10 {
+            return;
+        }
+        let rot = Quat::from_rotation_arc(Vec3::NEG_Z, dir.normalize());
+        COMMAND_BUFFER.with(|c| {
+            c.borrow_mut().push(ScriptCommand::SetRotation {
+                name,
+                rx: rot.x,
+                ry: rot.y,
+                rz: rot.z,
+                rw: rot.w,
+            });
+        });
+    }
+}
+
+#[op2(fast)]
 pub fn bsengine_get_time() -> f32 {
     TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow())
 }
@@ -512,6 +533,7 @@ deno_core::extension!(
         bsengine_destroy,
         bsengine_set_visible,
         bsengine_get_visible,
+        bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
         bsengine_play_sound,
@@ -553,6 +575,7 @@ const Bsengine = {
     destroy:        (name)                 => Deno.core.ops.bsengine_destroy(name),
     setVisible:     (name, v)              => Deno.core.ops.bsengine_set_visible(name, v),
     getVisible:     (name)                 => Deno.core.ops.bsengine_get_visible(name),
+    lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
     getTime:        ()                     => Deno.core.ops.bsengine_get_time(),
@@ -886,6 +909,38 @@ mod tests {
         .unwrap();
         let r = rt.eval("hit").unwrap();
         assert!(r.contains("Floor"), "expected Floor: {r}");
+    }
+
+    #[test]
+    fn look_at_no_op_for_unknown_entity() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        // No transform snapshot → should not crash
+        let r = rt
+            .eval(r#"Bsengine.lookAt("NoEntity", 1, 0, 0); "ok""#)
+            .unwrap();
+        assert!(r.contains("ok"), "lookAt threw: {r}");
+    }
+
+    #[test]
+    fn look_at_no_op_when_zero_dir() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        // Seed snapshot: entity at (1, 0, 0), target also (1, 0, 0) → zero dir
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Turret".to_string(),
+                (
+                    glam::Vec3::new(1.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt
+            .eval(r#"Bsengine.lookAt("Turret", 1.0, 0.0, 0.0); "ok""#)
+            .unwrap();
+        assert!(r.contains("ok"), "lookAt zero-dir threw: {r}");
     }
 
     #[test]

@@ -64,29 +64,41 @@ fn load_scripts(world: &mut World) {
             .collect()
     };
 
+    tracing::info!(
+        "[scripting] {} scripted entity/entities found",
+        scripts.len()
+    );
+
     if scripts.is_empty() {
         return;
     }
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
         if let Err(e) = rt.0.exec_source(BOOTSTRAP_JS, "<bootstrap>") {
-            tracing::error!("Failed to load bootstrap: {e}");
+            tracing::error!("[scripting] bootstrap failed: {e}");
+            return;
         }
     }
 
     for (entity, path) in scripts {
         match std::fs::read_to_string(&path) {
             Ok(source) => {
-                world.entity_mut(entity).insert(Script {
-                    source: source.clone(),
-                });
+                // Wrap the script in a closure so its onUpdate doesn't overwrite others.
+                // The closure registers itself in Bsengine._scripts keyed by entity bit-ID.
+                let id = entity.to_bits();
+                let wrapped = format!(
+                    "(function() {{\n{source}\nBsengine._scripts[\"{id}\"] = \
+                     {{ onUpdate: typeof onUpdate === 'function' ? onUpdate : null }};\n}})();"
+                );
+                world.entity_mut(entity).insert(Script { source });
                 if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
-                    if let Err(e) = rt.0.exec_source(&source, &path) {
-                        tracing::error!("Script error in {path}: {e}");
+                    match rt.0.exec_source(&wrapped, &path) {
+                        Ok(()) => tracing::info!("[scripting] loaded: {path}"),
+                        Err(e) => tracing::error!("[scripting] error in {path}: {e}"),
                     }
                 }
             }
-            Err(e) => tracing::error!("Cannot read script {path}: {e}"),
+            Err(e) => tracing::warn!("[scripting] cannot read {path}: {e}"),
         }
     }
 }
@@ -131,13 +143,23 @@ fn run_scripts(world: &mut World) {
         }
     };
 
+    // Collect (entity_id, entity_name) for all scripted entities.
+    let scripted: Vec<(String, String)> = {
+        let mut q = world.query::<(Entity, &Name, &Script)>();
+        q.iter(world)
+            .map(|(e, n, _)| (e.to_bits().to_string(), n.0.clone()))
+            .collect()
+    };
+
     TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
-        if let Err(e) = rt.0.call_fn("onUpdate") {
-            tracing::error!("onUpdate error: {e}");
+        let entities_json = serde_json::to_string(&scripted).unwrap_or_else(|_| "[]".to_string());
+        let call = format!("Bsengine._runAll({entities_json});");
+        if let Err(e) = rt.0.exec_source(&call, "<run_scripts>") {
+            tracing::error!("[scripting] _runAll error: {e}");
         }
     }
 

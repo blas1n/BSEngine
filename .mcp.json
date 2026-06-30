@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bsengine": {
+      "command": "cargo",
+      "args": ["run", "--quiet", "-p", "bsengine-mcp-server", "--", "f:/Works/BSEngine"],
+      "cwd": "f:/Works/BSEngine"
+    }
+  }
+}

@@ -16,7 +16,8 @@ use crate::ops::{
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT, VISIBLE_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -37,6 +38,12 @@ pub struct ScriptRuntimeResource(pub ScriptRuntime);
 #[derive(Resource, Default)]
 pub struct SoundHandles(pub HashMap<u32, kira::sound::static_sound::StaticSoundHandle>);
 
+#[derive(Resource)]
+pub(crate) struct ScriptTimingState {
+    startup: std::time::Instant,
+    last_frame: std::time::Instant,
+}
+
 pub struct ScriptingPlugin {
     pub project_dir: String,
 }
@@ -55,6 +62,11 @@ impl Plugin for ScriptingPlugin {
         app.insert_resource(HudTexts::default());
         app.insert_resource(SoundHandles::default());
         app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
+        let now = std::time::Instant::now();
+        app.insert_resource(ScriptTimingState {
+            startup: now,
+            last_frame: now,
+        });
         // Register CollisionEvent so EventReader works even without PhysicsPlugin
         app.add_event::<CollisionEvent>();
         app.add_systems(PostStartup, load_scripts);
@@ -335,6 +347,19 @@ fn run_scripts(world: &mut World) {
 
     TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
     VISIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = visible_snapshot);
+
+    let (elapsed_secs, delta_secs) =
+        if let Some(mut timing) = world.get_resource_mut::<ScriptTimingState>() {
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(timing.startup).as_secs_f32();
+            let delta = now.duration_since(timing.last_frame).as_secs_f32();
+            timing.last_frame = now;
+            (elapsed, delta)
+        } else {
+            (0.0, 0.0)
+        };
+    TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow_mut() = elapsed_secs);
+    TIME_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = delta_secs);
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
     KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
     KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);

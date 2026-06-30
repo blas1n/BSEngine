@@ -151,6 +151,9 @@ thread_local! {
 
     pub(crate) static VISIBLE_SNAPSHOT: RefCell<HashMap<String, bool>> =
         RefCell::new(HashMap::new());
+
+    pub(crate) static TIME_ELAPSED_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
+    pub(crate) static TIME_DELTA_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -296,6 +299,16 @@ pub fn bsengine_set_visible(#[string] name: String, visible: bool) {
 #[op2(fast)]
 pub fn bsengine_get_visible(#[string] name: String) -> bool {
     VISIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_time() -> f32 {
+    TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow())
+}
+
+#[op2(fast)]
+pub fn bsengine_get_delta_time() -> f32 {
+    TIME_DELTA_SNAPSHOT.with(|s| *s.borrow())
 }
 
 #[op2(fast)]
@@ -499,6 +512,8 @@ deno_core::extension!(
         bsengine_destroy,
         bsengine_set_visible,
         bsengine_get_visible,
+        bsengine_get_time,
+        bsengine_get_delta_time,
         bsengine_play_sound,
         bsengine_stop_sound,
         bsengine_set_hud_text,
@@ -538,6 +553,10 @@ const Bsengine = {
     destroy:        (name)                 => Deno.core.ops.bsengine_destroy(name),
     setVisible:     (name, v)              => Deno.core.ops.bsengine_set_visible(name, v),
     getVisible:     (name)                 => Deno.core.ops.bsengine_get_visible(name),
+
+    // Time
+    getTime:        ()                     => Deno.core.ops.bsengine_get_time(),
+    getDeltaTime:   ()                     => Deno.core.ops.bsengine_get_delta_time(),
     playSound:      (path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
@@ -867,6 +886,27 @@ mod tests {
         .unwrap();
         let r = rt.eval("hit").unwrap();
         assert!(r.contains("Floor"), "expected Floor: {r}");
+    }
+
+    #[test]
+    fn get_time_returns_zero_initially() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        // No time snapshot set → returns 0.0
+        let r = rt
+            .eval(r#"Bsengine.getTime() === 0.0 ? "zero" : "nonzero""#)
+            .unwrap();
+        assert!(r.contains("zero"), "expected 0.0: {r}");
+    }
+
+    #[test]
+    fn get_delta_time_returns_zero_initially() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getDeltaTime() === 0.0 ? "zero" : "nonzero""#)
+            .unwrap();
+        assert!(r.contains("zero"), "expected 0.0: {r}");
     }
 
     #[test]

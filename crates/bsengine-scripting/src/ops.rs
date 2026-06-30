@@ -16,6 +16,14 @@ pub struct SpawnParams {
     pub y: f32,
     #[serde(default)]
     pub z: f32,
+    #[serde(default)]
+    pub rx: f32,
+    #[serde(default)]
+    pub ry: f32,
+    #[serde(default)]
+    pub rz: f32,
+    #[serde(default = "default_one")]
+    pub rw: f32,
     #[serde(default = "default_one")]
     pub sx: f32,
     #[serde(default = "default_one")]
@@ -538,6 +546,27 @@ const Bsengine = {
     // Skybox
     setSkybox:           (path) => Deno.core.ops.bsengine_set_skybox(path),
 
+    // Key event callbacks (event-based alternative to polling)
+    _keyDownHandlers: {},
+    _keyUpHandlers: {},
+    onKeyDown(key, fn) { (this._keyDownHandlers[key] ??= []).push(fn); },
+    onKeyUp(key, fn)   { (this._keyUpHandlers[key]   ??= []).push(fn); },
+    _dispatchKeyEvents() {
+        const keys = ['W','A','S','D','Space','Enter','Escape','Up','Down','Left','Right'];
+        for (const key of keys) {
+            if (Deno.core.ops.bsengine_is_key_down(key)) {
+                for (const fn of (this._keyDownHandlers[key] || [])) {
+                    try { fn(); } catch(e) { this.log('[keyDown:' + key + '] ' + e); }
+                }
+            }
+            if (Deno.core.ops.bsengine_is_key_up(key)) {
+                for (const fn of (this._keyUpHandlers[key] || [])) {
+                    try { fn(); } catch(e) { this.log('[keyUp:' + key + '] ' + e); }
+                }
+            }
+        }
+    },
+
     // Timers — frame-based (1 frame ≈ 1 tick)
     _timers: [],
     _nextTimerId: 0,
@@ -602,6 +631,7 @@ const Bsengine = {
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();
+        this._dispatchKeyEvents();
         for (const [id, name] of entities) {
             const s = this._scripts[id];
             if (s && s.onUpdate) {
@@ -813,5 +843,64 @@ mod tests {
         .unwrap();
         let r = rt.eval("hit").unwrap();
         assert!(r.contains("Floor"), "expected Floor: {r}");
+    }
+
+    #[test]
+    fn on_key_down_registers_and_not_called_when_no_input() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        // Register handler; since no key snapshot, handler must NOT be called
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onKeyDown('Space', () => { called = true; });
+            Bsengine._dispatchKeyEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn on_key_up_registers_and_not_called_when_no_input() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onKeyUp('Enter', () => { called = true; });
+            Bsengine._dispatchKeyEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn spawn_params_rotation_defaults_to_identity() {
+        use crate::ops::SpawnParams;
+        let p: SpawnParams =
+            serde_json::from_str(r#"{"name":"Cube1","primitive":"Cube","x":0,"y":0,"z":0}"#)
+                .unwrap();
+        assert_eq!(p.rx, 0.0);
+        assert_eq!(p.ry, 0.0);
+        assert_eq!(p.rz, 0.0);
+        assert_eq!(p.rw, 1.0, "rw should default to 1 (identity quaternion)");
+    }
+
+    #[test]
+    fn spawn_params_rotation_accepted() {
+        use crate::ops::SpawnParams;
+        let p: SpawnParams = serde_json::from_str(
+            r#"{"name":"Tilted","primitive":"Cube","x":0,"y":0,"z":0,
+               "rx":0.0,"ry":0.707,"rz":0.0,"rw":0.707}"#,
+        )
+        .unwrap();
+        assert!((p.ry - 0.707).abs() < 1e-3);
+        assert!((p.rw - 0.707).abs() < 1e-3);
     }
 }

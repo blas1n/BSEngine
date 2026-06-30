@@ -523,7 +523,7 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
 
     let transform = Transform {
         translation: Vec3::new(params.x, params.y, params.z),
-        rotation: Quat::IDENTITY,
+        rotation: Quat::from_xyzw(params.rx, params.ry, params.rz, params.rw).normalize(),
         scale: Vec3::new(params.sx, params.sy, params.sz),
     };
 

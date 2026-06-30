@@ -125,6 +125,14 @@ thread_local! {
     // Entity name lookup for raycast results: entity.to_bits() → name
     pub(crate) static ENTITY_NAME_MAP: RefCell<HashMap<u64, String>> =
         RefCell::new(HashMap::new());
+
+    // Gamepad button state (bit 0=South..15=DPadRight)
+    pub(crate) static GAMEPAD_BUTTON_SNAPSHOT: RefCell<u16> = RefCell::new(0);
+    pub(crate) static GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT: RefCell<u16> = RefCell::new(0);
+    pub(crate) static GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT: RefCell<u16> = RefCell::new(0);
+    // (left_x, left_y, right_x, right_y, left_trigger, right_trigger)
+    pub(crate) static GAMEPAD_STICKS_SNAPSHOT: RefCell<(f32, f32, f32, f32, f32, f32)> =
+        RefCell::new((0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -382,6 +390,60 @@ pub fn bsengine_raycast(
     })
 }
 
+#[op2(fast)]
+pub fn bsengine_is_gamepad_button(button: u32) -> bool {
+    if button > 15 {
+        return false;
+    }
+    GAMEPAD_BUTTON_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
+}
+
+#[op2(fast)]
+pub fn bsengine_is_gamepad_button_down(button: u32) -> bool {
+    if button > 15 {
+        return false;
+    }
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
+}
+
+#[op2(fast)]
+pub fn bsengine_is_gamepad_button_up(button: u32) -> bool {
+    if button > 15 {
+        return false;
+    }
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_left_stick() -> Vec<f32> {
+    GAMEPAD_STICKS_SNAPSHOT.with(|s| {
+        let v = *s.borrow();
+        vec![v.0, v.1]
+    })
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_right_stick() -> Vec<f32> {
+    GAMEPAD_STICKS_SNAPSHOT.with(|s| {
+        let v = *s.borrow();
+        vec![v.2, v.3]
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_gamepad_trigger(side: u32) -> f32 {
+    GAMEPAD_STICKS_SNAPSHOT.with(|s| {
+        let v = *s.borrow();
+        if side == 0 {
+            v.4
+        } else {
+            v.5
+        }
+    })
+}
+
 deno_core::extension!(
     bsengine_ops,
     ops = [
@@ -410,6 +472,12 @@ deno_core::extension!(
         bsengine_get_mouse_pos,
         bsengine_get_mouse_delta,
         bsengine_raycast,
+        bsengine_is_gamepad_button,
+        bsengine_is_gamepad_button_down,
+        bsengine_is_gamepad_button_up,
+        bsengine_get_left_stick,
+        bsengine_get_right_stick,
+        bsengine_get_gamepad_trigger,
     ],
 );
 
@@ -449,6 +517,14 @@ const Bsengine = {
     // Raycast: origin/{x,y,z}, dir/{x,y,z}, maxDist → {entityName, point, normal, distance} or null
     raycast:        (origin, dir, maxDist) =>
         Deno.core.ops.bsengine_raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxDist),
+
+    // Gamepad (btn: 0=South/A..15=DPadRight; side: 0=L2, 1=R2)
+    isGamepadButton:     (btn)  => Deno.core.ops.bsengine_is_gamepad_button(btn),
+    isGamepadButtonDown: (btn)  => Deno.core.ops.bsengine_is_gamepad_button_down(btn),
+    isGamepadButtonUp:   (btn)  => Deno.core.ops.bsengine_is_gamepad_button_up(btn),
+    getLeftStick:        ()     => { const v = Deno.core.ops.bsengine_get_left_stick(); return { x: v[0], y: v[1] }; },
+    getRightStick:       ()     => { const v = Deno.core.ops.bsengine_get_right_stick(); return { x: v[0], y: v[1] }; },
+    getGamepadTrigger:   (side) => Deno.core.ops.bsengine_get_gamepad_trigger(side),
 
     // Timers — frame-based (1 frame ≈ 1 tick)
     _timers: [],
@@ -680,6 +756,34 @@ mod tests {
         .unwrap();
         let r = rt.eval("String(received)").unwrap();
         assert!(r.contains("42"), "expected 42: {r}");
+    }
+
+    #[test]
+    fn is_gamepad_button_returns_false_initially() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isGamepadButton(0) ? "yes" : "no""#)
+            .unwrap();
+        assert!(r.contains("no"), "expected not pressed: {r}");
+    }
+
+    #[test]
+    fn get_left_stick_returns_zeros_initially() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getLeftStick())"#)
+            .unwrap();
+        assert!(r.contains("0"), "expected zeros: {r}");
+    }
+
+    #[test]
+    fn get_gamepad_trigger_returns_zero_initially() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getGamepadTrigger(0))"#).unwrap();
+        assert!(r.contains("0"), "expected 0: {r}");
     }
 
     #[test]

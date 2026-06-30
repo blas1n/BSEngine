@@ -1,3 +1,4 @@
+use bevy_ecs::prelude::Resource;
 use bsengine_ecs::Event;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,6 +90,36 @@ pub struct CursorMoved {
 pub struct MouseMotion {
     pub dx: f64,
     pub dy: f64,
+}
+
+/// Gamepad face and shoulder buttons. Bit indices match the scripting API (0=South..15=DPadRight).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GamepadButton {
+    South,      // 0: A / Cross
+    East,       // 1: B / Circle
+    West,       // 2: X / Square
+    North,      // 3: Y / Triangle
+    LB,         // 4: L1 / LeftBumper
+    RB,         // 5: R1 / RightBumper
+    LT,         // 6: L2 / LeftTrigger (digital)
+    RT,         // 7: R2 / RightTrigger (digital)
+    Select,     // 8
+    Start,      // 9
+    LeftStick,  // 10: L3
+    RightStick, // 11: R3
+    DPadUp,     // 12
+    DPadDown,   // 13
+    DPadLeft,   // 14
+    DPadRight,  // 15
+}
+
+/// Analog stick and trigger values from the first connected gamepad.
+#[derive(Resource, Default, Clone)]
+pub struct GamepadSticks {
+    pub left: (f32, f32),
+    pub right: (f32, f32),
+    pub left_trigger: f32,
+    pub right_trigger: f32,
 }
 
 #[cfg(test)]

@@ -1,11 +1,16 @@
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{EventReader, Res, ResMut, Resource};
+use bevy_ecs::prelude::{EventReader, NonSendMut, ResMut, Resource};
 use bsengine_ecs::IntoSystemConfigs;
 
 use crate::{
     state::Input,
-    types::{CursorMoved, ElementState, KeyCode, KeyInput, MouseButton, MouseInput, MouseMotion},
+    types::{
+        CursorMoved, ElementState, GamepadButton, GamepadSticks, KeyCode, KeyInput, MouseButton,
+        MouseInput, MouseMotion,
+    },
 };
+
+pub struct GilrsResource(gilrs::Gilrs);
 
 /// Per-frame mouse position and raw movement delta.
 /// `position` tracks the last cursor position (pixels, top-left origin).
@@ -26,7 +31,9 @@ impl Plugin for InputPlugin {
             .add_event::<MouseMotion>()
             .insert_resource(Input::<KeyCode>::default())
             .insert_resource(Input::<MouseButton>::default())
+            .insert_resource(Input::<GamepadButton>::default())
             .insert_resource(MouseState::default())
+            .insert_resource(GamepadSticks::default())
             .add_systems(
                 PreUpdate,
                 (
@@ -37,12 +44,79 @@ impl Plugin for InputPlugin {
                 )
                     .chain(),
             );
+
+        match gilrs::Gilrs::new() {
+            Ok(g) => {
+                app.insert_non_send_resource(GilrsResource(g));
+                app.add_systems(PreUpdate, poll_gamepad_events.after(clear_input_state));
+            }
+            Err(e) => eprintln!("[input] gamepad not available: {e}"),
+        }
     }
 }
 
-fn clear_input_state(mut keys: ResMut<Input<KeyCode>>, mut buttons: ResMut<Input<MouseButton>>) {
+fn clear_input_state(
+    mut keys: ResMut<Input<KeyCode>>,
+    mut buttons: ResMut<Input<MouseButton>>,
+    mut gamepad: ResMut<Input<GamepadButton>>,
+) {
     keys.clear_transient();
     buttons.clear_transient();
+    gamepad.clear_transient();
+}
+
+fn poll_gamepad_events(
+    gilrs: Option<NonSendMut<GilrsResource>>,
+    mut buttons: ResMut<Input<GamepadButton>>,
+    mut sticks: ResMut<GamepadSticks>,
+) {
+    let Some(mut gilrs) = gilrs else { return };
+    while let Some(event) = gilrs.0.next_event() {
+        match event.event {
+            gilrs::EventType::ButtonPressed(btn, _) => {
+                if let Some(b) = map_gilrs_button(btn) {
+                    buttons.press(b);
+                }
+            }
+            gilrs::EventType::ButtonReleased(btn, _) => {
+                if let Some(b) = map_gilrs_button(btn) {
+                    buttons.release(b);
+                }
+            }
+            gilrs::EventType::AxisChanged(axis, value, _) => match axis {
+                gilrs::Axis::LeftStickX => sticks.left.0 = value,
+                gilrs::Axis::LeftStickY => sticks.left.1 = value,
+                gilrs::Axis::RightStickX => sticks.right.0 = value,
+                gilrs::Axis::RightStickY => sticks.right.1 = value,
+                gilrs::Axis::LeftZ => sticks.left_trigger = value,
+                gilrs::Axis::RightZ => sticks.right_trigger = value,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
+fn map_gilrs_button(btn: gilrs::Button) -> Option<GamepadButton> {
+    match btn {
+        gilrs::Button::South => Some(GamepadButton::South),
+        gilrs::Button::East => Some(GamepadButton::East),
+        gilrs::Button::West => Some(GamepadButton::West),
+        gilrs::Button::North => Some(GamepadButton::North),
+        gilrs::Button::LeftTrigger => Some(GamepadButton::LB),
+        gilrs::Button::RightTrigger => Some(GamepadButton::RB),
+        gilrs::Button::LeftTrigger2 => Some(GamepadButton::LT),
+        gilrs::Button::RightTrigger2 => Some(GamepadButton::RT),
+        gilrs::Button::Select => Some(GamepadButton::Select),
+        gilrs::Button::Start => Some(GamepadButton::Start),
+        gilrs::Button::LeftThumb => Some(GamepadButton::LeftStick),
+        gilrs::Button::RightThumb => Some(GamepadButton::RightStick),
+        gilrs::Button::DPadUp => Some(GamepadButton::DPadUp),
+        gilrs::Button::DPadDown => Some(GamepadButton::DPadDown),
+        gilrs::Button::DPadLeft => Some(GamepadButton::DPadLeft),
+        gilrs::Button::DPadRight => Some(GamepadButton::DPadRight),
+        _ => None,
+    }
 }
 
 fn update_keyboard_state(mut keys: ResMut<Input<KeyCode>>, mut events: EventReader<KeyInput>) {
@@ -84,8 +158,8 @@ fn update_mouse_position_state(
 #[cfg(test)]
 mod tests {
     use crate::{
-        state::Input, CursorMoved, ElementState, InputPlugin, KeyCode, KeyInput, MouseButton,
-        MouseInput, MouseMotion, MouseState,
+        state::Input, CursorMoved, ElementState, GamepadButton, GamepadSticks, InputPlugin,
+        KeyCode, KeyInput, MouseButton, MouseInput, MouseMotion, MouseState,
     };
     use bevy_ecs::event::Events;
     use bsengine_app::new_app;
@@ -256,5 +330,19 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(InputPlugin);
         assert!(app.world().get_resource::<MouseState>().is_some());
+    }
+
+    #[test]
+    fn input_plugin_registers_gamepad_button_resource() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+        assert!(app.world().get_resource::<Input<GamepadButton>>().is_some());
+    }
+
+    #[test]
+    fn input_plugin_registers_gamepad_sticks_resource() {
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+        assert!(app.world().get_resource::<GamepadSticks>().is_some());
     }
 }

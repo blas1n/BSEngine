@@ -1,7 +1,7 @@
 const SPEED = 0.1;
 
-function onUpdate() {
-    const t = Bsengine.getTransform("Player");
+function onUpdate(self) {
+    const t = Bsengine.getTransform(self);
     if (!t) return;
 
     let { x, y, z } = t;
@@ -11,5 +11,5 @@ function onUpdate() {
     if (Bsengine.isKeyPressed("A")) x -= SPEED;
     if (Bsengine.isKeyPressed("D")) x += SPEED;
 
-    Bsengine.setTransform("Player", x, y, z);
+    Bsengine.setTransform(self, x, y, z);
 }

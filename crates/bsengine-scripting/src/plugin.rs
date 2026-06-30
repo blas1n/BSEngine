@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy_app::{App, Plugin, Startup, Update};
+use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_core::Transform;
 use bsengine_input::{Input, KeyCode};
@@ -39,7 +39,7 @@ impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ProjectDir(self.project_dir.clone()));
         app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
-        app.add_systems(Startup, load_scripts);
+        app.add_systems(PostStartup, load_scripts);
         app.add_systems(Update, run_scripts);
     }
 }

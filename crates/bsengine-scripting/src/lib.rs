@@ -2,5 +2,7 @@
 pub mod ops;
 pub mod plugin;
 pub mod runtime;
-pub use plugin::{ProjectDir, Script, ScriptRuntimeResource, ScriptingPlugin};
+pub use plugin::{
+    load_scripts, ProjectDir, Script, ScriptRuntimeResource, ScriptingPlugin, SoundHandles,
+};
 pub use runtime::ScriptRuntime;

@@ -170,6 +170,138 @@ pub fn cube_vertices() -> (Vec<Vertex>, Vec<u32>) {
     (vertices, indices)
 }
 
+pub fn sphere_vertices() -> (Vec<Vertex>, Vec<u32>) {
+    const STACKS: u32 = 16;
+    const SLICES: u32 = 32;
+
+    let mut verts = Vec::new();
+    let mut idx = Vec::new();
+
+    for i in 0..=STACKS {
+        let phi = std::f32::consts::PI * i as f32 / STACKS as f32;
+        let (sin_p, cos_p) = phi.sin_cos();
+        for j in 0..=SLICES {
+            let theta = 2.0 * std::f32::consts::PI * j as f32 / SLICES as f32;
+            let (sin_t, cos_t) = theta.sin_cos();
+            let nx = sin_p * cos_t;
+            let ny = cos_p;
+            let nz = sin_p * sin_t;
+            verts.push(Vertex {
+                position: [nx * 0.5, ny * 0.5, nz * 0.5],
+                color: [1.0, 1.0, 1.0],
+                normal: [nx, ny, nz],
+                uv: [j as f32 / SLICES as f32, i as f32 / STACKS as f32],
+            });
+        }
+    }
+
+    let row = SLICES + 1;
+    for i in 0..STACKS {
+        for j in 0..SLICES {
+            let a = i * row + j;
+            let b = a + row;
+            idx.extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
+        }
+    }
+
+    (verts, idx)
+}
+
+pub fn plane_vertices() -> (Vec<Vertex>, Vec<u32>) {
+    let verts = vec![
+        Vertex {
+            position: [-0.5, 0.0, -0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.0, 0.0],
+        },
+        Vertex {
+            position: [0.5, 0.0, -0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [1.0, 0.0],
+        },
+        Vertex {
+            position: [0.5, 0.0, 0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [1.0, 1.0],
+        },
+        Vertex {
+            position: [-0.5, 0.0, 0.5],
+            color: [1.0; 3],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.0, 1.0],
+        },
+    ];
+    let idx = vec![0, 2, 1, 0, 3, 2];
+    (verts, idx)
+}
+
+pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
+    const SLICES: u32 = 24;
+    const CAP_STACKS: u32 = 8;
+    const RADIUS: f32 = 0.25;
+    const HALF_CYL: f32 = 0.25;
+
+    let mut verts = Vec::new();
+    let mut idx = Vec::new();
+    let row = SLICES + 1;
+
+    let push_ring = |verts: &mut Vec<Vertex>, y: f32, r: f32, ny: f32, uv_v: f32| {
+        let horiz = (1.0f32 - ny * ny).max(0.0).sqrt();
+        for j in 0..=SLICES {
+            let theta = 2.0 * std::f32::consts::PI * j as f32 / SLICES as f32;
+            let (s, c) = theta.sin_cos();
+            verts.push(Vertex {
+                position: [r * c, y, r * s],
+                color: [1.0; 3],
+                normal: [horiz * c, ny, horiz * s],
+                uv: [j as f32 / SLICES as f32, uv_v],
+            });
+        }
+    };
+
+    // top hemisphere: phi 0→PI/2 (top pole → top equator)
+    for i in 0..=CAP_STACKS {
+        let phi = std::f32::consts::FRAC_PI_2 * i as f32 / CAP_STACKS as f32;
+        let (sin_p, cos_p) = phi.sin_cos();
+        let uv_v = i as f32 / (2 * CAP_STACKS + 2) as f32;
+        push_ring(
+            &mut verts,
+            HALF_CYL + RADIUS * cos_p,
+            RADIUS * sin_p,
+            cos_p,
+            uv_v,
+        );
+    }
+
+    // bottom hemisphere: i=0→CAP_STACKS maps equator→bottom pole
+    for i in 0..=CAP_STACKS {
+        let phi = std::f32::consts::FRAC_PI_2 * i as f32 / CAP_STACKS as f32;
+        let (sin_p, cos_p) = phi.sin_cos();
+        let uv_v = (CAP_STACKS + 1 + i) as f32 / (2 * CAP_STACKS + 2) as f32;
+        push_ring(
+            &mut verts,
+            -HALF_CYL - RADIUS * sin_p,
+            RADIUS * cos_p,
+            -sin_p,
+            uv_v,
+        );
+    }
+
+    let total_rings = 2 * CAP_STACKS + 2;
+    for i in 0..total_rings {
+        for j in 0..SLICES {
+            let a = i * row + j;
+            let b = a + row;
+            idx.extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
+        }
+    }
+
+    (verts, idx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

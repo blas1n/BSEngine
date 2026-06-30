@@ -3,7 +3,7 @@ pub mod plugin;
 pub mod world;
 
 pub use components::{
-    Collider, ColliderShape, CollisionEvent, PhysicsInput, PhysicsTransform, RigidBody,
+    Collider, ColliderShape, CollisionEvent, PhysicsInput, PhysicsTransform, RaycastHit, RigidBody,
     RigidBodyType,
 };
 pub use plugin::PhysicsPlugin;

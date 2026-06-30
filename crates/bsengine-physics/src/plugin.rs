@@ -97,6 +97,7 @@ fn spawn_bodies(
             .restitution(collider.restitution)
             .friction(collider.friction)
             .density(collider.density)
+            .sensor(collider.sensor)
             .active_events(ActiveEvents::COLLISION_EVENTS)
             .build();
 

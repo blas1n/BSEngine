@@ -1,0 +1,8 @@
+[project]
+name = "Cube Breakout"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "Cube Breakout"
+width = 1280
+height = 720

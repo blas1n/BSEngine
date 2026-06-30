@@ -10,15 +10,21 @@ name = "bsengine-runtime"
 path = "src/main.rs"
 
 [dependencies]
-bevy_app        = { workspace = true }
-bsengine-app    = { workspace = true }
-bsengine-core   = { workspace = true }
-bsengine-ecs    = { workspace = true }
-bsengine-input  = { workspace = true }
-bsengine-render = { workspace = true }
-bsengine-rhi-wgpu = { workspace = true }
+bevy_app           = { workspace = true }
+bsengine-app       = { workspace = true }
+bsengine-audio     = { workspace = true }
+bsengine-core      = { workspace = true }
+bsengine-ecs       = { workspace = true }
+bsengine-input     = { workspace = true }
+bsengine-physics   = { workspace = true }
+bsengine-render    = { workspace = true }
+bsengine-rhi-wgpu  = { workspace = true }
 bsengine-scene     = { workspace = true }
 bsengine-scripting = { workspace = true }
 bsengine-window    = { workspace = true }
+bevy_ecs        = { workspace = true }
+kira            = { workspace = true }
+ron             = { workspace = true }
 serde           = { workspace = true }
 toml            = { workspace = true }
+tracing         = { workspace = true }

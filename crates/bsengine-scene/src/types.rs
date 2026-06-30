@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Resource};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +10,9 @@ pub struct SceneDescriptor {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Primitive {
     Cube,
+    Sphere,
+    Plane,
+    Capsule,
 }
 
 /// Marker component inserted by `ScenePlugin` for entities with `primitive: Some(...)`.
@@ -49,6 +52,10 @@ pub struct EntityDescriptor {
     #[serde(default)]
     pub look_at: Option<[f32; 3]>,
     #[serde(default)]
+    pub rigidbody: Option<RigidBodyDesc>,
+    #[serde(default)]
+    pub collider: Option<ColliderDesc>,
+    #[serde(default)]
     pub components: Vec<(String, String)>,
 }
 
@@ -82,6 +89,48 @@ pub struct DirectionalLightDescriptor {
     pub ambient: [f32; 3],
 }
 
+/// Rigid body type for physics descriptors in scene files.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum RigidBodyDesc {
+    Dynamic,
+    Static,
+    Kinematic,
+}
+
+/// Collider shape descriptor for scene files.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ColliderShapeDesc {
+    Box { hx: f32, hy: f32, hz: f32 },
+    Sphere { radius: f32 },
+    Capsule { half_height: f32, radius: f32 },
+}
+
+/// Full collider descriptor for scene files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColliderDesc {
+    pub shape: ColliderShapeDesc,
+    #[serde(default)]
+    pub restitution: f32,
+    #[serde(default = "default_friction")]
+    pub friction: f32,
+    #[serde(default)]
+    pub sensor: bool,
+}
+
+/// Component spawned by ScenePlugin for entities with rigidbody+collider data.
+/// The runtime resolves this into actual physics components.
+#[derive(Component, Debug, Clone)]
+pub struct PhysicsBodyDesc {
+    pub rigidbody: RigidBodyDesc,
+    pub collider: ColliderDesc,
+}
+
+/// Signals a runtime scene transition was requested via script.
+#[derive(Resource)]
+pub struct PendingSceneLoad {
+    pub path: String,
+}
+
 fn default_rotation() -> [f32; 4] {
     [0.0, 0.0, 0.0, 1.0]
 }
@@ -96,6 +145,10 @@ fn default_white() -> [f32; 3] {
 
 fn default_ambient() -> [f32; 3] {
     [0.1, 0.1, 0.1]
+}
+
+fn default_friction() -> f32 {
+    0.5
 }
 
 #[cfg(test)]

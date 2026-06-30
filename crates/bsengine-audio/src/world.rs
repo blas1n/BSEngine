@@ -28,7 +28,7 @@ impl AudioWorld {
         self.manager.is_some()
     }
 
-    pub(crate) fn play(&mut self, data: StaticSoundData) -> Option<StaticSoundHandle> {
+    pub fn play(&mut self, data: StaticSoundData) -> Option<StaticSoundHandle> {
         self.manager.as_mut()?.play(data).ok()
     }
 }

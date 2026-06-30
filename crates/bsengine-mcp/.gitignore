@@ -1,0 +1,2 @@
+# Allow Rust src/bin/ despite root .gitignore [Bb]in/ rule
+!src/bin/

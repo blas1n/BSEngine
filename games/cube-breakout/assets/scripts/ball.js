@@ -8,6 +8,9 @@ const BRICK_HALF_W = 1.25;
 const BRICK_HALF_H = 0.4;
 const OFF_SCREEN = 100;
 
+const BRICK_COLS = [-4.5, -1.5, 1.5, 4.5];
+const BRICK_ROWS = [8.0, 6.5, 5.0, 3.5, 2.0];
+
 const BRICK_NAMES = [];
 for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 4; col++) {
@@ -20,9 +23,31 @@ let ballDy = 0.09;
 let bricksRemaining = 20;
 let gameOver = false;
 let gameWon = false;
+let restartCooldown = 0;
+
+function resetGame() {
+    ballDx = 0.05;
+    ballDy = 0.09;
+    bricksRemaining = 20;
+    gameOver = false;
+    gameWon = false;
+    restartCooldown = 0;
+    Bsengine.setTransform("Ball", 0.0, -2.0, 0.0);
+    Bsengine.setTransform("Paddle", 0.0, -4.0, 0.0);
+    for (let row = 0; row < 5; row++) {
+        for (let col = 0; col < 4; col++) {
+            Bsengine.setTransform("Brick_" + row + "_" + col, BRICK_COLS[col], BRICK_ROWS[row], 0.0);
+        }
+    }
+    Bsengine.log("Restarted! Good luck!");
+}
 
 function onUpdate(self) {
-    if (gameOver || gameWon) return;
+    if (gameOver || gameWon) {
+        if (restartCooldown > 0) { restartCooldown--; return; }
+        if (Bsengine.isKeyPressed("Space")) resetGame();
+        return;
+    }
 
     const paddle = Bsengine.getTransform("Paddle");
     if (!paddle) return;
@@ -52,7 +77,8 @@ function onUpdate(self) {
 
     if (by < BOTTOM_Y) {
         gameOver = true;
-        Bsengine.log("GAME OVER! Relaunch to retry.");
+        restartCooldown = 120;
+        Bsengine.log("GAME OVER! Press Space to retry.");
         Bsengine.setTransform(self, bx, by, ball.z);
         return;
     }
@@ -70,7 +96,7 @@ function onUpdate(self) {
             Bsengine.log("Brick destroyed! Remaining: " + bricksRemaining);
             if (bricksRemaining <= 0) {
                 gameWon = true;
-                Bsengine.log("YOU WIN! All bricks cleared! Relaunch to play again.");
+                Bsengine.log("YOU WIN! All bricks cleared! Press Space to play again.");
                 Bsengine.setTransform(self, bx, by, ball.z);
                 return;
             }

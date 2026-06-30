@@ -2,12 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
-use bsengine_core::Transform;
+use bsengine_core::{Material, Transform};
 use bsengine_input::{Input, KeyCode};
 use bsengine_scene::{Name, ScriptPath};
 use glam::Vec3;
 
-use crate::ops::{ScriptCommand, BOOTSTRAP_JS, COMMAND_BUFFER, KEY_SNAPSHOT, TRANSFORM_SNAPSHOT};
+use crate::ops::{
+    ScriptCommand, BOOTSTRAP_JS, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, KEY_SNAPSHOT,
+    TRANSFORM_SNAPSHOT,
+};
 use crate::runtime::ScriptRuntime;
 
 /// Root directory of the current project — used to resolve relative script paths.
@@ -151,8 +154,15 @@ fn run_scripts(world: &mut World) {
             .collect()
     };
 
+    // All entity names (not just scripted) for getEntityNames().
+    let all_names: Vec<String> = {
+        let mut q = world.query::<&Name>();
+        q.iter(world).map(|n| n.0.clone()).collect()
+    };
+
     TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
+    ENTITY_NAMES_SNAPSHOT.with(|s| *s.borrow_mut() = all_names);
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -172,6 +182,38 @@ fn run_scripts(world: &mut World) {
                     if n.0 == name {
                         t.translation = Vec3::new(x, y, z);
                         break;
+                    }
+                }
+            }
+            ScriptCommand::SetEmissive { name, r, g, b } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mat) = world.get_mut::<Material>(e) {
+                        mat.emissive = Vec3::new(r, g, b);
+                    } else {
+                        world.entity_mut(e).insert(Material {
+                            emissive: Vec3::new(r, g, b),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+            ScriptCommand::SetColor { name, r, g, b } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mat) = world.get_mut::<Material>(e) {
+                        mat.base_color = Vec3::new(r, g, b);
+                    } else {
+                        world.entity_mut(e).insert(Material {
+                            base_color: Vec3::new(r, g, b),
+                            ..Default::default()
+                        });
                     }
                 }
             }

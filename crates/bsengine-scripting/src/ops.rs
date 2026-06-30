@@ -13,6 +13,18 @@ pub enum ScriptCommand {
         y: f32,
         z: f32,
     },
+    SetEmissive {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
 }
 
 thread_local! {
@@ -20,6 +32,8 @@ thread_local! {
         RefCell::new(HashMap::new());
     pub(crate) static KEY_SNAPSHOT: RefCell<HashSet<String>> =
         RefCell::new(HashSet::new());
+    pub(crate) static ENTITY_NAMES_SNAPSHOT: RefCell<Vec<String>> =
+        RefCell::new(Vec::new());
     pub(crate) static COMMAND_BUFFER: RefCell<Vec<ScriptCommand>> =
         RefCell::new(Vec::new());
 }
@@ -67,6 +81,29 @@ pub fn bsengine_is_key_pressed(#[string] key: String) -> bool {
     KEY_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
 
+#[op2]
+#[string]
+pub fn bsengine_get_entity_names() -> String {
+    ENTITY_NAMES_SNAPSHOT
+        .with(|s| serde_json::to_string(&*s.borrow()).unwrap_or_else(|_| "[]".to_string()))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_emissive(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmissive { name, r, g, b });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColor { name, r, g, b });
+    });
+}
+
 deno_core::extension!(
     bsengine_ops,
     ops = [
@@ -75,17 +112,23 @@ deno_core::extension!(
         bsengine_get_transform,
         bsengine_set_transform,
         bsengine_is_key_pressed,
+        bsengine_get_entity_names,
+        bsengine_set_emissive,
+        bsengine_set_color,
     ],
 );
 
 /// Bootstrap JS loaded before any user script — exposes the `Bsengine` global.
 pub const BOOTSTRAP_JS: &str = r#"
 const Bsengine = {
-    log:          (msg)           => Deno.core.ops.bsengine_log(msg),
-    version:      ()              => Deno.core.ops.bsengine_version(),
-    getTransform: (name)          => Deno.core.ops.bsengine_get_transform(name),
-    setTransform: (name, x, y, z) => Deno.core.ops.bsengine_set_transform(name, x, y, z),
-    isKeyPressed: (key)           => Deno.core.ops.bsengine_is_key_pressed(key),
+    log:            (msg)           => Deno.core.ops.bsengine_log(msg),
+    version:        ()              => Deno.core.ops.bsengine_version(),
+    getTransform:   (name)          => Deno.core.ops.bsengine_get_transform(name),
+    setTransform:   (name, x, y, z) => Deno.core.ops.bsengine_set_transform(name, x, y, z),
+    isKeyPressed:   (key)           => Deno.core.ops.bsengine_is_key_pressed(key),
+    getEntityNames: ()              => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
+    setEmissive:    (name, r, g, b) => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
+    setColor:       (name, r, g, b) => Deno.core.ops.bsengine_set_color(name, r, g, b),
 
     // Per-entity script registry. Keys are entity bit-IDs (strings).
     _scripts: {},

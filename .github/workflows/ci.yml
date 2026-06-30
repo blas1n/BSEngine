@@ -78,7 +78,7 @@ jobs:
 
       - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y mesa-vulkan-drivers libasound2-dev
+        run: sudo apt-get install -y mesa-vulkan-drivers libasound2-dev libudev-dev
 
       - name: Format check
         run: cargo +nightly fmt --all -- --check

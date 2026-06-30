@@ -21,6 +21,7 @@ members = [
     "crates/bsengine-editor",
     "crates/bsengine-runtime",
     "games/cube-roller",
+    "games/cube-evader",
 ]
 
 [workspace.package]

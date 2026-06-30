@@ -1,0 +1,8 @@
+[project]
+name = "Cube Evader"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "Cube Evader"
+width = 1280
+height = 720

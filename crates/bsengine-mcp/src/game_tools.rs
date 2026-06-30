@@ -47,16 +47,30 @@ Rules:
 
 const SCRIPT_API_DOCS: &str = r#"BSEngine JavaScript API (runs in V8 via Deno Core):
 
+Transform:
   Bsengine.getTransform(name: string) → { x, y, z } | null
     Get world position of an entity by name. Returns null if not found.
 
   Bsengine.setTransform(name: string, x: number, y: number, z: number)
     Set world position of an entity by name.
 
+Input:
   Bsengine.isKeyPressed(key: string) → boolean
     Check if a key is held. Available keys:
     "W" "A" "S" "D" "Space" "Enter" "Escape" "Up" "Down" "Left" "Right"
 
+Material:
+  Bsengine.setEmissive(name: string, r: number, g: number, b: number)
+    Set the emissive (glow) color of an entity at runtime. Values 0–1 linear.
+
+  Bsengine.setColor(name: string, r: number, g: number, b: number)
+    Set the albedo/base color of an entity at runtime. Values 0–1 linear.
+
+Scene:
+  Bsengine.getEntityNames() → string[]
+    Returns names of all entities currently in the scene.
+
+Logging:
   Bsengine.log(message: string)
     Print a message to the engine log (tracing INFO).
 
@@ -76,6 +90,14 @@ Example (WASD movement on the entity this script is attached to):
     if (Bsengine.isKeyPressed("A")) x -= SPEED;
     if (Bsengine.isKeyPressed("D")) x += SPEED;
     Bsengine.setTransform(self, x, y, z);
+  }
+
+Example (flash red when near origin):
+  function onUpdate(self) {
+    const t = Bsengine.getTransform(self);
+    if (!t) return;
+    const dist = Math.sqrt(t.x * t.x + t.z * t.z);
+    Bsengine.setEmissive(self, dist < 2.0 ? 1.0 : 0.0, 0.0, 0.0);
   }
 
 Example (controlling another entity by name from this script):

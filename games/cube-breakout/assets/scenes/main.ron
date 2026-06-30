@@ -1,0 +1,156 @@
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((
+            translation: (0.0, 2.0, 20.0),
+            rotation: (0.0, 0.0, 0.0, 1.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((
+            direction: (-0.3, -0.8, -0.5),
+            ambient: (0.3, 0.3, 0.3),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Paddle",
+        primitive: Some(Cube),
+        transform: Some((
+            translation: (0.0, -4.0, 0.0),
+            scale: (3.0, 0.4, 0.5),
+        )),
+        emissive: Some((0.0, 0.5, 0.8)),
+    ),
+    EntityDescriptor(
+        name: "Ball",
+        primitive: Some(Cube),
+        transform: Some((
+            translation: (0.0, -2.0, 0.0),
+            scale: (0.5, 0.5, 0.5),
+        )),
+        emissive: Some((0.7, 0.7, 0.0)),
+        script: Some("assets/scripts/ball.js"),
+    ),
+    EntityDescriptor(
+        name: "Brick_0_0",
+        primitive: Some(Cube),
+        transform: Some((translation: (-4.5, 8.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.0, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_0_1",
+        primitive: Some(Cube),
+        transform: Some((translation: (-1.5, 8.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.0, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_0_2",
+        primitive: Some(Cube),
+        transform: Some((translation: (1.5, 8.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.0, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_0_3",
+        primitive: Some(Cube),
+        transform: Some((translation: (4.5, 8.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.0, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_1_0",
+        primitive: Some(Cube),
+        transform: Some((translation: (-4.5, 6.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.3, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_1_1",
+        primitive: Some(Cube),
+        transform: Some((translation: (-1.5, 6.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.3, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_1_2",
+        primitive: Some(Cube),
+        transform: Some((translation: (1.5, 6.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.3, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_1_3",
+        primitive: Some(Cube),
+        transform: Some((translation: (4.5, 6.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.6, 0.3, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_2_0",
+        primitive: Some(Cube),
+        transform: Some((translation: (-4.5, 5.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.5, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_2_1",
+        primitive: Some(Cube),
+        transform: Some((translation: (-1.5, 5.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.5, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_2_2",
+        primitive: Some(Cube),
+        transform: Some((translation: (1.5, 5.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.5, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_2_3",
+        primitive: Some(Cube),
+        transform: Some((translation: (4.5, 5.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.5, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_3_0",
+        primitive: Some(Cube),
+        transform: Some((translation: (-4.5, 3.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_3_1",
+        primitive: Some(Cube),
+        transform: Some((translation: (-1.5, 3.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_3_2",
+        primitive: Some(Cube),
+        transform: Some((translation: (1.5, 3.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_3_3",
+        primitive: Some(Cube),
+        transform: Some((translation: (4.5, 3.5, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Brick_4_0",
+        primitive: Some(Cube),
+        transform: Some((translation: (-4.5, 2.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.3, 0.6)),
+    ),
+    EntityDescriptor(
+        name: "Brick_4_1",
+        primitive: Some(Cube),
+        transform: Some((translation: (-1.5, 2.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.3, 0.6)),
+    ),
+    EntityDescriptor(
+        name: "Brick_4_2",
+        primitive: Some(Cube),
+        transform: Some((translation: (1.5, 2.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.3, 0.6)),
+    ),
+    EntityDescriptor(
+        name: "Brick_4_3",
+        primitive: Some(Cube),
+        transform: Some((translation: (4.5, 2.0, 0.0), scale: (2.5, 0.8, 0.5))),
+        emissive: Some((0.0, 0.3, 0.6)),
+    ),
+])

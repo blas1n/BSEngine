@@ -1,7 +1,9 @@
+pub mod game_tools;
 pub mod plugin;
 pub mod registry;
 pub mod server;
 pub mod tool;
+pub use game_tools::game_tools;
 pub use plugin::{McpPlugin, McpRegistryResource};
 pub use registry::McpToolRegistry;
 pub use server::McpServer;

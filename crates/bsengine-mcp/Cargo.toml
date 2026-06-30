@@ -4,13 +4,20 @@ description = "Model Context Protocol runtime — tool registration and JSON-RPC
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "bsengine-mcp-server"
+path = "src/bin/server.rs"
+
 [dependencies]
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+ron.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
+tempfile = "3"

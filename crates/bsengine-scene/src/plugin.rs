@@ -33,14 +33,21 @@ impl Plugin for ScenePlugin {
                 let mut builder = commands.spawn(Name(entity.name.clone()));
 
                 if let Some(t) = &entity.transform {
+                    let mut rotation =
+                        Quat::from_xyzw(t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]);
+                    // look_at overrides the rotation for camera entities.
+                    if entity.camera {
+                        if let Some(target) = entity.look_at {
+                            let pos = Vec3::from(t.translation);
+                            let dir = Vec3::from(target) - pos;
+                            if dir.length_squared() > 1e-10 {
+                                rotation = Quat::from_rotation_arc(Vec3::NEG_Z, dir.normalize());
+                            }
+                        }
+                    }
                     let transform = Transform {
                         translation: Vec3::from(t.translation),
-                        rotation: Quat::from_xyzw(
-                            t.rotation[0],
-                            t.rotation[1],
-                            t.rotation[2],
-                            t.rotation[3],
-                        ),
+                        rotation,
                         scale: Vec3::from(t.scale),
                     };
                     builder.insert((transform, GlobalTransform::default()));
@@ -70,9 +77,10 @@ impl Plugin for ScenePlugin {
                     builder.insert(ScriptPath(script.clone()));
                 }
 
-                if let Some(emissive) = &entity.emissive {
+                if entity.emissive.is_some() || entity.color.is_some() {
                     builder.insert(Material {
-                        emissive: Vec3::from(*emissive),
+                        emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO),
+                        base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE),
                         ..Default::default()
                     });
                 }

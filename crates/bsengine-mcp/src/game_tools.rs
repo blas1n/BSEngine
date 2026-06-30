@@ -15,6 +15,8 @@ SceneDescriptor(entities: [
       rotation:    (0.0, 0.0, 0.0, 1.0), // quaternion xyzw (optional, default identity)
       scale:       (1.0, 1.0, 1.0),      // optional, default 1 1 1
     )),
+    look_at: Some((0.0, 0.0, 0.0)),      // optional: auto-aim camera at this world point
+                                          // overrides rotation when set; useful for top-down/orbital cameras
   ),
   EntityDescriptor(
     name: "Sun",
@@ -28,6 +30,9 @@ SceneDescriptor(entities: [
     name: "Player",
     primitive: Some(Cube),     // available primitives: Cube only
     transform: Some((translation: (0.0, 0.5, 0.0))),
+    color: Some((1.0, 0.2, 0.2)),    // optional: albedo/base color [r, g, b] linear 0–1
+                                      // multiplies vertex color and texture; default white
+    emissive: Some((0.0, 0.0, 0.0)), // optional: self-illumination color; default black (none)
     script: Some("assets/scripts/player.js"),  // relative to game root
   ),
 ])
@@ -35,7 +40,9 @@ SceneDescriptor(entities: [
 Rules:
 - Always include a Camera entity (camera: true) for rendering
 - Always include a Sun entity (directional_light) or scene will be unlit
-- primitive: Some(Cube) renders a white cube; use scale to reshape
+- primitive: Some(Cube) renders a white cube; use color to tint it
+- look_at on a camera entity auto-computes rotation to face the target point
+- color sets the albedo/surface color; emissive makes the entity glow
 - name is the key used by JS Bsengine.getTransform/setTransform"#;
 
 const SCRIPT_API_DOCS: &str = r#"BSEngine JavaScript API (runs in V8 via Deno Core):

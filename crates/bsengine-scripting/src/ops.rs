@@ -81,11 +81,28 @@ deno_core::extension!(
 /// Bootstrap JS loaded before any user script — exposes the `Bsengine` global.
 pub const BOOTSTRAP_JS: &str = r#"
 const Bsengine = {
-    log:          (msg)             => Deno.core.ops.bsengine_log(msg),
-    version:      ()                => Deno.core.ops.bsengine_version(),
-    getTransform: (name)            => Deno.core.ops.bsengine_get_transform(name),
-    setTransform: (name, x, y, z)   => Deno.core.ops.bsengine_set_transform(name, x, y, z),
-    isKeyPressed: (key)             => Deno.core.ops.bsengine_is_key_pressed(key),
+    log:          (msg)           => Deno.core.ops.bsengine_log(msg),
+    version:      ()              => Deno.core.ops.bsengine_version(),
+    getTransform: (name)          => Deno.core.ops.bsengine_get_transform(name),
+    setTransform: (name, x, y, z) => Deno.core.ops.bsengine_set_transform(name, x, y, z),
+    isKeyPressed: (key)           => Deno.core.ops.bsengine_is_key_pressed(key),
+
+    // Per-entity script registry. Keys are entity bit-IDs (strings).
+    _scripts: {},
+
+    // Called each frame by the engine with [[id, name], ...] for all scripted entities.
+    _runAll(entities) {
+        for (const [id, name] of entities) {
+            const s = this._scripts[id];
+            if (s && s.onUpdate) {
+                try {
+                    s.onUpdate(name);
+                } catch (e) {
+                    this.log(`[${name}] onUpdate error: ${e}`);
+                }
+            }
+        }
+    },
 };
 "#;
 

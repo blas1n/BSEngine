@@ -1,7 +1,7 @@
 use crate::types::{PrimitiveMesh, SceneDescriptor, ScriptPath};
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Commands, Component};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Transform};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
 
@@ -68,6 +68,13 @@ impl Plugin for ScenePlugin {
 
                 if let Some(script) = &entity.script {
                     builder.insert(ScriptPath(script.clone()));
+                }
+
+                if let Some(emissive) = &entity.emissive {
+                    builder.insert(Material {
+                        emissive: Vec3::from(*emissive),
+                        ..Default::default()
+                    });
                 }
             }
         });

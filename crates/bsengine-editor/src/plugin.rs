@@ -699,6 +699,7 @@ impl Plugin for EditorPlugin {
                                     directional_light: None,
                                     primitive: None,
                                     script: None,
+                                    emissive: None,
                                 }
                             })
                         })

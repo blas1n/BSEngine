@@ -53,26 +53,34 @@ const SCRIPT_API_DOCS: &str = r#"BSEngine JavaScript API (runs in V8 via Deno Co
   Bsengine.log(message: string)
     Print a message to the engine log (tracing INFO).
 
-Entry point — called every frame:
-  function onUpdate() { ... }
+Entry point — called every frame with the name of the entity this script is attached to:
+  function onUpdate(self) { ... }
 
-Example (WASD movement):
+Each entity's script runs independently. Use `self` to reference the owning entity.
+
+Example (WASD movement on the entity this script is attached to):
   const SPEED = 0.05;
-  function onUpdate() {
-    const t = Bsengine.getTransform("Player");
+  function onUpdate(self) {
+    const t = Bsengine.getTransform(self);
     if (!t) return;
     let { x, y, z } = t;
     if (Bsengine.isKeyPressed("W")) z -= SPEED;
     if (Bsengine.isKeyPressed("S")) z += SPEED;
     if (Bsengine.isKeyPressed("A")) x -= SPEED;
     if (Bsengine.isKeyPressed("D")) x += SPEED;
-    Bsengine.setTransform("Player", x, y, z);
+    Bsengine.setTransform(self, x, y, z);
+  }
+
+Example (controlling another entity by name from this script):
+  function onUpdate(self) {
+    const enemy = Bsengine.getTransform("Enemy");
+    if (enemy) Bsengine.setTransform("Enemy", enemy.x + 0.01, enemy.y, enemy.z);
   }
 
 Notes:
-- Scripts load once at startup; onUpdate() runs every frame (~60fps)
-- path is relative to game root (e.g. "assets/scripts/player.js")
-- Reference entity by the name field in the scene file"#;
+- Scripts load once at startup; onUpdate(self) runs every frame (~60fps)
+- Each entity's script is isolated — multiple entities can each have their own script
+- path is relative to game root (e.g. "assets/scripts/player.js")"#;
 
 pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
     let r1 = root.clone();

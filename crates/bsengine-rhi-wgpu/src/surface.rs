@@ -227,11 +227,51 @@ fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {
 }
 "#;
 
+const SKYBOX_WGSL: &str = r#"
+const PI: f32 = 3.14159265358979323846;
+struct SkyUniform {
+    inv_vp: mat4x4<f32>,
+};
+@group(0) @binding(0) var<uniform> sky: SkyUniform;
+@group(1) @binding(0) var t_sky: texture_2d<f32>;
+@group(1) @binding(1) var s_sky: sampler;
+struct SkyOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) ndc: vec2<f32>,
+};
+@vertex
+fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0),
+    );
+    let p = positions[vi];
+    var out: SkyOut;
+    // z = w so NDC depth = 1.0; LessEqual test passes only where no geometry wrote depth
+    out.clip_pos = vec4<f32>(p.x, p.y, 1.0, 1.0);
+    out.ndc = p;
+    return out;
+}
+@fragment
+fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
+    let world = sky.inv_vp * vec4<f32>(in.ndc.x, in.ndc.y, 1.0, 1.0);
+    let dir = normalize(world.xyz);
+    let phi = atan2(dir.z, dir.x);
+    let theta = asin(clamp(dir.y, -1.0, 1.0));
+    let u = phi / (2.0 * PI) + 0.5;
+    let v = 0.5 - theta / PI;
+    return textureSample(t_sky, s_sky, vec2<f32>(u, v));
+}
+"#;
+
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
 // view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
 const CAMERA_UNIFORM_SIZE: u64 = 144;
+// inv_vp mat4x4<f32> = 64 bytes
+const SKY_UNIFORM_SIZE: u64 = 64;
 // direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
 // num_spot+pad(16) + 8×SpotLightGpu(64=512) = 960
 const LIGHT_UNIFORM_SIZE: u64 = 960;
@@ -366,6 +406,21 @@ struct LightUniformData {
     spot_lights: [SpotLightGpu; 8],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct SkyUniformData {
+    inv_vp: [[f32; 4]; 4],
+}
+
+struct SkyboxState {
+    pipeline: wgpu::RenderPipeline,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bg: wgpu::BindGroup,
+    texture_bg: wgpu::BindGroup,
+    _texture: wgpu::Texture,
+    _sampler: wgpu::Sampler,
+}
+
 pub struct WgpuSurface {
     _window: Arc<winit::window::Window>,
     pub(crate) surface: wgpu::Surface<'static>,
@@ -390,6 +445,8 @@ pub struct WgpuSurface {
     _shadow_comparison_sampler: wgpu::Sampler,
     egui_ctx: egui::Context,
     egui_renderer: egui_wgpu::Renderer,
+    skybox: Option<SkyboxState>,
+    loaded_skybox_path: Option<String>,
 }
 
 impl WgpuSurface {
@@ -744,6 +801,8 @@ impl WgpuSurface {
             _shadow_comparison_sampler: shadow_comparison_sampler,
             egui_ctx,
             egui_renderer,
+            skybox: None,
+            loaded_skybox_path: None,
         })
     }
 
@@ -854,11 +913,202 @@ impl WgpuSurface {
         (texture, sampler, bgl, bind_group)
     }
 
+    /// Load an equirectangular skybox image from `path` and build the GPU pipeline.
+    /// Called by the render system when `SkyboxPath` changes.
+    pub fn set_skybox(&mut self, path: &str) -> Result<(), String> {
+        let img = image::open(path)
+            .map_err(|e| format!("skybox image load failed '{path}': {e}"))?
+            .to_rgba8();
+        let (w, h) = img.dimensions();
+
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("skybox texture"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            &img,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        let tex_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("skybox sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let uniform_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("skybox uniform"),
+            size: SKY_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let sky_uniform_bgl =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("sky uniform bgl"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(SKY_UNIFORM_SIZE),
+                        },
+                        count: None,
+                    }],
+                });
+        let uniform_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sky uniform bg"),
+            layout: &sky_uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let sky_tex_bgl = self
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("sky tex bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let texture_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sky tex bg"),
+            layout: &sky_tex_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("skybox shader"),
+                source: wgpu::ShaderSource::Wgsl(SKYBOX_WGSL.into()),
+            });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("skybox pipeline layout"),
+                bind_group_layouts: &[&sky_uniform_bgl, &sky_tex_bgl],
+                push_constant_ranges: &[],
+            });
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("skybox pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_sky",
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_sky",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: self.config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        self.skybox = Some(SkyboxState {
+            pipeline,
+            uniform_buffer,
+            uniform_bg,
+            texture_bg,
+            _texture: texture,
+            _sampler: sampler,
+        });
+        self.loaded_skybox_path = Some(path.to_string());
+        Ok(())
+    }
+
+    pub fn clear_skybox(&mut self) {
+        self.skybox = None;
+        self.loaded_skybox_path = None;
+    }
+
+    pub fn has_skybox(&self) -> bool {
+        self.skybox.is_some()
+    }
+
+    pub fn loaded_skybox_path(&self) -> Option<&str> {
+        self.loaded_skybox_path.as_deref()
+    }
+
     pub fn render_frame(
         &mut self,
         view_proj: Mat4,
         cam_pos: Vec3,
         light_view_proj: Mat4,
+        sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams)],
         registry: &GpuMeshRegistry,
         light: LightData,
@@ -1062,6 +1312,40 @@ impl WgpuSurface {
             }
         }
 
+        // --- skybox pass (after geometry so depth=1.0 pixels get the sky) ---
+        if let (Some(sky), Some(inv)) = (&self.skybox, sky_vp_inv) {
+            let sky_data = SkyUniformData {
+                inv_vp: inv.to_cols_array_2d(),
+            };
+            self.queue
+                .write_buffer(&sky.uniform_buffer, 0, bytemuck::cast_slice(&[sky_data]));
+            let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("skybox pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            sky_pass.set_pipeline(&sky.pipeline);
+            sky_pass.set_bind_group(0, &sky.uniform_bg, &[]);
+            sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
+            sky_pass.draw(0..3, 0..1);
+        }
+
         // HUD overlay via egui
         if !hud_texts.is_empty() {
             let screen_rect = egui::Rect::from_min_size(
@@ -1171,5 +1455,11 @@ mod tests {
     fn mesh_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
         let _module = WgpuSurface::compile_shader(&rhi.device, MESH_WGSL);
+    }
+
+    #[test]
+    fn skybox_shader_compiles() {
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+        let _module = WgpuSurface::compile_shader(&rhi.device, SKYBOX_WGSL);
     }
 }

@@ -1203,7 +1203,7 @@ pub use silence::Silence;
 pub use siphon::Siphon;
 pub use skeleton::Skeleton;
 pub use skinned_mesh::SkinnedMesh;
-pub use skybox::{Skybox, SkyboxProjection};
+pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
 pub use slam::{Slam, SlamPhase};
 pub use slay::Slay;
 pub use slide::{Slide, SlidePhase};

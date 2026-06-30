@@ -59,7 +59,7 @@ pollster          = "0.3"
 bytemuck          = { version = "1", features = ["derive"] }
 glam              = "0.29"
 gltf              = "1"
-image             = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image             = { version = "0.25", default-features = false, features = ["png", "jpeg", "hdr"] }
 bsengine-gltf     = { path = "crates/bsengine-gltf" }
 bsengine-runtime  = { path = "crates/bsengine-runtime" }
 bsengine-editor   = { path = "crates/bsengine-editor" }

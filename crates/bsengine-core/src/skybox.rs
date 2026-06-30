@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Resource};
 
 /// How the skybox texture is laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -9,6 +9,12 @@ pub enum SkyboxProjection {
     /// Six separate faces packed into a cross layout (horizontal or vertical).
     Cubemap,
 }
+
+/// Resource that holds the active skybox image path.
+/// Set by scene loading or script `setSkybox(path)`.
+/// The render system reads this and loads the texture when the path changes.
+#[derive(Resource, Default, Clone)]
+pub struct SkyboxPath(pub Option<String>);
 
 /// Renders an environment background behind all geometry for a camera entity.
 #[derive(Component, Debug, Clone, PartialEq)]

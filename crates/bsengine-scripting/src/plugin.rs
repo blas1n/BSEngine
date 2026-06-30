@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
-use bsengine_core::{GlobalTransform, HudTexts, Material, Transform};
+use bsengine_core::{GlobalTransform, HudTexts, Material, SkyboxPath, Transform};
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
 use bsengine_physics::PhysicsWorld;
@@ -496,6 +496,18 @@ fn run_scripts(world: &mut World) {
             }
             ScriptCommand::LoadScene { path } => {
                 world.insert_resource(PendingSceneLoad { path });
+            }
+            ScriptCommand::SetSkybox { path } => {
+                let project_dir = world
+                    .get_resource::<ProjectDir>()
+                    .map(|pd| pd.0.clone())
+                    .unwrap_or_default();
+                let full_path = if project_dir.is_empty() {
+                    path
+                } else {
+                    format!("{}/{}", project_dir, path)
+                };
+                world.insert_resource(SkyboxPath(Some(full_path)));
             }
         }
     }

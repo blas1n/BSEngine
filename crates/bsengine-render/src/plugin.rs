@@ -131,6 +131,7 @@ fn render_frame(
                     metallic: m.metallic,
                     roughness: m.roughness,
                     emissive: m.emissive,
+                    base_color: m.base_color,
                 })
                 .unwrap_or_default();
             Some((mr.mesh_id, model, tex_id, mat_params))

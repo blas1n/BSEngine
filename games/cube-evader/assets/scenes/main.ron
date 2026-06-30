@@ -3,13 +3,15 @@ SceneDescriptor(entities: [
         name: "Camera",
         camera: true,
         transform: Some((
-            translation: (0.0, 5.0, 12.0),
+            translation: (0.0, 18.0, 0.0),
+            rotation: (-0.7071, 0.0, 0.0, 0.7071),
         )),
     ),
     EntityDescriptor(
         name: "Sun",
         directional_light: Some((
-            direction: (-0.4, -0.8, -0.4),
+            direction: (0.0, -1.0, 0.1),
+            ambient: (0.35, 0.35, 0.35),
         )),
     ),
     EntityDescriptor(
@@ -27,6 +29,7 @@ SceneDescriptor(entities: [
             translation: (0.0, 0.5, 0.0),
         )),
         script: Some("assets/scripts/player.js"),
+        emissive: Some((0.6, 0.6, 0.0)),
     ),
     EntityDescriptor(
         name: "Enemy1",
@@ -34,6 +37,7 @@ SceneDescriptor(entities: [
         transform: Some((
             translation: (5.0, 0.5, 0.0),
         )),
+        emissive: Some((0.6, 0.0, 0.0)),
     ),
     EntityDescriptor(
         name: "Enemy2",
@@ -41,6 +45,7 @@ SceneDescriptor(entities: [
         transform: Some((
             translation: (-5.0, 0.5, 3.0),
         )),
+        emissive: Some((0.6, 0.0, 0.0)),
     ),
     EntityDescriptor(
         name: "Enemy3",
@@ -48,5 +53,6 @@ SceneDescriptor(entities: [
         transform: Some((
             translation: (0.0, 0.5, -5.0),
         )),
+        emissive: Some((0.6, 0.0, 0.0)),
     ),
 ])

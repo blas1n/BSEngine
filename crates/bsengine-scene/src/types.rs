@@ -41,6 +41,8 @@ pub struct EntityDescriptor {
     #[serde(default)]
     pub script: Option<String>,
     #[serde(default)]
+    pub emissive: Option<[f32; 3]>,
+    #[serde(default)]
     pub components: Vec<(String, String)>,
 }
 

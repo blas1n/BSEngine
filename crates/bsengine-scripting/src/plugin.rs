@@ -4,7 +4,7 @@ use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{GlobalTransform, HudTexts, Material, Transform};
-use bsengine_input::{Input, KeyCode, MouseButton, MouseState};
+use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
 use bsengine_physics::PhysicsWorld;
 use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPath};
@@ -12,9 +12,11 @@ use glam::{Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, BOOTSTRAP_JS, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
-    KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
-    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -233,6 +235,61 @@ fn run_scripts(world: &mut World) {
         .map(|ms| (ms.position, ms.delta))
         .unwrap_or(((0.0, 0.0), (0.0, 0.0)));
 
+    const GAMEPAD_MAPPINGS: &[(GamepadButton, u32)] = &[
+        (GamepadButton::South, 0),
+        (GamepadButton::East, 1),
+        (GamepadButton::West, 2),
+        (GamepadButton::North, 3),
+        (GamepadButton::LB, 4),
+        (GamepadButton::RB, 5),
+        (GamepadButton::LT, 6),
+        (GamepadButton::RT, 7),
+        (GamepadButton::Select, 8),
+        (GamepadButton::Start, 9),
+        (GamepadButton::LeftStick, 10),
+        (GamepadButton::RightStick, 11),
+        (GamepadButton::DPadUp, 12),
+        (GamepadButton::DPadDown, 13),
+        (GamepadButton::DPadLeft, 14),
+        (GamepadButton::DPadRight, 15),
+    ];
+
+    let (gpad_pressed, gpad_just_pressed, gpad_just_released): (u16, u16, u16) =
+        if let Some(gpad) = world.get_resource::<Input<GamepadButton>>() {
+            let mut p = 0u16;
+            let mut jp = 0u16;
+            let mut jr = 0u16;
+            for &(btn, bit) in GAMEPAD_MAPPINGS {
+                let mask = 1u16 << bit;
+                if gpad.is_pressed(&btn) {
+                    p |= mask;
+                }
+                if gpad.just_pressed(&btn) {
+                    jp |= mask;
+                }
+                if gpad.just_released(&btn) {
+                    jr |= mask;
+                }
+            }
+            (p, jp, jr)
+        } else {
+            (0, 0, 0)
+        };
+
+    let gamepad_sticks = world
+        .get_resource::<GamepadSticks>()
+        .map(|s| {
+            (
+                s.left.0,
+                s.left.1,
+                s.right.0,
+                s.right.1,
+                s.left_trigger,
+                s.right_trigger,
+            )
+        })
+        .unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+
     let physics_ptr = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| pw as *const PhysicsWorld)
@@ -281,6 +338,10 @@ fn run_scripts(world: &mut World) {
     MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
     ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
     PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = physics_ptr);
+    GAMEPAD_BUTTON_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_pressed);
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_released);
+    GAMEPAD_STICKS_SNAPSHOT.with(|s| *s.borrow_mut() = gamepad_sticks);
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {

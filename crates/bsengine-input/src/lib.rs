@@ -6,5 +6,6 @@ pub mod types;
 pub use plugin::{InputPlugin, MouseState};
 pub use state::Input;
 pub use types::{
-    CursorMoved, ElementState, KeyCode, KeyInput, MouseButton, MouseInput, MouseMotion,
+    CursorMoved, ElementState, GamepadButton, GamepadSticks, KeyCode, KeyInput, MouseButton,
+    MouseInput, MouseMotion,
 };

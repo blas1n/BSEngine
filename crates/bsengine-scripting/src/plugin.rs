@@ -989,6 +989,42 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetCameraFov { name, deg } => {
+                use bsengine_core::Camera;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cam) = world.get_mut::<Camera>(e) {
+                        cam.fov_y_radians = deg.to_radians();
+                    }
+                }
+            }
+            ScriptCommand::SetCameraNear { name, value } => {
+                use bsengine_core::Camera;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cam) = world.get_mut::<Camera>(e) {
+                        cam.near = value;
+                    }
+                }
+            }
+            ScriptCommand::SetCameraFar { name, value } => {
+                use bsengine_core::Camera;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cam) = world.get_mut::<Camera>(e) {
+                        cam.far = value;
+                    }
+                }
+            }
             ScriptCommand::Spawn(params) => {
                 spawn_entity(world, params);
             }

@@ -266,6 +266,8 @@ pub enum ScriptCommand {
 thread_local! {
     pub(crate) static TRANSFORM_SNAPSHOT: RefCell<HashMap<String, (Vec3, Quat, Vec3)>> =
         RefCell::new(HashMap::new());
+    pub(crate) static WORLD_TRANSFORM_SNAPSHOT: RefCell<HashMap<String, (Vec3, Quat, Vec3)>> =
+        RefCell::new(HashMap::new());
     pub(crate) static KEY_SNAPSHOT: RefCell<HashSet<String>> =
         RefCell::new(HashSet::new());
     pub(crate) static KEY_JUST_PRESSED_SNAPSHOT: RefCell<HashSet<String>> =
@@ -468,6 +470,27 @@ pub fn bsengine_get_up_vector(#[string] name: String) -> Option<Vec<f32>> {
             let v = rot.mul_vec3(Vec3::Y);
             vec![v.x, v.y, v.z]
         })
+    })
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_world_transform(#[string] name: String) -> Option<TransformJson> {
+    WORLD_TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(pos, rot, scale)| TransformJson {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                rx: rot.x,
+                ry: rot.y,
+                rz: rot.z,
+                rw: rot.w,
+                sx: scale.x,
+                sy: scale.y,
+                sz: scale.z,
+            })
     })
 }
 
@@ -1290,6 +1313,7 @@ deno_core::extension!(
         bsengine_get_up_vector,
         bsengine_distance_to,
         bsengine_distance_to_point,
+        bsengine_get_world_transform,
         bsengine_set_transform,
         bsengine_set_rotation,
         bsengine_set_scale,
@@ -1387,15 +1411,19 @@ pub const BOOTSTRAP_JS: &str = r#"
 const Bsengine = {
     log:            (msg)                  => Deno.core.ops.bsengine_log(msg),
     version:        ()                     => Deno.core.ops.bsengine_version(),
-    getTransform:   (name)                 => Deno.core.ops.bsengine_get_transform(name),
-    getPosition:    (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.x, y: t.y, z: t.z } : null; },
-    getRotation:    (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
+    getTransform:      (name)                 => Deno.core.ops.bsengine_get_transform(name),
+    getPosition:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.x, y: t.y, z: t.z } : null; },
+    getRotation:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
     getScale:          (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
     getForwardVector:  (name)                 => Deno.core.ops.bsengine_get_forward_vector(name),
     getRightVector:    (name)                 => Deno.core.ops.bsengine_get_right_vector(name),
     getUpVector:       (name)                 => Deno.core.ops.bsengine_get_up_vector(name),
     distanceTo:        (nameA, nameB)         => Deno.core.ops.bsengine_distance_to(nameA, nameB),
     distanceToPoint:   (name, x, y, z)       => Deno.core.ops.bsengine_distance_to_point(name, x, y, z),
+    getWorldTransform: (name)                 => Deno.core.ops.bsengine_get_world_transform(name),
+    getWorldPosition:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.x, y: t.y, z: t.z } : null; },
+    getWorldRotation:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
+    getWorldScale:     (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
     setRotation:    (name, rx, ry, rz, rw) => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
     setScale:            (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
@@ -1796,6 +1824,19 @@ mod tests {
     }
 
     #[test]
+    fn get_world_transform_returns_null_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWorldTransform("NoSuchEntity"))"#)
+            .unwrap();
+        assert!(
+            r.contains("null") || r.contains("undefined"),
+            "expected null: {r}"
+        );
+    }
+
+    #[test]
     fn get_forward_vector_returns_neg_z_for_identity_rotation() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
@@ -1812,6 +1853,38 @@ mod tests {
         assert!(
             r.contains("-1") || r.contains("-0"),
             "expected -Z forward: {r}"
+        );
+    }
+
+    #[test]
+    fn get_world_position_reflects_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::WORLD_TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Child".to_string(),
+                (
+                    glam::Vec3::new(3.0, 4.0, 5.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getWorldPosition("Child"))"#)
+            .unwrap();
+        super::WORLD_TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(
+            r.contains("\"x\":3") || r.contains("\"x\":3.0"),
+            "pos x: {r}"
+        );
+        assert!(
+            r.contains("\"y\":4") || r.contains("\"y\":4.0"),
+            "pos y: {r}"
+        );
+        assert!(
+            r.contains("\"z\":5") || r.contains("\"z\":5.0"),
+            "pos z: {r}"
         );
     }
 

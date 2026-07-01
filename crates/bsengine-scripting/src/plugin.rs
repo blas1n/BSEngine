@@ -25,7 +25,7 @@ use crate::ops::{
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
     SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -185,6 +185,16 @@ fn run_scripts(world: &mut World) {
         let mut q = world.query::<(&Name, &Transform)>();
         q.iter(world)
             .map(|(n, t)| (n.0.clone(), (t.translation, t.rotation, t.scale)))
+            .collect()
+    };
+
+    let world_transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
+        let mut q = world.query::<(&Name, &GlobalTransform)>();
+        q.iter(world)
+            .map(|(n, gt)| {
+                let (scale, rot, pos) = gt.0.to_scale_rotation_translation();
+                (n.0.clone(), (pos, rot, scale))
+            })
             .collect()
     };
 
@@ -412,6 +422,7 @@ fn run_scripts(world: &mut World) {
     });
 
     TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
+    WORLD_TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = world_transform_snapshot);
     VISIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = visible_snapshot);
     MATERIAL_COLOR_SNAPSHOT.with(|s| *s.borrow_mut() = material_color_snapshot);
     MATERIAL_EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = material_emissive_snapshot);

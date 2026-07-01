@@ -163,6 +163,14 @@ pub enum ScriptCommand {
         name: String,
         mass: f32,
     },
+    AddTag {
+        name: String,
+        label: String,
+    },
+    RemoveTag {
+        name: String,
+        label: String,
+    },
     LockRotation {
         name: String,
         lock_x: bool,
@@ -244,6 +252,10 @@ thread_local! {
 
     // tag label → [entity names]
     pub(crate) static TAG_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → [tag labels]
+    pub(crate) static ENTITY_TAGS_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
         RefCell::new(HashMap::new());
 }
 
@@ -571,6 +583,31 @@ pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_has_tag(#[string] name: String, #[string] label: String) -> bool {
+    ENTITY_TAGS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|labels| labels.iter().any(|l| l == &label))
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_tag(#[string] name: String, #[string] label: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::AddTag { name, label });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_remove_tag(#[string] name: String, #[string] label: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RemoveTag { name, label });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::LockRotation {
@@ -794,6 +831,9 @@ deno_core::extension!(
         bsengine_is_key_up,
         bsengine_get_entity_names,
         bsengine_get_entities_by_tag,
+        bsengine_has_tag,
+        bsengine_add_tag,
+        bsengine_remove_tag,
         bsengine_set_emissive,
         bsengine_set_color,
         bsengine_spawn,
@@ -858,6 +898,9 @@ const Bsengine = {
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
     getEntityNames:      ()    => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
     getEntitiesByTag:    (tag) => JSON.parse(Deno.core.ops.bsengine_get_entities_by_tag(tag)),
+    hasTag:              (name, label) => Deno.core.ops.bsengine_has_tag(name, label),
+    addTag:              (name, label) => Deno.core.ops.bsengine_add_tag(name, label),
+    removeTag:           (name, label) => Deno.core.ops.bsengine_remove_tag(name, label),
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
     setColor:       (name, r, g, b)        => Deno.core.ops.bsengine_set_color(name, r, g, b),
     spawn:          (params)               => Deno.core.ops.bsengine_spawn(params),
@@ -1575,6 +1618,58 @@ JSON.stringify(received)
         super::TAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert!(r.contains("Goblin"), "expected Goblin: {r}");
         assert!(r.contains("Orc"), "expected Orc: {r}");
+    }
+
+    #[test]
+    fn has_tag_returns_false_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.hasTag("Player", "enemy")"#).unwrap();
+        assert!(r.contains("false"), "expected false: {r}");
+    }
+
+    #[test]
+    fn has_tag_returns_true_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ENTITY_TAGS_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Player".to_string(), vec!["hero".to_string()]);
+        });
+        let r = rt.eval(r#"Bsengine.hasTag("Player", "hero")"#).unwrap();
+        super::ENTITY_TAGS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("true"), "expected true: {r}");
+    }
+
+    #[test]
+    fn add_tag_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addTag("Enemy", "stunned");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddTag { name, label }
+                    if name == "Enemy" && label == "stunned")
+            });
+            assert!(found, "AddTag not in buffer");
+        });
+    }
+
+    #[test]
+    fn remove_tag_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.removeTag("Enemy", "stunned");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::RemoveTag { name, label }
+                    if name == "Enemy" && label == "stunned")
+            });
+            assert!(found, "RemoveTag not in buffer");
+        });
     }
 
     #[test]

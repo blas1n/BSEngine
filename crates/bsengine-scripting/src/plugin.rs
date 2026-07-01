@@ -16,13 +16,13 @@ use glam::{Quat, Vec3};
 use crate::ops::{
     ScriptCommand, SpawnParams, ANGULAR_VELOCITY_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
     COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MASS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT, TAG_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT,
+    ENTITY_TAGS_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
+    MASS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
+    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    SCREEN_SIZE_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -433,22 +433,32 @@ fn run_scripts(world: &mut World) {
                 .collect()
         })
         .unwrap_or_default();
-    let tag_snapshot: HashMap<String, Vec<String>> = {
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let (tag_snapshot, entity_tags_snapshot): (
+        HashMap<String, Vec<String>>,
+        HashMap<String, Vec<String>>,
+    ) = {
+        let mut by_label: HashMap<String, Vec<String>> = HashMap::new();
+        let mut by_name: HashMap<String, Vec<String>> = HashMap::new();
         let mut q = world.query::<(&Name, &Tag)>();
         for (name, tag) in q.iter(world) {
             for label in tag.iter() {
-                map.entry(label.to_string())
+                by_label
+                    .entry(label.to_string())
                     .or_default()
                     .push(name.0.clone());
+                by_name
+                    .entry(name.0.clone())
+                    .or_default()
+                    .push(label.to_string());
             }
         }
-        map
+        (by_label, by_name)
     };
     ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
     PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
     CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
     TAG_SNAPSHOT.with(|s| *s.borrow_mut() = tag_snapshot);
+    ENTITY_TAGS_SNAPSHOT.with(|s| *s.borrow_mut() = entity_tags_snapshot);
     VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = angular_velocity_snapshot);
     MASS_SNAPSHOT.with(|s| *s.borrow_mut() = mass_snapshot);
@@ -778,6 +788,28 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.lock_rotations(e, lock_x, lock_y, lock_z);
+                }
+            }
+            ScriptCommand::AddTag { name, label } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tag) = world.get_mut::<Tag>(e) {
+                        tag.add(label);
+                    }
+                }
+            }
+            ScriptCommand::RemoveTag { name, label } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tag) = world.get_mut::<Tag>(e) {
+                        tag.remove(&label);
+                    }
                 }
             }
         }

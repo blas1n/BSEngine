@@ -1163,6 +1163,15 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::AddScale { name, sx, sy, sz } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale += Vec3::new(sx, sy, sz);
+                        break;
+                    }
+                }
+            }
             ScriptCommand::AddTag { name, label } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

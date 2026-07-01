@@ -151,6 +151,14 @@ pub enum ScriptCommand {
         vy: f32,
         vz: f32,
     },
+    SetLinearDamping {
+        name: String,
+        damping: f32,
+    },
+    SetAngularDamping {
+        name: String,
+        damping: f32,
+    },
 }
 
 thread_local! {
@@ -507,6 +515,22 @@ pub fn bsengine_add_angular_impulse(#[string] name: String, vx: f32, vy: f32, vz
 }
 
 #[op2(fast)]
+pub fn bsengine_set_linear_damping(#[string] name: String, damping: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLinearDamping { name, damping });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_angular_damping(#[string] name: String, damping: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAngularDamping { name, damping });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -740,6 +764,8 @@ deno_core::extension!(
         bsengine_get_angular_velocity,
         bsengine_set_angular_velocity,
         bsengine_add_angular_impulse,
+        bsengine_set_linear_damping,
+        bsengine_set_angular_damping,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -800,6 +826,8 @@ const Bsengine = {
     getAngularVelocity:   (name)                  => { const v = Deno.core.ops.bsengine_get_angular_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
     setAngularVelocity:   (name, vx, vy, vz)      => Deno.core.ops.bsengine_set_angular_velocity(name, vx, vy, vz),
     addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
+    setLinearDamping:     (name, damping)          => Deno.core.ops.bsengine_set_linear_damping(name, damping),
+    setAngularDamping:    (name, damping)          => Deno.core.ops.bsengine_set_angular_damping(name, damping),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -1640,6 +1668,38 @@ JSON.stringify(received)
                     if name == "Top" && (*vy - 2.0).abs() < 1e-6)
             });
             assert!(found, "AddAngularImpulse not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_linear_damping_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setLinearDamping("Ball", 0.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetLinearDamping { name, damping }
+                    if name == "Ball" && (*damping - 0.5).abs() < 1e-6)
+            });
+            assert!(found, "SetLinearDamping not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_angular_damping_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAngularDamping("Ball", 0.8);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAngularDamping { name, damping }
+                    if name == "Ball" && (*damping - 0.8).abs() < 1e-6)
+            });
+            assert!(found, "SetAngularDamping not in buffer");
         });
     }
 

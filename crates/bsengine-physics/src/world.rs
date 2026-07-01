@@ -141,6 +141,22 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn set_linear_damping(&mut self, entity: Entity, damping: f32) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_linear_damping(damping);
+            }
+        }
+    }
+
+    pub fn set_angular_damping(&mut self, entity: Entity, damping: f32) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_angular_damping(damping);
+            }
+        }
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.

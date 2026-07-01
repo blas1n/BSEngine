@@ -696,7 +696,6 @@ const Bsengine = {
 
     // --- Messaging ---
     _messageHandlers: {},
-    _messageQueue: [],
 
     // Register a handler for messages of `key` addressed to `entityName`.
     onMessage(entityName, key, fn) {
@@ -704,25 +703,12 @@ const Bsengine = {
         (this._messageHandlers[k] ??= []).push(fn);
     },
 
-    // Send a message to a named entity; delivered before its next onUpdate.
+    // Dispatch a message synchronously to all handlers registered for `target`+`key`.
     sendMessage(target, key, data) {
-        this._messageQueue.push({ target, key, data });
-    },
-
-    // Deliver all queued messages addressed to `entityName`.
-    _deliverMessages(entityName) {
-        const remaining = [];
-        for (const msg of this._messageQueue) {
-            if (msg.target === entityName) {
-                const handlers = this._messageHandlers[`${entityName}::${msg.key}`] || [];
-                for (const fn of handlers) {
-                    try { fn(msg.data); } catch (e) { this.log(`[msg:${entityName}:${msg.key}] ${e}`); }
-                }
-            } else {
-                remaining.push(msg);
-            }
+        const handlers = this._messageHandlers[`${target}::${key}`] || [];
+        for (const fn of handlers) {
+            try { fn(data); } catch (e) { this.log(`[msg:${target}:${key}] ${e}`); }
         }
-        this._messageQueue = remaining;
     },
 
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
@@ -730,7 +716,6 @@ const Bsengine = {
         this._tickTimers();
         this._dispatchKeyEvents();
         for (const [id, name] of entities) {
-            this._deliverMessages(name);
             const s = this._scripts[id];
             if (s && s.onUpdate) {
                 try {
@@ -740,8 +725,6 @@ const Bsengine = {
                 }
             }
         }
-        // Drop messages addressed to non-scripted entities.
-        this._messageQueue = [];
     },
 };
 "#;
@@ -955,7 +938,6 @@ mod tests {
 let received = null;
 Bsengine.onMessage("Box", "hit", (data) => { received = data; });
 Bsengine.sendMessage("Box", "hit", { damage: 5 });
-Bsengine._deliverMessages("Box");
 JSON.stringify(received)
 "#,
             )
@@ -967,27 +949,11 @@ JSON.stringify(received)
     }
 
     #[test]
-    fn messaging_clears_after_runall() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(
-            r#"
-Bsengine.sendMessage("Ghost", "ping", {});
-Bsengine._runAll([]);
-"#,
-        )
-        .unwrap();
-        let len = rt.eval("Bsengine._messageQueue.length").unwrap();
-        assert_eq!(len.trim(), "0", "queue not cleared after _runAll: {len}");
-    }
-
-    #[test]
     fn messaging_no_op_for_unknown_recipient() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        // Should not throw even if no handler registered
         let r = rt
-            .eval(r#"Bsengine.sendMessage("NoOne", "event", {}); Bsengine._deliverMessages("NoOne"); "ok""#)
+            .eval(r#"Bsengine.sendMessage("NoOne", "event", {}); "ok""#)
             .unwrap();
         assert!(r.contains("ok"), "threw: {r}");
     }

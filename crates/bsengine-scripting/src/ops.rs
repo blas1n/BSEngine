@@ -267,6 +267,14 @@ thread_local! {
     pub(crate) static COLLIDER_SENSOR_SNAPSHOT: RefCell<HashMap<String, bool>> =
         RefCell::new(HashMap::new());
 
+    // name → linear damping (only for entities with a physics body)
+    pub(crate) static LINEAR_DAMPING_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // name → angular damping (only for entities with a physics body)
+    pub(crate) static ANGULAR_DAMPING_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
     // child_name → parent_name (only for entities that have a Parent component)
     pub(crate) static PARENT_SNAPSHOT: RefCell<HashMap<String, String>> =
         RefCell::new(HashMap::new());
@@ -615,6 +623,16 @@ pub fn bsengine_is_collider_sensor(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_linear_damping(#[string] name: String) -> f32 {
+    LINEAR_DAMPING_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_angular_damping(#[string] name: String) -> f32 {
+    ANGULAR_DAMPING_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
+}
+
+#[op2(fast)]
 pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetMass { name, mass });
@@ -941,6 +959,8 @@ deno_core::extension!(
         bsengine_get_gravity_scale,
         bsengine_is_kinematic,
         bsengine_is_collider_sensor,
+        bsengine_get_linear_damping,
+        bsengine_get_angular_damping,
         bsengine_lock_rotation,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
@@ -1017,6 +1037,8 @@ const Bsengine = {
     getGravityScale:      (name)                   => Deno.core.ops.bsengine_get_gravity_scale(name),
     isKinematic:          (name)                   => Deno.core.ops.bsengine_is_kinematic(name),
     isColliderSensor:     (name)                   => Deno.core.ops.bsengine_is_collider_sensor(name),
+    getLinearDamping:     (name)                   => Deno.core.ops.bsengine_get_linear_damping(name),
+    getAngularDamping:    (name)                   => Deno.core.ops.bsengine_get_angular_damping(name),
     lockRotation:         (name, lockX, lockY, lockZ) => Deno.core.ops.bsengine_lock_rotation(name, lockX, lockY, lockZ),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
@@ -2113,6 +2135,46 @@ JSON.stringify(received)
             .unwrap();
         super::COLLIDER_SENSOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert_eq!(r, "true");
+    }
+
+    #[test]
+    fn get_linear_damping_returns_zero_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getLinearDamping("Ball")"#).unwrap();
+        assert!(r.contains('0'), "expected 0: {r}");
+    }
+
+    #[test]
+    fn get_linear_damping_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::LINEAR_DAMPING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Ball".to_string(), 0.3);
+        });
+        let r = rt.eval(r#"Bsengine.getLinearDamping("Ball")"#).unwrap();
+        super::LINEAR_DAMPING_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("0.3"), "expected 0.3: {r}");
+    }
+
+    #[test]
+    fn get_angular_damping_returns_zero_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAngularDamping("Ball")"#).unwrap();
+        assert!(r.contains('0'), "expected 0: {r}");
+    }
+
+    #[test]
+    fn get_angular_damping_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ANGULAR_DAMPING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Ball".to_string(), 0.75);
+        });
+        let r = rt.eval(r#"Bsengine.getAngularDamping("Ball")"#).unwrap();
+        super::ANGULAR_DAMPING_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("0.75"), "expected 0.75: {r}");
     }
 
     #[test]

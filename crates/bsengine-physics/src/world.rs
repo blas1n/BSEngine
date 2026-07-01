@@ -157,6 +157,18 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn get_linear_damping(&self, entity: Entity) -> Option<f32> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        Some(body.linear_damping())
+    }
+
+    pub fn get_angular_damping(&self, entity: Entity) -> Option<f32> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        Some(body.angular_damping())
+    }
+
     pub fn get_mass(&self, entity: Entity) -> Option<f32> {
         let handle = self.entity_body_map.get(&entity)?;
         let body = self.rigid_body_set.get(*handle)?;

@@ -1219,9 +1219,9 @@ JSON.stringify(received)
         rt.eval(r#"Bsengine.setCursorVisible(false);"#).unwrap();
         super::COMMAND_BUFFER.with(|c| {
             let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetCursorVisible { visible } if !visible)
-            });
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetCursorVisible { visible } if !visible),
+            );
             assert!(found, "SetCursorVisible not in buffer");
         });
     }
@@ -1233,9 +1233,9 @@ JSON.stringify(received)
         rt.eval(r#"Bsengine.setCursorLocked(true);"#).unwrap();
         super::COMMAND_BUFFER.with(|c| {
             let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetCursorLocked { locked } if *locked)
-            });
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetCursorLocked { locked } if *locked),
+            );
             assert!(found, "SetCursorLocked not in buffer");
         });
     }

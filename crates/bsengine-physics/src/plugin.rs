@@ -103,6 +103,7 @@ fn spawn_bodies(
 
         let collider_handle = world.add_collider(coll, body_handle);
         world.collider_entity_map.insert(collider_handle, entity);
+        world.register_entity_body(entity, body_handle);
 
         commands.entity(entity).insert((
             PhysicsHandles {

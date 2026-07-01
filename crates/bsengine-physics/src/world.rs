@@ -12,6 +12,7 @@ pub struct PhysicsWorld {
     pub(crate) rigid_body_set: RigidBodySet,
     pub(crate) collider_set: ColliderSet,
     pub(crate) collider_entity_map: HashMap<ColliderHandle, Entity>,
+    pub(crate) entity_body_map: HashMap<Entity, RigidBodyHandle>,
     gravity: Vector,
     integration_parameters: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
@@ -35,6 +36,7 @@ impl PhysicsWorld {
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
             collider_entity_map: HashMap::new(),
+            entity_body_map: HashMap::new(),
             gravity: Vector::new(0.0, -gravity_magnitude, 0.0),
             integration_parameters: IntegrationParameters::default(),
             physics_pipeline: PhysicsPipeline::new(),
@@ -79,6 +81,41 @@ impl PhysicsWorld {
 
     pub fn set_gravity(&mut self, magnitude: f32) {
         self.gravity = Vector::new(0.0, -magnitude, 0.0);
+    }
+
+    pub(crate) fn register_entity_body(&mut self, entity: Entity, handle: RigidBodyHandle) {
+        self.entity_body_map.insert(entity, handle);
+    }
+
+    pub fn get_linvel(&self, entity: Entity) -> Option<Vec3> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        let v = body.linvel();
+        Some(Vec3::new(v.x, v.y, v.z))
+    }
+
+    pub fn set_linvel(&mut self, entity: Entity, vel: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_linvel(Vector::new(vel.x, vel.y, vel.z), true);
+            }
+        }
+    }
+
+    pub fn apply_impulse(&mut self, entity: Entity, impulse: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+            }
+        }
+    }
+
+    pub fn apply_force(&mut self, entity: Entity, force: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.add_force(Vector::new(force.x, force.y, force.z), true);
+            }
+        }
     }
 
     /// Cast a ray into the physics world. Returns hit info or None.

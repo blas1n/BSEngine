@@ -716,6 +716,36 @@ pub fn bsengine_get_scale_z(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_rotation_euler_x(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow().get(&name).map_or(f32::NAN, |t| {
+            let (x, _, _) = t.1.to_euler(glam::EulerRot::XYZ);
+            x.to_degrees()
+        })
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_rotation_euler_y(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow().get(&name).map_or(f32::NAN, |t| {
+            let (_, y, _) = t.1.to_euler(glam::EulerRot::XYZ);
+            y.to_degrees()
+        })
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_rotation_euler_z(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow().get(&name).map_or(f32::NAN, |t| {
+            let (_, _, z) = t.1.to_euler(glam::EulerRot::XYZ);
+            z.to_degrees()
+        })
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_is_key_pressed(#[string] key: String) -> bool {
     KEY_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
@@ -1472,6 +1502,9 @@ deno_core::extension!(
         bsengine_get_scale_x,
         bsengine_get_scale_y,
         bsengine_get_scale_z,
+        bsengine_get_rotation_euler_x,
+        bsengine_get_rotation_euler_y,
+        bsengine_get_rotation_euler_z,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1595,6 +1628,9 @@ const Bsengine = {
     getScaleX:         (name)                 => Deno.core.ops.bsengine_get_scale_x(name),
     getScaleY:         (name)                 => Deno.core.ops.bsengine_get_scale_y(name),
     getScaleZ:         (name)                 => Deno.core.ops.bsengine_get_scale_z(name),
+    getRotationEulerX: (name) => Deno.core.ops.bsengine_get_rotation_euler_x(name),
+    getRotationEulerY: (name) => Deno.core.ops.bsengine_get_rotation_euler_y(name),
+    getRotationEulerZ: (name) => Deno.core.ops.bsengine_get_rotation_euler_z(name),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -4010,5 +4046,65 @@ JSON.stringify(received)
         super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
         let v: f32 = r.trim().parse().expect("expected a number");
         assert!((v - 4.0).abs() < 1e-4, "expected 4.0, got {v}");
+    }
+
+    #[test]
+    fn get_rotation_euler_x_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::ZERO,
+                    glam::Quat::from_euler(glam::EulerRot::XYZ, 30f32.to_radians(), 0.0, 0.0),
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getRotationEulerX("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 30.0).abs() < 1e-3, "expected 30.0, got {v}");
+    }
+
+    #[test]
+    fn get_rotation_euler_y_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::ZERO,
+                    glam::Quat::from_euler(glam::EulerRot::XYZ, 0.0, 45f32.to_radians(), 0.0),
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getRotationEulerY("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 45.0).abs() < 1e-3, "expected 45.0, got {v}");
+    }
+
+    #[test]
+    fn get_rotation_euler_z_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::ZERO,
+                    glam::Quat::from_euler(glam::EulerRot::XYZ, 0.0, 0.0, 90f32.to_radians()),
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getRotationEulerZ("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 90.0).abs() < 1e-3, "expected 90.0, got {v}");
     }
 }

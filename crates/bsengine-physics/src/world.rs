@@ -141,6 +141,14 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn add_torque(&mut self, entity: Entity, torque: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.add_torque(Vector::new(torque.x, torque.y, torque.z), true);
+            }
+        }
+    }
+
     pub fn set_linear_damping(&mut self, entity: Entity, damping: f32) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

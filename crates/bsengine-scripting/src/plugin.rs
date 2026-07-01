@@ -953,6 +953,42 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetDirectionalLightColor { name, r, g, b } => {
+                use bsengine_core::DirectionalLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
+                        light.color = glam::Vec3::new(r, g, b);
+                    }
+                }
+            }
+            ScriptCommand::SetDirectionalLightAmbient { name, r, g, b } => {
+                use bsengine_core::DirectionalLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
+                        light.ambient = glam::Vec3::new(r, g, b);
+                    }
+                }
+            }
+            ScriptCommand::SetDirectionalLightDirection { name, x, y, z } => {
+                use bsengine_core::DirectionalLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
+                        light.direction = glam::Vec3::new(x, y, z).normalize();
+                    }
+                }
+            }
             ScriptCommand::Spawn(params) => {
                 spawn_entity(world, params);
             }

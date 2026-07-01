@@ -130,6 +130,10 @@ pub enum ScriptCommand {
         id: u32,
         rate: f32,
     },
+    SeekSound {
+        id: u32,
+        position: f64,
+    },
     SetHudText {
         id: String,
         text: String,
@@ -1730,6 +1734,14 @@ pub fn bsengine_set_sound_playback_rate(id: u32, rate: f32) {
     });
 }
 
+#[op2(fast)]
+pub fn bsengine_seek_sound(id: u32, position: f64) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SeekSound { id, position })
+    });
+}
+
 #[op2]
 #[string]
 pub fn bsengine_get_sound_state(id: u32) -> String {
@@ -2042,6 +2054,7 @@ deno_core::extension!(
         bsengine_set_sound_volume,
         bsengine_set_sound_panning,
         bsengine_set_sound_playback_rate,
+        bsengine_seek_sound,
         bsengine_get_sound_state,
         bsengine_get_sound_position,
         bsengine_set_hud_text,
@@ -2216,6 +2229,7 @@ const Bsengine = {
     setSoundVolume:       (id, db)      => Deno.core.ops.bsengine_set_sound_volume(id, db),
     setSoundPanning:      (id, panning) => Deno.core.ops.bsengine_set_sound_panning(id, panning),
     setSoundPlaybackRate: (id, rate)    => Deno.core.ops.bsengine_set_sound_playback_rate(id, rate),
+    seekSound:            (id, pos)     => Deno.core.ops.bsengine_seek_sound(id, pos),
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
     setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
@@ -4695,6 +4709,22 @@ JSON.stringify(received)
                     if *id == 8 && (*rate - 2.0_f32).abs() < 1e-5)
             });
             assert!(found, "SetSoundPlaybackRate not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn seek_sound_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.seekSound(11, 2.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SeekSound { id, position }
+                    if *id == 11 && (*position - 2.5_f64).abs() < 1e-9)
+            });
+            assert!(found, "SeekSound not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

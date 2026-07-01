@@ -920,6 +920,21 @@ fn run_scripts(world: &mut World) {
                     pw.lock_rotations(e, lock_x, lock_y, lock_z);
                 }
             }
+            ScriptCommand::LockTranslation {
+                name,
+                lock_x,
+                lock_y,
+                lock_z,
+            } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.lock_translations(e, lock_x, lock_y, lock_z);
+                }
+            }
             ScriptCommand::AddTag { name, label } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

@@ -87,6 +87,14 @@ pub enum ScriptCommand {
         g: f32,
         b: f32,
     },
+    SetMetallic {
+        name: String,
+        value: f32,
+    },
+    SetRoughness {
+        name: String,
+        value: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -402,6 +410,14 @@ thread_local! {
 
     // name → emissive [r, g, b] (only for entities with a Material component)
     pub(crate) static MATERIAL_EMISSIVE_SNAPSHOT: RefCell<HashMap<String, [f32; 3]>> =
+        RefCell::new(HashMap::new());
+
+    // name → metallic (only for entities with a Material component)
+    pub(crate) static MATERIAL_METALLIC_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // name → roughness (only for entities with a Material component)
+    pub(crate) static MATERIAL_ROUGHNESS_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 
     pub(crate) static TIME_ELAPSED_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
@@ -1036,6 +1052,32 @@ pub fn bsengine_get_material_color(#[string] name: String) -> Option<Vec<f32>> {
 #[serde]
 pub fn bsengine_get_material_emissive(#[string] name: String) -> Option<Vec<f32>> {
     MATERIAL_EMISSIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|c| c.to_vec()))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_metallic(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMetallic { name, value });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_metallic(#[string] name: String) -> f32 {
+    MATERIAL_METALLIC_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(f32::NAN))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_roughness(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRoughness { name, value });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_roughness(#[string] name: String) -> f32 {
+    MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(f32::NAN))
 }
 
 #[op2(fast)]
@@ -1721,6 +1763,10 @@ deno_core::extension!(
         bsengine_get_visible,
         bsengine_get_material_color,
         bsengine_get_material_emissive,
+        bsengine_set_metallic,
+        bsengine_get_metallic,
+        bsengine_set_roughness,
+        bsengine_get_roughness,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -1865,6 +1911,10 @@ const Bsengine = {
     getVisible:     (name)                 => Deno.core.ops.bsengine_get_visible(name),
     getMaterialColor:   (name) => { const v = Deno.core.ops.bsengine_get_material_color(name); return v ? { r: v[0], g: v[1], b: v[2] } : null; },
     getMaterialEmissive:(name) => { const v = Deno.core.ops.bsengine_get_material_emissive(name); return v ? { r: v[0], g: v[1], b: v[2] } : null; },
+    setMetallic:    (name, value)          => Deno.core.ops.bsengine_set_metallic(name, value),
+    getMetallic:    (name)                 => Deno.core.ops.bsengine_get_metallic(name),
+    setRoughness:   (name, value)          => Deno.core.ops.bsengine_set_roughness(name, value),
+    getRoughness:   (name)                 => Deno.core.ops.bsengine_get_roughness(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -4653,5 +4703,69 @@ JSON.stringify(received)
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_metallic_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMetallic("Sphere", 0.8);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetMetallic { name, value } => {
+                    assert_eq!(name, "Sphere");
+                    assert!((value - 0.8).abs() < 1e-4);
+                }
+                _ => panic!("expected SetMetallic command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_metallic_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::MATERIAL_METALLIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Sphere".to_string(), 0.75);
+        });
+        let r = rt.eval(r#"Bsengine.getMetallic("Sphere")"#).unwrap();
+        super::MATERIAL_METALLIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 0.75).abs() < 1e-4, "expected 0.75, got {v}");
+    }
+
+    #[test]
+    fn set_roughness_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRoughness("Sphere", 0.3);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetRoughness { name, value } => {
+                    assert_eq!(name, "Sphere");
+                    assert!((value - 0.3).abs() < 1e-4);
+                }
+                _ => panic!("expected SetRoughness command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_roughness_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Sphere".to_string(), 0.4);
+        });
+        let r = rt.eval(r#"Bsengine.getRoughness("Sphere")"#).unwrap();
+        super::MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 0.4).abs() < 1e-4, "expected 0.4, got {v}");
     }
 }

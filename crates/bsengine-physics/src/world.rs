@@ -110,6 +110,18 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn apply_impulse_at_point(&mut self, entity: Entity, impulse: Vec3, point: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.apply_impulse_at_point(
+                    Vector::new(impulse.x, impulse.y, impulse.z),
+                    Vector::new(point.x, point.y, point.z),
+                    true,
+                );
+            }
+        }
+    }
+
     pub fn apply_force(&mut self, entity: Entity, force: Vec3) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

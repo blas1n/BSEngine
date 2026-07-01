@@ -154,6 +154,8 @@ thread_local! {
 
     pub(crate) static TIME_ELAPSED_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
     pub(crate) static TIME_DELTA_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
+
+    pub(crate) static SCREEN_SIZE_SNAPSHOT: RefCell<(u32, u32)> = RefCell::new((1280, 720));
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -330,6 +332,15 @@ pub fn bsengine_get_time() -> f32 {
 #[op2(fast)]
 pub fn bsengine_get_delta_time() -> f32 {
     TIME_DELTA_SNAPSHOT.with(|s| *s.borrow())
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_screen_size() -> Vec<u32> {
+    SCREEN_SIZE_SNAPSHOT.with(|s| {
+        let (w, h) = *s.borrow();
+        vec![w, h]
+    })
 }
 
 #[op2(fast)]
@@ -536,6 +547,7 @@ deno_core::extension!(
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
+        bsengine_get_screen_size,
         bsengine_play_sound,
         bsengine_stop_sound,
         bsengine_set_hud_text,
@@ -580,6 +592,7 @@ const Bsengine = {
     // Time
     getTime:        ()                     => Deno.core.ops.bsengine_get_time(),
     getDeltaTime:   ()                     => Deno.core.ops.bsengine_get_delta_time(),
+    getScreenSize:  ()                     => { const [w, h] = Deno.core.ops.bsengine_get_screen_size(); return { width: w, height: h }; },
     playSound:      (path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
@@ -926,6 +939,15 @@ mod tests {
         .unwrap();
         let r = rt.eval("hit").unwrap();
         assert!(r.contains("Floor"), "expected Floor: {r}");
+    }
+
+    #[test]
+    fn get_screen_size_returns_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval("JSON.stringify(Bsengine.getScreenSize())").unwrap();
+        assert!(r.contains("\"width\":1280"), "unexpected: {r}");
+        assert!(r.contains("\"height\":720"), "unexpected: {r}");
     }
 
     #[test]

@@ -6,6 +6,8 @@ use winit::event::{DeviceEvent, DeviceId, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
+use bsengine_core::ScreenSize;
+
 use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized};
 
 struct BsWinitApp {
@@ -39,6 +41,10 @@ impl ApplicationHandler for BsWinitApp {
         self.ecs_app
             .world_mut()
             .insert_resource(WindowHandle(window.clone()));
+        self.ecs_app.world_mut().insert_resource(ScreenSize {
+            width: desc.width,
+            height: desc.height,
+        });
         window.request_redraw();
 
         {
@@ -63,14 +69,20 @@ impl ApplicationHandler for BsWinitApp {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                let mut events = self
-                    .ecs_app
-                    .world_mut()
-                    .resource_mut::<Events<WindowResized>>();
-                events.send(WindowResized {
-                    width: size.width,
-                    height: size.height,
-                });
+                {
+                    let mut events = self
+                        .ecs_app
+                        .world_mut()
+                        .resource_mut::<Events<WindowResized>>();
+                    events.send(WindowResized {
+                        width: size.width,
+                        height: size.height,
+                    });
+                }
+                if let Some(mut ss) = self.ecs_app.world_mut().get_resource_mut::<ScreenSize>() {
+                    ss.width = size.width;
+                    ss.height = size.height;
+                }
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 use bevy_ecs::event::Events;

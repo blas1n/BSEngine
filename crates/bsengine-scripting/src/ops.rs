@@ -163,6 +163,12 @@ pub enum ScriptCommand {
         name: String,
         mass: f32,
     },
+    LockRotation {
+        name: String,
+        lock_x: bool,
+        lock_y: bool,
+        lock_z: bool,
+    },
 }
 
 thread_local! {
@@ -551,6 +557,18 @@ pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::LockRotation {
+            name,
+            lock_x,
+            lock_y,
+            lock_z,
+        });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -788,6 +806,7 @@ deno_core::extension!(
         bsengine_set_angular_damping,
         bsengine_get_mass,
         bsengine_set_mass,
+        bsengine_lock_rotation,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -852,6 +871,7 @@ const Bsengine = {
     setAngularDamping:    (name, damping)          => Deno.core.ops.bsengine_set_angular_damping(name, damping),
     getMass:              (name)                   => Deno.core.ops.bsengine_get_mass(name),
     setMass:              (name, mass)             => Deno.core.ops.bsengine_set_mass(name, mass),
+    lockRotation:         (name, lockX, lockY, lockZ) => Deno.core.ops.bsengine_lock_rotation(name, lockX, lockY, lockZ),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -1759,6 +1779,22 @@ JSON.stringify(received)
                     if name == "Rock" && (*mass - 10.0).abs() < 1e-6)
             });
             assert!(found, "SetMass not in buffer");
+        });
+    }
+
+    #[test]
+    fn lock_rotation_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.lockRotation("Player", true, false, true);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::LockRotation { name, lock_x, lock_y, lock_z }
+                    if name == "Player" && *lock_x && !*lock_y && *lock_z)
+            });
+            assert!(found, "LockRotation not in buffer");
         });
     }
 

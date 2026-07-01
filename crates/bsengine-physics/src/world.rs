@@ -171,6 +171,14 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn lock_rotations(&mut self, entity: Entity, lock_x: bool, lock_y: bool, lock_z: bool) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_enabled_rotations(!lock_x, !lock_y, !lock_z, true);
+            }
+        }
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.

@@ -255,6 +255,18 @@ thread_local! {
     pub(crate) static MASS_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 
+    // name → gravity scale (only for entities with a physics body)
+    pub(crate) static GRAVITY_SCALE_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // name → is_kinematic (only for entities with a physics body)
+    pub(crate) static BODY_TYPE_SNAPSHOT: RefCell<HashMap<String, bool>> =
+        RefCell::new(HashMap::new());
+
+    // name → is_sensor (only for entities with at least one collider)
+    pub(crate) static COLLIDER_SENSOR_SNAPSHOT: RefCell<HashMap<String, bool>> =
+        RefCell::new(HashMap::new());
+
     // child_name → parent_name (only for entities that have a Parent component)
     pub(crate) static PARENT_SNAPSHOT: RefCell<HashMap<String, String>> =
         RefCell::new(HashMap::new());
@@ -588,6 +600,21 @@ pub fn bsengine_get_mass(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_gravity_scale(#[string] name: String) -> f32 {
+    GRAVITY_SCALE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_kinematic(#[string] name: String) -> bool {
+    BODY_TYPE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_collider_sensor(#[string] name: String) -> bool {
+    COLLIDER_SENSOR_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
+}
+
+#[op2(fast)]
 pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetMass { name, mass });
@@ -911,6 +938,9 @@ deno_core::extension!(
         bsengine_set_angular_damping,
         bsengine_get_mass,
         bsengine_set_mass,
+        bsengine_get_gravity_scale,
+        bsengine_is_kinematic,
+        bsengine_is_collider_sensor,
         bsengine_lock_rotation,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
@@ -984,6 +1014,9 @@ const Bsengine = {
     setAngularDamping:    (name, damping)          => Deno.core.ops.bsengine_set_angular_damping(name, damping),
     getMass:              (name)                   => Deno.core.ops.bsengine_get_mass(name),
     setMass:              (name, mass)             => Deno.core.ops.bsengine_set_mass(name, mass),
+    getGravityScale:      (name)                   => Deno.core.ops.bsengine_get_gravity_scale(name),
+    isKinematic:          (name)                   => Deno.core.ops.bsengine_is_kinematic(name),
+    isColliderSensor:     (name)                   => Deno.core.ops.bsengine_is_collider_sensor(name),
     lockRotation:         (name, lockX, lockY, lockZ) => Deno.core.ops.bsengine_lock_rotation(name, lockX, lockY, lockZ),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
@@ -2016,6 +2049,70 @@ JSON.stringify(received)
         let r = rt.eval(r#"Bsengine.getMass("Rock")"#).unwrap();
         super::MASS_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert!(r.contains('5'), "expected 5: {r}");
+    }
+
+    #[test]
+    fn get_gravity_scale_returns_default_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getGravityScale("Cube")"#).unwrap();
+        assert!(r.contains('1'), "expected 1: {r}");
+    }
+
+    #[test]
+    fn get_gravity_scale_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::GRAVITY_SCALE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cube".to_string(), 2.5);
+        });
+        let r = rt.eval(r#"Bsengine.getGravityScale("Cube")"#).unwrap();
+        super::GRAVITY_SCALE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("2.5"), "expected 2.5: {r}");
+    }
+
+    #[test]
+    fn is_kinematic_returns_false_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.isKinematic("Cube"))"#).unwrap();
+        assert_eq!(r, "false");
+    }
+
+    #[test]
+    fn is_kinematic_returns_true_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::BODY_TYPE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cube".to_string(), true);
+        });
+        let r = rt.eval(r#"String(Bsengine.isKinematic("Cube"))"#).unwrap();
+        super::BODY_TYPE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(r, "true");
+    }
+
+    #[test]
+    fn is_collider_sensor_returns_false_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isColliderSensor("Zone"))"#)
+            .unwrap();
+        assert_eq!(r, "false");
+    }
+
+    #[test]
+    fn is_collider_sensor_returns_true_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::COLLIDER_SENSOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Zone".to_string(), true);
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.isColliderSensor("Zone"))"#)
+            .unwrap();
+        super::COLLIDER_SENSOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(r, "true");
     }
 
     #[test]

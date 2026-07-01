@@ -191,6 +191,26 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn get_gravity_scale(&self, entity: Entity) -> Option<f32> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        Some(body.gravity_scale())
+    }
+
+    pub fn is_kinematic(&self, entity: Entity) -> Option<bool> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        Some(body.is_kinematic())
+    }
+
+    pub fn is_collider_sensor(&self, entity: Entity) -> Option<bool> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        let coll_handle = *body.colliders().first()?;
+        let collider = self.collider_set.get(coll_handle)?;
+        Some(collider.is_sensor())
+    }
+
     pub fn set_gravity_scale(&mut self, entity: Entity, scale: f32) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

@@ -183,6 +183,14 @@ pub enum ScriptCommand {
         name: String,
         sensor: bool,
     },
+    SetRestitution {
+        name: String,
+        restitution: f32,
+    },
+    SetFriction {
+        name: String,
+        friction: f32,
+    },
     LockRotation {
         name: String,
         lock_x: bool,
@@ -273,6 +281,14 @@ thread_local! {
 
     // name → angular damping (only for entities with a physics body)
     pub(crate) static ANGULAR_DAMPING_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // name → restitution (only for entities with at least one collider)
+    pub(crate) static RESTITUTION_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // name → friction (only for entities with at least one collider)
+    pub(crate) static FRICTION_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 
     // child_name → parent_name (only for entities that have a Parent component)
@@ -633,6 +649,32 @@ pub fn bsengine_get_angular_damping(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_restitution(#[string] name: String) -> f32 {
+    RESTITUTION_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_restitution(#[string] name: String, restitution: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRestitution { name, restitution });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_friction(#[string] name: String) -> f32 {
+    FRICTION_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_friction(#[string] name: String, friction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFriction { name, friction });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetMass { name, mass });
@@ -961,6 +1003,10 @@ deno_core::extension!(
         bsengine_is_collider_sensor,
         bsengine_get_linear_damping,
         bsengine_get_angular_damping,
+        bsengine_get_restitution,
+        bsengine_set_restitution,
+        bsengine_get_friction,
+        bsengine_set_friction,
         bsengine_lock_rotation,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
@@ -1039,6 +1085,10 @@ const Bsengine = {
     isColliderSensor:     (name)                   => Deno.core.ops.bsengine_is_collider_sensor(name),
     getLinearDamping:     (name)                   => Deno.core.ops.bsengine_get_linear_damping(name),
     getAngularDamping:    (name)                   => Deno.core.ops.bsengine_get_angular_damping(name),
+    getRestitution:       (name)                   => Deno.core.ops.bsengine_get_restitution(name),
+    setRestitution:       (name, v)                => Deno.core.ops.bsengine_set_restitution(name, v),
+    getFriction:          (name)                   => Deno.core.ops.bsengine_get_friction(name),
+    setFriction:          (name, v)                => Deno.core.ops.bsengine_set_friction(name, v),
     lockRotation:         (name, lockX, lockY, lockZ) => Deno.core.ops.bsengine_lock_rotation(name, lockX, lockY, lockZ),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
@@ -2175,6 +2225,76 @@ JSON.stringify(received)
         let r = rt.eval(r#"Bsengine.getAngularDamping("Ball")"#).unwrap();
         super::ANGULAR_DAMPING_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert!(r.contains("0.75"), "expected 0.75: {r}");
+    }
+
+    #[test]
+    fn get_restitution_returns_zero_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getRestitution("Ball")"#).unwrap();
+        assert!(r.contains('0'), "expected 0: {r}");
+    }
+
+    #[test]
+    fn get_restitution_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::RESTITUTION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Ball".to_string(), 0.75);
+        });
+        let r = rt.eval(r#"Bsengine.getRestitution("Ball")"#).unwrap();
+        super::RESTITUTION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("0.75"), "expected 0.75: {r}");
+    }
+
+    #[test]
+    fn set_restitution_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRestitution("Ball", 0.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetRestitution { name, restitution }
+                    if name == "Ball" && (*restitution - 0.5).abs() < 1e-6)
+            });
+            assert!(found, "SetRestitution not in buffer");
+        });
+    }
+
+    #[test]
+    fn get_friction_returns_zero_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getFriction("Ball")"#).unwrap();
+        assert!(r.contains('0'), "expected 0: {r}");
+    }
+
+    #[test]
+    fn get_friction_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::FRICTION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Ball".to_string(), 0.5);
+        });
+        let r = rt.eval(r#"Bsengine.getFriction("Ball")"#).unwrap();
+        super::FRICTION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("0.5"), "expected 0.5: {r}");
+    }
+
+    #[test]
+    fn set_friction_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFriction("Ball", 0.25);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetFriction { name, friction }
+                    if name == "Ball" && (*friction - 0.25).abs() < 1e-6)
+            });
+            assert!(found, "SetFriction not in buffer");
+        });
     }
 
     #[test]

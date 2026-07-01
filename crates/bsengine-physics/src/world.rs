@@ -191,6 +191,46 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn get_restitution(&self, entity: Entity) -> Option<f32> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        let coll_handle = *body.colliders().first()?;
+        let collider = self.collider_set.get(coll_handle)?;
+        Some(collider.restitution())
+    }
+
+    pub fn set_restitution(&mut self, entity: Entity, restitution: f32) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get(handle) {
+                for &coll_handle in body.colliders() {
+                    if let Some(collider) = self.collider_set.get_mut(coll_handle) {
+                        collider.set_restitution(restitution);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_friction(&self, entity: Entity) -> Option<f32> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        let coll_handle = *body.colliders().first()?;
+        let collider = self.collider_set.get(coll_handle)?;
+        Some(collider.friction())
+    }
+
+    pub fn set_friction(&mut self, entity: Entity, friction: f32) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get(handle) {
+                for &coll_handle in body.colliders() {
+                    if let Some(collider) = self.collider_set.get_mut(coll_handle) {
+                        collider.set_friction(friction);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn set_collider_sensor(&mut self, entity: Entity, sensor: bool) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get(handle) {

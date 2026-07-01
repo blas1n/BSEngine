@@ -17,14 +17,14 @@ use crate::ops::{
     ScriptCommand, SpawnParams, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
     COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    ENTITY_TAGS_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    ENTITY_TAGS_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MASS_SNAPSHOT,
     MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
     MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    SCREEN_SIZE_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -495,6 +495,30 @@ fn run_scripts(world: &mut World) {
                 .collect()
         })
         .unwrap_or_default();
+    let restitution_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_restitution(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let friction_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_friction(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let (tag_snapshot, entity_tags_snapshot): (
         HashMap<String, Vec<String>>,
         HashMap<String, Vec<String>>,
@@ -529,6 +553,8 @@ fn run_scripts(world: &mut World) {
     COLLIDER_SENSOR_SNAPSHOT.with(|s| *s.borrow_mut() = collider_sensor_snapshot);
     LINEAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = linear_damping_snapshot);
     ANGULAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = angular_damping_snapshot);
+    RESTITUTION_SNAPSHOT.with(|s| *s.borrow_mut() = restitution_snapshot);
+    FRICTION_SNAPSHOT.with(|s| *s.borrow_mut() = friction_snapshot);
     let gravity = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| pw.gravity())
@@ -907,6 +933,26 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.set_collider_sensor(e, sensor);
+                }
+            }
+            ScriptCommand::SetRestitution { name, restitution } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_restitution(e, restitution);
+                }
+            }
+            ScriptCommand::SetFriction { name, friction } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_friction(e, friction);
                 }
             }
         }

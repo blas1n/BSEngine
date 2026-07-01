@@ -299,6 +299,12 @@ pub enum ScriptCommand {
         yaw_deg: f32,
         roll_deg: f32,
     },
+    AddScale {
+        name: String,
+        sx: f32,
+        sy: f32,
+        sz: f32,
+    },
 }
 
 thread_local! {
@@ -761,6 +767,14 @@ pub fn bsengine_get_rotation_euler_z(#[string] name: String) -> f32 {
             z.to_degrees()
         })
     })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddScale { name, sx, sy, sz });
+    });
 }
 
 #[op2(fast)]
@@ -1524,6 +1538,7 @@ deno_core::extension!(
         bsengine_get_rotation_euler_x,
         bsengine_get_rotation_euler_y,
         bsengine_get_rotation_euler_z,
+        bsengine_add_scale,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1651,6 +1666,7 @@ const Bsengine = {
     getRotationEulerX: (name) => Deno.core.ops.bsengine_get_rotation_euler_x(name),
     getRotationEulerY: (name) => Deno.core.ops.bsengine_get_rotation_euler_y(name),
     getRotationEulerZ: (name) => Deno.core.ops.bsengine_get_rotation_euler_z(name),
+    addScale:          (name, sx, sy, sz)       => Deno.core.ops.bsengine_add_scale(name, sx, sy, sz),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -3943,6 +3959,28 @@ JSON.stringify(received)
                     assert!((roll - 90.0).abs() < 1e-4, "roll: {roll}");
                 }
                 _ => panic!("expected AddRotationEuler command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_scale_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addScale("Obj", 0.5, 0.5, 0.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddScale { name, sx, sy, sz } => {
+                    assert_eq!(name, "Obj");
+                    assert!((sx - 0.5).abs() < 1e-4, "sx: {sx}");
+                    assert!((sy - 0.5).abs() < 1e-4, "sy: {sy}");
+                    assert!((sz - 0.5).abs() < 1e-4, "sz: {sz}");
+                }
+                _ => panic!("expected AddScale command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

@@ -1161,6 +1161,21 @@ pub fn bsengine_get_angular_velocity(#[string] name: String) -> Option<Vec<f32>>
 }
 
 #[op2(fast)]
+pub fn bsengine_get_angular_velocity_x(#[string] name: String) -> f32 {
+    ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.x))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_angular_velocity_y(#[string] name: String) -> f32 {
+    ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.y))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_angular_velocity_z(#[string] name: String) -> f32 {
+    ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.z))
+}
+
+#[op2(fast)]
 pub fn bsengine_set_angular_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1652,6 +1667,9 @@ deno_core::extension!(
         bsengine_get_gravity,
         bsengine_set_gravity,
         bsengine_get_angular_velocity,
+        bsengine_get_angular_velocity_x,
+        bsengine_get_angular_velocity_y,
+        bsengine_get_angular_velocity_z,
         bsengine_set_angular_velocity,
         bsengine_add_angular_impulse,
         bsengine_add_torque,
@@ -1791,6 +1809,9 @@ const Bsengine = {
     getGravity:           ()                     => Deno.core.ops.bsengine_get_gravity(),
     setGravity:           (magnitude)             => Deno.core.ops.bsengine_set_gravity(magnitude),
     getAngularVelocity:   (name)                  => { const v = Deno.core.ops.bsengine_get_angular_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
+    getAngularVelocityX:  (name) => Deno.core.ops.bsengine_get_angular_velocity_x(name),
+    getAngularVelocityY:  (name) => Deno.core.ops.bsengine_get_angular_velocity_y(name),
+    getAngularVelocityZ:  (name) => Deno.core.ops.bsengine_get_angular_velocity_z(name),
     setAngularVelocity:   (name, vx, vy, vz)      => Deno.core.ops.bsengine_set_angular_velocity(name, vx, vy, vz),
     addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
     addTorque:            (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_torque(name, vx, vy, vz),
@@ -4394,5 +4415,47 @@ JSON.stringify(received)
         super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
         let v: f32 = r.trim().parse().expect("expected a number");
         assert!((v - (-3.0)).abs() < 1e-4, "expected -3.0, got {v}");
+    }
+
+    #[test]
+    fn get_angular_velocity_x_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Wheel".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
+        });
+        let r = rt.eval(r#"Bsengine.getAngularVelocityX("Wheel")"#).unwrap();
+        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 1.0).abs() < 1e-4, "expected 1.0, got {v}");
+    }
+
+    #[test]
+    fn get_angular_velocity_y_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Wheel".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
+        });
+        let r = rt.eval(r#"Bsengine.getAngularVelocityY("Wheel")"#).unwrap();
+        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 2.0).abs() < 1e-4, "expected 2.0, got {v}");
+    }
+
+    #[test]
+    fn get_angular_velocity_z_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Wheel".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
+        });
+        let r = rt.eval(r#"Bsengine.getAngularVelocityZ("Wheel")"#).unwrap();
+        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
     }
 }

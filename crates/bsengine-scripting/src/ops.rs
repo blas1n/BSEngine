@@ -171,6 +171,10 @@ pub enum ScriptCommand {
         name: String,
         label: String,
     },
+    SetKinematic {
+        name: String,
+        kinematic: bool,
+    },
     LockRotation {
         name: String,
         lock_x: bool,
@@ -608,6 +612,14 @@ pub fn bsengine_remove_tag(#[string] name: String, #[string] label: String) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_kinematic(#[string] name: String, kinematic: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKinematic { name, kinematic });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::LockRotation {
@@ -834,6 +846,7 @@ deno_core::extension!(
         bsengine_has_tag,
         bsengine_add_tag,
         bsengine_remove_tag,
+        bsengine_set_kinematic,
         bsengine_set_emissive,
         bsengine_set_color,
         bsengine_spawn,
@@ -901,6 +914,7 @@ const Bsengine = {
     hasTag:              (name, label) => Deno.core.ops.bsengine_has_tag(name, label),
     addTag:              (name, label) => Deno.core.ops.bsengine_add_tag(name, label),
     removeTag:           (name, label) => Deno.core.ops.bsengine_remove_tag(name, label),
+    setKinematic:        (name, kinematic) => Deno.core.ops.bsengine_set_kinematic(name, kinematic),
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
     setColor:       (name, r, g, b)        => Deno.core.ops.bsengine_set_color(name, r, g, b),
     spawn:          (params)               => Deno.core.ops.bsengine_spawn(params),
@@ -1669,6 +1683,21 @@ JSON.stringify(received)
                     if name == "Enemy" && label == "stunned")
             });
             assert!(found, "RemoveTag not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_kinematic_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setKinematic("Box", true);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetKinematic { name, kinematic }
+                    if name == "Box" && *kinematic)
+            });
+            assert!(found, "SetKinematic not in buffer");
         });
     }
 

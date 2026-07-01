@@ -1097,6 +1097,33 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetScaleX { name, x } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale.x = x;
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetScaleY { name, y } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale.y = y;
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetScaleZ { name, z } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale.z = z;
+                        break;
+                    }
+                }
+            }
             ScriptCommand::AddTag { name, label } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

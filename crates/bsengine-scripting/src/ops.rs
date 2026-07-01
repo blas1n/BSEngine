@@ -275,6 +275,18 @@ pub enum ScriptCommand {
         az: f32,
         angle_deg: f32,
     },
+    SetScaleX {
+        name: String,
+        x: f32,
+    },
+    SetScaleY {
+        name: String,
+        y: f32,
+    },
+    SetScaleZ {
+        name: String,
+        z: f32,
+    },
 }
 
 thread_local! {
@@ -626,6 +638,27 @@ pub fn bsengine_rotate_around_axis(
             az,
             angle_deg,
         });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_scale_x(#[string] name: String, x: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetScaleX { name, x });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_scale_y(#[string] name: String, y: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetScaleY { name, y });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_scale_z(#[string] name: String, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetScaleZ { name, z });
     });
 }
 
@@ -1370,6 +1403,9 @@ deno_core::extension!(
         bsengine_set_position_z,
         bsengine_rotate_by,
         bsengine_rotate_around_axis,
+        bsengine_set_scale_x,
+        bsengine_set_scale_y,
+        bsengine_set_scale_z,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1482,6 +1518,9 @@ const Bsengine = {
     setPositionZ:        (name, z)              => Deno.core.ops.bsengine_set_position_z(name, z),
     rotateBy:          (name, rx, ry, rz, rw)   => Deno.core.ops.bsengine_rotate_by(name, rx, ry, rz, rw),
     rotateAroundAxis:  (name, ax, ay, az, deg)  => Deno.core.ops.bsengine_rotate_around_axis(name, ax, ay, az, deg),
+    setScaleX:         (name, x)               => Deno.core.ops.bsengine_set_scale_x(name, x),
+    setScaleY:         (name, y)               => Deno.core.ops.bsengine_set_scale_y(name, y),
+    setScaleZ:         (name, z)               => Deno.core.ops.bsengine_set_scale_z(name, z),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -3591,6 +3630,63 @@ JSON.stringify(received)
                     assert!((angle_deg - 90.0).abs() < 1e-4);
                 }
                 _ => panic!("expected RotateAroundAxis command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_scale_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setScaleX("Cube", 2.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetScaleX { name, x } => {
+                    assert_eq!(name, "Cube");
+                    assert!((x - 2.0).abs() < 1e-4);
+                }
+                _ => panic!("expected SetScaleX command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_scale_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setScaleY("Cube", 3.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetScaleY { name, y } => {
+                    assert_eq!(name, "Cube");
+                    assert!((y - 3.0).abs() < 1e-4);
+                }
+                _ => panic!("expected SetScaleY command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_scale_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setScaleZ("Cube", 0.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetScaleZ { name, z } => {
+                    assert_eq!(name, "Cube");
+                    assert!((z - 0.5).abs() < 1e-4);
+                }
+                _ => panic!("expected SetScaleZ command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

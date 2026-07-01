@@ -1190,6 +1190,33 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::AddScaleX { name, dx } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale.x += dx;
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddScaleY { name, dy } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale.y += dy;
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddScaleZ { name, dz } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.scale.z += dz;
+                        break;
+                    }
+                }
+            }
             ScriptCommand::AddScale { name, sx, sy, sz } => {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {

@@ -305,6 +305,18 @@ pub enum ScriptCommand {
         name: String,
         z: f32,
     },
+    AddScaleX {
+        name: String,
+        dx: f32,
+    },
+    AddScaleY {
+        name: String,
+        dy: f32,
+    },
+    AddScaleZ {
+        name: String,
+        dz: f32,
+    },
     SetRotationEuler {
         name: String,
         pitch_deg: f32,
@@ -760,6 +772,27 @@ pub fn bsengine_set_scale_y(#[string] name: String, y: f32) {
 pub fn bsengine_set_scale_z(#[string] name: String, z: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetScaleZ { name, z });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_scale_x(#[string] name: String, dx: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::AddScaleX { name, dx });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_scale_y(#[string] name: String, dy: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::AddScaleY { name, dy });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_scale_z(#[string] name: String, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::AddScaleZ { name, dz });
     });
 }
 
@@ -1648,6 +1681,9 @@ deno_core::extension!(
         bsengine_set_scale_x,
         bsengine_set_scale_y,
         bsengine_set_scale_z,
+        bsengine_add_scale_x,
+        bsengine_add_scale_y,
+        bsengine_add_scale_z,
         bsengine_get_position_x,
         bsengine_get_position_y,
         bsengine_get_position_z,
@@ -1789,6 +1825,9 @@ const Bsengine = {
     setScaleX:         (name, x)               => Deno.core.ops.bsengine_set_scale_x(name, x),
     setScaleY:         (name, y)               => Deno.core.ops.bsengine_set_scale_y(name, y),
     setScaleZ:         (name, z)               => Deno.core.ops.bsengine_set_scale_z(name, z),
+    addScaleX:         (name, dx)              => Deno.core.ops.bsengine_add_scale_x(name, dx),
+    addScaleY:         (name, dy)              => Deno.core.ops.bsengine_add_scale_y(name, dy),
+    addScaleZ:         (name, dz)              => Deno.core.ops.bsengine_add_scale_z(name, dz),
     getPositionX:      (name)                 => Deno.core.ops.bsengine_get_position_x(name),
     getPositionY:      (name)                 => Deno.core.ops.bsengine_get_position_y(name),
     getPositionZ:      (name)                 => Deno.core.ops.bsengine_get_position_z(name),
@@ -4554,6 +4593,63 @@ JSON.stringify(received)
                     assert!((dz - 3.0).abs() < 1e-4);
                 }
                 _ => panic!("expected AddPositionZ command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_scale_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addScaleX("Box", 0.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddScaleX { name, dx } => {
+                    assert_eq!(name, "Box");
+                    assert!((dx - 0.5).abs() < 1e-4);
+                }
+                _ => panic!("expected AddScaleX command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_scale_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addScaleY("Box", 1.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddScaleY { name, dy } => {
+                    assert_eq!(name, "Box");
+                    assert!((dy - 1.0).abs() < 1e-4);
+                }
+                _ => panic!("expected AddScaleY command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_scale_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addScaleZ("Box", -0.25);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddScaleZ { name, dz } => {
+                    assert_eq!(name, "Box");
+                    assert!((dz - (-0.25)).abs() < 1e-4);
+                }
+                _ => panic!("expected AddScaleZ command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

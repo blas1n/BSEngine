@@ -1058,6 +1058,21 @@ pub fn bsengine_get_linear_speed(#[string] name: String) -> Option<Vec<f32>> {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_velocity_x(#[string] name: String) -> f32 {
+    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.x))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_velocity_y(#[string] name: String) -> f32 {
+    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.y))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_velocity_z(#[string] name: String) -> f32 {
+    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.z))
+}
+
+#[op2(fast)]
 pub fn bsengine_add_impulse(#[string] name: String, fx: f32, fy: f32, fz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1626,6 +1641,9 @@ deno_core::extension!(
         bsengine_get_children,
         bsengine_get_velocity,
         bsengine_get_linear_speed,
+        bsengine_get_velocity_x,
+        bsengine_get_velocity_y,
+        bsengine_get_velocity_z,
         bsengine_add_impulse,
         bsengine_apply_impulse_at_point,
         bsengine_add_force,
@@ -1762,6 +1780,9 @@ const Bsengine = {
     getChildAt:          (name, index)  => { const c = JSON.parse(Deno.core.ops.bsengine_get_children(name)); return c[index] ?? null; },
     getVelocity:      (name)    => { const v = Deno.core.ops.bsengine_get_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
     getLinearSpeed:   (name)    => { const s = Deno.core.ops.bsengine_get_linear_speed(name); return s !== null && s !== undefined ? s[0] : -1; },
+    getVelocityX:     (name) => Deno.core.ops.bsengine_get_velocity_x(name),
+    getVelocityY:     (name) => Deno.core.ops.bsengine_get_velocity_y(name),
+    getVelocityZ:     (name) => Deno.core.ops.bsengine_get_velocity_z(name),
     addImpulse:       (name, fx, fy, fz) => Deno.core.ops.bsengine_add_impulse(name, fx, fy, fz),
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
@@ -4331,5 +4352,47 @@ JSON.stringify(received)
         super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
         let v: f32 = r.trim().parse().expect("expected a number");
         assert!((v - 90.0).abs() < 1e-3, "expected 90.0, got {v}");
+    }
+
+    #[test]
+    fn get_velocity_x_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ball".to_string(), glam::Vec3::new(5.0, 2.0, -3.0));
+        });
+        let r = rt.eval(r#"Bsengine.getVelocityX("Ball")"#).unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 5.0).abs() < 1e-4, "expected 5.0, got {v}");
+    }
+
+    #[test]
+    fn get_velocity_y_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ball".to_string(), glam::Vec3::new(5.0, 2.0, -3.0));
+        });
+        let r = rt.eval(r#"Bsengine.getVelocityY("Ball")"#).unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 2.0).abs() < 1e-4, "expected 2.0, got {v}");
+    }
+
+    #[test]
+    fn get_velocity_z_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ball".to_string(), glam::Vec3::new(5.0, 2.0, -3.0));
+        });
+        let r = rt.eval(r#"Bsengine.getVelocityZ("Ball")"#).unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - (-3.0)).abs() < 1e-4, "expected -3.0, got {v}");
     }
 }

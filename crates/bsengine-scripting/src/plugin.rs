@@ -752,6 +752,21 @@ fn run_scripts(world: &mut World) {
                     pw.set_mass(e, mass);
                 }
             }
+            ScriptCommand::LockRotation {
+                name,
+                lock_x,
+                lock_y,
+                lock_z,
+            } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.lock_rotations(e, lock_x, lock_y, lock_z);
+                }
+            }
         }
     }
 }

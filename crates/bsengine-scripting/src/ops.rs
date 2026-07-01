@@ -207,6 +207,18 @@ pub enum ScriptCommand {
         name: String,
         vz: f32,
     },
+    AddVelocity {
+        name: String,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+    },
+    AddAngularVelocity {
+        name: String,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+    },
     AddAngularImpulse {
         name: String,
         vx: f32,
@@ -1367,6 +1379,22 @@ pub fn bsengine_set_angular_velocity_z(#[string] name: String, vz: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_add_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddVelocity { name, vx, vy, vz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_angular_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddAngularVelocity { name, vx, vy, vz });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_add_angular_impulse(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1870,6 +1898,8 @@ deno_core::extension!(
         bsengine_set_angular_velocity_x,
         bsengine_set_angular_velocity_y,
         bsengine_set_angular_velocity_z,
+        bsengine_add_velocity,
+        bsengine_add_angular_velocity,
         bsengine_add_angular_impulse,
         bsengine_add_torque,
         bsengine_set_ccd_enabled,
@@ -2028,6 +2058,8 @@ const Bsengine = {
     setAngularVelocityX:  (name, vx) => Deno.core.ops.bsengine_set_angular_velocity_x(name, vx),
     setAngularVelocityY:  (name, vy) => Deno.core.ops.bsengine_set_angular_velocity_y(name, vy),
     setAngularVelocityZ:  (name, vz) => Deno.core.ops.bsengine_set_angular_velocity_z(name, vz),
+    addVelocity:          (name, vx, vy, vz) => Deno.core.ops.bsengine_add_velocity(name, vx, vy, vz),
+    addAngularVelocity:   (name, vx, vy, vz) => Deno.core.ops.bsengine_add_angular_velocity(name, vx, vy, vz),
     addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
     addTorque:            (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_torque(name, vx, vy, vz),
     setCCDEnabled:        (name, enabled)           => Deno.core.ops.bsengine_set_ccd_enabled(name, enabled),
@@ -3581,6 +3613,42 @@ JSON.stringify(received)
                     if name == "Top" && (*vz - 3.5).abs() < 1e-6)
             });
             assert!(found, "SetAngularVelocityZ not in buffer");
+        });
+    }
+
+    #[test]
+    fn add_velocity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addVelocity("Ball", 1.0, 2.0, 3.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddVelocity { name, vx, vy, vz }
+                    if name == "Ball" && (*vx - 1.0).abs() < 1e-6
+                        && (*vy - 2.0).abs() < 1e-6
+                        && (*vz - 3.0).abs() < 1e-6)
+            });
+            assert!(found, "AddVelocity not in buffer");
+        });
+    }
+
+    #[test]
+    fn add_angular_velocity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addAngularVelocity("Top", 0.1, 0.2, 0.3);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddAngularVelocity { name, vx, vy, vz }
+                    if name == "Top" && (*vx - 0.1).abs() < 1e-6
+                        && (*vy - 0.2).abs() < 1e-6
+                        && (*vz - 0.3).abs() < 1e-6)
+            });
+            assert!(found, "AddAngularVelocity not in buffer");
         });
     }
 

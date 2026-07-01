@@ -109,6 +109,28 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    SetSpotLightColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetSpotLightIntensity {
+        name: String,
+        value: f32,
+    },
+    SetSpotLightRange {
+        name: String,
+        value: f32,
+    },
+    SetSpotLightInnerAngle {
+        name: String,
+        deg: f32,
+    },
+    SetSpotLightOuterAngle {
+        name: String,
+        deg: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -1231,6 +1253,46 @@ pub fn bsengine_set_point_light_range(#[string] name: String, value: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_spot_light_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpotLightColor { name, r, g, b })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spot_light_intensity(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpotLightIntensity { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spot_light_range(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpotLightRange { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spot_light_inner_angle(#[string] name: String, deg: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpotLightInnerAngle { name, deg })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spot_light_outer_angle(#[string] name: String, deg: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpotLightOuterAngle { name, deg })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2044,6 +2106,11 @@ deno_core::extension!(
         bsengine_set_point_light_color,
         bsengine_set_point_light_intensity,
         bsengine_set_point_light_range,
+        bsengine_set_spot_light_color,
+        bsengine_set_spot_light_intensity,
+        bsengine_set_spot_light_range,
+        bsengine_set_spot_light_inner_angle,
+        bsengine_set_spot_light_outer_angle,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2216,6 +2283,11 @@ const Bsengine = {
     setPointLightColor:     (name, r, g, b)     => Deno.core.ops.bsengine_set_point_light_color(name, r, g, b),
     setPointLightIntensity: (name, value)       => Deno.core.ops.bsengine_set_point_light_intensity(name, value),
     setPointLightRange:     (name, value)       => Deno.core.ops.bsengine_set_point_light_range(name, value),
+    setSpotLightColor:      (name, r, g, b)     => Deno.core.ops.bsengine_set_spot_light_color(name, r, g, b),
+    setSpotLightIntensity:  (name, value)       => Deno.core.ops.bsengine_set_spot_light_intensity(name, value),
+    setSpotLightRange:      (name, value)       => Deno.core.ops.bsengine_set_spot_light_range(name, value),
+    setSpotLightInnerAngle: (name, deg)         => Deno.core.ops.bsengine_set_spot_light_inner_angle(name, deg),
+    setSpotLightOuterAngle: (name, deg)         => Deno.core.ops.bsengine_set_spot_light_outer_angle(name, deg),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -5482,6 +5554,94 @@ JSON.stringify(received)
                     if name == "Lamp" && (*value - 20.0).abs() < 1e-5)
             });
             assert!(found, "SetPointLightRange not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_spot_light_color_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpotLightColor("Spot", 1.0, 0.5, 0.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSpotLightColor { name, r, g, b }
+                    if name == "Spot"
+                        && (*r - 1.0).abs() < 1e-5
+                        && (*g - 0.5).abs() < 1e-5
+                        && (*b - 0.0).abs() < 1e-5)
+            });
+            assert!(found, "SetSpotLightColor not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_spot_light_intensity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpotLightIntensity("Spot", 800.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSpotLightIntensity { name, value }
+                    if name == "Spot" && (*value - 800.0).abs() < 1e-5)
+            });
+            assert!(found, "SetSpotLightIntensity not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_spot_light_range_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpotLightRange("Spot", 15.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSpotLightRange { name, value }
+                    if name == "Spot" && (*value - 15.0).abs() < 1e-5)
+            });
+            assert!(found, "SetSpotLightRange not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_spot_light_inner_angle_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpotLightInnerAngle("Spot", 30.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSpotLightInnerAngle { name, deg }
+                    if name == "Spot" && (*deg - 30.0).abs() < 1e-5)
+            });
+            assert!(found, "SetSpotLightInnerAngle not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_spot_light_outer_angle_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpotLightOuterAngle("Spot", 45.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSpotLightOuterAngle { name, deg }
+                    if name == "Spot" && (*deg - 45.0).abs() < 1e-5)
+            });
+            assert!(found, "SetSpotLightOuterAngle not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

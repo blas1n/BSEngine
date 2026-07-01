@@ -893,6 +893,66 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetSpotLightColor { name, r, g, b } => {
+                use bsengine_core::SpotLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<SpotLight>(e) {
+                        light.color = glam::Vec3::new(r, g, b);
+                    }
+                }
+            }
+            ScriptCommand::SetSpotLightIntensity { name, value } => {
+                use bsengine_core::SpotLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<SpotLight>(e) {
+                        light.intensity = value;
+                    }
+                }
+            }
+            ScriptCommand::SetSpotLightRange { name, value } => {
+                use bsengine_core::SpotLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<SpotLight>(e) {
+                        light.range = value;
+                    }
+                }
+            }
+            ScriptCommand::SetSpotLightInnerAngle { name, deg } => {
+                use bsengine_core::SpotLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<SpotLight>(e) {
+                        light.inner_angle = deg.to_radians();
+                    }
+                }
+            }
+            ScriptCommand::SetSpotLightOuterAngle { name, deg } => {
+                use bsengine_core::SpotLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<SpotLight>(e) {
+                        light.outer_angle = deg.to_radians();
+                    }
+                }
+            }
             ScriptCommand::Spawn(params) => {
                 spawn_entity(world, params);
             }

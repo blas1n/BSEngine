@@ -229,6 +229,16 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    AddXp {
+        name: String,
+        amount: f32,
+    },
+    LevelUp {
+        name: String,
+    },
+    Prestige {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -749,6 +759,14 @@ thread_local! {
 
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (level, current_xp, progress, is_max)
+    pub(crate) static EXPERIENCE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current, max, prestige, is_max, progress_fraction)
+    pub(crate) static LEVEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -1867,6 +1885,111 @@ pub fn bsengine_is_shield_depleted(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_add_xp(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AddXp { name, amount }));
+}
+
+#[op2(fast)]
+pub fn bsengine_get_xp_level(#[string] name: String) -> f32 {
+    EXPERIENCE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(lvl, _, _, _)| *lvl)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_current_xp(#[string] name: String) -> f32 {
+    EXPERIENCE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, xp, _, _)| *xp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_xp_progress(#[string] name: String) -> f32 {
+    EXPERIENCE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, prog, _)| *prog)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_max_xp_level(#[string] name: String) -> bool {
+    EXPERIENCE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, is_max)| *is_max)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_level_up(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LevelUp { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_prestige(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Prestige { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_get_level(#[string] name: String) -> f32 {
+    LEVEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, _, _, _, _)| *cur)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_level(#[string] name: String) -> f32 {
+    LEVEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, max, _, _, _)| *max)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_prestige_level(#[string] name: String) -> f32 {
+    LEVEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, pres, _, _)| *pres)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_max_level(#[string] name: String) -> bool {
+    LEVEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, is_max, _)| *is_max)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_level_progress(#[string] name: String) -> f32 {
+    LEVEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, prog)| *prog)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2738,6 +2861,18 @@ deno_core::extension!(
         bsengine_get_max_shield,
         bsengine_get_shield_fraction,
         bsengine_is_shield_depleted,
+        bsengine_add_xp,
+        bsengine_get_xp_level,
+        bsengine_get_current_xp,
+        bsengine_get_xp_progress,
+        bsengine_is_max_xp_level,
+        bsengine_level_up,
+        bsengine_prestige,
+        bsengine_get_level,
+        bsengine_get_max_level,
+        bsengine_get_prestige_level,
+        bsengine_is_max_level,
+        bsengine_get_level_progress,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2968,6 +3103,18 @@ const Bsengine = {
     getMaxShield:           (name)          => Deno.core.ops.bsengine_get_max_shield(name),
     getShieldFraction:      (name)          => Deno.core.ops.bsengine_get_shield_fraction(name),
     isShieldDepleted:       (name)          => Deno.core.ops.bsengine_is_shield_depleted(name),
+    addXp:                  (name, amount)  => Deno.core.ops.bsengine_add_xp(name, amount),
+    getXpLevel:             (name)          => Deno.core.ops.bsengine_get_xp_level(name),
+    getCurrentXp:           (name)          => Deno.core.ops.bsengine_get_current_xp(name),
+    getXpProgress:          (name)          => Deno.core.ops.bsengine_get_xp_progress(name),
+    isMaxXpLevel:           (name)          => Deno.core.ops.bsengine_is_max_xp_level(name),
+    levelUp:                (name)          => Deno.core.ops.bsengine_level_up(name),
+    prestige:               (name)          => Deno.core.ops.bsengine_prestige(name),
+    getLevel:               (name)          => Deno.core.ops.bsengine_get_level(name),
+    getMaxLevel:            (name)          => Deno.core.ops.bsengine_get_max_level(name),
+    getPrestigeLevel:       (name)          => Deno.core.ops.bsengine_get_prestige_level(name),
+    isMaxLevel:             (name)          => Deno.core.ops.bsengine_is_max_level(name),
+    getLevelProgress:       (name)          => Deno.core.ops.bsengine_get_level_progress(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -7020,5 +7167,123 @@ JSON.stringify(received)
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isShieldDepleted("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn add_xp_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addXp("Hero", 100.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddXp { name, amount }
+                    if name == "Hero" && (*amount - 100.0).abs() < 1e-5)
+            });
+            assert!(found, "AddXp not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_xp_level_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getXpLevel("Unknown");"#).unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn get_current_xp_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getCurrentXp("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_xp_progress_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getXpProgress("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_max_xp_level_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isMaxXpLevel("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn level_up_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.levelUp("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::LevelUp { name } if name == "Hero"));
+            assert!(found, "LevelUp not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn prestige_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.prestige("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::Prestige { name } if name == "Hero"),
+            );
+            assert!(found, "Prestige not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_level_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getLevel("Unknown");"#).unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn get_max_level_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMaxLevel("Unknown");"#).unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn get_prestige_level_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getPrestigeLevel("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_max_level_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isMaxLevel("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn get_level_progress_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getLevelProgress("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
     }
 }

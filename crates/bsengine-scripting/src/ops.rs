@@ -241,6 +241,10 @@ thread_local! {
     // parent_name → [child_names]
     pub(crate) static CHILDREN_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
         RefCell::new(HashMap::new());
+
+    // tag label → [entity names]
+    pub(crate) static TAG_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -347,6 +351,16 @@ pub fn bsengine_is_key_up(#[string] key: String) -> bool {
 pub fn bsengine_get_entity_names() -> String {
     ENTITY_NAMES_SNAPSHOT
         .with(|s| serde_json::to_string(&*s.borrow()).unwrap_or_else(|_| "[]".to_string()))
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_entities_by_tag(#[string] tag: String) -> String {
+    TAG_SNAPSHOT.with(|s| {
+        let map = s.borrow();
+        let names = map.get(&tag).cloned().unwrap_or_default();
+        serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
+    })
 }
 
 #[op2(fast)]
@@ -779,6 +793,7 @@ deno_core::extension!(
         bsengine_is_key_down,
         bsengine_is_key_up,
         bsengine_get_entity_names,
+        bsengine_get_entities_by_tag,
         bsengine_set_emissive,
         bsengine_set_color,
         bsengine_spawn,
@@ -841,7 +856,8 @@ const Bsengine = {
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
-    getEntityNames: ()                     => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
+    getEntityNames:      ()    => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
+    getEntitiesByTag:    (tag) => JSON.parse(Deno.core.ops.bsengine_get_entities_by_tag(tag)),
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
     setColor:       (name, r, g, b)        => Deno.core.ops.bsengine_set_color(name, r, g, b),
     spawn:          (params)               => Deno.core.ops.bsengine_spawn(params),
@@ -1531,6 +1547,34 @@ JSON.stringify(received)
             .unwrap();
         assert!(r.contains("ChildA"), "expected ChildA: {r}");
         assert!(r.contains("ChildB"), "expected ChildB: {r}");
+    }
+
+    #[test]
+    fn get_entities_by_tag_returns_empty_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getEntitiesByTag("enemy"))"#)
+            .unwrap();
+        assert!(r.contains("[]"), "expected empty array: {r}");
+    }
+
+    #[test]
+    fn get_entities_by_tag_returns_list_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TAG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "enemy".to_string(),
+                vec!["Goblin".to_string(), "Orc".to_string()],
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getEntitiesByTag("enemy"))"#)
+            .unwrap();
+        super::TAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("Goblin"), "expected Goblin: {r}");
+        assert!(r.contains("Orc"), "expected Orc: {r}");
     }
 
     #[test]

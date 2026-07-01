@@ -24,7 +24,7 @@ use crate::ops::{
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
     TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
@@ -536,6 +536,18 @@ fn run_scripts(world: &mut World) {
                 .collect()
         })
         .unwrap_or_default();
+    let sleep_snapshot: HashMap<String, bool> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.is_sleeping(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let (tag_snapshot, entity_tags_snapshot): (
         HashMap<String, Vec<String>>,
         HashMap<String, Vec<String>>,
@@ -572,6 +584,7 @@ fn run_scripts(world: &mut World) {
     ANGULAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = angular_damping_snapshot);
     RESTITUTION_SNAPSHOT.with(|s| *s.borrow_mut() = restitution_snapshot);
     FRICTION_SNAPSHOT.with(|s| *s.borrow_mut() = friction_snapshot);
+    SLEEP_SNAPSHOT.with(|s| *s.borrow_mut() = sleep_snapshot);
     let gravity = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| pw.gravity())
@@ -933,6 +946,26 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.lock_translations(e, lock_x, lock_y, lock_z);
+                }
+            }
+            ScriptCommand::WakeUp { name } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.wake_up(e);
+                }
+            }
+            ScriptCommand::PutToSleep { name } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.put_to_sleep(e);
                 }
             }
             ScriptCommand::AddTag { name, label } => {

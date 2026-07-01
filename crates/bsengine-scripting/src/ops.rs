@@ -157,6 +157,10 @@ pub enum ScriptCommand {
         vy: f32,
         vz: f32,
     },
+    SetCCDEnabled {
+        name: String,
+        enabled: bool,
+    },
     SetLinearDamping {
         name: String,
         damping: f32,
@@ -637,6 +641,14 @@ pub fn bsengine_add_torque(#[string] name: String, vx: f32, vy: f32, vz: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_ccd_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCCDEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_linear_damping(#[string] name: String, damping: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1031,6 +1043,7 @@ deno_core::extension!(
         bsengine_set_angular_velocity,
         bsengine_add_angular_impulse,
         bsengine_add_torque,
+        bsengine_set_ccd_enabled,
         bsengine_set_linear_damping,
         bsengine_set_angular_damping,
         bsengine_get_mass,
@@ -1116,6 +1129,7 @@ const Bsengine = {
     setAngularVelocity:   (name, vx, vy, vz)      => Deno.core.ops.bsengine_set_angular_velocity(name, vx, vy, vz),
     addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
     addTorque:            (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_torque(name, vx, vy, vz),
+    setCCDEnabled:        (name, enabled)           => Deno.core.ops.bsengine_set_ccd_enabled(name, enabled),
     setLinearDamping:     (name, damping)          => Deno.core.ops.bsengine_set_linear_damping(name, damping),
     setAngularDamping:    (name, damping)          => Deno.core.ops.bsengine_set_angular_damping(name, damping),
     getMass:              (name)                   => Deno.core.ops.bsengine_get_mass(name),
@@ -2171,6 +2185,22 @@ JSON.stringify(received)
                     if name == "Gyro" && (*vy - 3.0).abs() < 1e-6)
             });
             assert!(found, "AddTorque not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_ccd_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCCDEnabled("Bullet", true);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCCDEnabled { name, enabled }
+                    if name == "Bullet" && *enabled)
+            });
+            assert!(found, "SetCCDEnabled not in buffer");
         });
     }
 

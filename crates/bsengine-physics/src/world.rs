@@ -149,6 +149,14 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn set_ccd_enabled(&mut self, entity: Entity, enabled: bool) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.enable_ccd(enabled);
+            }
+        }
+    }
+
     pub fn set_linear_damping(&mut self, entity: Entity, damping: f32) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

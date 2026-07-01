@@ -17,18 +17,18 @@ use crate::ops::{
     ScriptCommand, SpawnParams, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
     COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
-    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
-    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
+    HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
+    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
+    PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
+    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -711,6 +711,41 @@ fn run_scripts(world: &mut World) {
         }
         SHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = shield_map);
     }
+    {
+        use bsengine_core::Experience;
+        let mut xp_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Experience)>();
+        for (name, xp) in q.iter(world) {
+            xp_map.insert(
+                name.0.clone(),
+                (
+                    xp.level as f32,
+                    xp.current_xp,
+                    xp.progress(),
+                    xp.is_max_level(),
+                ),
+            );
+        }
+        EXPERIENCE_SNAPSHOT.with(|s| *s.borrow_mut() = xp_map);
+    }
+    {
+        use bsengine_core::Level;
+        let mut lvl_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Level)>();
+        for (name, lvl) in q.iter(world) {
+            lvl_map.insert(
+                name.0.clone(),
+                (
+                    lvl.current as f32,
+                    lvl.max as f32,
+                    lvl.prestige_level as f32,
+                    lvl.is_max_level(),
+                    lvl.progress_fraction(),
+                ),
+            );
+        }
+        LEVEL_SNAPSHOT.with(|s| *s.borrow_mut() = lvl_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1383,6 +1418,42 @@ fn run_scripts(world: &mut World) {
                     if let Some(mut sh) = world.get_mut::<Shield>(e) {
                         sh.max = value.max(0.0);
                         sh.current = sh.current.min(sh.max);
+                    }
+                }
+            }
+            ScriptCommand::AddXp { name, amount } => {
+                use bsengine_core::Experience;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut xp) = world.get_mut::<Experience>(e) {
+                        xp.add_xp(amount);
+                    }
+                }
+            }
+            ScriptCommand::LevelUp { name } => {
+                use bsengine_core::Level;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut lvl) = world.get_mut::<Level>(e) {
+                        lvl.level_up();
+                    }
+                }
+            }
+            ScriptCommand::Prestige { name } => {
+                use bsengine_core::Level;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut lvl) = world.get_mut::<Level>(e) {
+                        lvl.prestige();
                     }
                 }
             }

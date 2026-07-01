@@ -122,6 +122,14 @@ pub enum ScriptCommand {
         id: u32,
         db: f32,
     },
+    SetSoundPanning {
+        id: u32,
+        panning: f32,
+    },
+    SetSoundPlaybackRate {
+        id: u32,
+        rate: f32,
+    },
     SetHudText {
         id: String,
         text: String,
@@ -1699,6 +1707,22 @@ pub fn bsengine_set_sound_volume(id: u32, db: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_sound_panning(id: u32, panning: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSoundPanning { id, panning })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_sound_playback_rate(id: u32, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSoundPlaybackRate { id, rate })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_hud_text(#[string] id: String, #[string] text: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetHudText { id, text }));
 }
@@ -1995,6 +2019,8 @@ deno_core::extension!(
         bsengine_pause_sound,
         bsengine_resume_sound,
         bsengine_set_sound_volume,
+        bsengine_set_sound_panning,
+        bsengine_set_sound_playback_rate,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
         bsengine_load_scene,
@@ -2164,7 +2190,9 @@ const Bsengine = {
     stopSound:      (id)                   => Deno.core.ops.bsengine_stop_sound(id),
     pauseSound:     (id)                   => Deno.core.ops.bsengine_pause_sound(id),
     resumeSound:    (id)                   => Deno.core.ops.bsengine_resume_sound(id),
-    setSoundVolume: (id, db)               => Deno.core.ops.bsengine_set_sound_volume(id, db),
+    setSoundVolume:       (id, db)      => Deno.core.ops.bsengine_set_sound_volume(id, db),
+    setSoundPanning:      (id, panning) => Deno.core.ops.bsengine_set_sound_panning(id, panning),
+    setSoundPlaybackRate: (id, rate)    => Deno.core.ops.bsengine_set_sound_playback_rate(id, rate),
     setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
     clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(id),
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
@@ -4609,6 +4637,39 @@ JSON.stringify(received)
                     if *id == 5 && (*db - (-6.0_f32)).abs() < 1e-5)
             });
             assert!(found, "SetSoundVolume not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_sound_panning_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSoundPanning(3, -0.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSoundPanning { id, panning }
+                    if *id == 3 && (*panning - (-0.5_f32)).abs() < 1e-5)
+            });
+            assert!(found, "SetSoundPanning not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_sound_playback_rate_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSoundPlaybackRate(8, 2.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSoundPlaybackRate { id, rate }
+                    if *id == 8 && (*rate - 2.0_f32).abs() < 1e-5)
+            });
+            assert!(found, "SetSoundPlaybackRate not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -15,13 +15,13 @@ use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
-    BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
-    COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    ENTITY_TAGS_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
+    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
+    MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT,
     PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT,
@@ -653,6 +653,27 @@ fn run_scripts(world: &mut World) {
         }
         HEALTH_SNAPSHOT.with(|s| *s.borrow_mut() = health_map);
     }
+    {
+        use bsengine_core::AnimationPlayer;
+        let mut anim_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &AnimationPlayer)>();
+        for (name, ap) in q.iter(world) {
+            anim_map.insert(
+                name.0.clone(),
+                (ap.clip.clone(), ap.time, ap.speed, ap.looping, ap.playing),
+            );
+        }
+        ANIMATION_SNAPSHOT.with(|s| *s.borrow_mut() = anim_map);
+    }
+    {
+        use bsengine_core::Lifetime;
+        let mut lifetime_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Lifetime)>();
+        for (name, lt) in q.iter(world) {
+            lifetime_map.insert(name.0.clone(), lt.remaining);
+        }
+        LIFETIME_SNAPSHOT.with(|s| *s.borrow_mut() = lifetime_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1092,6 +1113,92 @@ fn run_scripts(world: &mut World) {
                     if let Some(mut h) = world.get_mut::<Health>(e) {
                         h.max = value.max(0.0);
                         h.current = h.current.min(h.max);
+                    }
+                }
+            }
+            ScriptCommand::PlayAnimation { name, clip } => {
+                use bsengine_core::AnimationPlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
+                        ap.clip = clip;
+                        ap.time = 0.0;
+                        ap.playing = true;
+                    }
+                }
+            }
+            ScriptCommand::PauseAnimation { name } => {
+                use bsengine_core::AnimationPlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
+                        ap.pause();
+                    }
+                }
+            }
+            ScriptCommand::ResumeAnimation { name } => {
+                use bsengine_core::AnimationPlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
+                        ap.play();
+                    }
+                }
+            }
+            ScriptCommand::ResetAnimation { name } => {
+                use bsengine_core::AnimationPlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
+                        ap.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetAnimationSpeed { name, speed } => {
+                use bsengine_core::AnimationPlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
+                        ap.speed = speed;
+                    }
+                }
+            }
+            ScriptCommand::SetAnimationLooping { name, looping } => {
+                use bsengine_core::AnimationPlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
+                        ap.looping = looping;
+                    }
+                }
+            }
+            ScriptCommand::SetLifetime { name, seconds } => {
+                use bsengine_core::Lifetime;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut lt) = world.get_mut::<Lifetime>(e) {
+                        lt.remaining = seconds.max(0.0);
                     }
                 }
             }

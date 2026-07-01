@@ -14,14 +14,14 @@ use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPat
 use glam::{Quat, Vec3};
 
 use crate::ops::{
-    ScriptCommand, SpawnParams, BOOTSTRAP_JS, CHILDREN_SNAPSHOT, COLLISION_SNAPSHOT,
-    COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
-    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
-    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    SCREEN_SIZE_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    ScriptCommand, SpawnParams, ANGULAR_VELOCITY_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
+    COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT,
+    PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -338,6 +338,19 @@ fn run_scripts(world: &mut World) {
         })
         .unwrap_or_default();
 
+    let angular_velocity_snapshot: HashMap<String, Vec3> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_angvel(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let parent_map: HashMap<String, String> = {
         let mut q = world.query::<(Entity, &Name, &Parent)>();
         q.iter(world)
@@ -411,6 +424,7 @@ fn run_scripts(world: &mut World) {
     PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
     CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
     VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
+    ANGULAR_VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = angular_velocity_snapshot);
     let gravity = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| pw.gravity())
@@ -672,6 +686,26 @@ fn run_scripts(world: &mut World) {
             ScriptCommand::SetGravity { magnitude } => {
                 if let Some(mut pw) = world.get_resource_mut::<PhysicsWorld>() {
                     pw.set_gravity(magnitude);
+                }
+            }
+            ScriptCommand::SetAngularVelocity { name, vx, vy, vz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_angvel(e, Vec3::new(vx, vy, vz));
+                }
+            }
+            ScriptCommand::AddAngularImpulse { name, vx, vy, vz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.apply_torque_impulse(e, Vec3::new(vx, vy, vz));
                 }
             }
         }

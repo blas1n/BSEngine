@@ -118,6 +118,29 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn get_angvel(&self, entity: Entity) -> Option<Vec3> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        let v = body.angvel();
+        Some(Vec3::new(v.x, v.y, v.z))
+    }
+
+    pub fn set_angvel(&mut self, entity: Entity, vel: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_angvel(Vector::new(vel.x, vel.y, vel.z), true);
+            }
+        }
+    }
+
+    pub fn apply_torque_impulse(&mut self, entity: Entity, impulse: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.apply_torque_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+            }
+        }
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.

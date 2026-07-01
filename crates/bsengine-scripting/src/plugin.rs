@@ -24,9 +24,10 @@ use crate::ops::{
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, TAG_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -623,6 +624,26 @@ fn run_scripts(world: &mut World) {
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_released);
     GAMEPAD_STICKS_SNAPSHOT.with(|s| *s.borrow_mut() = gamepad_sticks);
+    if let Some(handles) = world.get_resource::<SoundHandles>() {
+        use kira::sound::PlaybackState;
+        let mut states = std::collections::HashMap::new();
+        let mut positions = std::collections::HashMap::new();
+        for (id, handle) in &handles.0 {
+            let state = match handle.state() {
+                PlaybackState::Playing => "playing",
+                PlaybackState::Pausing => "pausing",
+                PlaybackState::Paused => "paused",
+                PlaybackState::WaitingToResume => "waiting_to_resume",
+                PlaybackState::Resuming => "resuming",
+                PlaybackState::Stopping => "stopping",
+                PlaybackState::Stopped => "stopped",
+            };
+            states.insert(*id, state.to_string());
+            positions.insert(*id, handle.position());
+        }
+        SOUND_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = states);
+        SOUND_POSITION_SNAPSHOT.with(|s| *s.borrow_mut() = positions);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {

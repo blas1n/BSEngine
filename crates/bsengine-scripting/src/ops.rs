@@ -551,6 +551,14 @@ thread_local! {
     // entity name → [tag labels]
     pub(crate) static ENTITY_TAGS_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
         RefCell::new(HashMap::new());
+
+    // sound id → playback state string ("playing", "pausing", "paused", etc.)
+    pub(crate) static SOUND_STATE_SNAPSHOT: RefCell<HashMap<u32, String>> =
+        RefCell::new(HashMap::new());
+
+    // sound id → playback position in seconds
+    pub(crate) static SOUND_POSITION_SNAPSHOT: RefCell<HashMap<u32, f64>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -1722,6 +1730,19 @@ pub fn bsengine_set_sound_playback_rate(id: u32, rate: f32) {
     });
 }
 
+#[op2]
+#[string]
+pub fn bsengine_get_sound_state(id: u32) -> String {
+    SOUND_STATE_SNAPSHOT
+        .with(|s| s.borrow().get(&id).cloned())
+        .unwrap_or_default()
+}
+
+#[op2(fast)]
+pub fn bsengine_get_sound_position(id: u32) -> f64 {
+    SOUND_POSITION_SNAPSHOT.with(|s| s.borrow().get(&id).copied().unwrap_or(0.0))
+}
+
 #[op2(fast)]
 pub fn bsengine_set_hud_text(#[string] id: String, #[string] text: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetHudText { id, text }));
@@ -2021,6 +2042,8 @@ deno_core::extension!(
         bsengine_set_sound_volume,
         bsengine_set_sound_panning,
         bsengine_set_sound_playback_rate,
+        bsengine_get_sound_state,
+        bsengine_get_sound_position,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
         bsengine_load_scene,
@@ -2193,6 +2216,8 @@ const Bsengine = {
     setSoundVolume:       (id, db)      => Deno.core.ops.bsengine_set_sound_volume(id, db),
     setSoundPanning:      (id, panning) => Deno.core.ops.bsengine_set_sound_panning(id, panning),
     setSoundPlaybackRate: (id, rate)    => Deno.core.ops.bsengine_set_sound_playback_rate(id, rate),
+    getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
+    getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
     setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
     clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(id),
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
@@ -4672,6 +4697,41 @@ JSON.stringify(received)
             assert!(found, "SetSoundPlaybackRate not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_sound_state_reads_snapshot() {
+        super::SOUND_STATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(99, "playing".to_string());
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getSoundState(99);"#).unwrap();
+        super::SOUND_STATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("playing"), "expected playing: {r}");
+    }
+
+    #[test]
+    fn get_sound_state_returns_empty_for_unknown_id() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getSoundState(9999);"#).unwrap();
+        assert!(
+            r.trim().is_empty() || r.trim() == "\"\"",
+            "expected empty string: {r}"
+        );
+    }
+
+    #[test]
+    fn get_sound_position_reads_snapshot() {
+        super::SOUND_POSITION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(42, 3.5);
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getSoundPosition(42);"#).unwrap();
+        super::SOUND_POSITION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("3.5"), "expected 3.5: {r}");
     }
 
     #[test]

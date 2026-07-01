@@ -275,6 +275,12 @@ pub enum ScriptCommand {
         az: f32,
         angle_deg: f32,
     },
+    AddRotationEuler {
+        name: String,
+        pitch: f32,
+        yaw: f32,
+        roll: f32,
+    },
     SetScaleX {
         name: String,
         x: f32,
@@ -660,6 +666,18 @@ pub fn bsengine_rotate_around_axis(
             ay,
             az,
             angle_deg,
+        });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_rotation_euler(#[string] name: String, pitch: f32, yaw: f32, roll: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::AddRotationEuler {
+            name,
+            pitch,
+            yaw,
+            roll,
         });
     });
 }
@@ -1493,6 +1511,7 @@ deno_core::extension!(
         bsengine_set_position_z,
         bsengine_rotate_by,
         bsengine_rotate_around_axis,
+        bsengine_add_rotation_euler,
         bsengine_set_scale_x,
         bsengine_set_scale_y,
         bsengine_set_scale_z,
@@ -1619,6 +1638,7 @@ const Bsengine = {
     setPositionZ:        (name, z)              => Deno.core.ops.bsengine_set_position_z(name, z),
     rotateBy:          (name, rx, ry, rz, rw)   => Deno.core.ops.bsengine_rotate_by(name, rx, ry, rz, rw),
     rotateAroundAxis:  (name, ax, ay, az, deg)  => Deno.core.ops.bsengine_rotate_around_axis(name, ax, ay, az, deg),
+    addRotationEuler:  (name, pitch, yaw, roll) => Deno.core.ops.bsengine_add_rotation_euler(name, pitch, yaw, roll),
     setScaleX:         (name, x)               => Deno.core.ops.bsengine_set_scale_x(name, x),
     setScaleY:         (name, y)               => Deno.core.ops.bsengine_set_scale_y(name, y),
     setScaleZ:         (name, z)               => Deno.core.ops.bsengine_set_scale_z(name, z),
@@ -3896,6 +3916,33 @@ JSON.stringify(received)
                     assert!((roll_deg - 0.0).abs() < 1e-4);
                 }
                 _ => panic!("expected SetRotationEuler command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_rotation_euler_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addRotationEuler("Cube", 30.0, 45.0, 90.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddRotationEuler {
+                    name,
+                    pitch,
+                    yaw,
+                    roll,
+                } => {
+                    assert_eq!(name, "Cube");
+                    assert!((pitch - 30.0).abs() < 1e-4, "pitch: {pitch}");
+                    assert!((yaw - 45.0).abs() < 1e-4, "yaw: {yaw}");
+                    assert!((roll - 90.0).abs() < 1e-4, "roll: {roll}");
+                }
+                _ => panic!("expected AddRotationEuler command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

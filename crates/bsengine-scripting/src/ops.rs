@@ -1423,6 +1423,40 @@ const Bsengine = {
         }
     },
 
+    // Math utilities — pure JS, no round-trips to Rust.
+    math: {
+        lerp:      (a, b, t)  => a + (b - a) * t,
+        clamp:     (v, lo, hi) => Math.min(Math.max(v, lo), hi),
+        magnitude: (v)         => Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z),
+        normalize: (v)         => { const l = Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z); return l>0?{x:v.x/l,y:v.y/l,z:v.z/l}:{x:0,y:0,z:0}; },
+        dot:       (a, b)      => a.x*b.x + a.y*b.y + a.z*b.z,
+        cross:     (a, b)      => ({x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x}),
+        lerpVec:   (a, b, t)   => ({x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t, z:a.z+(b.z-a.z)*t}),
+    },
+
+    // Convenience helpers built on existing ops.
+    lookAtEntity(name, targetName) {
+        const t = this.getPosition(targetName);
+        if (t) this.lookAt(name, t.x, t.y, t.z);
+    },
+    moveToward(name, tx, ty, tz, speed) {
+        const pos = this.getPosition(name);
+        if (!pos) return;
+        const dx = tx-pos.x, dy = ty-pos.y, dz = tz-pos.z;
+        const dist = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if (dist < 1e-6) return;
+        const step = Math.min(speed * this.getDeltaTime(), dist) / dist;
+        this.setTransform(name, pos.x+dx*step, pos.y+dy*step, pos.z+dz*step);
+    },
+    getLinearSpeed(name) {
+        const v = this.getVelocity(name);
+        return v ? Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z) : 0;
+    },
+    getAngularSpeed(name) {
+        const v = this.getAngularVelocity(name);
+        return v ? Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z) : 0;
+    },
+
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();
@@ -1755,6 +1789,43 @@ hits
             .eval(r#"Bsengine.broadcast("nobody", {}); "ok""#)
             .unwrap();
         assert!(r.contains("ok"), "threw: {r}");
+    }
+
+    #[test]
+    fn math_lerp_midpoint() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval("Bsengine.math.lerp(0, 10, 0.5)").unwrap();
+        let v: f32 = r.trim().parse().unwrap();
+        assert!((v - 5.0).abs() < 1e-4, "expected 5.0: {r}");
+    }
+
+    #[test]
+    fn math_normalize_unit_vector() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.math.normalize({x:3,y:4,z:0}))"#)
+            .unwrap();
+        assert!(
+            r.contains("\"x\":0.6") || r.contains("\"x\":0.60"),
+            "x: {r}"
+        );
+        assert!(
+            r.contains("\"y\":0.8") || r.contains("\"y\":0.80"),
+            "y: {r}"
+        );
+    }
+
+    #[test]
+    fn math_dot_product() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.math.dot({x:1,y:0,z:0},{x:0,y:1,z:0})"#)
+            .unwrap();
+        let v: f32 = r.trim().parse().unwrap();
+        assert!((v - 0.0).abs() < 1e-4, "expected 0 for perpendicular: {r}");
     }
 
     #[test]

@@ -447,6 +447,22 @@ pub fn bsengine_get_entities_by_tag(#[string] tag: String) -> String {
     })
 }
 
+#[op2]
+#[string]
+pub fn bsengine_get_entities_in_radius(x: f32, y: f32, z: f32, radius: f32) -> String {
+    let center = Vec3::new(x, y, z);
+    let r2 = radius * radius;
+    TRANSFORM_SNAPSHOT.with(|s| {
+        let snap = s.borrow();
+        let names: Vec<&str> = snap
+            .iter()
+            .filter(|(_, (pos, _, _))| pos.distance_squared(center) <= r2)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
 #[op2(fast)]
 pub fn bsengine_set_emissive(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1028,6 +1044,7 @@ deno_core::extension!(
         bsengine_is_key_up,
         bsengine_get_entity_names,
         bsengine_get_entities_by_tag,
+        bsengine_get_entities_in_radius,
         bsengine_has_tag,
         bsengine_add_tag,
         bsengine_remove_tag,
@@ -1116,6 +1133,7 @@ const Bsengine = {
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
     getEntityNames:      ()    => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
     getEntitiesByTag:    (tag) => JSON.parse(Deno.core.ops.bsengine_get_entities_by_tag(tag)),
+    getEntitiesInRadius: (x, y, z, radius) => JSON.parse(Deno.core.ops.bsengine_get_entities_in_radius(x, y, z, radius)),
     hasTag:              (name, label) => Deno.core.ops.bsengine_has_tag(name, label),
     addTag:              (name, label) => Deno.core.ops.bsengine_add_tag(name, label),
     removeTag:           (name, label) => Deno.core.ops.bsengine_remove_tag(name, label),
@@ -1885,6 +1903,47 @@ JSON.stringify(received)
         super::TAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert!(r.contains("Goblin"), "expected Goblin: {r}");
         assert!(r.contains("Orc"), "expected Orc: {r}");
+    }
+
+    #[test]
+    fn get_entities_in_radius_returns_nearby_entities() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            let mut m = s.borrow_mut();
+            m.insert(
+                "Near".to_string(),
+                (
+                    glam::Vec3::new(1.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+            m.insert(
+                "Far".to_string(),
+                (
+                    glam::Vec3::new(100.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getEntitiesInRadius(0.0, 0.0, 0.0, 5.0))"#)
+            .unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("Near"), "expected Near: {r}");
+        assert!(!r.contains("Far"), "should not contain Far: {r}");
+    }
+
+    #[test]
+    fn get_entities_in_radius_returns_empty_when_none_in_range() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getEntitiesInRadius(0.0, 0.0, 0.0, 1.0))"#)
+            .unwrap();
+        assert_eq!(r.trim(), "[]", "expected empty array: {r}");
     }
 
     #[test]

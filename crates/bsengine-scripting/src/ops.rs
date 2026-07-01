@@ -207,6 +207,12 @@ pub enum ScriptCommand {
         lock_y: bool,
         lock_z: bool,
     },
+    LockTranslation {
+        name: String,
+        lock_x: bool,
+        lock_y: bool,
+        lock_z: bool,
+    },
 }
 
 thread_local! {
@@ -799,6 +805,18 @@ pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool
 }
 
 #[op2(fast)]
+pub fn bsengine_lock_translation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::LockTranslation {
+            name,
+            lock_x,
+            lock_y,
+            lock_z,
+        });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1058,6 +1076,7 @@ deno_core::extension!(
         bsengine_get_friction,
         bsengine_set_friction,
         bsengine_lock_rotation,
+        bsengine_lock_translation,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -1147,6 +1166,7 @@ const Bsengine = {
     getFriction:          (name)                   => Deno.core.ops.bsengine_get_friction(name),
     setFriction:          (name, v)                => Deno.core.ops.bsengine_set_friction(name, v),
     lockRotation:         (name, lockX, lockY, lockZ) => Deno.core.ops.bsengine_lock_rotation(name, lockX, lockY, lockZ),
+    lockTranslation:      (name, lockX, lockY, lockZ) => Deno.core.ops.bsengine_lock_translation(name, lockX, lockY, lockZ),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -2461,6 +2481,22 @@ JSON.stringify(received)
                     if name == "Player" && *lock_x && !*lock_y && *lock_z)
             });
             assert!(found, "LockRotation not in buffer");
+        });
+    }
+
+    #[test]
+    fn lock_translation_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.lockTranslation("Player", false, true, false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::LockTranslation { name, lock_x, lock_y, lock_z }
+                    if name == "Player" && !*lock_x && *lock_y && !*lock_z)
+            });
+            assert!(found, "LockTranslation not in buffer");
         });
     }
 

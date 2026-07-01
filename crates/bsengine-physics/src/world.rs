@@ -207,6 +207,14 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn lock_translations(&mut self, entity: Entity, lock_x: bool, lock_y: bool, lock_z: bool) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_enabled_translations(!lock_x, !lock_y, !lock_z, true);
+            }
+        }
+    }
+
     pub fn get_restitution(&self, entity: Entity) -> Option<f32> {
         let handle = self.entity_body_map.get(&entity)?;
         let body = self.rigid_body_set.get(*handle)?;

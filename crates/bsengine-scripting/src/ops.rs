@@ -131,6 +131,24 @@ pub enum ScriptCommand {
         name: String,
         deg: f32,
     },
+    SetDirectionalLightColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetDirectionalLightAmbient {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetDirectionalLightDirection {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -1293,6 +1311,30 @@ pub fn bsengine_set_spot_light_outer_angle(#[string] name: String, deg: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_directional_light_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDirectionalLightColor { name, r, g, b })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_directional_light_ambient(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDirectionalLightAmbient { name, r, g, b })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_directional_light_direction(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDirectionalLightDirection { name, x, y, z })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2111,6 +2153,9 @@ deno_core::extension!(
         bsengine_set_spot_light_range,
         bsengine_set_spot_light_inner_angle,
         bsengine_set_spot_light_outer_angle,
+        bsengine_set_directional_light_color,
+        bsengine_set_directional_light_ambient,
+        bsengine_set_directional_light_direction,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2288,6 +2333,9 @@ const Bsengine = {
     setSpotLightRange:      (name, value)       => Deno.core.ops.bsengine_set_spot_light_range(name, value),
     setSpotLightInnerAngle: (name, deg)         => Deno.core.ops.bsengine_set_spot_light_inner_angle(name, deg),
     setSpotLightOuterAngle: (name, deg)         => Deno.core.ops.bsengine_set_spot_light_outer_angle(name, deg),
+    setDirectionalLightColor:     (name, r, g, b) => Deno.core.ops.bsengine_set_directional_light_color(name, r, g, b),
+    setDirectionalLightAmbient:   (name, r, g, b) => Deno.core.ops.bsengine_set_directional_light_ambient(name, r, g, b),
+    setDirectionalLightDirection: (name, x, y, z) => Deno.core.ops.bsengine_set_directional_light_direction(name, x, y, z),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -5642,6 +5690,66 @@ JSON.stringify(received)
                     if name == "Spot" && (*deg - 45.0).abs() < 1e-5)
             });
             assert!(found, "SetSpotLightOuterAngle not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_directional_light_color_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDirectionalLightColor("Sun", 1.0, 0.9, 0.8);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetDirectionalLightColor { name, r, g, b }
+                    if name == "Sun"
+                        && (*r - 1.0).abs() < 1e-5
+                        && (*g - 0.9).abs() < 1e-5
+                        && (*b - 0.8).abs() < 1e-5)
+            });
+            assert!(found, "SetDirectionalLightColor not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_directional_light_ambient_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDirectionalLightAmbient("Sun", 0.1, 0.1, 0.15);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetDirectionalLightAmbient { name, r, g, b }
+                    if name == "Sun"
+                        && (*r - 0.1).abs() < 1e-5
+                        && (*g - 0.1).abs() < 1e-5
+                        && (*b - 0.15).abs() < 1e-5)
+            });
+            assert!(found, "SetDirectionalLightAmbient not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_directional_light_direction_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDirectionalLightDirection("Sun", -0.4, -0.8, -0.4);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetDirectionalLightDirection { name, x, y, z }
+                    if name == "Sun"
+                        && (*x - -0.4).abs() < 1e-5
+                        && (*y - -0.8).abs() < 1e-5
+                        && (*z - -0.4).abs() < 1e-5)
+            });
+            assert!(found, "SetDirectionalLightDirection not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

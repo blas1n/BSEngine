@@ -1602,16 +1602,13 @@ JSON.stringify(received)
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
             s.borrow_mut()
-                .insert("Spinner".to_string(), glam::Vec3::new(0.0, 3.14, 0.0));
+                .insert("Spinner".to_string(), glam::Vec3::new(0.0, 2.5, 0.0));
         });
         let r = rt
             .eval(r#"JSON.stringify(Bsengine.getAngularVelocity("Spinner"))"#)
             .unwrap();
         super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        assert!(
-            r.contains("\"y\":3.14") || r.contains("\"y\":3.1"),
-            "expected y≈3.14: {r}"
-        );
+        assert!(r.contains("\"y\":2.5"), "expected y=2.5: {r}");
     }
 
     #[test]

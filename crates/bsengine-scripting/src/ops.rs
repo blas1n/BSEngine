@@ -174,6 +174,18 @@ pub enum ScriptCommand {
         vy: f32,
         vz: f32,
     },
+    SetVelocityX {
+        name: String,
+        vx: f32,
+    },
+    SetVelocityY {
+        name: String,
+        vy: f32,
+    },
+    SetVelocityZ {
+        name: String,
+        vz: f32,
+    },
     SetGravity {
         magnitude: f32,
     },
@@ -181,6 +193,18 @@ pub enum ScriptCommand {
         name: String,
         vx: f32,
         vy: f32,
+        vz: f32,
+    },
+    SetAngularVelocityX {
+        name: String,
+        vx: f32,
+    },
+    SetAngularVelocityY {
+        name: String,
+        vy: f32,
+    },
+    SetAngularVelocityZ {
+        name: String,
         vz: f32,
     },
     AddAngularImpulse {
@@ -1254,6 +1278,30 @@ pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) 
 }
 
 #[op2(fast)]
+pub fn bsengine_set_velocity_x(#[string] name: String, vx: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVelocityX { name, vx });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_velocity_y(#[string] name: String, vy: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVelocityY { name, vy });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_velocity_z(#[string] name: String, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVelocityZ { name, vz });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_get_gravity() -> f32 {
     GRAVITY_SNAPSHOT.with(|s| *s.borrow())
 }
@@ -1291,6 +1339,30 @@ pub fn bsengine_set_angular_velocity(#[string] name: String, vx: f32, vy: f32, v
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetAngularVelocity { name, vx, vy, vz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_angular_velocity_x(#[string] name: String, vx: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAngularVelocityX { name, vx });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_angular_velocity_y(#[string] name: String, vy: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAngularVelocityY { name, vy });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_angular_velocity_z(#[string] name: String, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAngularVelocityZ { name, vz });
     });
 }
 
@@ -1785,6 +1857,9 @@ deno_core::extension!(
         bsengine_add_force,
         bsengine_add_force_at_point,
         bsengine_set_velocity,
+        bsengine_set_velocity_x,
+        bsengine_set_velocity_y,
+        bsengine_set_velocity_z,
         bsengine_get_gravity,
         bsengine_set_gravity,
         bsengine_get_angular_velocity,
@@ -1792,6 +1867,9 @@ deno_core::extension!(
         bsengine_get_angular_velocity_y,
         bsengine_get_angular_velocity_z,
         bsengine_set_angular_velocity,
+        bsengine_set_angular_velocity_x,
+        bsengine_set_angular_velocity_y,
+        bsengine_set_angular_velocity_z,
         bsengine_add_angular_impulse,
         bsengine_add_torque,
         bsengine_set_ccd_enabled,
@@ -1937,6 +2015,9 @@ const Bsengine = {
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
     addForceAtPoint:  (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_add_force_at_point(name, fx, fy, fz, px, py, pz),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
+    setVelocityX:     (name, vx) => Deno.core.ops.bsengine_set_velocity_x(name, vx),
+    setVelocityY:     (name, vy) => Deno.core.ops.bsengine_set_velocity_y(name, vy),
+    setVelocityZ:     (name, vz) => Deno.core.ops.bsengine_set_velocity_z(name, vz),
     getGravity:           ()                     => Deno.core.ops.bsengine_get_gravity(),
     setGravity:           (magnitude)             => Deno.core.ops.bsengine_set_gravity(magnitude),
     getAngularVelocity:   (name)                  => { const v = Deno.core.ops.bsengine_get_angular_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
@@ -1944,6 +2025,9 @@ const Bsengine = {
     getAngularVelocityY:  (name) => Deno.core.ops.bsengine_get_angular_velocity_y(name),
     getAngularVelocityZ:  (name) => Deno.core.ops.bsengine_get_angular_velocity_z(name),
     setAngularVelocity:   (name, vx, vy, vz)      => Deno.core.ops.bsengine_set_angular_velocity(name, vx, vy, vz),
+    setAngularVelocityX:  (name, vx) => Deno.core.ops.bsengine_set_angular_velocity_x(name, vx),
+    setAngularVelocityY:  (name, vy) => Deno.core.ops.bsengine_set_angular_velocity_y(name, vy),
+    setAngularVelocityZ:  (name, vz) => Deno.core.ops.bsengine_set_angular_velocity_z(name, vz),
     addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
     addTorque:            (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_torque(name, vx, vy, vz),
     setCCDEnabled:        (name, enabled)           => Deno.core.ops.bsengine_set_ccd_enabled(name, enabled),
@@ -3265,6 +3349,51 @@ JSON.stringify(received)
     }
 
     #[test]
+    fn set_velocity_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setVelocityX("Ball", 3.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetVelocityX { name, vx }
+                    if name == "Ball" && (*vx - 3.0).abs() < 1e-6)
+            });
+            assert!(found, "SetVelocityX not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_velocity_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setVelocityY("Ball", 4.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetVelocityY { name, vy }
+                    if name == "Ball" && (*vy - 4.0).abs() < 1e-6)
+            });
+            assert!(found, "SetVelocityY not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_velocity_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setVelocityZ("Ball", 2.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetVelocityZ { name, vz }
+                    if name == "Ball" && (*vz - 2.0).abs() < 1e-6)
+            });
+            assert!(found, "SetVelocityZ not in buffer");
+        });
+    }
+
+    #[test]
     fn add_position_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
@@ -3404,6 +3533,54 @@ JSON.stringify(received)
                     if name == "Top" && (*vy - 5.0).abs() < 1e-6)
             });
             assert!(found, "SetAngularVelocity not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_angular_velocity_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAngularVelocityX("Top", 1.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAngularVelocityX { name, vx }
+                    if name == "Top" && (*vx - 1.5).abs() < 1e-6)
+            });
+            assert!(found, "SetAngularVelocityX not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_angular_velocity_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAngularVelocityY("Top", 2.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAngularVelocityY { name, vy }
+                    if name == "Top" && (*vy - 2.5).abs() < 1e-6)
+            });
+            assert!(found, "SetAngularVelocityY not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_angular_velocity_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAngularVelocityZ("Top", 3.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAngularVelocityZ { name, vz }
+                    if name == "Top" && (*vz - 3.5).abs() < 1e-6)
+            });
+            assert!(found, "SetAngularVelocityZ not in buffer");
         });
     }
 

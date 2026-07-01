@@ -4,7 +4,7 @@ use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    GlobalTransform, HudTexts, Material, ScreenSize, SkyboxPath, Transform, Visible,
+    GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Transform, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
@@ -555,6 +555,28 @@ fn run_scripts(world: &mut World) {
                     format!("{}/{}", project_dir, path)
                 };
                 world.insert_resource(SkyboxPath(Some(full_path)));
+            }
+            ScriptCommand::SetParent { child, parent } => {
+                let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                let mut child_entity = None;
+                let mut parent_entity = None;
+                for (e, n) in q.iter(world) {
+                    if n.0 == child {
+                        child_entity = Some(e);
+                    } else if n.0 == parent {
+                        parent_entity = Some(e);
+                    }
+                }
+                if let (Some(ce), Some(pe)) = (child_entity, parent_entity) {
+                    world.entity_mut(ce).insert(Parent(pe));
+                }
+            }
+            ScriptCommand::ClearParent { child } => {
+                let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                let child_entity = q.iter(world).find(|(_, n)| n.0 == child).map(|(e, _)| e);
+                if let Some(ce) = child_entity {
+                    world.entity_mut(ce).remove::<Parent>();
+                }
             }
         }
     }

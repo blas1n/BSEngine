@@ -17,11 +17,11 @@ use crate::ops::{
     ScriptCommand, SpawnParams, BOOTSTRAP_JS, CHILDREN_SNAPSHOT, COLLISION_SNAPSHOT,
     COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT,
+    GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
+    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
+    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    SCREEN_SIZE_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -411,6 +411,11 @@ fn run_scripts(world: &mut World) {
     PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
     CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
     VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
+    let gravity = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| pw.gravity())
+        .unwrap_or(9.81);
+    GRAVITY_SNAPSHOT.with(|s| *s.borrow_mut() = gravity);
     PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = physics_ptr);
     GAMEPAD_BUTTON_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_pressed);
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
@@ -662,6 +667,11 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.set_linvel(e, Vec3::new(vx, vy, vz));
+                }
+            }
+            ScriptCommand::SetGravity { magnitude } => {
+                if let Some(mut pw) = world.get_resource_mut::<PhysicsWorld>() {
+                    pw.set_gravity(magnitude);
                 }
             }
         }

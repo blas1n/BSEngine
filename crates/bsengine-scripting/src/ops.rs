@@ -790,6 +790,46 @@ const Bsengine = {
         }
     },
 
+    // Mouse event callbacks (btn: 0=Left, 1=Right, 2=Middle)
+    _mouseDownHandlers: {},
+    _mouseUpHandlers: {},
+    onMouseDown(btn, fn) { (this._mouseDownHandlers[btn] ??= []).push(fn); },
+    onMouseUp(btn, fn)   { (this._mouseUpHandlers[btn]   ??= []).push(fn); },
+    _dispatchMouseEvents() {
+        for (let btn = 0; btn < 3; btn++) {
+            if (Deno.core.ops.bsengine_is_mouse_down(btn)) {
+                for (const fn of (this._mouseDownHandlers[btn] || [])) {
+                    try { fn(btn); } catch (e) { this.log('[mouseDown:' + btn + '] ' + e); }
+                }
+            }
+            if (Deno.core.ops.bsengine_is_mouse_up(btn)) {
+                for (const fn of (this._mouseUpHandlers[btn] || [])) {
+                    try { fn(btn); } catch (e) { this.log('[mouseUp:' + btn + '] ' + e); }
+                }
+            }
+        }
+    },
+
+    // Gamepad event callbacks (btn: 0=South/A..15=DPadRight)
+    _gamepadDownHandlers: {},
+    _gamepadUpHandlers: {},
+    onGamepadButtonDown(btn, fn) { (this._gamepadDownHandlers[btn] ??= []).push(fn); },
+    onGamepadButtonUp(btn, fn)   { (this._gamepadUpHandlers[btn]   ??= []).push(fn); },
+    _dispatchGamepadEvents() {
+        for (let btn = 0; btn < 16; btn++) {
+            if (Deno.core.ops.bsengine_is_gamepad_button_down(btn)) {
+                for (const fn of (this._gamepadDownHandlers[btn] || [])) {
+                    try { fn(btn); } catch (e) { this.log('[gamepadDown:' + btn + '] ' + e); }
+                }
+            }
+            if (Deno.core.ops.bsengine_is_gamepad_button_up(btn)) {
+                for (const fn of (this._gamepadUpHandlers[btn] || [])) {
+                    try { fn(btn); } catch (e) { this.log('[gamepadUp:' + btn + '] ' + e); }
+                }
+            }
+        }
+    },
+
     // Timers — frame-based (1 frame ≈ 1 tick)
     _timers: [],
     _nextTimerId: 0,
@@ -884,6 +924,8 @@ const Bsengine = {
     _runAll(entities) {
         this._tickTimers();
         this._dispatchKeyEvents();
+        this._dispatchMouseEvents();
+        this._dispatchGamepadEvents();
         for (const [id, name] of entities) {
             const s = this._scripts[id];
             if (s && s.onUpdate) {
@@ -1438,6 +1480,112 @@ JSON.stringify(received)
             );
             assert!(found, "SetCursorLocked not in buffer");
         });
+    }
+
+    #[test]
+    fn on_mouse_down_not_called_when_no_input() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onMouseDown(0, () => { called = true; });
+            Bsengine._dispatchMouseEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn on_mouse_down_called_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::MOUSE_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = 0b001); // btn 0 = Left
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onMouseDown(0, () => { called = true; });
+            Bsengine._dispatchMouseEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        super::MOUSE_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = 0);
+        assert!(r.contains("called"), "expected called: {r}");
+    }
+
+    #[test]
+    fn on_mouse_up_not_called_when_no_input() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onMouseUp(1, () => { called = true; });
+            Bsengine._dispatchMouseEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn on_gamepad_button_down_not_called_when_no_input() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onGamepadButtonDown(0, () => { called = true; });
+            Bsengine._dispatchGamepadEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn on_gamepad_button_down_called_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = 0b0001); // btn 0
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onGamepadButtonDown(0, () => { called = true; });
+            Bsengine._dispatchGamepadEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        super::GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = 0);
+        assert!(r.contains("called"), "expected called: {r}");
+    }
+
+    #[test]
+    fn on_gamepad_button_up_not_called_when_no_input() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(
+                r#"
+            let called = false;
+            Bsengine.onGamepadButtonUp(3, () => { called = true; });
+            Bsengine._dispatchGamepadEvents();
+            called ? "called" : "not_called"
+        "#,
+            )
+            .unwrap();
+        assert!(r.contains("not_called"), "expected not_called: {r}");
     }
 
     #[test]

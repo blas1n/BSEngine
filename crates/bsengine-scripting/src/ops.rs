@@ -261,6 +261,20 @@ pub enum ScriptCommand {
         name: String,
         z: f32,
     },
+    RotateBy {
+        name: String,
+        rx: f32,
+        ry: f32,
+        rz: f32,
+        rw: f32,
+    },
+    RotateAroundAxis {
+        name: String,
+        ax: f32,
+        ay: f32,
+        az: f32,
+        angle_deg: f32,
+    },
 }
 
 thread_local! {
@@ -532,6 +546,19 @@ pub fn bsengine_add_position(#[string] name: String, dx: f32, dy: f32, dz: f32) 
 }
 
 #[op2(fast)]
+pub fn bsengine_rotate_by(#[string] name: String, rx: f32, ry: f32, rz: f32, rw: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::RotateBy {
+            name,
+            rx,
+            ry,
+            rz,
+            rw,
+        });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_add_position_local(#[string] name: String, dx: f32, dy: f32, dz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -557,6 +584,25 @@ pub fn bsengine_set_position_y(#[string] name: String, y: f32) {
 pub fn bsengine_set_position_z(#[string] name: String, z: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetPositionZ { name, z });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_rotate_around_axis(
+    #[string] name: String,
+    ax: f32,
+    ay: f32,
+    az: f32,
+    angle_deg: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::RotateAroundAxis {
+            name,
+            ax,
+            ay,
+            az,
+            angle_deg,
+        });
     });
 }
 
@@ -1298,6 +1344,8 @@ deno_core::extension!(
         bsengine_set_position_x,
         bsengine_set_position_y,
         bsengine_set_position_z,
+        bsengine_rotate_by,
+        bsengine_rotate_around_axis,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1404,6 +1452,8 @@ const Bsengine = {
     setPositionX:        (name, x)              => Deno.core.ops.bsengine_set_position_x(name, x),
     setPositionY:        (name, y)              => Deno.core.ops.bsengine_set_position_y(name, y),
     setPositionZ:        (name, z)              => Deno.core.ops.bsengine_set_position_z(name, z),
+    rotateBy:          (name, rx, ry, rz, rw)   => Deno.core.ops.bsengine_rotate_by(name, rx, ry, rz, rw),
+    rotateAroundAxis:  (name, ax, ay, az, deg)  => Deno.core.ops.bsengine_rotate_around_axis(name, ax, ay, az, deg),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -3421,6 +3471,53 @@ JSON.stringify(received)
                     assert!((z - 10.0).abs() < 1e-4);
                 }
                 _ => panic!("expected SetPositionZ command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn rotate_by_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.rotateBy("Cube", 0.0, 0.707, 0.0, 0.707);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::RotateBy { name, ry, rw, .. } => {
+                    assert_eq!(name, "Cube");
+                    assert!((ry - 0.707).abs() < 1e-4);
+                    assert!((rw - 0.707).abs() < 1e-4);
+                }
+                _ => panic!("expected RotateBy command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn rotate_around_axis_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.rotateAroundAxis("Cube", 0.0, 1.0, 0.0, 90.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::RotateAroundAxis {
+                    name,
+                    ay,
+                    angle_deg,
+                    ..
+                } => {
+                    assert_eq!(name, "Cube");
+                    assert!((ay - 1.0).abs() < 1e-4);
+                    assert!((angle_deg - 90.0).abs() < 1e-4);
+                }
+                _ => panic!("expected RotateAroundAxis command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

@@ -1050,6 +1050,42 @@ fn run_scripts(world: &mut World) {
                     pw.put_to_sleep(e);
                 }
             }
+            ScriptCommand::RotateBy {
+                name,
+                rx,
+                ry,
+                rz,
+                rw,
+            } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let delta = Quat::from_xyzw(rx, ry, rz, rw).normalize();
+                        t.rotation = (t.rotation * delta).normalize();
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::RotateAroundAxis {
+                name,
+                ax,
+                ay,
+                az,
+                angle_deg,
+            } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let axis = Vec3::new(ax, ay, az);
+                        if axis.length_squared() > 1e-10 {
+                            let delta =
+                                Quat::from_axis_angle(axis.normalize(), angle_deg.to_radians());
+                            t.rotation = (t.rotation * delta).normalize();
+                        }
+                        break;
+                    }
+                }
+            }
             ScriptCommand::AddTag { name, label } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

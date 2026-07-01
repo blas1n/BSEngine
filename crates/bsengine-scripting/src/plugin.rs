@@ -913,6 +913,23 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetSoundPanning { id, panning } => {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    if let Some(handle) = handles.0.get_mut(&id) {
+                        use kira::{Panning, Tween};
+                        let _ = handle.set_panning(Panning(panning), Tween::default());
+                    }
+                }
+            }
+            ScriptCommand::SetSoundPlaybackRate { id, rate } => {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    if let Some(handle) = handles.0.get_mut(&id) {
+                        use kira::{PlaybackRate, Tween};
+                        let _ =
+                            handle.set_playback_rate(PlaybackRate(rate as f64), Tween::default());
+                    }
+                }
+            }
             ScriptCommand::SetHudText { id, text } => {
                 if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
                     hud.0.insert(id, text);

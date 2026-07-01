@@ -1036,6 +1036,16 @@ pub fn bsengine_get_entity_names() -> String {
         .with(|s| serde_json::to_string(&*s.borrow()).unwrap_or_else(|_| "[]".to_string()))
 }
 
+#[op2(fast)]
+pub fn bsengine_entity_exists(#[string] name: String) -> bool {
+    ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow().contains(&name))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_entity_count() -> u32 {
+    ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow().len() as u32)
+}
+
 #[op2]
 #[string]
 pub fn bsengine_get_entities_by_tag(#[string] tag: String) -> String {
@@ -1968,6 +1978,8 @@ deno_core::extension!(
         bsengine_is_key_down,
         bsengine_is_key_up,
         bsengine_get_entity_names,
+        bsengine_entity_exists,
+        bsengine_get_entity_count,
         bsengine_get_entities_by_tag,
         bsengine_get_entities_in_radius,
         bsengine_get_closest_entity,
@@ -2135,6 +2147,8 @@ const Bsengine = {
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
     getEntityNames:      ()    => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
+    entityExists:        (name) => Deno.core.ops.bsengine_entity_exists(name),
+    getEntityCount:      ()    => Deno.core.ops.bsengine_get_entity_count(),
     getEntitiesByTag:        (tag)           => JSON.parse(Deno.core.ops.bsengine_get_entities_by_tag(tag)),
     getEntitiesInRadius:     (x, y, z, radius) => JSON.parse(Deno.core.ops.bsengine_get_entities_in_radius(x, y, z, radius)),
     getClosestEntity:        (x, y, z)       => Deno.core.ops.bsengine_get_closest_entity(x, y, z),
@@ -3172,6 +3186,45 @@ JSON.stringify(received)
         super::TAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert!(r.contains("Goblin"), "expected Goblin: {r}");
         assert!(r.contains("Orc"), "expected Orc: {r}");
+    }
+
+    #[test]
+    fn entity_exists_returns_true_when_in_snapshot() {
+        super::ENTITY_NAMES_SNAPSHOT.with(|s| {
+            s.borrow_mut().push("Player".to_string());
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.entityExists("Player") ? "yes" : "no";"#)
+            .unwrap();
+        super::ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("yes"), "expected yes: {r}");
+    }
+
+    #[test]
+    fn entity_exists_returns_false_for_unknown_name() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.entityExists("Ghost") ? "yes" : "no";"#)
+            .unwrap();
+        assert!(r.contains("no"), "expected no: {r}");
+    }
+
+    #[test]
+    fn get_entity_count_returns_snapshot_length() {
+        super::ENTITY_NAMES_SNAPSHOT.with(|s| {
+            let mut v = s.borrow_mut();
+            v.push("A".to_string());
+            v.push("B".to_string());
+            v.push("C".to_string());
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getEntityCount();"#).unwrap();
+        super::ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains('3'), "expected 3: {r}");
     }
 
     #[test]

@@ -4,7 +4,8 @@ use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Transform, Visible,
+    CursorConfig, GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Transform,
+    Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
@@ -576,6 +577,26 @@ fn run_scripts(world: &mut World) {
                 let child_entity = q.iter(world).find(|(_, n)| n.0 == child).map(|(e, _)| e);
                 if let Some(ce) = child_entity {
                     world.entity_mut(ce).remove::<Parent>();
+                }
+            }
+            ScriptCommand::SetCursorVisible { visible } => {
+                if let Some(mut cfg) = world.get_resource_mut::<CursorConfig>() {
+                    cfg.visible = visible;
+                } else {
+                    world.insert_resource(CursorConfig {
+                        visible,
+                        locked: false,
+                    });
+                }
+            }
+            ScriptCommand::SetCursorLocked { locked } => {
+                if let Some(mut cfg) = world.get_resource_mut::<CursorConfig>() {
+                    cfg.locked = locked;
+                } else {
+                    world.insert_resource(CursorConfig {
+                        visible: true,
+                        locked,
+                    });
                 }
             }
         }

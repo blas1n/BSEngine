@@ -1,6 +1,9 @@
 use crate::runner::winit_runner;
-use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowResized};
-use bevy_app::{App, Plugin};
+use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized};
+use bevy_app::{App, Plugin, Update};
+use bevy_ecs::prelude::*;
+use bsengine_core::CursorConfig;
+use winit::window::CursorGrabMode;
 
 #[derive(Default)]
 pub struct WindowPlugin {
@@ -13,7 +16,26 @@ impl Plugin for WindowPlugin {
             .add_event::<WindowCreated>()
             .add_event::<WindowResized>()
             .add_event::<WindowClosed>()
+            .add_systems(Update, apply_cursor_config)
             .set_runner(winit_runner);
+    }
+}
+
+fn apply_cursor_config(config: Option<Res<CursorConfig>>, handle: Option<Res<WindowHandle>>) {
+    let (Some(config), Some(handle)) = (config, handle) else {
+        return;
+    };
+    if !config.is_changed() {
+        return;
+    }
+    handle.0.set_cursor_visible(config.visible);
+    if config.locked {
+        let _ = handle
+            .0
+            .set_cursor_grab(CursorGrabMode::Locked)
+            .or_else(|_| handle.0.set_cursor_grab(CursorGrabMode::Confined));
+    } else {
+        let _ = handle.0.set_cursor_grab(CursorGrabMode::None);
     }
 }
 

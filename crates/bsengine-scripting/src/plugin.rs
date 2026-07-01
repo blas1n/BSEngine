@@ -889,6 +889,22 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::PauseSound { id } => {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    if let Some(handle) = handles.0.get_mut(&id) {
+                        use kira::Tween;
+                        let _ = handle.pause(Tween::default());
+                    }
+                }
+            }
+            ScriptCommand::ResumeSound { id } => {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    if let Some(handle) = handles.0.get_mut(&id) {
+                        use kira::Tween;
+                        let _ = handle.resume(Tween::default());
+                    }
+                }
+            }
             ScriptCommand::SetHudText { id, text } => {
                 if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
                     hud.0.insert(id, text);

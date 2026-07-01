@@ -112,6 +112,12 @@ pub enum ScriptCommand {
     StopSound {
         id: u32,
     },
+    PauseSound {
+        id: u32,
+    },
+    ResumeSound {
+        id: u32,
+    },
     SetHudText {
         id: String,
         text: String,
@@ -1671,6 +1677,16 @@ pub fn bsengine_stop_sound(id: u32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_pause_sound(id: u32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PauseSound { id }));
+}
+
+#[op2(fast)]
+pub fn bsengine_resume_sound(id: u32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResumeSound { id }));
+}
+
+#[op2(fast)]
 pub fn bsengine_set_hud_text(#[string] id: String, #[string] text: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetHudText { id, text }));
 }
@@ -1964,6 +1980,8 @@ deno_core::extension!(
         bsengine_set_cursor_locked,
         bsengine_play_sound,
         bsengine_stop_sound,
+        bsengine_pause_sound,
+        bsengine_resume_sound,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
         bsengine_load_scene,
@@ -2131,6 +2149,8 @@ const Bsengine = {
         return Deno.core.ops.bsengine_play_sound(path, v, l);
     },
     stopSound:      (id)                   => Deno.core.ops.bsengine_stop_sound(id),
+    pauseSound:     (id)                   => Deno.core.ops.bsengine_pause_sound(id),
+    resumeSound:    (id)                   => Deno.core.ops.bsengine_resume_sound(id),
     setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
     clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(id),
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
@@ -4529,6 +4549,36 @@ JSON.stringify(received)
                     if name == "Cube" && (*deg - 30.0).abs() < 1e-4)
             });
             assert!(found, "AddRotationEulerZ not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn pause_sound_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.pauseSound(42);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::PauseSound { id } if *id == 42));
+            assert!(found, "PauseSound not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn resume_sound_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.resumeSound(7);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::ResumeSound { id } if *id == 7));
+            assert!(found, "ResumeSound not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

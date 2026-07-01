@@ -851,6 +851,24 @@ fn run_scripts(world: &mut World) {
                     pw.apply_force(e, Vec3::new(fx, fy, fz));
                 }
             }
+            ScriptCommand::AddForceAtPoint {
+                name,
+                fx,
+                fy,
+                fz,
+                px,
+                py,
+                pz,
+            } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.apply_force_at_point(e, Vec3::new(fx, fy, fz), Vec3::new(px, py, pz));
+                }
+            }
             ScriptCommand::SetVelocity { name, vx, vy, vz } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

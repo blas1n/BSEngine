@@ -21,13 +21,13 @@ use crate::ops::{
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
-    MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT,
-    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
+    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -674,6 +674,24 @@ fn run_scripts(world: &mut World) {
         }
         LIFETIME_SNAPSHOT.with(|s| *s.borrow_mut() = lifetime_map);
     }
+    {
+        use bsengine_core::Stamina;
+        let mut stamina_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stamina)>();
+        for (name, st) in q.iter(world) {
+            stamina_map.insert(name.0.clone(), (st.current, st.max, st.exhausted));
+        }
+        STAMINA_SNAPSHOT.with(|s| *s.borrow_mut() = stamina_map);
+    }
+    {
+        use bsengine_core::Mana;
+        let mut mana_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Mana)>();
+        for (name, mn) in q.iter(world) {
+            mana_map.insert(name.0.clone(), (mn.current, mn.max));
+        }
+        MANA_SNAPSHOT.with(|s| *s.borrow_mut() = mana_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1199,6 +1217,80 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut lt) = world.get_mut::<Lifetime>(e) {
                         lt.remaining = seconds.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SpendStamina { name, cost } => {
+                use bsengine_core::Stamina;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut st) = world.get_mut::<Stamina>(e) {
+                        st.spend(cost);
+                    }
+                }
+            }
+            ScriptCommand::RestoreStamina { name, amount } => {
+                use bsengine_core::Stamina;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut st) = world.get_mut::<Stamina>(e) {
+                        st.restore(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetMaxStamina { name, value } => {
+                use bsengine_core::Stamina;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut st) = world.get_mut::<Stamina>(e) {
+                        st.max = value.max(0.0);
+                        st.current = st.current.min(st.max);
+                    }
+                }
+            }
+            ScriptCommand::SpendMana { name, cost } => {
+                use bsengine_core::Mana;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mn) = world.get_mut::<Mana>(e) {
+                        mn.spend(cost);
+                    }
+                }
+            }
+            ScriptCommand::RestoreMana { name, amount } => {
+                use bsengine_core::Mana;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mn) = world.get_mut::<Mana>(e) {
+                        mn.restore(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetMaxMana { name, value } => {
+                use bsengine_core::Mana;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mn) = world.get_mut::<Mana>(e) {
+                        mn.max = value.max(0.0);
+                        mn.current = mn.current.min(mn.max);
                     }
                 }
             }

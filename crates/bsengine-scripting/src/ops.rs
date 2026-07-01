@@ -181,6 +181,30 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    SpendStamina {
+        name: String,
+        cost: f32,
+    },
+    RestoreStamina {
+        name: String,
+        amount: f32,
+    },
+    SetMaxStamina {
+        name: String,
+        value: f32,
+    },
+    SpendMana {
+        name: String,
+        cost: f32,
+    },
+    RestoreMana {
+        name: String,
+        amount: f32,
+    },
+    SetMaxMana {
+        name: String,
+        value: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -685,6 +709,14 @@ thread_local! {
 
     // entity name → remaining lifetime seconds
     pub(crate) static LIFETIME_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current, max, exhausted)
+    pub(crate) static STAMINA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current, max)
+    pub(crate) static MANA_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -1607,6 +1639,108 @@ pub fn bsengine_get_lifetime(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_spend_stamina(#[string] name: String, cost: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SpendStamina { name, cost })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_restore_stamina(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestoreStamina { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_stamina(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxStamina { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_stamina(#[string] name: String) -> f32 {
+    STAMINA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(cur, _, _)| *cur).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_stamina(#[string] name: String) -> f32 {
+    STAMINA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, max, _)| *max).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_stamina_fraction(#[string] name: String) -> f32 {
+    STAMINA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max, _)| {
+                if *max <= 0.0 {
+                    0.0
+                } else {
+                    (*cur / *max).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_exhausted(#[string] name: String) -> bool {
+    STAMINA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, ex)| *ex).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_spend_mana(#[string] name: String, cost: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SpendMana { name, cost }));
+}
+
+#[op2(fast)]
+pub fn bsengine_restore_mana(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestoreMana { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_mana(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxMana { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mana(#[string] name: String) -> f32 {
+    MANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(cur, _)| *cur).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_mana(#[string] name: String) -> f32 {
+    MANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, max)| *max).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mana_fraction(#[string] name: String) -> f32 {
+    MANA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max)| {
+                if *max <= 0.0 {
+                    0.0
+                } else {
+                    (*cur / *max).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2453,6 +2587,19 @@ deno_core::extension!(
         bsengine_is_animation_looping,
         bsengine_set_lifetime,
         bsengine_get_lifetime,
+        bsengine_spend_stamina,
+        bsengine_restore_stamina,
+        bsengine_set_max_stamina,
+        bsengine_get_stamina,
+        bsengine_get_max_stamina,
+        bsengine_get_stamina_fraction,
+        bsengine_is_exhausted,
+        bsengine_spend_mana,
+        bsengine_restore_mana,
+        bsengine_set_max_mana,
+        bsengine_get_mana,
+        bsengine_get_max_mana,
+        bsengine_get_mana_fraction,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2658,6 +2805,19 @@ const Bsengine = {
     isAnimationLooping:     (name)          => Deno.core.ops.bsengine_is_animation_looping(name),
     setLifetime:            (name, seconds) => Deno.core.ops.bsengine_set_lifetime(name, seconds),
     getLifetime:            (name)          => Deno.core.ops.bsengine_get_lifetime(name),
+    spendStamina:           (name, cost)    => Deno.core.ops.bsengine_spend_stamina(name, cost),
+    restoreStamina:         (name, amount)  => Deno.core.ops.bsengine_restore_stamina(name, amount),
+    setMaxStamina:          (name, value)   => Deno.core.ops.bsengine_set_max_stamina(name, value),
+    getStamina:             (name)          => Deno.core.ops.bsengine_get_stamina(name),
+    getMaxStamina:          (name)          => Deno.core.ops.bsengine_get_max_stamina(name),
+    getStaminaFraction:     (name)          => Deno.core.ops.bsengine_get_stamina_fraction(name),
+    isExhausted:            (name)          => Deno.core.ops.bsengine_is_exhausted(name),
+    spendMana:              (name, cost)    => Deno.core.ops.bsengine_spend_mana(name, cost),
+    restoreMana:            (name, amount)  => Deno.core.ops.bsengine_restore_mana(name, amount),
+    setMaxMana:             (name, value)   => Deno.core.ops.bsengine_set_max_mana(name, value),
+    getMana:                (name)          => Deno.core.ops.bsengine_get_mana(name),
+    getMaxMana:             (name)          => Deno.core.ops.bsengine_get_max_mana(name),
+    getManaFraction:        (name)          => Deno.core.ops.bsengine_get_mana_fraction(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -6404,6 +6564,162 @@ JSON.stringify(received)
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.getLifetime("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn spend_stamina_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.spendStamina("Hero", 30.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SpendStamina { name, cost }
+                    if name == "Hero" && (*cost - 30.0).abs() < 1e-5)
+            });
+            assert!(found, "SpendStamina not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn restore_stamina_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.restoreStamina("Hero", 50.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::RestoreStamina { name, amount }
+                    if name == "Hero" && (*amount - 50.0).abs() < 1e-5)
+            });
+            assert!(found, "RestoreStamina not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_max_stamina_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMaxStamina("Hero", 150.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetMaxStamina { name, value }
+                    if name == "Hero" && (*value - 150.0).abs() < 1e-5)
+            });
+            assert!(found, "SetMaxStamina not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_stamina_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getStamina("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_max_stamina_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMaxStamina("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_stamina_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getStaminaFraction("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_exhausted_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isExhausted("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn spend_mana_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.spendMana("Wizard", 40.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SpendMana { name, cost }
+                    if name == "Wizard" && (*cost - 40.0).abs() < 1e-5)
+            });
+            assert!(found, "SpendMana not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn restore_mana_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.restoreMana("Wizard", 25.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::RestoreMana { name, amount }
+                    if name == "Wizard" && (*amount - 25.0).abs() < 1e-5)
+            });
+            assert!(found, "RestoreMana not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_max_mana_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMaxMana("Wizard", 200.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetMaxMana { name, value }
+                    if name == "Wizard" && (*value - 200.0).abs() < 1e-5)
+            });
+            assert!(found, "SetMaxMana not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_mana_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMana("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_max_mana_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMaxMana("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_mana_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getManaFraction("Unknown");"#).unwrap();
         assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
     }
 }

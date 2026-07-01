@@ -317,6 +317,12 @@ pub enum ScriptCommand {
         name: String,
         deg: f32,
     },
+    MultiplyScale {
+        name: String,
+        sx: f32,
+        sy: f32,
+        sz: f32,
+    },
 }
 
 thread_local! {
@@ -810,6 +816,14 @@ pub fn bsengine_set_rotation_euler_z(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetRotationEulerZ { name, deg });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_multiply_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MultiplyScale { name, sx, sy, sz });
     });
 }
 
@@ -1578,6 +1592,7 @@ deno_core::extension!(
         bsengine_set_rotation_euler_x,
         bsengine_set_rotation_euler_y,
         bsengine_set_rotation_euler_z,
+        bsengine_multiply_scale,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1709,6 +1724,7 @@ const Bsengine = {
     setRotationEulerX: (name, deg) => Deno.core.ops.bsengine_set_rotation_euler_x(name, deg),
     setRotationEulerY: (name, deg) => Deno.core.ops.bsengine_set_rotation_euler_y(name, deg),
     setRotationEulerZ: (name, deg) => Deno.core.ops.bsengine_set_rotation_euler_z(name, deg),
+    multiplyScale:     (name, sx, sy, sz) => Deno.core.ops.bsengine_multiply_scale(name, sx, sy, sz),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -4110,6 +4126,28 @@ JSON.stringify(received)
                     assert!((deg - 180.0).abs() < 1e-4);
                 }
                 _ => panic!("expected SetRotationEulerZ command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn multiply_scale_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.multiplyScale("Obj", 2.0, 3.0, 0.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::MultiplyScale { name, sx, sy, sz } => {
+                    assert_eq!(name, "Obj");
+                    assert!((sx - 2.0).abs() < 1e-4);
+                    assert!((sy - 3.0).abs() < 1e-4);
+                    assert!((sz - 0.5).abs() < 1e-4);
+                }
+                _ => panic!("expected MultiplyScale command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

@@ -708,6 +708,26 @@ fn run_scripts(world: &mut World) {
                     pw.apply_torque_impulse(e, Vec3::new(vx, vy, vz));
                 }
             }
+            ScriptCommand::SetLinearDamping { name, damping } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_linear_damping(e, damping);
+                }
+            }
+            ScriptCommand::SetAngularDamping { name, damping } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_angular_damping(e, damping);
+                }
+            }
         }
     }
 }

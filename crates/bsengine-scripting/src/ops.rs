@@ -701,6 +701,21 @@ pub fn bsengine_get_position_z(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_scale_x(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.x))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_scale_y(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.y))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_scale_z(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.z))
+}
+
+#[op2(fast)]
 pub fn bsengine_is_key_pressed(#[string] key: String) -> bool {
     KEY_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
@@ -1454,6 +1469,9 @@ deno_core::extension!(
         bsengine_get_position_x,
         bsengine_get_position_y,
         bsengine_get_position_z,
+        bsengine_get_scale_x,
+        bsengine_get_scale_y,
+        bsengine_get_scale_z,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1574,6 +1592,9 @@ const Bsengine = {
     getPositionX:      (name)                 => Deno.core.ops.bsengine_get_position_x(name),
     getPositionY:      (name)                 => Deno.core.ops.bsengine_get_position_y(name),
     getPositionZ:      (name)                 => Deno.core.ops.bsengine_get_position_z(name),
+    getScaleX:         (name)                 => Deno.core.ops.bsengine_get_scale_x(name),
+    getScaleY:         (name)                 => Deno.core.ops.bsengine_get_scale_y(name),
+    getScaleZ:         (name)                 => Deno.core.ops.bsengine_get_scale_z(name),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -3929,5 +3950,65 @@ JSON.stringify(received)
         super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
         let v: f32 = r.trim().parse().expect("expected a number");
         assert!((v - 7.0).abs() < 1e-4, "expected 7.0, got {v}");
+    }
+
+    #[test]
+    fn get_scale_x_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::ZERO,
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::new(2.0, 3.0, 4.0),
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getScaleX("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 2.0).abs() < 1e-4, "expected 2.0, got {v}");
+    }
+
+    #[test]
+    fn get_scale_y_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::ZERO,
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::new(2.0, 3.0, 4.0),
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getScaleY("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
+    }
+
+    #[test]
+    fn get_scale_z_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::ZERO,
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::new(2.0, 3.0, 4.0),
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getScaleZ("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 4.0).abs() < 1e-4, "expected 4.0, got {v}");
     }
 }

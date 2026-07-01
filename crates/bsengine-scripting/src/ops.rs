@@ -386,6 +386,39 @@ pub fn bsengine_get_transform(#[string] name: String) -> Option<TransformJson> {
     })
 }
 
+#[op2]
+#[serde]
+pub fn bsengine_get_forward_vector(#[string] name: String) -> Option<Vec<f32>> {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow().get(&name).map(|(_, rot, _)| {
+            let v = rot.mul_vec3(Vec3::NEG_Z);
+            vec![v.x, v.y, v.z]
+        })
+    })
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_right_vector(#[string] name: String) -> Option<Vec<f32>> {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow().get(&name).map(|(_, rot, _)| {
+            let v = rot.mul_vec3(Vec3::X);
+            vec![v.x, v.y, v.z]
+        })
+    })
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_up_vector(#[string] name: String) -> Option<Vec<f32>> {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow().get(&name).map(|(_, rot, _)| {
+            let v = rot.mul_vec3(Vec3::Y);
+            vec![v.x, v.y, v.z]
+        })
+    })
+}
+
 #[op2(fast)]
 pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1020,6 +1053,9 @@ deno_core::extension!(
         bsengine_log,
         bsengine_version,
         bsengine_get_transform,
+        bsengine_get_forward_vector,
+        bsengine_get_right_vector,
+        bsengine_get_up_vector,
         bsengine_set_transform,
         bsengine_set_rotation,
         bsengine_set_scale,
@@ -1107,7 +1143,10 @@ const Bsengine = {
     getTransform:   (name)                 => Deno.core.ops.bsengine_get_transform(name),
     getPosition:    (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.x, y: t.y, z: t.z } : null; },
     getRotation:    (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
-    getScale:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
+    getScale:          (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
+    getForwardVector:  (name)                 => Deno.core.ops.bsengine_get_forward_vector(name),
+    getRightVector:    (name)                 => Deno.core.ops.bsengine_get_right_vector(name),
+    getUpVector:       (name)                 => Deno.core.ops.bsengine_get_up_vector(name),
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
     setRotation:    (name, rx, ry, rz, rw) => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
     setScale:       (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
@@ -1397,6 +1436,63 @@ mod tests {
             r.contains("null") || r.contains("undefined"),
             "expected null: {r}"
         );
+    }
+
+    #[test]
+    fn get_forward_vector_returns_neg_z_for_identity_rotation() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (glam::Vec3::ZERO, glam::Quat::IDENTITY, glam::Vec3::ONE),
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getForwardVector("Player"))"#)
+            .unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(
+            r.contains("-1") || r.contains("-0"),
+            "expected -Z forward: {r}"
+        );
+    }
+
+    #[test]
+    fn get_right_vector_returns_x_for_identity_rotation() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (glam::Vec3::ZERO, glam::Quat::IDENTITY, glam::Vec3::ONE),
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getRightVector("Player"))"#)
+            .unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(
+            r.contains("1") && !r.contains("-1"),
+            "expected +X right: {r}"
+        );
+    }
+
+    #[test]
+    fn get_up_vector_returns_y_for_identity_rotation() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (glam::Vec3::ZERO, glam::Quat::IDENTITY, glam::Vec3::ONE),
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getUpVector("Player"))"#)
+            .unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("1"), "expected +Y up: {r}");
     }
 
     #[test]

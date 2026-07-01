@@ -159,6 +159,10 @@ pub enum ScriptCommand {
         name: String,
         damping: f32,
     },
+    SetMass {
+        name: String,
+        mass: f32,
+    },
 }
 
 thread_local! {
@@ -219,6 +223,10 @@ thread_local! {
 
     // name → angular velocity Vec3 (only for entities with a physics body)
     pub(crate) static ANGULAR_VELOCITY_SNAPSHOT: RefCell<HashMap<String, Vec3>> =
+        RefCell::new(HashMap::new());
+
+    // name → mass (only for entities with a physics body)
+    pub(crate) static MASS_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 
     // child_name → parent_name (only for entities that have a Parent component)
@@ -531,6 +539,18 @@ pub fn bsengine_set_angular_damping(#[string] name: String, damping: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_mass(#[string] name: String) -> f32 {
+    MASS_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetMass { name, mass });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -766,6 +786,8 @@ deno_core::extension!(
         bsengine_add_angular_impulse,
         bsengine_set_linear_damping,
         bsengine_set_angular_damping,
+        bsengine_get_mass,
+        bsengine_set_mass,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -828,6 +850,8 @@ const Bsengine = {
     addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
     setLinearDamping:     (name, damping)          => Deno.core.ops.bsengine_set_linear_damping(name, damping),
     setAngularDamping:    (name, damping)          => Deno.core.ops.bsengine_set_angular_damping(name, damping),
+    getMass:              (name)                   => Deno.core.ops.bsengine_get_mass(name),
+    setMass:              (name, mass)             => Deno.core.ops.bsengine_set_mass(name, mass),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -1700,6 +1724,41 @@ JSON.stringify(received)
                     if name == "Ball" && (*damping - 0.8).abs() < 1e-6)
             });
             assert!(found, "SetAngularDamping not in buffer");
+        });
+    }
+
+    #[test]
+    fn get_mass_returns_zero_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMass("Rock")"#).unwrap();
+        assert!(r.contains('0'), "expected 0: {r}");
+    }
+
+    #[test]
+    fn get_mass_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::MASS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Rock".to_string(), 5.0);
+        });
+        let r = rt.eval(r#"Bsengine.getMass("Rock")"#).unwrap();
+        super::MASS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains('5'), "expected 5: {r}");
+    }
+
+    #[test]
+    fn set_mass_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMass("Rock", 10.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetMass { name, mass }
+                    if name == "Rock" && (*mass - 10.0).abs() < 1e-6)
+            });
+            assert!(found, "SetMass not in buffer");
         });
     }
 

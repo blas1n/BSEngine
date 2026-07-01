@@ -136,6 +136,9 @@ pub enum ScriptCommand {
         vy: f32,
         vz: f32,
     },
+    SetGravity {
+        magnitude: f32,
+    },
 }
 
 thread_local! {
@@ -191,6 +194,8 @@ thread_local! {
     // name → linear velocity Vec3 (only for entities with a physics body)
     pub(crate) static VELOCITY_SNAPSHOT: RefCell<HashMap<String, Vec3>> =
         RefCell::new(HashMap::new());
+
+    pub(crate) static GRAVITY_SNAPSHOT: RefCell<f32> = RefCell::new(9.81);
 
     // child_name → parent_name (only for entities that have a Parent component)
     pub(crate) static PARENT_SNAPSHOT: RefCell<HashMap<String, String>> =
@@ -452,6 +457,18 @@ pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) 
 }
 
 #[op2(fast)]
+pub fn bsengine_get_gravity() -> f32 {
+    GRAVITY_SNAPSHOT.with(|s| *s.borrow())
+}
+
+#[op2(fast)]
+pub fn bsengine_set_gravity(magnitude: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetGravity { magnitude });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -680,6 +697,8 @@ deno_core::extension!(
         bsengine_add_impulse,
         bsengine_add_force,
         bsengine_set_velocity,
+        bsengine_get_gravity,
+        bsengine_set_gravity,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -735,6 +754,8 @@ const Bsengine = {
     addImpulse:       (name, fx, fy, fz) => Deno.core.ops.bsengine_add_impulse(name, fx, fy, fz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
+    getGravity:       ()         => Deno.core.ops.bsengine_get_gravity(),
+    setGravity:       (magnitude) => Deno.core.ops.bsengine_set_gravity(magnitude),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -1479,6 +1500,42 @@ JSON.stringify(received)
                 |cmd| matches!(cmd, super::ScriptCommand::SetCursorLocked { locked } if *locked),
             );
             assert!(found, "SetCursorLocked not in buffer");
+        });
+    }
+
+    #[test]
+    fn get_gravity_returns_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getGravity()"#).unwrap();
+        assert!(
+            r.contains("9.81") || r.contains("9.8"),
+            "expected ~9.81: {r}"
+        );
+    }
+
+    #[test]
+    fn get_gravity_returns_snapshot_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::GRAVITY_SNAPSHOT.with(|s| *s.borrow_mut() = 20.0);
+        let r = rt.eval(r#"Bsengine.getGravity()"#).unwrap();
+        super::GRAVITY_SNAPSHOT.with(|s| *s.borrow_mut() = 9.81);
+        assert!(r.contains("20"), "expected 20: {r}");
+    }
+
+    #[test]
+    fn set_gravity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setGravity(0.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetGravity { magnitude }
+                    if (*magnitude).abs() < 1e-6)
+            });
+            assert!(found, "SetGravity not in buffer");
         });
     }
 

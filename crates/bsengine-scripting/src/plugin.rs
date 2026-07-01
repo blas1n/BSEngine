@@ -728,6 +728,33 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::AddPositionX { name, dx } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.translation.x += dx;
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddPositionY { name, dy } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.translation.y += dy;
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddPositionZ { name, dz } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.translation.z += dz;
+                        break;
+                    }
+                }
+            }
             ScriptCommand::SetEmissive { name, r, g, b } => {
                 let entity = {
                     let mut q = world.query::<(Entity, &Name)>();

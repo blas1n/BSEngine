@@ -169,6 +169,13 @@ thread_local! {
     pub(crate) static TIME_DELTA_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
 
     pub(crate) static SCREEN_SIZE_SNAPSHOT: RefCell<(u32, u32)> = RefCell::new((1280, 720));
+
+    // child_name → parent_name (only for entities that have a Parent component)
+    pub(crate) static PARENT_SNAPSHOT: RefCell<HashMap<String, String>> =
+        RefCell::new(HashMap::new());
+    // parent_name → [child_names]
+    pub(crate) static CHILDREN_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -369,6 +376,27 @@ pub fn bsengine_clear_parent(#[string] child: String) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::ClearParent { child });
     });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_parent(#[string] name: String) -> String {
+    PARENT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .cloned()
+            .map(|p| format!("\"{p}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_children(#[string] name: String) -> String {
+    CHILDREN_SNAPSHOT.with(|s| {
+        serde_json::to_string(s.borrow().get(&name).unwrap_or(&Vec::new()))
+            .unwrap_or_else(|_| "[]".to_string())
+    })
 }
 
 #[op2(fast)]
@@ -594,6 +622,8 @@ deno_core::extension!(
         bsengine_get_screen_size,
         bsengine_set_parent,
         bsengine_clear_parent,
+        bsengine_get_parent,
+        bsengine_get_children,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -643,6 +673,8 @@ const Bsengine = {
     getScreenSize:  ()                     => { const [w, h] = Deno.core.ops.bsengine_get_screen_size(); return { width: w, height: h }; },
     setParent:      (child, parent)        => Deno.core.ops.bsengine_set_parent(child, parent),
     clearParent:      (child)   => Deno.core.ops.bsengine_clear_parent(child),
+    getParent:        (name)    => { const r = Deno.core.ops.bsengine_get_parent(name); return JSON.parse(r); },
+    getChildren:      (name)    => JSON.parse(Deno.core.ops.bsengine_get_children(name)),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -1210,6 +1242,56 @@ JSON.stringify(received)
             )
             .unwrap();
         assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn get_parent_returns_null_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getParent("Child"))"#).unwrap();
+        assert!(
+            r.contains("null") || r.contains("undefined"),
+            "expected null: {r}"
+        );
+    }
+
+    #[test]
+    fn get_parent_returns_name_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::PARENT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Child".to_string(), "Root".to_string());
+        });
+        let r = rt.eval(r#"Bsengine.getParent("Child")"#).unwrap();
+        assert!(r.contains("Root"), "expected Root: {r}");
+    }
+
+    #[test]
+    fn get_children_returns_empty_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getChildren("Root"))"#)
+            .unwrap();
+        assert!(r.contains("[]"), "expected empty array: {r}");
+    }
+
+    #[test]
+    fn get_children_returns_list_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::CHILDREN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Root".to_string(),
+                vec!["ChildA".to_string(), "ChildB".to_string()],
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getChildren("Root"))"#)
+            .unwrap();
+        assert!(r.contains("ChildA"), "expected ChildA: {r}");
+        assert!(r.contains("ChildB"), "expected ChildB: {r}");
     }
 
     #[test]

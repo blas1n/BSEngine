@@ -11,7 +11,7 @@ use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, 
 use bsengine_physics::CollisionEvent;
 use bsengine_physics::PhysicsWorld;
 use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPath};
-use glam::{Quat, Vec3};
+use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
@@ -650,6 +650,25 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         t.rotation = Quat::from_xyzw(rx, ry, rz, rw);
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetRotationEuler {
+                name,
+                pitch_deg,
+                yaw_deg,
+                roll_deg,
+            } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.rotation = Quat::from_euler(
+                            EulerRot::YXZ,
+                            yaw_deg.to_radians(),
+                            pitch_deg.to_radians(),
+                            roll_deg.to_radians(),
+                        );
                         break;
                     }
                 }

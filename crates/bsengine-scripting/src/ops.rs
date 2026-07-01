@@ -287,6 +287,12 @@ pub enum ScriptCommand {
         name: String,
         z: f32,
     },
+    SetRotationEuler {
+        name: String,
+        pitch_deg: f32,
+        yaw_deg: f32,
+        roll_deg: f32,
+    },
 }
 
 thread_local! {
@@ -560,6 +566,23 @@ pub fn bsengine_set_rotation(#[string] name: String, rx: f32, ry: f32, rz: f32, 
             ry,
             rz,
             rw,
+        });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_rotation_euler(
+    #[string] name: String,
+    pitch_deg: f32,
+    yaw_deg: f32,
+    roll_deg: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetRotationEuler {
+            name,
+            pitch_deg,
+            yaw_deg,
+            roll_deg,
         });
     });
 }
@@ -1401,6 +1424,7 @@ deno_core::extension!(
         bsengine_get_world_transform,
         bsengine_set_transform,
         bsengine_set_rotation,
+        bsengine_set_rotation_euler,
         bsengine_set_scale,
         bsengine_add_position,
         bsengine_add_position_local,
@@ -1516,7 +1540,8 @@ const Bsengine = {
     getWorldRotation:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
     getWorldScale:     (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
-    setRotation:    (name, rx, ry, rz, rw) => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
+    setRotation:      (name, rx, ry, rz, rw)        => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
+    setRotationEuler: (name, pitch, yaw, roll)      => Deno.core.ops.bsengine_set_rotation_euler(name, pitch, yaw, roll),
     setScale:            (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
     addPosition:         (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position(name, dx, dy, dz),
     addPositionLocal:    (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position_local(name, dx, dy, dz),
@@ -3768,5 +3793,60 @@ JSON.stringify(received)
         let r = rt.eval(r#"Bsengine.getChildAt("Root", 1)"#).unwrap();
         super::CHILDREN_SNAPSHOT.with(|s| s.borrow_mut().clear());
         assert!(r.contains("ChildB"), "expected ChildB: {r}");
+    }
+
+    #[test]
+    fn set_rotation_euler_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRotationEuler("Cube", 45.0, 90.0, 0.0);"#)
+            .unwrap();
+
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetRotationEuler {
+                    name,
+                    pitch_deg,
+                    yaw_deg,
+                    roll_deg,
+                } => {
+                    assert_eq!(name, "Cube");
+                    assert!((pitch_deg - 45.0).abs() < 1e-4);
+                    assert!((yaw_deg - 90.0).abs() < 1e-4);
+                    assert!((roll_deg - 0.0).abs() < 1e-4);
+                }
+                _ => panic!("expected SetRotationEuler command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_rotation_euler_zero_enqueues_identity_angles() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRotationEuler("Box", 0.0, 0.0, 0.0);"#)
+            .unwrap();
+
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetRotationEuler {
+                    pitch_deg,
+                    yaw_deg,
+                    roll_deg,
+                    ..
+                } => {
+                    assert!((pitch_deg).abs() < 1e-4);
+                    assert!((yaw_deg).abs() < 1e-4);
+                    assert!((roll_deg).abs() < 1e-4);
+                }
+                _ => panic!("expected SetRotationEuler command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 }

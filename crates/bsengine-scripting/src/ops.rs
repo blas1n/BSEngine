@@ -149,6 +149,18 @@ pub enum ScriptCommand {
         y: f32,
         z: f32,
     },
+    SetCameraFov {
+        name: String,
+        deg: f32,
+    },
+    SetCameraNear {
+        name: String,
+        value: f32,
+    },
+    SetCameraFar {
+        name: String,
+        value: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -1335,6 +1347,30 @@ pub fn bsengine_set_directional_light_direction(#[string] name: String, x: f32, 
 }
 
 #[op2(fast)]
+pub fn bsengine_set_camera_fov(#[string] name: String, deg: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCameraFov { name, deg })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_camera_near(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCameraNear { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_camera_far(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCameraFar { name, value })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2156,6 +2192,9 @@ deno_core::extension!(
         bsengine_set_directional_light_color,
         bsengine_set_directional_light_ambient,
         bsengine_set_directional_light_direction,
+        bsengine_set_camera_fov,
+        bsengine_set_camera_near,
+        bsengine_set_camera_far,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2336,6 +2375,9 @@ const Bsengine = {
     setDirectionalLightColor:     (name, r, g, b) => Deno.core.ops.bsengine_set_directional_light_color(name, r, g, b),
     setDirectionalLightAmbient:   (name, r, g, b) => Deno.core.ops.bsengine_set_directional_light_ambient(name, r, g, b),
     setDirectionalLightDirection: (name, x, y, z) => Deno.core.ops.bsengine_set_directional_light_direction(name, x, y, z),
+    setCameraFov:   (name, deg)            => Deno.core.ops.bsengine_set_camera_fov(name, deg),
+    setCameraNear:  (name, value)          => Deno.core.ops.bsengine_set_camera_near(name, value),
+    setCameraFar:   (name, value)          => Deno.core.ops.bsengine_set_camera_far(name, value),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -5750,6 +5792,57 @@ JSON.stringify(received)
                         && (*z - -0.4).abs() < 1e-5)
             });
             assert!(found, "SetDirectionalLightDirection not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_camera_fov_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCameraFov("MainCamera", 75.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCameraFov { name, deg }
+                    if name == "MainCamera" && (*deg - 75.0).abs() < 1e-5)
+            });
+            assert!(found, "SetCameraFov not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_camera_near_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCameraNear("MainCamera", 0.01);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCameraNear { name, value }
+                    if name == "MainCamera" && (*value - 0.01).abs() < 1e-5)
+            });
+            assert!(found, "SetCameraNear not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_camera_far_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCameraFar("MainCamera", 2000.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCameraFar { name, value }
+                    if name == "MainCamera" && (*value - 2000.0).abs() < 1e-5)
+            });
+            assert!(found, "SetCameraFar not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

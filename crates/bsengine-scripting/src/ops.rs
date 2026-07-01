@@ -886,6 +886,12 @@ pub fn bsengine_get_velocity(#[string] name: String) -> Option<Vec<f32>> {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.x, v.y, v.z]))
 }
 
+#[op2]
+#[serde]
+pub fn bsengine_get_linear_speed(#[string] name: String) -> Option<Vec<f32>> {
+    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.length()]))
+}
+
 #[op2(fast)]
 pub fn bsengine_add_impulse(#[string] name: String, fx: f32, fy: f32, fz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1438,6 +1444,7 @@ deno_core::extension!(
         bsengine_get_parent,
         bsengine_get_children,
         bsengine_get_velocity,
+        bsengine_get_linear_speed,
         bsengine_add_impulse,
         bsengine_apply_impulse_at_point,
         bsengine_add_force,
@@ -1553,8 +1560,11 @@ const Bsengine = {
     setParent:      (child, parent)        => Deno.core.ops.bsengine_set_parent(child, parent),
     clearParent:      (child)   => Deno.core.ops.bsengine_clear_parent(child),
     getParent:        (name)    => { const r = Deno.core.ops.bsengine_get_parent(name); return JSON.parse(r); },
-    getChildren:      (name)    => JSON.parse(Deno.core.ops.bsengine_get_children(name)),
+    getChildren:         (name)         => JSON.parse(Deno.core.ops.bsengine_get_children(name)),
+    getChildrenCount:    (name)         => JSON.parse(Deno.core.ops.bsengine_get_children(name)).length,
+    getChildAt:          (name, index)  => { const c = JSON.parse(Deno.core.ops.bsengine_get_children(name)); return c[index] ?? null; },
     getVelocity:      (name)    => { const v = Deno.core.ops.bsengine_get_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
+    getLinearSpeed:   (name)    => { const s = Deno.core.ops.bsengine_get_linear_speed(name); return s !== null && s !== undefined ? s[0] : -1; },
     addImpulse:       (name, fx, fy, fz) => Deno.core.ops.bsengine_add_impulse(name, fx, fy, fz),
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
@@ -1777,10 +1787,6 @@ const Bsengine = {
         if (dist < 1e-6) return;
         const step = Math.min(speed * this.getDeltaTime(), dist) / dist;
         this.setTransform(name, pos.x+dx*step, pos.y+dy*step, pos.z+dz*step);
-    },
-    getLinearSpeed(name) {
-        const v = this.getVelocity(name);
-        return v ? Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z) : 0;
     },
     getAngularSpeed(name) {
         const v = this.getAngularVelocity(name);
@@ -3690,5 +3696,77 @@ JSON.stringify(received)
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_linear_speed_returns_neg1_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let raw = rt
+            .eval(r#"String(Deno.core.ops.bsengine_get_linear_speed("__no_such__"))"#)
+            .unwrap();
+        assert!(
+            raw.contains("null") || raw.contains("undefined"),
+            "op should return null for unknown entity: {raw}"
+        );
+        let wrapped = rt
+            .eval(r#"Bsengine.getLinearSpeed("__no_such__")"#)
+            .unwrap();
+        let v: f32 = wrapped.trim().parse().expect("should be a number");
+        assert!(
+            v < 0.0,
+            "wrapper should return -1 for unknown entity, got: {v}"
+        );
+    }
+
+    #[test]
+    fn get_linear_speed_returns_magnitude() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ball".to_string(), glam::Vec3::new(3.0, 4.0, 0.0));
+        });
+        let r = rt.eval(r#"Bsengine.getLinearSpeed("Ball")"#).unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let speed: f32 = r.trim().parse().expect("expected a number");
+        assert!((speed - 5.0).abs() < 1e-4, "expected 5.0, got {speed}");
+    }
+
+    #[test]
+    fn get_children_count_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getChildrenCount("NoEntity")"#).unwrap();
+        assert_eq!(r.trim(), "0", "expected 0: {r}");
+    }
+
+    #[test]
+    fn get_child_at_returns_null_for_out_of_bounds() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getChildAt("NoEntity", 0))"#)
+            .unwrap();
+        assert!(
+            r.contains("null") || r.contains("undefined"),
+            "expected null: {r}"
+        );
+    }
+
+    #[test]
+    fn get_child_at_returns_correct_child() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::CHILDREN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Root".to_string(),
+                vec!["ChildA".to_string(), "ChildB".to_string()],
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getChildAt("Root", 1)"#).unwrap();
+        super::CHILDREN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("ChildB"), "expected ChildB: {r}");
     }
 }

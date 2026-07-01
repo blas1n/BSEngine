@@ -179,6 +179,18 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn set_collider_sensor(&mut self, entity: Entity, sensor: bool) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get(handle) {
+                for &coll_handle in body.colliders() {
+                    if let Some(collider) = self.collider_set.get_mut(coll_handle) {
+                        collider.set_sensor(sensor);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn set_gravity_scale(&mut self, entity: Entity, scale: f32) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

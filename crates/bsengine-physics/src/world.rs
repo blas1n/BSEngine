@@ -179,6 +179,19 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn set_body_type(&mut self, entity: Entity, kinematic: bool) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                let body_type = if kinematic {
+                    RigidBodyType::KinematicPositionBased
+                } else {
+                    RigidBodyType::Dynamic
+                };
+                body.set_body_type(body_type, true);
+            }
+        }
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.

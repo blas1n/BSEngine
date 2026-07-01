@@ -812,6 +812,16 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetKinematic { name, kinematic } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_body_type(e, kinematic);
+                }
+            }
         }
     }
 }

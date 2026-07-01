@@ -181,6 +181,31 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    PlayAnimation {
+        name: String,
+        clip: String,
+    },
+    PauseAnimation {
+        name: String,
+    },
+    ResumeAnimation {
+        name: String,
+    },
+    ResetAnimation {
+        name: String,
+    },
+    SetAnimationSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetAnimationLooping {
+        name: String,
+        looping: bool,
+    },
+    SetLifetime {
+        name: String,
+        seconds: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -652,6 +677,14 @@ thread_local! {
 
     // entity name → (current_health, max_health)
     pub(crate) static HEALTH_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (clip, time, speed, looping, playing)
+    pub(crate) static ANIMATION_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → remaining lifetime seconds
+    pub(crate) static LIFETIME_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 }
 
@@ -1468,6 +1501,109 @@ pub fn bsengine_set_max_health(#[string] name: String, value: f32) {
         c.borrow_mut()
             .push(ScriptCommand::SetMaxHealth { name, value })
     });
+}
+
+#[op2(fast)]
+pub fn bsengine_play_animation(#[string] name: String, #[string] clip: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PlayAnimation { name, clip })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_pause_animation(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PauseAnimation { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_resume_animation(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResumeAnimation { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_animation(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetAnimation { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_animation_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAnimationSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_animation_looping(#[string] name: String, looping: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAnimationLooping { name, looping })
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_animation_clip(#[string] name: String) -> String {
+    ANIMATION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(clip, _, _, _, _)| clip.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_animation_time(#[string] name: String) -> f32 {
+    ANIMATION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, time, _, _, _)| *time)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_animation_speed(#[string] name: String) -> f32 {
+    ANIMATION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, speed, _, _)| *speed)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_animation_playing(#[string] name: String) -> bool {
+    ANIMATION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, playing)| *playing)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_animation_looping(#[string] name: String) -> bool {
+    ANIMATION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, looping, _)| *looping)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lifetime(#[string] name: String, seconds: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLifetime { name, seconds })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lifetime(#[string] name: String) -> f32 {
+    LIFETIME_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
 #[op2(fast)]
@@ -2304,6 +2440,19 @@ deno_core::extension!(
         bsengine_heal_entity,
         bsengine_set_health,
         bsengine_set_max_health,
+        bsengine_play_animation,
+        bsengine_pause_animation,
+        bsengine_resume_animation,
+        bsengine_reset_animation,
+        bsengine_set_animation_speed,
+        bsengine_set_animation_looping,
+        bsengine_get_animation_clip,
+        bsengine_get_animation_time,
+        bsengine_get_animation_speed,
+        bsengine_is_animation_playing,
+        bsengine_is_animation_looping,
+        bsengine_set_lifetime,
+        bsengine_get_lifetime,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2495,7 +2644,20 @@ const Bsengine = {
     damageEntity:       (name, amount)     => Deno.core.ops.bsengine_damage_entity(name, amount),
     healEntity:         (name, amount)     => Deno.core.ops.bsengine_heal_entity(name, amount),
     setHealth:          (name, value)      => Deno.core.ops.bsengine_set_health(name, value),
-    setMaxHealth:       (name, value)      => Deno.core.ops.bsengine_set_max_health(name, value),
+    setMaxHealth:           (name, value)   => Deno.core.ops.bsengine_set_max_health(name, value),
+    playAnimation:          (name, clip)    => Deno.core.ops.bsengine_play_animation(name, clip),
+    pauseAnimation:         (name)          => Deno.core.ops.bsengine_pause_animation(name),
+    resumeAnimation:        (name)          => Deno.core.ops.bsengine_resume_animation(name),
+    resetAnimation:         (name)          => Deno.core.ops.bsengine_reset_animation(name),
+    setAnimationSpeed:      (name, speed)   => Deno.core.ops.bsengine_set_animation_speed(name, speed),
+    setAnimationLooping:    (name, looping) => Deno.core.ops.bsengine_set_animation_looping(name, looping),
+    getAnimationClip:       (name)          => Deno.core.ops.bsengine_get_animation_clip(name),
+    getAnimationTime:       (name)          => Deno.core.ops.bsengine_get_animation_time(name),
+    getAnimationSpeed:      (name)          => Deno.core.ops.bsengine_get_animation_speed(name),
+    isAnimationPlaying:     (name)          => Deno.core.ops.bsengine_is_animation_playing(name),
+    isAnimationLooping:     (name)          => Deno.core.ops.bsengine_is_animation_looping(name),
+    setLifetime:            (name, seconds) => Deno.core.ops.bsengine_set_lifetime(name, seconds),
+    getLifetime:            (name)          => Deno.core.ops.bsengine_get_lifetime(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -6071,5 +6233,177 @@ JSON.stringify(received)
             assert!(found, "SetMaxHealth not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn play_animation_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playAnimation("Hero", "walk");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlayAnimation { name, clip }
+                    if name == "Hero" && clip == "walk")
+            });
+            assert!(found, "PlayAnimation not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn pause_animation_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.pauseAnimation("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PauseAnimation { name }
+                    if name == "Hero")
+            });
+            assert!(found, "PauseAnimation not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn resume_animation_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.resumeAnimation("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::ResumeAnimation { name }
+                    if name == "Hero")
+            });
+            assert!(found, "ResumeAnimation not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn reset_animation_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.resetAnimation("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::ResetAnimation { name }
+                    if name == "Hero")
+            });
+            assert!(found, "ResetAnimation not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_animation_speed_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAnimationSpeed("Hero", 2.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAnimationSpeed { name, speed }
+                    if name == "Hero" && (*speed - 2.0).abs() < 1e-5)
+            });
+            assert!(found, "SetAnimationSpeed not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_animation_looping_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAnimationLooping("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAnimationLooping { name, looping }
+                    if name == "Hero" && !*looping)
+            });
+            assert!(found, "SetAnimationLooping not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_animation_clip_returns_empty_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAnimationClip("Unknown");"#).unwrap();
+        assert!(
+            r.trim().is_empty() || r.trim() == "\"\"",
+            "expected empty, got {r}"
+        );
+    }
+
+    #[test]
+    fn get_animation_time_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAnimationTime("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_animation_speed_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getAnimationSpeed("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn is_animation_playing_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isAnimationPlaying("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_animation_looping_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isAnimationLooping("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn set_lifetime_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setLifetime("Bullet", 3.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetLifetime { name, seconds }
+                    if name == "Bullet" && (*seconds - 3.0).abs() < 1e-5)
+            });
+            assert!(found, "SetLifetime not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_lifetime_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getLifetime("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
     }
 }

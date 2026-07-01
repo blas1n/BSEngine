@@ -865,6 +865,16 @@ fn run_scripts(world: &mut World) {
                     pw.add_torque(e, Vec3::new(vx, vy, vz));
                 }
             }
+            ScriptCommand::SetCCDEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_ccd_enabled(e, enabled);
+                }
+            }
             ScriptCommand::SetLinearDamping { name, damping } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

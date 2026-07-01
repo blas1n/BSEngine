@@ -175,6 +175,10 @@ pub enum ScriptCommand {
         name: String,
         kinematic: bool,
     },
+    SetGravityScale {
+        name: String,
+        scale: f32,
+    },
     LockRotation {
         name: String,
         lock_x: bool,
@@ -619,6 +623,24 @@ pub fn bsengine_set_kinematic(#[string] name: String, kinematic: bool) {
     });
 }
 
+#[op2]
+#[string]
+pub fn bsengine_get_tags(#[string] name: String) -> String {
+    ENTITY_TAGS_SNAPSHOT.with(|s| {
+        let map = s.borrow();
+        let labels = map.get(&name).cloned().unwrap_or_default();
+        serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_gravity_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGravityScale { name, scale });
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -847,6 +869,8 @@ deno_core::extension!(
         bsengine_add_tag,
         bsengine_remove_tag,
         bsengine_set_kinematic,
+        bsengine_get_tags,
+        bsengine_set_gravity_scale,
         bsengine_set_emissive,
         bsengine_set_color,
         bsengine_spawn,
@@ -915,6 +939,8 @@ const Bsengine = {
     addTag:              (name, label) => Deno.core.ops.bsengine_add_tag(name, label),
     removeTag:           (name, label) => Deno.core.ops.bsengine_remove_tag(name, label),
     setKinematic:        (name, kinematic) => Deno.core.ops.bsengine_set_kinematic(name, kinematic),
+    getTags:             (name)            => JSON.parse(Deno.core.ops.bsengine_get_tags(name)),
+    setGravityScale:     (name, scale)     => Deno.core.ops.bsengine_set_gravity_scale(name, scale),
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
     setColor:       (name, r, g, b)        => Deno.core.ops.bsengine_set_color(name, r, g, b),
     spawn:          (params)               => Deno.core.ops.bsengine_spawn(params),
@@ -1062,23 +1088,6 @@ const Bsengine = {
         for (const t of toFire) {
             try { t.callback(); } catch (e) { this.log('[timer] ' + e); }
         }
-    },
-
-    // Entity messaging — same-frame publish/subscribe event bus
-    _listeners: {},
-    sendMessage(target, event, data) {
-        const key = target + '\x00' + event;
-        const handlers = this._listeners[key];
-        if (handlers) {
-            for (const cb of handlers) {
-                try { cb(data); } catch (e) { this.log('[msg] ' + e); }
-            }
-        }
-    },
-    onMessage(target, event, callback) {
-        const key = target + '\x00' + event;
-        if (!this._listeners[key]) this._listeners[key] = [];
-        this._listeners[key].push(callback);
     },
 
     // Physics collision callbacks — keyed by entity name
@@ -1698,6 +1707,50 @@ JSON.stringify(received)
                     if name == "Box" && *kinematic)
             });
             assert!(found, "SetKinematic not in buffer");
+        });
+    }
+
+    #[test]
+    fn get_tags_returns_empty_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getTags("Player"))"#)
+            .unwrap();
+        assert!(r.contains("[]"), "expected empty array: {r}");
+    }
+
+    #[test]
+    fn get_tags_returns_list_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ENTITY_TAGS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                vec!["hero".to_string(), "alive".to_string()],
+            );
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getTags("Player"))"#)
+            .unwrap();
+        super::ENTITY_TAGS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("hero"), "expected hero: {r}");
+        assert!(r.contains("alive"), "expected alive: {r}");
+    }
+
+    #[test]
+    fn set_gravity_scale_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setGravityScale("Ball", 0.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetGravityScale { name, scale }
+                    if name == "Ball" && (*scale - 0.5).abs() < 1e-6)
+            });
+            assert!(found, "SetGravityScale not in buffer");
         });
     }
 

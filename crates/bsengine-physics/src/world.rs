@@ -179,6 +179,14 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn set_gravity_scale(&mut self, entity: Entity, scale: f32) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_gravity_scale(scale, true);
+            }
+        }
+    }
+
     pub fn set_body_type(&mut self, entity: Entity, kinematic: bool) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
-use bsengine_core::{GlobalTransform, HudTexts, Material, SkyboxPath, Transform, Visible};
+use bsengine_core::{
+    GlobalTransform, HudTexts, Material, ScreenSize, SkyboxPath, Transform, Visible,
+};
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
 use bsengine_physics::PhysicsWorld;
@@ -16,8 +18,8 @@ use crate::ops::{
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VISIBLE_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -360,6 +362,9 @@ fn run_scripts(world: &mut World) {
         };
     TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow_mut() = elapsed_secs);
     TIME_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = delta_secs);
+    if let Some(ss) = world.get_resource::<ScreenSize>() {
+        SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow_mut() = (ss.width, ss.height));
+    }
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
     KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
     KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);

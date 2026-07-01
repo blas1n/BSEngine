@@ -14,7 +14,7 @@ use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPat
 use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
-    ScriptCommand, SpawnParams, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
+    ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
     COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
     ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
@@ -773,6 +773,26 @@ fn run_scripts(world: &mut World) {
         }
         TIMER_SNAPSHOT.with(|s| *s.borrow_mut() = timer_map);
     }
+    {
+        use bsengine_core::Ammo;
+        let mut ammo_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Ammo)>();
+        for (name, a) in q.iter(world) {
+            ammo_map.insert(
+                name.0.clone(),
+                (
+                    a.current,
+                    a.max_capacity,
+                    a.reserve,
+                    a.reserve_max,
+                    a.just_emptied,
+                    a.just_reloaded,
+                    a.enabled,
+                ),
+            );
+        }
+        AMMO_SNAPSHOT.with(|s| *s.borrow_mut() = ammo_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1517,6 +1537,54 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut t) = world.get_mut::<Timer>(e) {
                         t.reset();
+                    }
+                }
+            }
+            ScriptCommand::FireAmmo { name } => {
+                use bsengine_core::Ammo;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Ammo>(e) {
+                        a.fire();
+                    }
+                }
+            }
+            ScriptCommand::ReloadAmmo { name } => {
+                use bsengine_core::Ammo;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Ammo>(e) {
+                        a.reload();
+                    }
+                }
+            }
+            ScriptCommand::AddAmmoReserve { name, amount } => {
+                use bsengine_core::Ammo;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Ammo>(e) {
+                        a.add_reserve(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetAmmoEnabled { name, enabled } => {
+                use bsengine_core::Ammo;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Ammo>(e) {
+                        a.enabled = enabled;
                     }
                 }
             }

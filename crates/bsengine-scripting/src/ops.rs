@@ -249,6 +249,20 @@ pub enum ScriptCommand {
     ResetTimer {
         name: String,
     },
+    FireAmmo {
+        name: String,
+    },
+    ReloadAmmo {
+        name: String,
+    },
+    AddAmmoReserve {
+        name: String,
+        amount: u32,
+    },
+    SetAmmoEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -785,6 +799,10 @@ thread_local! {
 
     // entity name → (elapsed, duration, fraction, is_finished, just_finished)
     pub(crate) static TIMER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current, max_capacity, reserve, reserve_max, just_emptied, just_reloaded, enabled)
+    pub(crate) static AMMO_SNAPSHOT: RefCell<HashMap<String, (u32, u32, u32, u32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2101,6 +2119,148 @@ pub fn bsengine_is_timer_just_finished(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_fire_ammo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FireAmmo { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reload_ammo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReloadAmmo { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_add_ammo_reserve(#[string] name: String, amount: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddAmmoReserve { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ammo_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAmmoEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ammo_current(#[string] name: String) -> u32 {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, _, _, _, _, _, _)| *cur)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ammo_max(#[string] name: String) -> u32 {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, max, _, _, _, _, _)| *max)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ammo_reserve(#[string] name: String) -> u32 {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, res, _, _, _, _)| *res)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ammo_reserve_max(#[string] name: String) -> u32 {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, rm, _, _, _)| *rm)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ammo_fraction(#[string] name: String) -> f32 {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max, _, _, _, _, _)| {
+                if *max == 0 {
+                    0.0
+                } else {
+                    *cur as f32 / *max as f32
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ammo_empty(#[string] name: String) -> bool {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, _, _, _, _, _, _)| *cur == 0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_ammo_needs_reload(#[string] name: String) -> bool {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max, _, _, _, _, _)| *cur < *max)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_ammo_has_reserve(#[string] name: String) -> bool {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, res, _, _, _, _)| *res > 0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_ammo_just_emptied(#[string] name: String) -> bool {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_ammo_just_reloaded(#[string] name: String) -> bool {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ammo_enabled(#[string] name: String) -> bool {
+    AMMO_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3077,6 +3237,21 @@ deno_core::extension!(
         bsengine_get_right_stick,
         bsengine_get_gamepad_trigger,
         bsengine_set_skybox,
+        bsengine_fire_ammo,
+        bsengine_reload_ammo,
+        bsengine_add_ammo_reserve,
+        bsengine_set_ammo_enabled,
+        bsengine_get_ammo_current,
+        bsengine_get_ammo_max,
+        bsengine_get_ammo_reserve,
+        bsengine_get_ammo_reserve_max,
+        bsengine_get_ammo_fraction,
+        bsengine_is_ammo_empty,
+        bsengine_ammo_needs_reload,
+        bsengine_ammo_has_reserve,
+        bsengine_ammo_just_emptied,
+        bsengine_ammo_just_reloaded,
+        bsengine_is_ammo_enabled,
     ],
 );
 
@@ -3248,6 +3423,21 @@ const Bsengine = {
     getTimerFraction:       (name)          => Deno.core.ops.bsengine_get_timer_fraction(name),
     isTimerFinished:        (name)          => Deno.core.ops.bsengine_is_timer_finished(name),
     isTimerJustFinished:    (name)          => Deno.core.ops.bsengine_is_timer_just_finished(name),
+    fireAmmo:           (name)              => Deno.core.ops.bsengine_fire_ammo(name),
+    reloadAmmo:         (name)              => Deno.core.ops.bsengine_reload_ammo(name),
+    addAmmoReserve:     (name, amount)      => Deno.core.ops.bsengine_add_ammo_reserve(name, amount),
+    setAmmoEnabled:     (name, enabled)     => Deno.core.ops.bsengine_set_ammo_enabled(name, enabled),
+    getAmmo:            (name)              => Deno.core.ops.bsengine_get_ammo_current(name),
+    getAmmoMax:         (name)              => Deno.core.ops.bsengine_get_ammo_max(name),
+    getAmmoReserve:     (name)              => Deno.core.ops.bsengine_get_ammo_reserve(name),
+    getAmmoReserveMax:  (name)              => Deno.core.ops.bsengine_get_ammo_reserve_max(name),
+    getAmmoFraction:    (name)              => Deno.core.ops.bsengine_get_ammo_fraction(name),
+    isAmmoEmpty:        (name)              => Deno.core.ops.bsengine_is_ammo_empty(name),
+    ammoNeedsReload:    (name)              => Deno.core.ops.bsengine_ammo_needs_reload(name),
+    ammoHasReserve:     (name)              => Deno.core.ops.bsengine_ammo_has_reserve(name),
+    ammoJustEmptied:    (name)              => Deno.core.ops.bsengine_ammo_just_emptied(name),
+    ammoJustReloaded:   (name)              => Deno.core.ops.bsengine_ammo_just_reloaded(name),
+    isAmmoEnabled:      (name)              => Deno.core.ops.bsengine_is_ammo_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -7527,5 +7717,132 @@ JSON.stringify(received)
             .eval(r#"Bsengine.isTimerJustFinished("Unknown");"#)
             .unwrap();
         assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn fire_ammo_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.fireAmmo("Rifle");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::FireAmmo { name } if name == "Rifle"),
+            );
+            assert!(found, "FireAmmo not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn reload_ammo_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.reloadAmmo("Rifle");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::ReloadAmmo { name } if name == "Rifle"),
+            );
+            assert!(found, "ReloadAmmo not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_ammo_reserve_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addAmmoReserve("Rifle", 30);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddAmmoReserve { name, amount }
+                    if name == "Rifle" && *amount == 30)
+            });
+            assert!(found, "AddAmmoReserve not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_ammo_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAmmoEnabled("Rifle", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAmmoEnabled { name, enabled }
+                    if name == "Rifle" && !*enabled)
+            });
+            assert!(found, "SetAmmoEnabled not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_ammo_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAmmo("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_ammo_max_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAmmoMax("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_ammo_reserve_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAmmoReserve("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_ammo_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAmmoFraction("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_ammo_empty_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isAmmoEmpty("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn ammo_needs_reload_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.ammoNeedsReload("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn ammo_has_reserve_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.ammoHasReserve("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_ammo_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isAmmoEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
     }
 }

@@ -694,6 +694,23 @@ const Bsengine = {
     // Per-entity script registry. Keys are entity bit-IDs (strings).
     _scripts: {},
 
+    // --- Messaging ---
+    _messageHandlers: {},
+
+    // Register a handler for messages of `key` addressed to `entityName`.
+    onMessage(entityName, key, fn) {
+        const k = `${entityName}::${key}`;
+        (this._messageHandlers[k] ??= []).push(fn);
+    },
+
+    // Dispatch a message synchronously to all handlers registered for `target`+`key`.
+    sendMessage(target, key, data) {
+        const handlers = this._messageHandlers[`${target}::${key}`] || [];
+        for (const fn of handlers) {
+            try { fn(data); } catch (e) { this.log(`[msg:${target}:${key}] ${e}`); }
+        }
+    },
+
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();
@@ -909,6 +926,36 @@ mod tests {
         .unwrap();
         let r = rt.eval("hit").unwrap();
         assert!(r.contains("Floor"), "expected Floor: {r}");
+    }
+
+    #[test]
+    fn messaging_delivers_to_handler() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let result = rt
+            .eval(
+                r#"
+let received = null;
+Bsengine.onMessage("Box", "hit", (data) => { received = data; });
+Bsengine.sendMessage("Box", "hit", { damage: 5 });
+JSON.stringify(received)
+"#,
+            )
+            .unwrap();
+        assert!(
+            result.contains("\"damage\":5"),
+            "message not delivered: {result}"
+        );
+    }
+
+    #[test]
+    fn messaging_no_op_for_unknown_recipient() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.sendMessage("NoOne", "event", {}); "ok""#)
+            .unwrap();
+        assert!(r.contains("ok"), "threw: {r}");
     }
 
     #[test]

@@ -139,6 +139,15 @@ pub enum ScriptCommand {
         fy: f32,
         fz: f32,
     },
+    AddForceAtPoint {
+        name: String,
+        fx: f32,
+        fy: f32,
+        fz: f32,
+        px: f32,
+        py: f32,
+        pz: f32,
+    },
     SetVelocity {
         name: String,
         vx: f32,
@@ -688,6 +697,29 @@ pub fn bsengine_add_force(#[string] name: String, fx: f32, fy: f32, fz: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_add_force_at_point(
+    #[string] name: String,
+    fx: f32,
+    fy: f32,
+    fz: f32,
+    px: f32,
+    py: f32,
+    pz: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::AddForceAtPoint {
+            name,
+            fx,
+            fy,
+            fz,
+            px,
+            py,
+            pz,
+        });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1165,6 +1197,7 @@ deno_core::extension!(
         bsengine_add_impulse,
         bsengine_apply_impulse_at_point,
         bsengine_add_force,
+        bsengine_add_force_at_point,
         bsengine_set_velocity,
         bsengine_get_gravity,
         bsengine_set_gravity,
@@ -1263,6 +1296,7 @@ const Bsengine = {
     addImpulse:       (name, fx, fy, fz) => Deno.core.ops.bsengine_add_impulse(name, fx, fy, fz),
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
+    addForceAtPoint:  (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_add_force_at_point(name, fx, fy, fz, px, py, pz),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
     getGravity:           ()                     => Deno.core.ops.bsengine_get_gravity(),
     setGravity:           (magnitude)             => Deno.core.ops.bsengine_set_gravity(magnitude),
@@ -2360,6 +2394,22 @@ JSON.stringify(received)
                     if name == "Ball" && (*fy - 10.0).abs() < 1e-6 && (*px - 1.0).abs() < 1e-6)
             });
             assert!(found, "AddImpulseAtPoint not in buffer");
+        });
+    }
+
+    #[test]
+    fn add_force_at_point_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addForceAtPoint("Ball", 0, 5, 0, 1, 0, 0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddForceAtPoint { name, fy, px, .. }
+                    if name == "Ball" && (*fy - 5.0).abs() < 1e-6 && (*px - 1.0).abs() < 1e-6)
+            });
+            assert!(found, "AddForceAtPoint not in buffer");
         });
     }
 

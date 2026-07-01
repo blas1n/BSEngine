@@ -130,6 +130,18 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn apply_force_at_point(&mut self, entity: Entity, force: Vec3, point: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.add_force_at_point(
+                    Vector::new(force.x, force.y, force.z),
+                    Vector::new(point.x, point.y, point.z),
+                    true,
+                );
+            }
+        }
+    }
+
     pub fn get_angvel(&self, entity: Entity) -> Option<Vec3> {
         let handle = self.entity_body_map.get(&entity)?;
         let body = self.rigid_body_set.get(*handle)?;

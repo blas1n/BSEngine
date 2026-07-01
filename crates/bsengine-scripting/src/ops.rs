@@ -249,6 +249,18 @@ pub enum ScriptCommand {
     PutToSleep {
         name: String,
     },
+    SetPositionX {
+        name: String,
+        x: f32,
+    },
+    SetPositionY {
+        name: String,
+        y: f32,
+    },
+    SetPositionZ {
+        name: String,
+        z: f32,
+    },
 }
 
 thread_local! {
@@ -524,6 +536,27 @@ pub fn bsengine_add_position_local(#[string] name: String, dx: f32, dy: f32, dz:
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::AddPositionLocal { name, dx, dy, dz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_position_x(#[string] name: String, x: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetPositionX { name, x });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_position_y(#[string] name: String, y: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetPositionY { name, y });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_position_z(#[string] name: String, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetPositionZ { name, z });
     });
 }
 
@@ -1262,6 +1295,9 @@ deno_core::extension!(
         bsengine_set_scale,
         bsengine_add_position,
         bsengine_add_position_local,
+        bsengine_set_position_x,
+        bsengine_set_position_y,
+        bsengine_set_position_z,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1365,6 +1401,9 @@ const Bsengine = {
     setScale:            (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
     addPosition:         (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position(name, dx, dy, dz),
     addPositionLocal:    (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position_local(name, dx, dy, dz),
+    setPositionX:        (name, x)              => Deno.core.ops.bsengine_set_position_x(name, x),
+    setPositionY:        (name, y)              => Deno.core.ops.bsengine_set_position_y(name, y),
+    setPositionZ:        (name, z)              => Deno.core.ops.bsengine_set_position_z(name, z),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -3326,5 +3365,64 @@ JSON.stringify(received)
         .unwrap();
         assert!((p.ry - 0.707).abs() < 1e-3);
         assert!((p.rw - 0.707).abs() < 1e-3);
+    }
+
+    #[test]
+    fn set_position_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setPositionX("Player", 5.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetPositionX { name, x } => {
+                    assert_eq!(name, "Player");
+                    assert!((x - 5.0).abs() < 1e-4);
+                }
+                _ => panic!("expected SetPositionX command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_position_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setPositionY("Player", -3.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetPositionY { name, y } => {
+                    assert_eq!(name, "Player");
+                    assert!((y - (-3.0)).abs() < 1e-4);
+                }
+                _ => panic!("expected SetPositionY command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_position_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setPositionZ("Player", 10.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::SetPositionZ { name, z } => {
+                    assert_eq!(name, "Player");
+                    assert!((z - 10.0).abs() < 1e-4);
+                }
+                _ => panic!("expected SetPositionZ command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 }

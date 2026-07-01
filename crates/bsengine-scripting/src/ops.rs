@@ -724,6 +724,18 @@ const Bsengine = {
         }
     },
 
+    // Dispatch `key` to every entity that has a handler registered for it.
+    broadcast(key, data) {
+        const suffix = `::${key}`;
+        for (const k of Object.keys(this._messageHandlers)) {
+            if (k.endsWith(suffix)) {
+                for (const fn of this._messageHandlers[k]) {
+                    try { fn(data); } catch (e) { this.log(`[broadcast:${key}] ${e}`); }
+                }
+            }
+        }
+    },
+
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();
@@ -939,6 +951,35 @@ mod tests {
         .unwrap();
         let r = rt.eval("hit").unwrap();
         assert!(r.contains("Floor"), "expected Floor: {r}");
+    }
+
+    #[test]
+    fn broadcast_fires_all_registered_handlers() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let result = rt
+            .eval(
+                r#"
+let hits = 0;
+Bsengine.onMessage("A", "boom", () => { hits++; });
+Bsengine.onMessage("B", "boom", () => { hits++; });
+Bsengine.onMessage("A", "other", () => { hits += 100; });
+Bsengine.broadcast("boom", {});
+hits
+"#,
+            )
+            .unwrap();
+        assert_eq!(result.trim(), "2", "expected 2 hits: {result}");
+    }
+
+    #[test]
+    fn broadcast_no_op_when_no_handlers() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.broadcast("nobody", {}); "ok""#)
+            .unwrap();
+        assert!(r.contains("ok"), "threw: {r}");
     }
 
     #[test]

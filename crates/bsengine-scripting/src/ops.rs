@@ -686,6 +686,21 @@ pub fn bsengine_set_scale_z(#[string] name: String, z: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_position_x(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.x))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_position_y(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.y))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_position_z(#[string] name: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.z))
+}
+
+#[op2(fast)]
 pub fn bsengine_is_key_pressed(#[string] key: String) -> bool {
     KEY_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
@@ -1436,6 +1451,9 @@ deno_core::extension!(
         bsengine_set_scale_x,
         bsengine_set_scale_y,
         bsengine_set_scale_z,
+        bsengine_get_position_x,
+        bsengine_get_position_y,
+        bsengine_get_position_z,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1553,6 +1571,9 @@ const Bsengine = {
     setScaleX:         (name, x)               => Deno.core.ops.bsengine_set_scale_x(name, x),
     setScaleY:         (name, y)               => Deno.core.ops.bsengine_set_scale_y(name, y),
     setScaleZ:         (name, z)               => Deno.core.ops.bsengine_set_scale_z(name, z),
+    getPositionX:      (name)                 => Deno.core.ops.bsengine_get_position_x(name),
+    getPositionY:      (name)                 => Deno.core.ops.bsengine_get_position_y(name),
+    getPositionZ:      (name)                 => Deno.core.ops.bsengine_get_position_z(name),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -3848,5 +3869,65 @@ JSON.stringify(received)
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_position_x_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::new(3.0, 5.0, 7.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getPositionX("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
+    }
+
+    #[test]
+    fn get_position_y_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::new(3.0, 5.0, 7.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getPositionY("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 5.0).abs() < 1e-4, "expected 5.0, got {v}");
+    }
+
+    #[test]
+    fn get_position_z_returns_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    glam::Vec3::new(3.0, 5.0, 7.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getPositionZ("Obj")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let v: f32 = r.trim().parse().expect("expected a number");
+        assert!((v - 7.0).abs() < 1e-4, "expected 7.0, got {v}");
     }
 }

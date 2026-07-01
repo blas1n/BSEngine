@@ -430,6 +430,29 @@ pub fn bsengine_get_up_vector(#[string] name: String) -> Option<Vec<f32>> {
 }
 
 #[op2(fast)]
+pub fn bsengine_distance_to(#[string] name_a: String, #[string] name_b: String) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        let snap = s.borrow();
+        let pos_a = snap.get(&name_a).map(|(p, _, _)| *p);
+        let pos_b = snap.get(&name_b).map(|(p, _, _)| *p);
+        match (pos_a, pos_b) {
+            (Some(a), Some(b)) => a.distance(b),
+            _ => -1.0,
+        }
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_distance_to_point(#[string] name: String, x: f32, y: f32, z: f32) -> f32 {
+    TRANSFORM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(pos, _, _)| pos.distance(Vec3::new(x, y, z)))
+            .unwrap_or(-1.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -1097,6 +1120,8 @@ deno_core::extension!(
         bsengine_get_forward_vector,
         bsengine_get_right_vector,
         bsengine_get_up_vector,
+        bsengine_distance_to,
+        bsengine_distance_to_point,
         bsengine_set_transform,
         bsengine_set_rotation,
         bsengine_set_scale,
@@ -1192,6 +1217,8 @@ const Bsengine = {
     getForwardVector:  (name)                 => Deno.core.ops.bsengine_get_forward_vector(name),
     getRightVector:    (name)                 => Deno.core.ops.bsengine_get_right_vector(name),
     getUpVector:       (name)                 => Deno.core.ops.bsengine_get_up_vector(name),
+    distanceTo:        (nameA, nameB)         => Deno.core.ops.bsengine_distance_to(nameA, nameB),
+    distanceToPoint:   (name, x, y, z)       => Deno.core.ops.bsengine_distance_to_point(name, x, y, z),
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
     setRotation:    (name, rx, ry, rz, rw) => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
     setScale:       (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
@@ -1485,6 +1512,67 @@ mod tests {
             r.contains("null") || r.contains("undefined"),
             "expected null: {r}"
         );
+    }
+
+    #[test]
+    fn distance_to_returns_correct_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            let mut m = s.borrow_mut();
+            m.insert(
+                "A".to_string(),
+                (
+                    glam::Vec3::new(0.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+            m.insert(
+                "B".to_string(),
+                (
+                    glam::Vec3::new(3.0, 4.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.distanceTo("A", "B")"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let dist: f32 = r.parse().expect("should be a number");
+        assert!((dist - 5.0).abs() < 1e-4, "expected 5.0, got {dist}");
+    }
+
+    #[test]
+    fn distance_to_returns_neg1_for_unknown_entity() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.distanceTo("Ghost", "Unknown")"#)
+            .unwrap();
+        assert_eq!(r.trim(), "-1", "expected -1 for unknown: {r}");
+    }
+
+    #[test]
+    fn distance_to_point_returns_correct_value() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (
+                    glam::Vec3::new(1.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt
+            .eval(r#"Bsengine.distanceToPoint("Player", 4.0, 0.0, 0.0)"#)
+            .unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        let dist: f32 = r.parse().expect("should be a number");
+        assert!((dist - 3.0).abs() < 1e-4, "expected 3.0, got {dist}");
     }
 
     #[test]

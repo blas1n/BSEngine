@@ -95,6 +95,20 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    SetPointLightColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetPointLightIntensity {
+        name: String,
+        value: f32,
+    },
+    SetPointLightRange {
+        name: String,
+        value: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -1193,6 +1207,30 @@ pub fn bsengine_get_roughness(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_point_light_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPointLightColor { name, r, g, b })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_point_light_intensity(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPointLightIntensity { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_point_light_range(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPointLightRange { name, value })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2003,6 +2041,9 @@ deno_core::extension!(
         bsengine_get_metallic,
         bsengine_set_roughness,
         bsengine_get_roughness,
+        bsengine_set_point_light_color,
+        bsengine_set_point_light_intensity,
+        bsengine_set_point_light_range,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2170,8 +2211,11 @@ const Bsengine = {
     getMaterialEmissive:(name) => { const v = Deno.core.ops.bsengine_get_material_emissive(name); return v ? { r: v[0], g: v[1], b: v[2] } : null; },
     setMetallic:    (name, value)          => Deno.core.ops.bsengine_set_metallic(name, value),
     getMetallic:    (name)                 => Deno.core.ops.bsengine_get_metallic(name),
-    setRoughness:   (name, value)          => Deno.core.ops.bsengine_set_roughness(name, value),
-    getRoughness:   (name)                 => Deno.core.ops.bsengine_get_roughness(name),
+    setRoughness:           (name, value)       => Deno.core.ops.bsengine_set_roughness(name, value),
+    getRoughness:           (name)              => Deno.core.ops.bsengine_get_roughness(name),
+    setPointLightColor:     (name, r, g, b)     => Deno.core.ops.bsengine_set_point_light_color(name, r, g, b),
+    setPointLightIntensity: (name, value)       => Deno.core.ops.bsengine_set_point_light_intensity(name, value),
+    setPointLightRange:     (name, value)       => Deno.core.ops.bsengine_set_point_light_range(name, value),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -5389,5 +5433,56 @@ JSON.stringify(received)
         super::MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| s.borrow_mut().clear());
         let v: f32 = r.trim().parse().expect("expected a number");
         assert!((v - 0.4).abs() < 1e-4, "expected 0.4, got {v}");
+    }
+
+    #[test]
+    fn set_point_light_color_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setPointLightColor("Lamp", 1.0, 0.5, 0.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetPointLightColor { name, r, g, b }
+                    if name == "Lamp" && (*r - 1.0).abs() < 1e-5 && (*g - 0.5).abs() < 1e-5 && b.abs() < 1e-5)
+            });
+            assert!(found, "SetPointLightColor not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_point_light_intensity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setPointLightIntensity("Lamp", 3.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetPointLightIntensity { name, value }
+                    if name == "Lamp" && (*value - 3.0).abs() < 1e-5)
+            });
+            assert!(found, "SetPointLightIntensity not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_point_light_range_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setPointLightRange("Lamp", 20.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetPointLightRange { name, value }
+                    if name == "Lamp" && (*value - 20.0).abs() < 1e-5)
+            });
+            assert!(found, "SetPointLightRange not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 }

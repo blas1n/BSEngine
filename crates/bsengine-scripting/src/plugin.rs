@@ -19,7 +19,7 @@ use crate::ops::{
     COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
     ENTITY_TAGS_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
@@ -644,6 +644,15 @@ fn run_scripts(world: &mut World) {
         SOUND_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = states);
         SOUND_POSITION_SNAPSHOT.with(|s| *s.borrow_mut() = positions);
     }
+    {
+        use bsengine_core::Health;
+        let mut health_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Health)>();
+        for (name, health) in q.iter(world) {
+            health_map.insert(name.0.clone(), (health.current, health.max));
+        }
+        HEALTH_SNAPSHOT.with(|s| *s.borrow_mut() = health_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1034,6 +1043,55 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut d) = world.get_mut::<Damping>(e) {
                         d.linear = value;
+                    }
+                }
+            }
+            ScriptCommand::DamageEntity { name, amount } => {
+                use bsengine_core::Health;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut h) = world.get_mut::<Health>(e) {
+                        h.damage(amount);
+                    }
+                }
+            }
+            ScriptCommand::HealEntity { name, amount } => {
+                use bsengine_core::Health;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut h) = world.get_mut::<Health>(e) {
+                        h.heal(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetHealth { name, value } => {
+                use bsengine_core::Health;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut h) = world.get_mut::<Health>(e) {
+                        h.current = value.clamp(0.0, h.max);
+                    }
+                }
+            }
+            ScriptCommand::SetMaxHealth { name, value } => {
+                use bsengine_core::Health;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut h) = world.get_mut::<Health>(e) {
+                        h.max = value.max(0.0);
+                        h.current = h.current.min(h.max);
                     }
                 }
             }

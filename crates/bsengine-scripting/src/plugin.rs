@@ -951,6 +951,13 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SeekSound { id, position } => {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    if let Some(handle) = handles.0.get_mut(&id) {
+                        handle.seek_to(position);
+                    }
+                }
+            }
             ScriptCommand::SetHudText { id, text } => {
                 if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
                     hud.0.insert(id, text);

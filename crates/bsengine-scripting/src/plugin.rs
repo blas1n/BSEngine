@@ -4,8 +4,8 @@ use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    CursorConfig, GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Transform,
-    Visible,
+    CursorConfig, GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Tag,
+    Transform, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
@@ -20,7 +20,7 @@ use crate::ops::{
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MASS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT, TAG_SNAPSHOT,
     TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
     VISIBLE_SNAPSHOT,
 };
@@ -433,9 +433,22 @@ fn run_scripts(world: &mut World) {
                 .collect()
         })
         .unwrap_or_default();
+    let tag_snapshot: HashMap<String, Vec<String>> = {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        let mut q = world.query::<(&Name, &Tag)>();
+        for (name, tag) in q.iter(world) {
+            for label in tag.iter() {
+                map.entry(label.to_string())
+                    .or_default()
+                    .push(name.0.clone());
+            }
+        }
+        map
+    };
     ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
     PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
     CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
+    TAG_SNAPSHOT.with(|s| *s.borrow_mut() = tag_snapshot);
     VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = angular_velocity_snapshot);
     MASS_SNAPSHOT.with(|s| *s.borrow_mut() = mass_snapshot);

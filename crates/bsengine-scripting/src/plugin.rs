@@ -1300,6 +1300,36 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::AddRotationEulerX { name, deg } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let delta = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), 0.0, 0.0);
+                        t.rotation = (t.rotation * delta).normalize();
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddRotationEulerY { name, deg } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let delta = Quat::from_euler(EulerRot::XYZ, 0.0, deg.to_radians(), 0.0);
+                        t.rotation = (t.rotation * delta).normalize();
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddRotationEulerZ { name, deg } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let delta = Quat::from_euler(EulerRot::XYZ, 0.0, 0.0, deg.to_radians());
+                        t.rotation = (t.rotation * delta).normalize();
+                        break;
+                    }
+                }
+            }
             ScriptCommand::SetScaleX { name, x } => {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {

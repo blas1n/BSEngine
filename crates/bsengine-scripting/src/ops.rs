@@ -337,6 +337,18 @@ pub enum ScriptCommand {
         yaw: f32,
         roll: f32,
     },
+    AddRotationEulerX {
+        name: String,
+        deg: f32,
+    },
+    AddRotationEulerY {
+        name: String,
+        deg: f32,
+    },
+    AddRotationEulerZ {
+        name: String,
+        deg: f32,
+    },
     SetScaleX {
         name: String,
         x: f32,
@@ -803,6 +815,30 @@ pub fn bsengine_add_rotation_euler(#[string] name: String, pitch: f32, yaw: f32,
             yaw,
             roll,
         });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_rotation_euler_x(#[string] name: String, deg: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddRotationEulerX { name, deg });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_rotation_euler_y(#[string] name: String, deg: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddRotationEulerY { name, deg });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_rotation_euler_z(#[string] name: String, deg: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddRotationEulerZ { name, deg });
     });
 }
 
@@ -1820,6 +1856,9 @@ deno_core::extension!(
         bsengine_rotate_by,
         bsengine_rotate_around_axis,
         bsengine_add_rotation_euler,
+        bsengine_add_rotation_euler_x,
+        bsengine_add_rotation_euler_y,
+        bsengine_add_rotation_euler_z,
         bsengine_set_scale_x,
         bsengine_set_scale_y,
         bsengine_set_scale_z,
@@ -1976,6 +2015,9 @@ const Bsengine = {
     rotateBy:          (name, rx, ry, rz, rw)   => Deno.core.ops.bsengine_rotate_by(name, rx, ry, rz, rw),
     rotateAroundAxis:  (name, ax, ay, az, deg)  => Deno.core.ops.bsengine_rotate_around_axis(name, ax, ay, az, deg),
     addRotationEuler:  (name, pitch, yaw, roll) => Deno.core.ops.bsengine_add_rotation_euler(name, pitch, yaw, roll),
+    addRotationEulerX: (name, deg) => Deno.core.ops.bsengine_add_rotation_euler_x(name, deg),
+    addRotationEulerY: (name, deg) => Deno.core.ops.bsengine_add_rotation_euler_y(name, deg),
+    addRotationEulerZ: (name, deg) => Deno.core.ops.bsengine_add_rotation_euler_z(name, deg),
     setScaleX:         (name, x)               => Deno.core.ops.bsengine_set_scale_x(name, x),
     setScaleY:         (name, y)               => Deno.core.ops.bsengine_set_scale_y(name, y),
     setScaleZ:         (name, z)               => Deno.core.ops.bsengine_set_scale_z(name, z),
@@ -4436,6 +4478,57 @@ JSON.stringify(received)
                 }
                 _ => panic!("expected AddRotationEuler command"),
             }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_rotation_euler_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addRotationEulerX("Cube", 45.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddRotationEulerX { name, deg }
+                    if name == "Cube" && (*deg - 45.0).abs() < 1e-4)
+            });
+            assert!(found, "AddRotationEulerX not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_rotation_euler_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addRotationEulerY("Cube", 90.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddRotationEulerY { name, deg }
+                    if name == "Cube" && (*deg - 90.0).abs() < 1e-4)
+            });
+            assert!(found, "AddRotationEulerY not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_rotation_euler_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addRotationEulerZ("Cube", 30.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddRotationEulerZ { name, deg }
+                    if name == "Cube" && (*deg - 30.0).abs() < 1e-4)
+            });
+            assert!(found, "AddRotationEulerZ not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

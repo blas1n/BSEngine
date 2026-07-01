@@ -21,11 +21,12 @@ use crate::ops::{
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT,
+    PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, TAG_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -216,6 +217,20 @@ fn run_scripts(world: &mut World) {
         let mut q = world.query::<(&Name, &Material)>();
         q.iter(world)
             .map(|(n, m)| (n.0.clone(), m.emissive.to_array()))
+            .collect()
+    };
+
+    let material_metallic_snapshot: HashMap<String, f32> = {
+        let mut q = world.query::<(&Name, &Material)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), m.metallic))
+            .collect()
+    };
+
+    let material_roughness_snapshot: HashMap<String, f32> = {
+        let mut q = world.query::<(&Name, &Material)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), m.roughness))
             .collect()
     };
 
@@ -426,6 +441,8 @@ fn run_scripts(world: &mut World) {
     VISIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = visible_snapshot);
     MATERIAL_COLOR_SNAPSHOT.with(|s| *s.borrow_mut() = material_color_snapshot);
     MATERIAL_EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = material_emissive_snapshot);
+    MATERIAL_METALLIC_SNAPSHOT.with(|s| *s.borrow_mut() = material_metallic_snapshot);
+    MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| *s.borrow_mut() = material_roughness_snapshot);
 
     let (elapsed_secs, delta_secs) =
         if let Some(mut timing) = world.get_resource_mut::<ScriptTimingState>() {
@@ -782,6 +799,38 @@ fn run_scripts(world: &mut World) {
                     } else {
                         world.entity_mut(e).insert(Material {
                             base_color: Vec3::new(r, g, b),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+            ScriptCommand::SetMetallic { name, value } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mat) = world.get_mut::<Material>(e) {
+                        mat.metallic = value;
+                    } else {
+                        world.entity_mut(e).insert(Material {
+                            metallic: value,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+            ScriptCommand::SetRoughness { name, value } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mat) = world.get_mut::<Material>(e) {
+                        mat.roughness = value;
+                    } else {
+                        world.entity_mut(e).insert(Material {
+                            roughness: value,
                             ..Default::default()
                         });
                     }

@@ -112,6 +112,12 @@ pub enum ScriptCommand {
     ClearParent {
         child: String,
     },
+    SetCursorVisible {
+        visible: bool,
+    },
+    SetCursorLocked {
+        locked: bool,
+    },
 }
 
 thread_local! {
@@ -366,6 +372,22 @@ pub fn bsengine_clear_parent(#[string] child: String) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_cursor_visible(visible: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCursorVisible { visible });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_cursor_locked(locked: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCursorLocked { locked });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> u32 {
     let id = SOUND_ID_COUNTER.with(|c| {
         let id = *c.borrow();
@@ -572,6 +594,8 @@ deno_core::extension!(
         bsengine_get_screen_size,
         bsengine_set_parent,
         bsengine_clear_parent,
+        bsengine_set_cursor_visible,
+        bsengine_set_cursor_locked,
         bsengine_play_sound,
         bsengine_stop_sound,
         bsengine_set_hud_text,
@@ -618,7 +642,9 @@ const Bsengine = {
     getDeltaTime:   ()                     => Deno.core.ops.bsengine_get_delta_time(),
     getScreenSize:  ()                     => { const [w, h] = Deno.core.ops.bsengine_get_screen_size(); return { width: w, height: h }; },
     setParent:      (child, parent)        => Deno.core.ops.bsengine_set_parent(child, parent),
-    clearParent:    (child)                => Deno.core.ops.bsengine_clear_parent(child),
+    clearParent:      (child)   => Deno.core.ops.bsengine_clear_parent(child),
+    setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
+    setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
@@ -1184,6 +1210,34 @@ JSON.stringify(received)
             )
             .unwrap();
         assert!(r.contains("not_called"), "expected not_called: {r}");
+    }
+
+    #[test]
+    fn set_cursor_visible_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCursorVisible(false);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCursorVisible { visible } if !visible)
+            });
+            assert!(found, "SetCursorVisible not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_cursor_locked_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCursorLocked(true);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCursorLocked { locked } if *locked)
+            });
+            assert!(found, "SetCursorLocked not in buffer");
+        });
     }
 
     #[test]

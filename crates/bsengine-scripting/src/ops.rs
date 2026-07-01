@@ -118,6 +118,24 @@ pub enum ScriptCommand {
     SetCursorLocked {
         locked: bool,
     },
+    AddImpulse {
+        name: String,
+        fx: f32,
+        fy: f32,
+        fz: f32,
+    },
+    AddForce {
+        name: String,
+        fx: f32,
+        fy: f32,
+        fz: f32,
+    },
+    SetVelocity {
+        name: String,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+    },
 }
 
 thread_local! {
@@ -169,6 +187,10 @@ thread_local! {
     pub(crate) static TIME_DELTA_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
 
     pub(crate) static SCREEN_SIZE_SNAPSHOT: RefCell<(u32, u32)> = RefCell::new((1280, 720));
+
+    // name → linear velocity Vec3 (only for entities with a physics body)
+    pub(crate) static VELOCITY_SNAPSHOT: RefCell<HashMap<String, Vec3>> =
+        RefCell::new(HashMap::new());
 
     // child_name → parent_name (only for entities that have a Parent component)
     pub(crate) static PARENT_SNAPSHOT: RefCell<HashMap<String, String>> =
@@ -399,6 +421,36 @@ pub fn bsengine_get_children(#[string] name: String) -> String {
     })
 }
 
+#[op2]
+#[serde]
+pub fn bsengine_get_velocity(#[string] name: String) -> Option<Vec<f32>> {
+    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.x, v.y, v.z]))
+}
+
+#[op2(fast)]
+pub fn bsengine_add_impulse(#[string] name: String, fx: f32, fy: f32, fz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddImpulse { name, fx, fy, fz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_force(#[string] name: String, fx: f32, fy: f32, fz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddForce { name, fx, fy, fz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVelocity { name, vx, vy, vz });
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -624,6 +676,10 @@ deno_core::extension!(
         bsengine_clear_parent,
         bsengine_get_parent,
         bsengine_get_children,
+        bsengine_get_velocity,
+        bsengine_add_impulse,
+        bsengine_add_force,
+        bsengine_set_velocity,
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
@@ -675,6 +731,10 @@ const Bsengine = {
     clearParent:      (child)   => Deno.core.ops.bsengine_clear_parent(child),
     getParent:        (name)    => { const r = Deno.core.ops.bsengine_get_parent(name); return JSON.parse(r); },
     getChildren:      (name)    => JSON.parse(Deno.core.ops.bsengine_get_children(name)),
+    getVelocity:      (name)    => { const v = Deno.core.ops.bsengine_get_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
+    addImpulse:       (name, fx, fy, fz) => Deno.core.ops.bsengine_add_impulse(name, fx, fy, fz),
+    addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
+    setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
     setCursorVisible: (visible) => Deno.core.ops.bsengine_set_cursor_visible(visible),
     setCursorLocked:  (locked)  => Deno.core.ops.bsengine_set_cursor_locked(locked),
     playSound:      (path, opts) => {
@@ -1292,6 +1352,64 @@ JSON.stringify(received)
             .unwrap();
         assert!(r.contains("ChildA"), "expected ChildA: {r}");
         assert!(r.contains("ChildB"), "expected ChildB: {r}");
+    }
+
+    #[test]
+    fn get_velocity_returns_null_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getVelocity("Ball"))"#).unwrap();
+        assert!(
+            r.contains("null") || r.contains("undefined"),
+            "expected null: {r}"
+        );
+    }
+
+    #[test]
+    fn get_velocity_returns_vec_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::VELOCITY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ball".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getVelocity("Ball"))"#)
+            .unwrap();
+        assert!(r.contains("\"x\":1"), "expected x=1: {r}");
+        assert!(r.contains("\"y\":2"), "expected y=2: {r}");
+    }
+
+    #[test]
+    fn add_impulse_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addImpulse("Ball", 0, 10, 0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddImpulse { name, fy, .. }
+                    if name == "Ball" && (*fy - 10.0).abs() < 1e-6)
+            });
+            assert!(found, "AddImpulse not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_velocity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setVelocity("Ball", 5, 0, 0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetVelocity { name, vx, .. }
+                    if name == "Ball" && (*vx - 5.0).abs() < 1e-6)
+            });
+            assert!(found, "SetVelocity not in buffer");
+        });
     }
 
     #[test]

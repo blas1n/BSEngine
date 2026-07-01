@@ -20,7 +20,8 @@ use crate::ops::{
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VISIBLE_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -324,6 +325,19 @@ fn run_scripts(world: &mut World) {
             .collect()
     };
 
+    let velocity_snapshot: HashMap<String, Vec3> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_linvel(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let parent_map: HashMap<String, String> = {
         let mut q = world.query::<(Entity, &Name, &Parent)>();
         q.iter(world)
@@ -396,6 +410,7 @@ fn run_scripts(world: &mut World) {
     ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
     PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
     CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
+    VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
     PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = physics_ptr);
     GAMEPAD_BUTTON_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_pressed);
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
@@ -617,6 +632,36 @@ fn run_scripts(world: &mut World) {
                         visible: true,
                         locked,
                     });
+                }
+            }
+            ScriptCommand::AddImpulse { name, fx, fy, fz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.apply_impulse(e, Vec3::new(fx, fy, fz));
+                }
+            }
+            ScriptCommand::AddForce { name, fx, fy, fz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.apply_force(e, Vec3::new(fx, fy, fz));
+                }
+            }
+            ScriptCommand::SetVelocity { name, vx, vy, vz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_linvel(e, Vec3::new(vx, vy, vz));
                 }
             }
         }

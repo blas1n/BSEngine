@@ -652,6 +652,25 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::AddPosition { name, dx, dy, dz } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        t.translation += Vec3::new(dx, dy, dz);
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::AddPositionLocal { name, dx, dy, dz } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let rot = t.rotation;
+                        t.translation += rot.mul_vec3(Vec3::new(dx, dy, dz));
+                        break;
+                    }
+                }
+            }
             ScriptCommand::SetEmissive { name, r, g, b } => {
                 let entity = {
                     let mut q = world.query::<(Entity, &Name)>();

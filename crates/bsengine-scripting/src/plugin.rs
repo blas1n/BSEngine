@@ -16,9 +16,9 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     ScriptCommand, SpawnParams, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
-    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
+    FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
     HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
     LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
@@ -27,8 +27,8 @@ use crate::ops::{
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
     PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
     SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -746,6 +746,33 @@ fn run_scripts(world: &mut World) {
         }
         LEVEL_SNAPSHOT.with(|s| *s.borrow_mut() = lvl_map);
     }
+    {
+        use bsengine_core::Cooldown;
+        let mut cd_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Cooldown)>();
+        for (name, cd) in q.iter(world) {
+            cd_map.insert(name.0.clone(), (cd.remaining, cd.progress(), cd.is_ready()));
+        }
+        COOLDOWN_SNAPSHOT.with(|s| *s.borrow_mut() = cd_map);
+    }
+    {
+        use bsengine_core::Timer;
+        let mut timer_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Timer)>();
+        for (name, t) in q.iter(world) {
+            timer_map.insert(
+                name.0.clone(),
+                (
+                    t.elapsed(),
+                    t.duration(),
+                    t.fraction(),
+                    t.is_finished(),
+                    t.just_finished(),
+                ),
+            );
+        }
+        TIMER_SNAPSHOT.with(|s| *s.borrow_mut() = timer_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1454,6 +1481,42 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut lvl) = world.get_mut::<Level>(e) {
                         lvl.prestige();
+                    }
+                }
+            }
+            ScriptCommand::StartCooldown { name } => {
+                use bsengine_core::Cooldown;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cd) = world.get_mut::<Cooldown>(e) {
+                        cd.start();
+                    }
+                }
+            }
+            ScriptCommand::SetCooldownDuration { name, seconds } => {
+                use bsengine_core::Cooldown;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cd) = world.get_mut::<Cooldown>(e) {
+                        cd.duration = seconds.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::ResetTimer { name } => {
+                use bsengine_core::Timer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Timer>(e) {
+                        t.reset();
                     }
                 }
             }

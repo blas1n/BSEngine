@@ -239,6 +239,16 @@ pub enum ScriptCommand {
     Prestige {
         name: String,
     },
+    StartCooldown {
+        name: String,
+    },
+    SetCooldownDuration {
+        name: String,
+        seconds: f32,
+    },
+    ResetTimer {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -767,6 +777,14 @@ thread_local! {
 
     // entity name → (current, max, prestige, is_max, progress_fraction)
     pub(crate) static LEVEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, f32)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (remaining, progress, is_ready)
+    pub(crate) static COOLDOWN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (elapsed, duration, fraction, is_finished, just_finished)
+    pub(crate) static TIMER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -1990,6 +2008,99 @@ pub fn bsengine_get_level_progress(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_start_cooldown(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StartCooldown { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_cooldown_duration(#[string] name: String, seconds: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCooldownDuration { name, seconds })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_cooldown_remaining(#[string] name: String) -> f32 {
+    COOLDOWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(rem, _, _)| *rem).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_cooldown_progress(#[string] name: String) -> f32 {
+    COOLDOWN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, prog, _)| *prog)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_cooldown_ready(#[string] name: String) -> bool {
+    COOLDOWN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, ready)| *ready)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_timer(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTimer { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_get_timer_elapsed(#[string] name: String) -> f32 {
+    TIMER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(elapsed, _, _, _, _)| *elapsed)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_timer_duration(#[string] name: String) -> f32 {
+    TIMER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, dur, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_timer_fraction(#[string] name: String) -> f32 {
+    TIMER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, frac, _, _)| *frac)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_timer_finished(#[string] name: String) -> bool {
+    TIMER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, fin, _)| *fin)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_timer_just_finished(#[string] name: String) -> bool {
+    TIMER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jf)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2873,6 +2984,17 @@ deno_core::extension!(
         bsengine_get_prestige_level,
         bsengine_is_max_level,
         bsengine_get_level_progress,
+        bsengine_start_cooldown,
+        bsengine_set_cooldown_duration,
+        bsengine_get_cooldown_remaining,
+        bsengine_get_cooldown_progress,
+        bsengine_is_cooldown_ready,
+        bsengine_reset_timer,
+        bsengine_get_timer_elapsed,
+        bsengine_get_timer_duration,
+        bsengine_get_timer_fraction,
+        bsengine_is_timer_finished,
+        bsengine_is_timer_just_finished,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -3115,6 +3237,17 @@ const Bsengine = {
     getPrestigeLevel:       (name)          => Deno.core.ops.bsengine_get_prestige_level(name),
     isMaxLevel:             (name)          => Deno.core.ops.bsengine_is_max_level(name),
     getLevelProgress:       (name)          => Deno.core.ops.bsengine_get_level_progress(name),
+    startCooldown:          (name)          => Deno.core.ops.bsengine_start_cooldown(name),
+    setCooldownDuration:    (name, seconds) => Deno.core.ops.bsengine_set_cooldown_duration(name, seconds),
+    getCooldownRemaining:   (name)          => Deno.core.ops.bsengine_get_cooldown_remaining(name),
+    getCooldownProgress:    (name)          => Deno.core.ops.bsengine_get_cooldown_progress(name),
+    isCooldownReady:        (name)          => Deno.core.ops.bsengine_is_cooldown_ready(name),
+    resetTimer:             (name)          => Deno.core.ops.bsengine_reset_timer(name),
+    getTimerElapsed:        (name)          => Deno.core.ops.bsengine_get_timer_elapsed(name),
+    getTimerDuration:       (name)          => Deno.core.ops.bsengine_get_timer_duration(name),
+    getTimerFraction:       (name)          => Deno.core.ops.bsengine_get_timer_fraction(name),
+    isTimerFinished:        (name)          => Deno.core.ops.bsengine_is_timer_finished(name),
+    isTimerJustFinished:    (name)          => Deno.core.ops.bsengine_is_timer_just_finished(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -7285,5 +7418,114 @@ JSON.stringify(received)
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.getLevelProgress("Unknown");"#).unwrap();
         assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn start_cooldown_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.startCooldown("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::StartCooldown { name } if name == "Hero"),
+            );
+            assert!(found, "StartCooldown not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_cooldown_duration_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCooldownDuration("Hero", 2.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetCooldownDuration { name, seconds }
+                    if name == "Hero" && (*seconds - 2.5).abs() < 1e-5)
+            });
+            assert!(found, "SetCooldownDuration not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_cooldown_remaining_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getCooldownRemaining("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_cooldown_progress_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getCooldownProgress("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn is_cooldown_ready_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isCooldownReady("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn reset_timer_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.resetTimer("Clock");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::ResetTimer { name } if name == "Clock"),
+            );
+            assert!(found, "ResetTimer not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_timer_elapsed_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getTimerElapsed("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_timer_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getTimerFraction("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_timer_finished_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isTimerFinished("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_timer_just_finished_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isTimerJustFinished("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
     }
 }

@@ -547,6 +547,49 @@ pub fn bsengine_get_entities_in_radius(x: f32, y: f32, z: f32, radius: f32) -> S
     })
 }
 
+#[op2]
+#[string]
+pub fn bsengine_get_closest_entity(x: f32, y: f32, z: f32) -> String {
+    let center = Vec3::new(x, y, z);
+    TRANSFORM_SNAPSHOT.with(|s| {
+        let snap = s.borrow();
+        snap.iter()
+            .min_by(|(_, (pa, _, _)), (_, (pb, _, _))| {
+                pa.distance_squared(center)
+                    .partial_cmp(&pb.distance_squared(center))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(name, _)| name.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_closest_entity_with_tag(
+    x: f32,
+    y: f32,
+    z: f32,
+    #[string] tag: String,
+) -> String {
+    let center = Vec3::new(x, y, z);
+    let candidates: Vec<String> =
+        TAG_SNAPSHOT.with(|s| s.borrow().get(&tag).cloned().unwrap_or_default());
+    TRANSFORM_SNAPSHOT.with(|s| {
+        let snap = s.borrow();
+        candidates
+            .iter()
+            .filter_map(|name| snap.get(name).map(|(pos, _, _)| (name, *pos)))
+            .min_by(|(_, pa), (_, pb)| {
+                pa.distance_squared(center)
+                    .partial_cmp(&pb.distance_squared(center))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(name, _)| name.clone())
+            .unwrap_or_default()
+    })
+}
+
 #[op2(fast)]
 pub fn bsengine_set_emissive(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1195,6 +1238,8 @@ deno_core::extension!(
         bsengine_get_entity_names,
         bsengine_get_entities_by_tag,
         bsengine_get_entities_in_radius,
+        bsengine_get_closest_entity,
+        bsengine_get_closest_entity_with_tag,
         bsengine_has_tag,
         bsengine_add_tag,
         bsengine_remove_tag,
@@ -1292,8 +1337,10 @@ const Bsengine = {
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
     getEntityNames:      ()    => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
-    getEntitiesByTag:    (tag) => JSON.parse(Deno.core.ops.bsengine_get_entities_by_tag(tag)),
-    getEntitiesInRadius: (x, y, z, radius) => JSON.parse(Deno.core.ops.bsengine_get_entities_in_radius(x, y, z, radius)),
+    getEntitiesByTag:        (tag)           => JSON.parse(Deno.core.ops.bsengine_get_entities_by_tag(tag)),
+    getEntitiesInRadius:     (x, y, z, radius) => JSON.parse(Deno.core.ops.bsengine_get_entities_in_radius(x, y, z, radius)),
+    getClosestEntity:        (x, y, z)       => Deno.core.ops.bsengine_get_closest_entity(x, y, z),
+    getClosestEntityWithTag: (x, y, z, tag)  => Deno.core.ops.bsengine_get_closest_entity_with_tag(x, y, z, tag),
     hasTag:              (name, label) => Deno.core.ops.bsengine_has_tag(name, label),
     addTag:              (name, label) => Deno.core.ops.bsengine_add_tag(name, label),
     removeTag:           (name, label) => Deno.core.ops.bsengine_remove_tag(name, label),
@@ -2260,6 +2307,42 @@ JSON.stringify(received)
     }
 
     #[test]
+    fn get_closest_entity_returns_empty_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getClosestEntity(0, 0, 0)"#).unwrap();
+        assert!(r.trim_matches('"').is_empty(), "expected empty: {r}");
+    }
+
+    #[test]
+    fn get_closest_entity_returns_nearest() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            let mut m = s.borrow_mut();
+            m.insert(
+                "Near".to_string(),
+                (
+                    glam::Vec3::new(1.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+            m.insert(
+                "Far".to_string(),
+                (
+                    glam::Vec3::new(100.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        let r = rt.eval(r#"Bsengine.getClosestEntity(0, 0, 0)"#).unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("Near"), "expected Near: {r}");
+    }
+
+    #[test]
     fn get_entities_in_radius_returns_nearby_entities() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
@@ -2298,6 +2381,61 @@ JSON.stringify(received)
             .eval(r#"JSON.stringify(Bsengine.getEntitiesInRadius(0.0, 0.0, 0.0, 1.0))"#)
             .unwrap();
         assert_eq!(r.trim(), "[]", "expected empty array: {r}");
+    }
+
+    #[test]
+    fn get_closest_entity_with_tag_returns_empty_when_no_snapshot() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getClosestEntityWithTag(0, 0, 0, "enemy")"#)
+            .unwrap();
+        assert!(r.trim_matches('"').is_empty(), "expected empty: {r}");
+    }
+
+    #[test]
+    fn get_closest_entity_with_tag_returns_nearest_with_tag() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            let mut m = s.borrow_mut();
+            m.insert(
+                "NearEnemy".to_string(),
+                (
+                    glam::Vec3::new(2.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+            m.insert(
+                "FarEnemy".to_string(),
+                (
+                    glam::Vec3::new(50.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+            m.insert(
+                "NearAlly".to_string(),
+                (
+                    glam::Vec3::new(1.0, 0.0, 0.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::ONE,
+                ),
+            );
+        });
+        super::TAG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "enemy".to_string(),
+                vec!["NearEnemy".to_string(), "FarEnemy".to_string()],
+            );
+        });
+        let r = rt
+            .eval(r#"Bsengine.getClosestEntityWithTag(0, 0, 0, "enemy")"#)
+            .unwrap();
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        super::TAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("NearEnemy"), "expected NearEnemy: {r}");
     }
 
     #[test]

@@ -1031,6 +1031,39 @@ fn run_scripts(world: &mut World) {
                     pw.set_linvel(e, Vec3::new(vx, vy, vz));
                 }
             }
+            ScriptCommand::SetVelocityX { name, vx } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    let cur = pw.get_linvel(e).unwrap_or(Vec3::ZERO);
+                    pw.set_linvel(e, Vec3::new(vx, cur.y, cur.z));
+                }
+            }
+            ScriptCommand::SetVelocityY { name, vy } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    let cur = pw.get_linvel(e).unwrap_or(Vec3::ZERO);
+                    pw.set_linvel(e, Vec3::new(cur.x, vy, cur.z));
+                }
+            }
+            ScriptCommand::SetVelocityZ { name, vz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    let cur = pw.get_linvel(e).unwrap_or(Vec3::ZERO);
+                    pw.set_linvel(e, Vec3::new(cur.x, cur.y, vz));
+                }
+            }
             ScriptCommand::SetGravity { magnitude } => {
                 if let Some(mut pw) = world.get_resource_mut::<PhysicsWorld>() {
                     pw.set_gravity(magnitude);
@@ -1044,6 +1077,39 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.set_angvel(e, Vec3::new(vx, vy, vz));
+                }
+            }
+            ScriptCommand::SetAngularVelocityX { name, vx } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    let cur = pw.get_angvel(e).unwrap_or(Vec3::ZERO);
+                    pw.set_angvel(e, Vec3::new(vx, cur.y, cur.z));
+                }
+            }
+            ScriptCommand::SetAngularVelocityY { name, vy } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    let cur = pw.get_angvel(e).unwrap_or(Vec3::ZERO);
+                    pw.set_angvel(e, Vec3::new(cur.x, vy, cur.z));
+                }
+            }
+            ScriptCommand::SetAngularVelocityZ { name, vz } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    let cur = pw.get_angvel(e).unwrap_or(Vec3::ZERO);
+                    pw.set_angvel(e, Vec3::new(cur.x, cur.y, vz));
                 }
             }
             ScriptCommand::AddAngularImpulse { name, vx, vy, vz } => {

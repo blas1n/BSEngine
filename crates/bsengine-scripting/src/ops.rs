@@ -161,6 +161,10 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    SetDamping {
+        name: String,
+        value: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -1371,6 +1375,14 @@ pub fn bsengine_set_camera_far(#[string] name: String, value: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_damping(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDamping { name, value })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2195,6 +2207,7 @@ deno_core::extension!(
         bsengine_set_camera_fov,
         bsengine_set_camera_near,
         bsengine_set_camera_far,
+        bsengine_set_damping,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2378,6 +2391,7 @@ const Bsengine = {
     setCameraFov:   (name, deg)            => Deno.core.ops.bsengine_set_camera_fov(name, deg),
     setCameraNear:  (name, value)          => Deno.core.ops.bsengine_set_camera_near(name, value),
     setCameraFar:   (name, value)          => Deno.core.ops.bsengine_set_camera_far(name, value),
+    setDamping:     (name, value)          => Deno.core.ops.bsengine_set_damping(name, value),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -5843,6 +5857,22 @@ JSON.stringify(received)
                     if name == "MainCamera" && (*value - 2000.0).abs() < 1e-5)
             });
             assert!(found, "SetCameraFar not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_damping_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDamping("Ball", 0.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetDamping { name, value }
+                    if name == "Ball" && (*value - 0.5).abs() < 1e-5)
+            });
+            assert!(found, "SetDamping not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

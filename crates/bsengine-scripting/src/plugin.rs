@@ -857,6 +857,42 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetPointLightColor { name, r, g, b } => {
+                use bsengine_core::PointLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<PointLight>(e) {
+                        light.color = glam::Vec3::new(r, g, b);
+                    }
+                }
+            }
+            ScriptCommand::SetPointLightIntensity { name, value } => {
+                use bsengine_core::PointLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<PointLight>(e) {
+                        light.intensity = value;
+                    }
+                }
+            }
+            ScriptCommand::SetPointLightRange { name, value } => {
+                use bsengine_core::PointLight;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut light) = world.get_mut::<PointLight>(e) {
+                        light.range = value;
+                    }
+                }
+            }
             ScriptCommand::Spawn(params) => {
                 spawn_entity(world, params);
             }

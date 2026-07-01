@@ -157,6 +157,20 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn get_mass(&self, entity: Entity) -> Option<f32> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        Some(body.mass())
+    }
+
+    pub fn set_mass(&mut self, entity: Entity, mass: f32) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_additional_mass(mass, true);
+            }
+        }
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.

@@ -18,10 +18,11 @@ use crate::ops::{
     COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, MASS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, SCREEN_SIZE_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -420,11 +421,24 @@ fn run_scripts(world: &mut World) {
     MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_released);
     MOUSE_POS_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_pos);
     MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
+    let mass_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_mass(entity).map(|m| (name.clone(), m))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
     PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
     CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
     VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = angular_velocity_snapshot);
+    MASS_SNAPSHOT.with(|s| *s.borrow_mut() = mass_snapshot);
     let gravity = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| pw.gravity())
@@ -726,6 +740,16 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.set_angular_damping(e, damping);
+                }
+            }
+            ScriptCommand::SetMass { name, mass } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_mass(e, mass);
                 }
             }
         }

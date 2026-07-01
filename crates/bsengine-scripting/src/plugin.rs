@@ -1172,6 +1172,36 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetRotationEulerX { name, deg } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let (_, y, z) = t.rotation.to_euler(EulerRot::XYZ);
+                        t.rotation = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), y, z);
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetRotationEulerY { name, deg } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let (x, _, z) = t.rotation.to_euler(EulerRot::XYZ);
+                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, deg.to_radians(), z);
+                        break;
+                    }
+                }
+            }
+            ScriptCommand::SetRotationEulerZ { name, deg } => {
+                let mut q = world.query::<(&Name, &mut Transform)>();
+                for (n, mut t) in q.iter_mut(world) {
+                    if n.0 == name {
+                        let (x, y, _) = t.rotation.to_euler(EulerRot::XYZ);
+                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, y, deg.to_radians());
+                        break;
+                    }
+                }
+            }
             ScriptCommand::AddTag { name, label } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

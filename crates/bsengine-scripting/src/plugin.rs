@@ -24,10 +24,11 @@ use crate::ops::{
     MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
     MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -692,6 +693,24 @@ fn run_scripts(world: &mut World) {
         }
         MANA_SNAPSHOT.with(|s| *s.borrow_mut() = mana_map);
     }
+    {
+        use bsengine_core::MoveSpeed;
+        let mut ms_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &MoveSpeed)>();
+        for (name, ms) in q.iter(world) {
+            ms_map.insert(name.0.clone(), (ms.base, ms.effective()));
+        }
+        MOVE_SPEED_SNAPSHOT.with(|s| *s.borrow_mut() = ms_map);
+    }
+    {
+        use bsengine_core::Shield;
+        let mut shield_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shield)>();
+        for (name, sh) in q.iter(world) {
+            shield_map.insert(name.0.clone(), (sh.current, sh.max));
+        }
+        SHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = shield_map);
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
@@ -1291,6 +1310,79 @@ fn run_scripts(world: &mut World) {
                     if let Some(mut mn) = world.get_mut::<Mana>(e) {
                         mn.max = value.max(0.0);
                         mn.current = mn.current.min(mn.max);
+                    }
+                }
+            }
+            ScriptCommand::SetMoveSpeedBase { name, value } => {
+                use bsengine_core::MoveSpeed;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ms) = world.get_mut::<MoveSpeed>(e) {
+                        ms.base = value.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::AddMoveSpeedFlat { name, amount } => {
+                use bsengine_core::MoveSpeed;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ms) = world.get_mut::<MoveSpeed>(e) {
+                        ms.add_flat(amount);
+                    }
+                }
+            }
+            ScriptCommand::ScaleMoveSpeed { name, factor } => {
+                use bsengine_core::MoveSpeed;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ms) = world.get_mut::<MoveSpeed>(e) {
+                        ms.scale(factor);
+                    }
+                }
+            }
+            ScriptCommand::DamageShield { name, amount } => {
+                use bsengine_core::Shield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<Shield>(e) {
+                        sh.absorb(amount);
+                    }
+                }
+            }
+            ScriptCommand::RestoreShield { name, amount } => {
+                use bsengine_core::Shield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<Shield>(e) {
+                        sh.current = (sh.current + amount.max(0.0)).min(sh.max);
+                    }
+                }
+            }
+            ScriptCommand::SetMaxShield { name, value } => {
+                use bsengine_core::Shield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<Shield>(e) {
+                        sh.max = value.max(0.0);
+                        sh.current = sh.current.min(sh.max);
                     }
                 }
             }

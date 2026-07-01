@@ -205,6 +205,30 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    SetMoveSpeedBase {
+        name: String,
+        value: f32,
+    },
+    AddMoveSpeedFlat {
+        name: String,
+        amount: f32,
+    },
+    ScaleMoveSpeed {
+        name: String,
+        factor: f32,
+    },
+    DamageShield {
+        name: String,
+        amount: f32,
+    },
+    RestoreShield {
+        name: String,
+        amount: f32,
+    },
+    SetMaxShield {
+        name: String,
+        value: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -717,6 +741,14 @@ thread_local! {
 
     // entity name → (current, max)
     pub(crate) static MANA_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (base, effective)
+    pub(crate) static MOVE_SPEED_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current, max)
+    pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -1741,6 +1773,100 @@ pub fn bsengine_get_mana_fraction(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_move_speed_base(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMoveSpeedBase { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_move_speed_flat(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddMoveSpeedFlat { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_scale_move_speed(#[string] name: String, factor: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ScaleMoveSpeed { name, factor })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_move_speed(#[string] name: String) -> f32 {
+    MOVE_SPEED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, eff)| *eff).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_move_speed_base(#[string] name: String) -> f32 {
+    MOVE_SPEED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(base, _)| *base).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_damage_shield(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DamageShield { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_restore_shield(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestoreShield { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_shield(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxShield { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_shield(#[string] name: String) -> f32 {
+    SHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(cur, _)| *cur).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_shield(#[string] name: String) -> f32 {
+    SHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, max)| *max).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_shield_fraction(#[string] name: String) -> f32 {
+    SHIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max)| {
+                if *max <= 0.0 {
+                    0.0
+                } else {
+                    (*cur / *max).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_shield_depleted(#[string] name: String) -> bool {
+    SHIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, _)| *cur <= 0.0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -2600,6 +2726,18 @@ deno_core::extension!(
         bsengine_get_mana,
         bsengine_get_max_mana,
         bsengine_get_mana_fraction,
+        bsengine_set_move_speed_base,
+        bsengine_add_move_speed_flat,
+        bsengine_scale_move_speed,
+        bsengine_get_move_speed,
+        bsengine_get_move_speed_base,
+        bsengine_damage_shield,
+        bsengine_restore_shield,
+        bsengine_set_max_shield,
+        bsengine_get_shield,
+        bsengine_get_max_shield,
+        bsengine_get_shield_fraction,
+        bsengine_is_shield_depleted,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2818,6 +2956,18 @@ const Bsengine = {
     getMana:                (name)          => Deno.core.ops.bsengine_get_mana(name),
     getMaxMana:             (name)          => Deno.core.ops.bsengine_get_max_mana(name),
     getManaFraction:        (name)          => Deno.core.ops.bsengine_get_mana_fraction(name),
+    setMoveSpeedBase:       (name, value)   => Deno.core.ops.bsengine_set_move_speed_base(name, value),
+    addMoveSpeedFlat:       (name, amount)  => Deno.core.ops.bsengine_add_move_speed_flat(name, amount),
+    scaleMoveSpeed:         (name, factor)  => Deno.core.ops.bsengine_scale_move_speed(name, factor),
+    getMoveSpeed:           (name)          => Deno.core.ops.bsengine_get_move_speed(name),
+    getMoveSpeedBase:       (name)          => Deno.core.ops.bsengine_get_move_speed_base(name),
+    damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
+    restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
+    setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
+    getShield:              (name)          => Deno.core.ops.bsengine_get_shield(name),
+    getMaxShield:           (name)          => Deno.core.ops.bsengine_get_max_shield(name),
+    getShieldFraction:      (name)          => Deno.core.ops.bsengine_get_shield_fraction(name),
+    isShieldDepleted:       (name)          => Deno.core.ops.bsengine_is_shield_depleted(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -6721,5 +6871,154 @@ JSON.stringify(received)
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.getManaFraction("Unknown");"#).unwrap();
         assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn set_move_speed_base_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMoveSpeedBase("Player", 5.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetMoveSpeedBase { name, value }
+                    if name == "Player" && (*value - 5.0).abs() < 1e-5)
+            });
+            assert!(found, "SetMoveSpeedBase not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_move_speed_flat_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addMoveSpeedFlat("Player", 2.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddMoveSpeedFlat { name, amount }
+                    if name == "Player" && (*amount - 2.0).abs() < 1e-5)
+            });
+            assert!(found, "AddMoveSpeedFlat not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn scale_move_speed_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.scaleMoveSpeed("Player", 0.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::ScaleMoveSpeed { name, factor }
+                    if name == "Player" && (*factor - 0.5).abs() < 1e-5)
+            });
+            assert!(found, "ScaleMoveSpeed not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_move_speed_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMoveSpeed("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_move_speed_base_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMoveSpeedBase("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn damage_shield_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.damageShield("Hero", 20.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::DamageShield { name, amount }
+                    if name == "Hero" && (*amount - 20.0).abs() < 1e-5)
+            });
+            assert!(found, "DamageShield not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn restore_shield_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.restoreShield("Hero", 15.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::RestoreShield { name, amount }
+                    if name == "Hero" && (*amount - 15.0).abs() < 1e-5)
+            });
+            assert!(found, "RestoreShield not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_max_shield_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMaxShield("Hero", 100.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetMaxShield { name, value }
+                    if name == "Hero" && (*value - 100.0).abs() < 1e-5)
+            });
+            assert!(found, "SetMaxShield not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_shield_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getShield("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_max_shield_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMaxShield("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_shield_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getShieldFraction("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_shield_depleted_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isShieldDepleted("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
     }
 }

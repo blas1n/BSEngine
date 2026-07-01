@@ -118,6 +118,10 @@ pub enum ScriptCommand {
     ResumeSound {
         id: u32,
     },
+    SetSoundVolume {
+        id: u32,
+        db: f32,
+    },
     SetHudText {
         id: String,
         text: String,
@@ -1687,6 +1691,14 @@ pub fn bsengine_resume_sound(id: u32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_sound_volume(id: u32, db: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSoundVolume { id, db })
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_hud_text(#[string] id: String, #[string] text: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetHudText { id, text }));
 }
@@ -1982,6 +1994,7 @@ deno_core::extension!(
         bsengine_stop_sound,
         bsengine_pause_sound,
         bsengine_resume_sound,
+        bsengine_set_sound_volume,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
         bsengine_load_scene,
@@ -2151,6 +2164,7 @@ const Bsengine = {
     stopSound:      (id)                   => Deno.core.ops.bsengine_stop_sound(id),
     pauseSound:     (id)                   => Deno.core.ops.bsengine_pause_sound(id),
     resumeSound:    (id)                   => Deno.core.ops.bsengine_resume_sound(id),
+    setSoundVolume: (id, db)               => Deno.core.ops.bsengine_set_sound_volume(id, db),
     setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
     clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(id),
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
@@ -4579,6 +4593,22 @@ JSON.stringify(received)
                 .iter()
                 .any(|cmd| matches!(cmd, super::ScriptCommand::ResumeSound { id } if *id == 7));
             assert!(found, "ResumeSound not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_sound_volume_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSoundVolume(5, -6.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSoundVolume { id, db }
+                    if *id == 5 && (*db - (-6.0_f32)).abs() < 1e-5)
+            });
+            assert!(found, "SetSoundVolume not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

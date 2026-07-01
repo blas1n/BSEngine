@@ -213,6 +213,12 @@ pub enum ScriptCommand {
         lock_y: bool,
         lock_z: bool,
     },
+    WakeUp {
+        name: String,
+    },
+    PutToSleep {
+        name: String,
+    },
 }
 
 thread_local! {
@@ -297,6 +303,10 @@ thread_local! {
 
     // name → is_sensor (only for entities with at least one collider)
     pub(crate) static COLLIDER_SENSOR_SNAPSHOT: RefCell<HashMap<String, bool>> =
+        RefCell::new(HashMap::new());
+
+    // name → is_sleeping (only for entities with a physics body)
+    pub(crate) static SLEEP_SNAPSHOT: RefCell<HashMap<String, bool>> =
         RefCell::new(HashMap::new());
 
     // name → linear damping (only for entities with a physics body)
@@ -686,6 +696,21 @@ pub fn bsengine_is_kinematic(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_is_sleeping(#[string] name: String) -> bool {
+    SLEEP_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_wake_up(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WakeUp { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_sleep(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PutToSleep { name }));
+}
+
+#[op2(fast)]
 pub fn bsengine_is_collider_sensor(#[string] name: String) -> bool {
     COLLIDER_SENSOR_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
 }
@@ -1068,6 +1093,9 @@ deno_core::extension!(
         bsengine_set_mass,
         bsengine_get_gravity_scale,
         bsengine_is_kinematic,
+        bsengine_is_sleeping,
+        bsengine_wake_up,
+        bsengine_sleep,
         bsengine_is_collider_sensor,
         bsengine_get_linear_damping,
         bsengine_get_angular_damping,
@@ -1158,6 +1186,9 @@ const Bsengine = {
     setMass:              (name, mass)             => Deno.core.ops.bsengine_set_mass(name, mass),
     getGravityScale:      (name)                   => Deno.core.ops.bsengine_get_gravity_scale(name),
     isKinematic:          (name)                   => Deno.core.ops.bsengine_is_kinematic(name),
+    isSleeping:           (name)                   => Deno.core.ops.bsengine_is_sleeping(name),
+    wakeUp:               (name)                   => Deno.core.ops.bsengine_wake_up(name),
+    sleep:                (name)                   => Deno.core.ops.bsengine_sleep(name),
     isColliderSensor:     (name)                   => Deno.core.ops.bsengine_is_collider_sensor(name),
     getLinearDamping:     (name)                   => Deno.core.ops.bsengine_get_linear_damping(name),
     getAngularDamping:    (name)                   => Deno.core.ops.bsengine_get_angular_damping(name),
@@ -2498,6 +2529,54 @@ JSON.stringify(received)
             });
             assert!(found, "LockTranslation not in buffer");
         });
+    }
+
+    #[test]
+    fn wake_up_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.wakeUp("Rock");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::WakeUp { name } if name == "Rock"));
+            assert!(found, "WakeUp not in buffer");
+        });
+    }
+
+    #[test]
+    fn sleep_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.sleep("Rock");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::PutToSleep { name } if name == "Rock"),
+            );
+            assert!(found, "PutToSleep not in buffer");
+        });
+    }
+
+    #[test]
+    fn is_sleeping_returns_false_by_default() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let v = rt.eval(r#"String(Bsengine.isSleeping("Rock"))"#).unwrap();
+        assert_eq!(v, "false");
+    }
+
+    #[test]
+    fn is_sleeping_returns_true_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::SLEEP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Rock".to_string(), true);
+        });
+        let v = rt.eval(r#"String(Bsengine.isSleeping("Rock"))"#).unwrap();
+        super::SLEEP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(v, "true");
     }
 
     #[test]

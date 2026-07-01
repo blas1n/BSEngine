@@ -215,6 +215,28 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn is_sleeping(&self, entity: Entity) -> Option<bool> {
+        let handle = self.entity_body_map.get(&entity)?;
+        let body = self.rigid_body_set.get(*handle)?;
+        Some(body.is_sleeping())
+    }
+
+    pub fn wake_up(&mut self, entity: Entity) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.wake_up(true);
+            }
+        }
+    }
+
+    pub fn put_to_sleep(&mut self, entity: Entity) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.sleep();
+            }
+        }
+    }
+
     pub fn get_restitution(&self, entity: Entity) -> Option<f32> {
         let handle = self.entity_body_map.get(&entity)?;
         let body = self.rigid_body_set.get(*handle)?;

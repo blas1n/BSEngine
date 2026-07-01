@@ -179,6 +179,10 @@ pub enum ScriptCommand {
         name: String,
         scale: f32,
     },
+    SetColliderSensor {
+        name: String,
+        sensor: bool,
+    },
     LockRotation {
         name: String,
         lock_x: bool,
@@ -642,6 +646,14 @@ pub fn bsengine_set_gravity_scale(#[string] name: String, scale: f32) {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_collider_sensor(#[string] name: String, sensor: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColliderSensor { name, sensor });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::LockRotation {
@@ -871,6 +883,7 @@ deno_core::extension!(
         bsengine_set_kinematic,
         bsengine_get_tags,
         bsengine_set_gravity_scale,
+        bsengine_set_collider_sensor,
         bsengine_set_emissive,
         bsengine_set_color,
         bsengine_spawn,
@@ -941,6 +954,7 @@ const Bsengine = {
     setKinematic:        (name, kinematic) => Deno.core.ops.bsengine_set_kinematic(name, kinematic),
     getTags:             (name)            => JSON.parse(Deno.core.ops.bsengine_get_tags(name)),
     setGravityScale:     (name, scale)     => Deno.core.ops.bsengine_set_gravity_scale(name, scale),
+    setColliderSensor:   (name, sensor)    => Deno.core.ops.bsengine_set_collider_sensor(name, sensor),
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
     setColor:       (name, r, g, b)        => Deno.core.ops.bsengine_set_color(name, r, g, b),
     spawn:          (params)               => Deno.core.ops.bsengine_spawn(params),
@@ -1751,6 +1765,22 @@ JSON.stringify(received)
                     if name == "Ball" && (*scale - 0.5).abs() < 1e-6)
             });
             assert!(found, "SetGravityScale not in buffer");
+        });
+    }
+
+    #[test]
+    fn set_collider_sensor_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setColliderSensor("Zone", true);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetColliderSensor { name, sensor }
+                    if name == "Zone" && *sensor)
+            });
+            assert!(found, "SetColliderSensor not in buffer");
         });
     }
 

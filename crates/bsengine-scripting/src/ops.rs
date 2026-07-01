@@ -250,6 +250,14 @@ thread_local! {
     pub(crate) static VISIBLE_SNAPSHOT: RefCell<HashMap<String, bool>> =
         RefCell::new(HashMap::new());
 
+    // name → base_color [r, g, b] (only for entities with a Material component)
+    pub(crate) static MATERIAL_COLOR_SNAPSHOT: RefCell<HashMap<String, [f32; 3]>> =
+        RefCell::new(HashMap::new());
+
+    // name → emissive [r, g, b] (only for entities with a Material component)
+    pub(crate) static MATERIAL_EMISSIVE_SNAPSHOT: RefCell<HashMap<String, [f32; 3]>> =
+        RefCell::new(HashMap::new());
+
     pub(crate) static TIME_ELAPSED_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
     pub(crate) static TIME_DELTA_SNAPSHOT: RefCell<f32> = RefCell::new(0.0);
 
@@ -466,6 +474,18 @@ pub fn bsengine_set_visible(#[string] name: String, visible: bool) {
 #[op2(fast)]
 pub fn bsengine_get_visible(#[string] name: String) -> bool {
     VISIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(true))
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_material_color(#[string] name: String) -> Option<Vec<f32>> {
+    MATERIAL_COLOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|c| c.to_vec()))
+}
+
+#[op2]
+#[serde]
+pub fn bsengine_get_material_emissive(#[string] name: String) -> Option<Vec<f32>> {
+    MATERIAL_EMISSIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|c| c.to_vec()))
 }
 
 #[op2(fast)]
@@ -991,6 +1011,8 @@ deno_core::extension!(
         bsengine_destroy,
         bsengine_set_visible,
         bsengine_get_visible,
+        bsengine_get_material_color,
+        bsengine_get_material_emissive,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -1072,6 +1094,8 @@ const Bsengine = {
     destroy:        (name)                 => Deno.core.ops.bsengine_destroy(name),
     setVisible:     (name, v)              => Deno.core.ops.bsengine_set_visible(name, v),
     getVisible:     (name)                 => Deno.core.ops.bsengine_get_visible(name),
+    getMaterialColor:   (name) => { const v = Deno.core.ops.bsengine_get_material_color(name); return v ? { r: v[0], g: v[1], b: v[2] } : null; },
+    getMaterialEmissive:(name) => { const v = Deno.core.ops.bsengine_get_material_emissive(name); return v ? { r: v[0], g: v[1], b: v[2] } : null; },
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -1663,6 +1687,54 @@ JSON.stringify(received)
             .eval(r#"Bsengine.setVisible("Cube", false); "ok""#)
             .unwrap();
         assert!(r.contains("ok"), "setVisible threw: {r}");
+    }
+
+    #[test]
+    fn get_material_color_returns_null_for_unknown_entity() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getMaterialColor("Ghost") === null ? "null" : "not-null""#)
+            .unwrap();
+        assert!(r.contains("null"), "expected null: {r}");
+    }
+
+    #[test]
+    fn get_material_color_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::MATERIAL_COLOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cube".to_string(), [0.5, 0.25, 1.0]);
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getMaterialColor("Cube"))"#)
+            .unwrap();
+        super::MATERIAL_COLOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("0.5"), "expected r=0.5: {r}");
+    }
+
+    #[test]
+    fn get_material_emissive_returns_null_for_unknown_entity() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getMaterialEmissive("Ghost") === null ? "null" : "not-null""#)
+            .unwrap();
+        assert!(r.contains("null"), "expected null: {r}");
+    }
+
+    #[test]
+    fn get_material_emissive_returns_value_when_snapshot_set() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::MATERIAL_EMISSIVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cube".to_string(), [0.75, 0.0, 0.0]);
+        });
+        let r = rt
+            .eval(r#"JSON.stringify(Bsengine.getMaterialEmissive("Cube"))"#)
+            .unwrap();
+        super::MATERIAL_EMISSIVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(r.contains("0.75"), "expected r=0.75: {r}");
     }
 
     #[test]

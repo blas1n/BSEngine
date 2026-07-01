@@ -261,6 +261,18 @@ pub enum ScriptCommand {
         name: String,
         z: f32,
     },
+    AddPositionX {
+        name: String,
+        dx: f32,
+    },
+    AddPositionY {
+        name: String,
+        dy: f32,
+    },
+    AddPositionZ {
+        name: String,
+        dz: f32,
+    },
     RotateBy {
         name: String,
         rx: f32,
@@ -672,6 +684,30 @@ pub fn bsengine_set_position_y(#[string] name: String, y: f32) {
 pub fn bsengine_set_position_z(#[string] name: String, z: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetPositionZ { name, z });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_position_x(#[string] name: String, dx: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddPositionX { name, dx });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_position_y(#[string] name: String, dy: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddPositionY { name, dy });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_position_z(#[string] name: String, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddPositionZ { name, dz });
     });
 }
 
@@ -1603,6 +1639,9 @@ deno_core::extension!(
         bsengine_set_position_x,
         bsengine_set_position_y,
         bsengine_set_position_z,
+        bsengine_add_position_x,
+        bsengine_add_position_y,
+        bsengine_add_position_z,
         bsengine_rotate_by,
         bsengine_rotate_around_axis,
         bsengine_add_rotation_euler,
@@ -1741,6 +1780,9 @@ const Bsengine = {
     setPositionX:        (name, x)              => Deno.core.ops.bsengine_set_position_x(name, x),
     setPositionY:        (name, y)              => Deno.core.ops.bsengine_set_position_y(name, y),
     setPositionZ:        (name, z)              => Deno.core.ops.bsengine_set_position_z(name, z),
+    addPositionX:        (name, dx)             => Deno.core.ops.bsengine_add_position_x(name, dx),
+    addPositionY:        (name, dy)             => Deno.core.ops.bsengine_add_position_y(name, dy),
+    addPositionZ:        (name, dz)             => Deno.core.ops.bsengine_add_position_z(name, dz),
     rotateBy:          (name, rx, ry, rz, rw)   => Deno.core.ops.bsengine_rotate_by(name, rx, ry, rz, rw),
     rotateAroundAxis:  (name, ax, ay, az, deg)  => Deno.core.ops.bsengine_rotate_around_axis(name, ax, ay, az, deg),
     addRotationEuler:  (name, pitch, yaw, roll) => Deno.core.ops.bsengine_add_rotation_euler(name, pitch, yaw, roll),
@@ -4457,5 +4499,63 @@ JSON.stringify(received)
         super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
         let v: f32 = r.trim().parse().expect("expected a number");
         assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
+    }
+
+    #[test]
+    fn add_position_x_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addPositionX("Player", 5.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddPositionX { name, dx } => {
+                    assert_eq!(name, "Player");
+                    assert!((dx - 5.0).abs() < 1e-4);
+                }
+                _ => panic!("expected AddPositionX command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_position_y_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addPositionY("Player", -2.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddPositionY { name, dy } => {
+                    assert_eq!(name, "Player");
+                    assert!((dy - (-2.0)).abs() < 1e-4);
+                }
+                _ => panic!("expected AddPositionY command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn add_position_z_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addPositionZ("Player", 3.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1);
+            match &buf[0] {
+                super::ScriptCommand::AddPositionZ { name, dz } => {
+                    assert_eq!(name, "Player");
+                    assert!((dz - 3.0).abs() < 1e-4);
+                }
+                _ => panic!("expected AddPositionZ command"),
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 }

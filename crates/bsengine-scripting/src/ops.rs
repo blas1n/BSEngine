@@ -165,6 +165,22 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    DamageEntity {
+        name: String,
+        amount: f32,
+    },
+    HealEntity {
+        name: String,
+        amount: f32,
+    },
+    SetHealth {
+        name: String,
+        value: f32,
+    },
+    SetMaxHealth {
+        name: String,
+        value: f32,
+    },
     Spawn(SpawnParams),
     Destroy {
         name: String,
@@ -632,6 +648,10 @@ thread_local! {
 
     // sound id → playback position in seconds
     pub(crate) static SOUND_POSITION_SNAPSHOT: RefCell<HashMap<u32, f64>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current_health, max_health)
+    pub(crate) static HEALTH_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -1379,6 +1399,74 @@ pub fn bsengine_set_damping(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetDamping { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_health(#[string] name: String) -> f32 {
+    HEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(cur, _)| *cur).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_health(#[string] name: String) -> f32 {
+    HEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, max)| *max).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_health_fraction(#[string] name: String) -> f32 {
+    HEALTH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max)| {
+                if *max <= 0.0 {
+                    0.0
+                } else {
+                    (*cur / *max).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_entity_dead(#[string] name: String) -> bool {
+    HEALTH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, _)| *cur <= 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_damage_entity(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DamageEntity { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_heal_entity(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HealEntity { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_health(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHealth { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_health(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxHealth { name, value })
     });
 }
 
@@ -2208,6 +2296,14 @@ deno_core::extension!(
         bsengine_set_camera_near,
         bsengine_set_camera_far,
         bsengine_set_damping,
+        bsengine_get_health,
+        bsengine_get_max_health,
+        bsengine_get_health_fraction,
+        bsengine_is_entity_dead,
+        bsengine_damage_entity,
+        bsengine_heal_entity,
+        bsengine_set_health,
+        bsengine_set_max_health,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -2391,7 +2487,15 @@ const Bsengine = {
     setCameraFov:   (name, deg)            => Deno.core.ops.bsengine_set_camera_fov(name, deg),
     setCameraNear:  (name, value)          => Deno.core.ops.bsengine_set_camera_near(name, value),
     setCameraFar:   (name, value)          => Deno.core.ops.bsengine_set_camera_far(name, value),
-    setDamping:     (name, value)          => Deno.core.ops.bsengine_set_damping(name, value),
+    setDamping:         (name, value)      => Deno.core.ops.bsengine_set_damping(name, value),
+    getHealth:          (name)             => Deno.core.ops.bsengine_get_health(name),
+    getMaxHealth:       (name)             => Deno.core.ops.bsengine_get_max_health(name),
+    getHealthFraction:  (name)             => Deno.core.ops.bsengine_get_health_fraction(name),
+    isEntityDead:       (name)             => Deno.core.ops.bsengine_is_entity_dead(name),
+    damageEntity:       (name, amount)     => Deno.core.ops.bsengine_damage_entity(name, amount),
+    healEntity:         (name, amount)     => Deno.core.ops.bsengine_heal_entity(name, amount),
+    setHealth:          (name, value)      => Deno.core.ops.bsengine_set_health(name, value),
+    setMaxHealth:       (name, value)      => Deno.core.ops.bsengine_set_max_health(name, value),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -5873,6 +5977,98 @@ JSON.stringify(received)
                     if name == "Ball" && (*value - 0.5).abs() < 1e-5)
             });
             assert!(found, "SetDamping not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_health_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getHealth("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_health_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getHealthFraction("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_entity_dead_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isEntityDead("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn damage_entity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.damageEntity("Player", 25.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::DamageEntity { name, amount }
+                    if name == "Player" && (*amount - 25.0).abs() < 1e-5)
+            });
+            assert!(found, "DamageEntity not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn heal_entity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.healEntity("Player", 50.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::HealEntity { name, amount }
+                    if name == "Player" && (*amount - 50.0).abs() < 1e-5)
+            });
+            assert!(found, "HealEntity not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_health_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setHealth("Player", 75.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetHealth { name, value }
+                    if name == "Player" && (*value - 75.0).abs() < 1e-5)
+            });
+            assert!(found, "SetHealth not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_max_health_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMaxHealth("Player", 200.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetMaxHealth { name, value }
+                    if name == "Player" && (*value - 200.0).abs() < 1e-5)
+            });
+            assert!(found, "SetMaxHealth not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

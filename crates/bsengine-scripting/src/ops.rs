@@ -63,6 +63,18 @@ pub enum ScriptCommand {
         sy: f32,
         sz: f32,
     },
+    AddPosition {
+        name: String,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+    },
+    AddPositionLocal {
+        name: String,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+    },
     SetEmissive {
         name: String,
         r: f32,
@@ -496,6 +508,22 @@ pub fn bsengine_set_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetScale { name, sx, sy, sz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_position(#[string] name: String, dx: f32, dy: f32, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddPosition { name, dx, dy, dz });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_position_local(#[string] name: String, dx: f32, dy: f32, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddPositionLocal { name, dx, dy, dz });
     });
 }
 
@@ -1189,6 +1217,8 @@ deno_core::extension!(
         bsengine_set_transform,
         bsengine_set_rotation,
         bsengine_set_scale,
+        bsengine_add_position,
+        bsengine_add_position_local,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
@@ -1287,7 +1317,9 @@ const Bsengine = {
     distanceToPoint:   (name, x, y, z)       => Deno.core.ops.bsengine_distance_to_point(name, x, y, z),
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
     setRotation:    (name, rx, ry, rz, rw) => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
-    setScale:       (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
+    setScale:            (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
+    addPosition:         (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position(name, dx, dy, dz),
+    addPositionLocal:    (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position_local(name, dx, dy, dz),
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -2514,6 +2546,41 @@ JSON.stringify(received)
                     if name == "Ball" && (*vx - 5.0).abs() < 1e-6)
             });
             assert!(found, "SetVelocity not in buffer");
+        });
+    }
+
+    #[test]
+    fn add_position_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addPosition("Player", 1, 2, 3);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddPosition { name, dx, dy, dz }
+                    if name == "Player"
+                        && (*dx - 1.0).abs() < 1e-6
+                        && (*dy - 2.0).abs() < 1e-6
+                        && (*dz - 3.0).abs() < 1e-6)
+            });
+            assert!(found, "AddPosition not in buffer");
+        });
+    }
+
+    #[test]
+    fn add_position_local_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addPositionLocal("Player", 0, 0, -1);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AddPositionLocal { name, dz, .. }
+                    if name == "Player" && (*dz - (-1.0)).abs() < 1e-6)
+            });
+            assert!(found, "AddPositionLocal not in buffer");
         });
     }
 

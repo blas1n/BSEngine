@@ -1770,6 +1770,106 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyHaste {
+        name: String,
+        multiplier: f32,
+        duration: f32,
+    },
+    ClearHaste {
+        name: String,
+    },
+    SetHasteMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetHasteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CallHavoc {
+        name: String,
+        duration: f32,
+    },
+    QuellHavoc {
+        name: String,
+    },
+    SetHavocStrayChance {
+        name: String,
+        chance: f32,
+    },
+    SetHavocDamageMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetHavocEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyHaze {
+        name: String,
+        duration: f32,
+    },
+    ClearHaze {
+        name: String,
+    },
+    SetHazeDetectionRangeFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetHazeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyHeat {
+        name: String,
+        amount: f32,
+    },
+    HeatApplyCold {
+        name: String,
+        amount: f32,
+    },
+    SetHeatTemperature {
+        name: String,
+        temperature: f32,
+    },
+    SetHeatEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyHex {
+        name: String,
+        duration: f32,
+    },
+    ClearHex {
+        name: String,
+    },
+    SetHexReductionPerStack {
+        name: String,
+        reduction: f32,
+    },
+    SetHexEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyHobble {
+        name: String,
+        duration: f32,
+    },
+    ClearHobble {
+        name: String,
+    },
+    SetHobbleSpeedFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetHobblePreventsDash {
+        name: String,
+        prevents: bool,
+    },
+    SetHobbleEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2628,6 +2728,30 @@ thread_local! {
     // entity name → (duration, timer, speed_multiplier, just_galvanized, just_worn_off, enabled)
     pub(crate) static GALVANIZE_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (effective_multiplier, stack_count, max_stacks, enabled)
+    pub(crate) static HASTE_SNAPSHOT: RefCell<HashMap<String, (f32, u32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, stray_chance, damage_multiplier, just_entered, just_exited, enabled)
+    pub(crate) static HAVOC_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, detection_range_fraction, just_hazed, just_cleared, enabled)
+    pub(crate) static HAZE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (temperature, resting_temp, heat_threshold, cold_threshold, decay_rate, resistance, state_u32, enabled)
+    // ThermalState: Normal=0, Overheated=1, Frozen=2
+    pub(crate) static HEAT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, f32, u32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, duration, timer, reduction_per_stack, just_applied, just_expired, enabled)
+    pub(crate) static HEX_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, speed_fraction, prevents_dash, just_hobbled, just_recovered, enabled)
+    pub(crate) static HOBBLE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -12642,6 +12766,654 @@ pub fn bsengine_set_galvanize_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Haste ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_hastened(#[string] name: String) -> bool {
+    HASTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(em, _, _, en)| *em > 1.0 && *en)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_slowed_by_haste(#[string] name: String) -> bool {
+    HASTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(em, _, _, en)| *em < 1.0 && *en)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_haste_effective_multiplier(#[string] name: String) -> f32 {
+    HASTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(em, _, _, _)| *em)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_haste_stack_count(#[string] name: String) -> u32 {
+    HASTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, sc, _, _)| *sc).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_haste_max_stacks(#[string] name: String) -> u32 {
+    HASTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, ms, _)| *ms).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_haste_enabled(#[string] name: String) -> bool {
+    HASTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_haste(#[string] name: String, multiplier: f32, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyHaste {
+            name,
+            multiplier,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_haste(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearHaste { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_haste_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHasteMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_haste_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHasteEnabled { name, enabled })
+    });
+}
+
+// ── Havoc ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_in_havoc(#[string] name: String) -> bool {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_havoc_duration(#[string] name: String) -> f32 {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_havoc_timer(#[string] name: String) -> f32 {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_havoc_stray_chance(#[string] name: String) -> f32 {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, sc, _, _, _, _)| *sc)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_havoc_damage_multiplier(#[string] name: String) -> f32 {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, dm, _, _, _)| *dm)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_havoc_just_entered(#[string] name: String) -> bool {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_havoc_just_exited(#[string] name: String) -> bool {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jx, _)| *jx)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_havoc_enabled(#[string] name: String) -> bool {
+    HAVOC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_call_havoc(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CallHavoc { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_quell_havoc(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::QuellHavoc { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_havoc_stray_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHavocStrayChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_havoc_damage_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHavocDamageMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_havoc_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHavocEnabled { name, enabled })
+    });
+}
+
+// ── Haze ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_haze_active(#[string] name: String) -> bool {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_haze_duration(#[string] name: String) -> f32 {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_haze_timer(#[string] name: String) -> f32 {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_haze_detection_range_fraction(#[string] name: String) -> f32 {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, drf, _, _, _)| *drf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_haze_just_hazed(#[string] name: String) -> bool {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jh, _, _)| *jh)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_haze_just_cleared(#[string] name: String) -> bool {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jc, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_haze_enabled(#[string] name: String) -> bool {
+    HAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_haze(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyHaze { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_haze(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearHaze { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_haze_detection_range_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHazeDetectionRangeFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_haze_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHazeEnabled { name, enabled })
+    });
+}
+
+// ── Heat ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_heat_temperature(#[string] name: String) -> f32 {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(temp, _, _, _, _, _, _, _)| *temp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_heat_state(#[string] name: String) -> u32 {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, state, _)| *state)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_overheated(#[string] name: String) -> bool {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, state, _)| *state == 1)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_frozen_by_heat(#[string] name: String) -> bool {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, state, _)| *state == 2)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_heat_resting_temp(#[string] name: String) -> f32 {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, rt, _, _, _, _, _, _)| *rt)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_heat_resistance(#[string] name: String) -> f32 {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, res, _, _)| *res)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_heat_enabled(#[string] name: String) -> bool {
+    HEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_heat(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyHeat { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_heat_apply_cold(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HeatApplyCold { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_heat_temperature(#[string] name: String, temperature: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHeatTemperature { name, temperature })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_heat_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHeatEnabled { name, enabled })
+    });
+}
+
+// ── Hex ──────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_hex_active(#[string] name: String) -> bool {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(stacks, _, _, _, _, _, _, _)| *stacks > 0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hex_stacks(#[string] name: String) -> u32 {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(stacks, _, _, _, _, _, _, _)| *stacks)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hex_max_stacks(#[string] name: String) -> u32 {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, ms, _, _, _, _, _, _)| *ms)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hex_duration(#[string] name: String) -> f32 {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hex_timer(#[string] name: String) -> f32 {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hex_reduction_per_stack(#[string] name: String) -> f32 {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, rps, _, _, _)| *rps)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_hex_just_applied(#[string] name: String) -> bool {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, ja, _, _)| *ja)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_hex_just_expired(#[string] name: String) -> bool {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, je, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_hex_enabled(#[string] name: String) -> bool {
+    HEX_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_hex(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyHex { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_hex(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearHex { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_hex_reduction_per_stack(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHexReductionPerStack { name, reduction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_hex_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHexEnabled { name, enabled })
+    });
+}
+
+// ── Hobble ───────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_hobble_active(#[string] name: String) -> bool {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hobble_duration(#[string] name: String) -> f32 {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hobble_timer(#[string] name: String) -> f32 {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hobble_speed_fraction(#[string] name: String) -> f32 {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, sf, _, _, _, _)| *sf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_hobble_prevents_dash(#[string] name: String) -> bool {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, pd, _, _, _)| *pd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_hobble_just_hobbled(#[string] name: String) -> bool {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jh, _, _)| *jh)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_hobble_just_recovered(#[string] name: String) -> bool {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_hobble_enabled(#[string] name: String) -> bool {
+    HOBBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_hobble(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyHobble { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_hobble(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearHobble { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_hobble_speed_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHobbleSpeedFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_hobble_prevents_dash(#[string] name: String, prevents: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHobblePreventsDash { name, prevents })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_hobble_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetHobbleEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -14127,6 +14899,77 @@ deno_core::extension!(
         bsengine_clear_galvanize,
         bsengine_set_galvanize_speed_multiplier,
         bsengine_set_galvanize_enabled,
+        bsengine_is_hastened,
+        bsengine_is_slowed_by_haste,
+        bsengine_get_haste_effective_multiplier,
+        bsengine_get_haste_stack_count,
+        bsengine_get_haste_max_stacks,
+        bsengine_is_haste_enabled,
+        bsengine_apply_haste,
+        bsengine_clear_haste,
+        bsengine_set_haste_max_stacks,
+        bsengine_set_haste_enabled,
+        bsengine_is_in_havoc,
+        bsengine_get_havoc_duration,
+        bsengine_get_havoc_timer,
+        bsengine_get_havoc_stray_chance,
+        bsengine_get_havoc_damage_multiplier,
+        bsengine_is_havoc_just_entered,
+        bsengine_is_havoc_just_exited,
+        bsengine_is_havoc_enabled,
+        bsengine_call_havoc,
+        bsengine_quell_havoc,
+        bsengine_set_havoc_stray_chance,
+        bsengine_set_havoc_damage_multiplier,
+        bsengine_set_havoc_enabled,
+        bsengine_is_haze_active,
+        bsengine_get_haze_duration,
+        bsengine_get_haze_timer,
+        bsengine_get_haze_detection_range_fraction,
+        bsengine_is_haze_just_hazed,
+        bsengine_is_haze_just_cleared,
+        bsengine_is_haze_enabled,
+        bsengine_apply_haze,
+        bsengine_clear_haze,
+        bsengine_set_haze_detection_range_fraction,
+        bsengine_set_haze_enabled,
+        bsengine_get_heat_temperature,
+        bsengine_get_heat_state,
+        bsengine_is_overheated,
+        bsengine_is_frozen_by_heat,
+        bsengine_get_heat_resting_temp,
+        bsengine_get_heat_resistance,
+        bsengine_is_heat_enabled,
+        bsengine_apply_heat,
+        bsengine_heat_apply_cold,
+        bsengine_set_heat_temperature,
+        bsengine_set_heat_enabled,
+        bsengine_is_hex_active,
+        bsengine_get_hex_stacks,
+        bsengine_get_hex_max_stacks,
+        bsengine_get_hex_duration,
+        bsengine_get_hex_timer,
+        bsengine_get_hex_reduction_per_stack,
+        bsengine_is_hex_just_applied,
+        bsengine_is_hex_just_expired,
+        bsengine_is_hex_enabled,
+        bsengine_apply_hex,
+        bsengine_clear_hex,
+        bsengine_set_hex_reduction_per_stack,
+        bsengine_set_hex_enabled,
+        bsengine_is_hobble_active,
+        bsengine_get_hobble_duration,
+        bsengine_get_hobble_timer,
+        bsengine_get_hobble_speed_fraction,
+        bsengine_get_hobble_prevents_dash,
+        bsengine_is_hobble_just_hobbled,
+        bsengine_is_hobble_just_recovered,
+        bsengine_is_hobble_enabled,
+        bsengine_apply_hobble,
+        bsengine_clear_hobble,
+        bsengine_set_hobble_speed_fraction,
+        bsengine_set_hobble_prevents_dash,
+        bsengine_set_hobble_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -15705,6 +16548,77 @@ const Bsengine = {
     clearGalvanize:                (name)           => Deno.core.ops.bsengine_clear_galvanize(name),
     setGalvanizeSpeedMultiplier:   (name, m)        => Deno.core.ops.bsengine_set_galvanize_speed_multiplier(name, m),
     setGalvanizeEnabled:           (name, en)       => Deno.core.ops.bsengine_set_galvanize_enabled(name, en),
+    isHastened:                    (name)           => Deno.core.ops.bsengine_is_hastened(name),
+    isSlowedByHaste:               (name)           => Deno.core.ops.bsengine_is_slowed_by_haste(name),
+    getHasteEffectiveMultiplier:   (name)           => Deno.core.ops.bsengine_get_haste_effective_multiplier(name),
+    getHasteStackCount:            (name)           => Deno.core.ops.bsengine_get_haste_stack_count(name),
+    getHasteMaxStacks:             (name)           => Deno.core.ops.bsengine_get_haste_max_stacks(name),
+    isHasteEnabled:                (name)           => Deno.core.ops.bsengine_is_haste_enabled(name),
+    applyHaste:                    (name, m, dur)   => Deno.core.ops.bsengine_apply_haste(name, m, dur),
+    clearHaste:                    (name)           => Deno.core.ops.bsengine_clear_haste(name),
+    setHasteMaxStacks:             (name, ms)       => Deno.core.ops.bsengine_set_haste_max_stacks(name, ms),
+    setHasteEnabled:               (name, en)       => Deno.core.ops.bsengine_set_haste_enabled(name, en),
+    isInHavoc:                     (name)           => Deno.core.ops.bsengine_is_in_havoc(name),
+    getHavocDuration:              (name)           => Deno.core.ops.bsengine_get_havoc_duration(name),
+    getHavocTimer:                 (name)           => Deno.core.ops.bsengine_get_havoc_timer(name),
+    getHavocStrayChance:           (name)           => Deno.core.ops.bsengine_get_havoc_stray_chance(name),
+    getHavocDamageMultiplier:      (name)           => Deno.core.ops.bsengine_get_havoc_damage_multiplier(name),
+    isHavocJustEntered:            (name)           => Deno.core.ops.bsengine_is_havoc_just_entered(name),
+    isHavocJustExited:             (name)           => Deno.core.ops.bsengine_is_havoc_just_exited(name),
+    isHavocEnabled:                (name)           => Deno.core.ops.bsengine_is_havoc_enabled(name),
+    callHavoc:                     (name, dur)      => Deno.core.ops.bsengine_call_havoc(name, dur),
+    quellHavoc:                    (name)           => Deno.core.ops.bsengine_quell_havoc(name),
+    setHavocStrayChance:           (name, c)        => Deno.core.ops.bsengine_set_havoc_stray_chance(name, c),
+    setHavocDamageMultiplier:      (name, m)        => Deno.core.ops.bsengine_set_havoc_damage_multiplier(name, m),
+    setHavocEnabled:               (name, en)       => Deno.core.ops.bsengine_set_havoc_enabled(name, en),
+    isHazeActive:                  (name)           => Deno.core.ops.bsengine_is_haze_active(name),
+    getHazeDuration:               (name)           => Deno.core.ops.bsengine_get_haze_duration(name),
+    getHazeTimer:                  (name)           => Deno.core.ops.bsengine_get_haze_timer(name),
+    getHazeDetectionRangeFraction: (name)           => Deno.core.ops.bsengine_get_haze_detection_range_fraction(name),
+    isHazeJustHazed:               (name)           => Deno.core.ops.bsengine_is_haze_just_hazed(name),
+    isHazeJustCleared:             (name)           => Deno.core.ops.bsengine_is_haze_just_cleared(name),
+    isHazeEnabled:                 (name)           => Deno.core.ops.bsengine_is_haze_enabled(name),
+    applyHaze:                     (name, dur)      => Deno.core.ops.bsengine_apply_haze(name, dur),
+    clearHaze:                     (name)           => Deno.core.ops.bsengine_clear_haze(name),
+    setHazeDetectionRangeFraction: (name, f)        => Deno.core.ops.bsengine_set_haze_detection_range_fraction(name, f),
+    setHazeEnabled:                (name, en)       => Deno.core.ops.bsengine_set_haze_enabled(name, en),
+    getHeatTemperature:            (name)           => Deno.core.ops.bsengine_get_heat_temperature(name),
+    getHeatState:                  (name)           => Deno.core.ops.bsengine_get_heat_state(name),
+    isOverheated:                  (name)           => Deno.core.ops.bsengine_is_overheated(name),
+    isFrozenByHeat:                (name)           => Deno.core.ops.bsengine_is_frozen_by_heat(name),
+    getHeatRestingTemp:            (name)           => Deno.core.ops.bsengine_get_heat_resting_temp(name),
+    getHeatResistance:             (name)           => Deno.core.ops.bsengine_get_heat_resistance(name),
+    isHeatEnabled:                 (name)           => Deno.core.ops.bsengine_is_heat_enabled(name),
+    applyHeat:                     (name, amt)      => Deno.core.ops.bsengine_apply_heat(name, amt),
+    heatApplyCold:                 (name, amt)      => Deno.core.ops.bsengine_heat_apply_cold(name, amt),
+    setHeatTemperature:            (name, t)        => Deno.core.ops.bsengine_set_heat_temperature(name, t),
+    setHeatEnabled:                (name, en)       => Deno.core.ops.bsengine_set_heat_enabled(name, en),
+    isHexActive:                   (name)           => Deno.core.ops.bsengine_is_hex_active(name),
+    getHexStacks:                  (name)           => Deno.core.ops.bsengine_get_hex_stacks(name),
+    getHexMaxStacks:               (name)           => Deno.core.ops.bsengine_get_hex_max_stacks(name),
+    getHexDuration:                (name)           => Deno.core.ops.bsengine_get_hex_duration(name),
+    getHexTimer:                   (name)           => Deno.core.ops.bsengine_get_hex_timer(name),
+    getHexReductionPerStack:       (name)           => Deno.core.ops.bsengine_get_hex_reduction_per_stack(name),
+    isHexJustApplied:              (name)           => Deno.core.ops.bsengine_is_hex_just_applied(name),
+    isHexJustExpired:              (name)           => Deno.core.ops.bsengine_is_hex_just_expired(name),
+    isHexEnabled:                  (name)           => Deno.core.ops.bsengine_is_hex_enabled(name),
+    applyHex:                      (name, dur)      => Deno.core.ops.bsengine_apply_hex(name, dur),
+    clearHex:                      (name)           => Deno.core.ops.bsengine_clear_hex(name),
+    setHexReductionPerStack:       (name, r)        => Deno.core.ops.bsengine_set_hex_reduction_per_stack(name, r),
+    setHexEnabled:                 (name, en)       => Deno.core.ops.bsengine_set_hex_enabled(name, en),
+    isHobbleActive:                (name)           => Deno.core.ops.bsengine_is_hobble_active(name),
+    getHobbleDuration:             (name)           => Deno.core.ops.bsengine_get_hobble_duration(name),
+    getHobbleTimer:                (name)           => Deno.core.ops.bsengine_get_hobble_timer(name),
+    getHobbleSpeedFraction:        (name)           => Deno.core.ops.bsengine_get_hobble_speed_fraction(name),
+    getHobblePreventsDash:         (name)           => Deno.core.ops.bsengine_get_hobble_prevents_dash(name),
+    isHobbleJustHobbled:           (name)           => Deno.core.ops.bsengine_is_hobble_just_hobbled(name),
+    isHobbleJustRecovered:         (name)           => Deno.core.ops.bsengine_is_hobble_just_recovered(name),
+    isHobbleEnabled:               (name)           => Deno.core.ops.bsengine_is_hobble_enabled(name),
+    applyHobble:                   (name, dur)      => Deno.core.ops.bsengine_apply_hobble(name, dur),
+    clearHobble:                   (name)           => Deno.core.ops.bsengine_clear_hobble(name),
+    setHobbleSpeedFraction:        (name, f)        => Deno.core.ops.bsengine_set_hobble_speed_fraction(name, f),
+    setHobblePreventsDash:         (name, p)        => Deno.core.ops.bsengine_set_hobble_prevents_dash(name, p),
+    setHobbleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_hobble_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -25745,6 +26659,294 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearGalvanize { name } if name == "Warrior")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetGalvanizeSpeedMultiplier { name, multiplier } if name == "Warrior" && (*multiplier - 2.0).abs() < 0.001)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetGalvanizeEnabled { name, enabled } if name == "Warrior" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_haste_read_ops() {
+        // (effective_multiplier, stack_count, max_stacks, enabled)
+        super::HASTE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Runner".to_string(), (1.5f32, 2u32, 5u32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isHastened("Runner")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let em = rt
+            .eval(r#"Bsengine.getHasteEffectiveMultiplier("Runner")"#)
+            .unwrap()
+            .to_string();
+        assert!((em.parse::<f64>().unwrap() - 1.5).abs() < 0.001);
+        let sc = rt
+            .eval(r#"Bsengine.getHasteStackCount("Runner")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(sc.trim(), "2");
+        super::HASTE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_haste_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyHaste("Runner", 1.5, 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearHaste("Runner");"#).unwrap();
+        rt.eval(r#"Bsengine.setHasteEnabled("Runner", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyHaste { name, multiplier, duration } if name == "Runner" && (*multiplier - 1.5).abs() < 0.001 && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearHaste { name } if name == "Runner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHasteEnabled { name, enabled } if name == "Runner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_havoc_read_ops() {
+        // (duration, timer, stray_chance, damage_multiplier, just_entered, just_exited, enabled)
+        super::HAVOC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Berserker".to_string(),
+                (5.0f32, 3.0f32, 0.4f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isInHavoc("Berserker")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let sc = rt
+            .eval(r#"Bsengine.getHavocStrayChance("Berserker")"#)
+            .unwrap()
+            .to_string();
+        assert!((sc.parse::<f64>().unwrap() - 0.4).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isHavocJustEntered("Berserker")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::HAVOC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_havoc_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.callHavoc("Berserker", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.quellHavoc("Berserker");"#).unwrap();
+        rt.eval(r#"Bsengine.setHavocEnabled("Berserker", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CallHavoc { name, duration } if name == "Berserker" && (*duration - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuellHavoc { name } if name == "Berserker")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHavocEnabled { name, enabled } if name == "Berserker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_haze_read_ops() {
+        // (duration, timer, detection_range_fraction, just_hazed, just_cleared, enabled)
+        super::HAZE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rogue".to_string(),
+                (3.0f32, 2.0f32, 0.4f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isHazeActive("Rogue")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let drf = rt
+            .eval(r#"Bsengine.getHazeDetectionRangeFraction("Rogue")"#)
+            .unwrap()
+            .to_string();
+        assert!((drf.parse::<f64>().unwrap() - 0.4).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isHazeJustHazed("Rogue")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::HAZE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_haze_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyHaze("Rogue", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearHaze("Rogue");"#).unwrap();
+        rt.eval(r#"Bsengine.setHazeEnabled("Rogue", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyHaze { name, duration } if name == "Rogue" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearHaze { name } if name == "Rogue")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHazeEnabled { name, enabled } if name == "Rogue" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_heat_read_ops() {
+        // (temperature, resting_temp, heat_threshold, cold_threshold, decay_rate, resistance, state_u32, enabled)
+        // ThermalState: Normal=0, Overheated=1, Frozen=2
+        super::HEAT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dragon".to_string(),
+                (
+                    85.0f32, 50.0f32, 80.0f32, 20.0f32, 5.0f32, 1.0f32, 1u32, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isOverheated("Dragon")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let temp = rt
+            .eval(r#"Bsengine.getHeatTemperature("Dragon")"#)
+            .unwrap()
+            .to_string();
+        assert!((temp.parse::<f64>().unwrap() - 85.0).abs() < 0.001);
+        let state = rt
+            .eval(r#"Bsengine.getHeatState("Dragon")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(state.trim(), "1");
+        super::HEAT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_heat_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyHeat("Dragon", 10.0);"#).unwrap();
+        rt.eval(r#"Bsengine.heatApplyCold("Dragon", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setHeatEnabled("Dragon", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyHeat { name, amount } if name == "Dragon" && (*amount - 10.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HeatApplyCold { name, amount } if name == "Dragon" && (*amount - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHeatEnabled { name, enabled } if name == "Dragon" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_hex_read_ops() {
+        // (stacks, max_stacks, duration, timer, reduction_per_stack, just_applied, just_expired, enabled)
+        super::HEX_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Witch".to_string(),
+                (3u32, 5u32, 4.0f32, 2.0f32, 0.1f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isHexActive("Witch")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let stacks = rt
+            .eval(r#"Bsengine.getHexStacks("Witch")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(stacks.trim(), "3");
+        assert!(rt
+            .eval(r#"Bsengine.isHexJustApplied("Witch")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::HEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_hex_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyHex("Witch", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearHex("Witch");"#).unwrap();
+        rt.eval(r#"Bsengine.setHexEnabled("Witch", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyHex { name, duration } if name == "Witch" && (*duration - 4.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearHex { name } if name == "Witch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHexEnabled { name, enabled } if name == "Witch" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_hobble_read_ops() {
+        // (duration, timer, speed_fraction, prevents_dash, just_hobbled, just_recovered, enabled)
+        super::HOBBLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cripple".to_string(),
+                (5.0f32, 3.0f32, 0.5f32, true, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isHobbleActive("Cripple")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let sf = rt
+            .eval(r#"Bsengine.getHobbleSpeedFraction("Cripple")"#)
+            .unwrap()
+            .to_string();
+        assert!((sf.parse::<f64>().unwrap() - 0.5).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.getHobblePreventsDash("Cripple")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::HOBBLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_hobble_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyHobble("Cripple", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearHobble("Cripple");"#).unwrap();
+        rt.eval(r#"Bsengine.setHobblePreventsDash("Cripple", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setHobbleEnabled("Cripple", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyHobble { name, duration } if name == "Cripple" && (*duration - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearHobble { name } if name == "Cripple")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHobblePreventsDash { name, prevents } if name == "Cripple" && *prevents)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHobbleEnabled { name, enabled } if name == "Cripple" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

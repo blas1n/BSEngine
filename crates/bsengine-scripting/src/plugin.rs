@@ -31,10 +31,11 @@ use crate::ops::{
     FOOTSTEP_SNAPSHOT, FRACTURE_SNAPSHOT, FREEZE_SNAPSHOT, FRICTION_SNAPSHOT, FROSTBITE_SNAPSHOT,
     FUEL_SNAPSHOT, FURY_SNAPSHOT, GALVANIZE_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
-    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LAYER_SNAPSHOT, LEVEL_SNAPSHOT,
-    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HASTE_SNAPSHOT,
+    HAVOC_SNAPSHOT, HAZE_SNAPSHOT, HEALTH_SNAPSHOT, HEAT_SNAPSHOT, HEX_SNAPSHOT, HOBBLE_SNAPSHOT,
+    INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
+    KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LAYER_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT,
+    LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
@@ -2442,6 +2443,129 @@ fn run_scripts(world: &mut World) {
             );
         }
         GALVANIZE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Haste;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Haste)>();
+        for (_, name, hs) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hs.effective_multiplier(),
+                    hs.stack_count() as u32,
+                    hs.max_stacks as u32,
+                    hs.enabled,
+                ),
+            );
+        }
+        HASTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Havoc;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Havoc)>();
+        for (_, name, hv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hv.duration,
+                    hv.timer,
+                    hv.stray_chance,
+                    hv.damage_multiplier,
+                    hv.just_entered,
+                    hv.just_exited,
+                    hv.enabled,
+                ),
+            );
+        }
+        HAVOC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Haze;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Haze)>();
+        for (_, name, hz) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hz.duration,
+                    hz.timer,
+                    hz.detection_range_fraction,
+                    hz.just_hazed,
+                    hz.just_cleared,
+                    hz.enabled,
+                ),
+            );
+        }
+        HAZE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Heat, ThermalState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Heat)>();
+        for (_, name, ht) in q.iter(world) {
+            let state_u32 = match ht.state {
+                ThermalState::Normal => 0u32,
+                ThermalState::Overheated => 1u32,
+                ThermalState::Frozen => 2u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    ht.temperature,
+                    ht.resting_temp,
+                    ht.heat_threshold,
+                    ht.cold_threshold,
+                    ht.decay_rate,
+                    ht.resistance,
+                    state_u32,
+                    ht.enabled,
+                ),
+            );
+        }
+        HEAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Hex;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Hex)>();
+        for (_, name, hx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hx.stacks,
+                    hx.max_stacks,
+                    hx.duration,
+                    hx.timer,
+                    hx.reduction_per_stack,
+                    hx.just_applied,
+                    hx.just_expired,
+                    hx.enabled,
+                ),
+            );
+        }
+        HEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Hobble;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Hobble)>();
+        for (_, name, ho) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ho.duration,
+                    ho.timer,
+                    ho.speed_fraction,
+                    ho.prevents_dash,
+                    ho.just_hobbled,
+                    ho.just_recovered,
+                    ho.enabled,
+                ),
+            );
+        }
+        HOBBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -7936,6 +8060,343 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut gv) = world.get_mut::<Galvanize>(e) {
                         gv.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyHaste {
+                name,
+                multiplier,
+                duration,
+            } => {
+                use bsengine_core::Haste;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hs) = world.get_mut::<Haste>(e) {
+                        hs.apply(multiplier, duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearHaste { name } => {
+                use bsengine_core::Haste;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hs) = world.get_mut::<Haste>(e) {
+                        hs.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetHasteMaxStacks { name, max_stacks } => {
+                use bsengine_core::Haste;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hs) = world.get_mut::<Haste>(e) {
+                        hs.max_stacks = max_stacks as usize;
+                    }
+                }
+            }
+            ScriptCommand::SetHasteEnabled { name, enabled } => {
+                use bsengine_core::Haste;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hs) = world.get_mut::<Haste>(e) {
+                        hs.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::CallHavoc { name, duration } => {
+                use bsengine_core::Havoc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hv) = world.get_mut::<Havoc>(e) {
+                        hv.call(duration);
+                    }
+                }
+            }
+            ScriptCommand::QuellHavoc { name } => {
+                use bsengine_core::Havoc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hv) = world.get_mut::<Havoc>(e) {
+                        hv.quell();
+                    }
+                }
+            }
+            ScriptCommand::SetHavocStrayChance { name, chance } => {
+                use bsengine_core::Havoc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hv) = world.get_mut::<Havoc>(e) {
+                        hv.stray_chance = chance.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetHavocDamageMultiplier { name, multiplier } => {
+                use bsengine_core::Havoc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hv) = world.get_mut::<Havoc>(e) {
+                        hv.damage_multiplier = multiplier.max(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetHavocEnabled { name, enabled } => {
+                use bsengine_core::Havoc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hv) = world.get_mut::<Havoc>(e) {
+                        hv.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyHaze { name, duration } => {
+                use bsengine_core::Haze;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hz) = world.get_mut::<Haze>(e) {
+                        hz.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearHaze { name } => {
+                use bsengine_core::Haze;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hz) = world.get_mut::<Haze>(e) {
+                        hz.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetHazeDetectionRangeFraction { name, fraction } => {
+                use bsengine_core::Haze;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hz) = world.get_mut::<Haze>(e) {
+                        hz.detection_range_fraction = fraction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetHazeEnabled { name, enabled } => {
+                use bsengine_core::Haze;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hz) = world.get_mut::<Haze>(e) {
+                        hz.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyHeat { name, amount } => {
+                use bsengine_core::{Heat, ThermalState};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ht) = world.get_mut::<Heat>(e) {
+                        ht.temperature += amount * ht.resistance;
+                        ht.state = if ht.temperature >= ht.heat_threshold {
+                            ThermalState::Overheated
+                        } else if ht.temperature <= ht.cold_threshold {
+                            ThermalState::Frozen
+                        } else {
+                            ThermalState::Normal
+                        };
+                    }
+                }
+            }
+            ScriptCommand::HeatApplyCold { name, amount } => {
+                use bsengine_core::{Heat, ThermalState};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ht) = world.get_mut::<Heat>(e) {
+                        ht.temperature -= amount * ht.resistance;
+                        ht.state = if ht.temperature >= ht.heat_threshold {
+                            ThermalState::Overheated
+                        } else if ht.temperature <= ht.cold_threshold {
+                            ThermalState::Frozen
+                        } else {
+                            ThermalState::Normal
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetHeatTemperature { name, temperature } => {
+                use bsengine_core::{Heat, ThermalState};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ht) = world.get_mut::<Heat>(e) {
+                        ht.temperature = temperature;
+                        ht.state = if ht.temperature >= ht.heat_threshold {
+                            ThermalState::Overheated
+                        } else if ht.temperature <= ht.cold_threshold {
+                            ThermalState::Frozen
+                        } else {
+                            ThermalState::Normal
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetHeatEnabled { name, enabled } => {
+                use bsengine_core::Heat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ht) = world.get_mut::<Heat>(e) {
+                        ht.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyHex { name, duration } => {
+                use bsengine_core::Hex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hx) = world.get_mut::<Hex>(e) {
+                        hx.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearHex { name } => {
+                use bsengine_core::Hex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hx) = world.get_mut::<Hex>(e) {
+                        hx.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetHexReductionPerStack { name, reduction } => {
+                use bsengine_core::Hex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hx) = world.get_mut::<Hex>(e) {
+                        hx.reduction_per_stack = reduction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetHexEnabled { name, enabled } => {
+                use bsengine_core::Hex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut hx) = world.get_mut::<Hex>(e) {
+                        hx.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyHobble { name, duration } => {
+                use bsengine_core::Hobble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ho) = world.get_mut::<Hobble>(e) {
+                        ho.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearHobble { name } => {
+                use bsengine_core::Hobble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ho) = world.get_mut::<Hobble>(e) {
+                        ho.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetHobbleSpeedFraction { name, fraction } => {
+                use bsengine_core::Hobble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ho) = world.get_mut::<Hobble>(e) {
+                        ho.speed_fraction = fraction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetHobblePreventsDash { name, prevents } => {
+                use bsengine_core::Hobble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ho) = world.get_mut::<Hobble>(e) {
+                        ho.prevents_dash = prevents;
+                    }
+                }
+            }
+            ScriptCommand::SetHobbleEnabled { name, enabled } => {
+                use bsengine_core::Hobble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ho) = world.get_mut::<Hobble>(e) {
+                        ho.enabled = enabled;
                     }
                 }
             }

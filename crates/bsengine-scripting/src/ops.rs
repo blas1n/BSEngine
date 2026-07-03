@@ -263,6 +263,21 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetRegenRate {
+        name: String,
+        rate: f32,
+    },
+    SetRegenDelay {
+        name: String,
+        seconds: f32,
+    },
+    SetRegenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    NotifyRegenDamage {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -803,6 +818,10 @@ thread_local! {
 
     // entity name → (current, max_capacity, reserve, reserve_max, just_emptied, just_reloaded, enabled)
     pub(crate) static AMMO_SNAPSHOT: RefCell<HashMap<String, (u32, u32, u32, u32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (rate, delay_after_damage, delay_timer, enabled)
+    pub(crate) static REGEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2261,6 +2280,88 @@ pub fn bsengine_is_ammo_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_regen_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRegenRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_regen_delay(#[string] name: String, seconds: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRegenDelay { name, seconds })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_regen_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRegenEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_notify_regen_damage(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NotifyRegenDamage { name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_regen_rate(#[string] name: String) -> f32 {
+    REGEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(rate, _, _, _)| *rate)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_regen_delay(#[string] name: String) -> f32 {
+    REGEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, delay, _, _)| *delay)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_regen_delay_timer(#[string] name: String) -> f32 {
+    REGEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, timer, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_regen_suppressed(#[string] name: String) -> bool {
+    REGEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, timer, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_regen_enabled(#[string] name: String) -> bool {
+    REGEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3252,6 +3353,15 @@ deno_core::extension!(
         bsengine_ammo_just_emptied,
         bsengine_ammo_just_reloaded,
         bsengine_is_ammo_enabled,
+        bsengine_set_regen_rate,
+        bsengine_set_regen_delay,
+        bsengine_set_regen_enabled,
+        bsengine_notify_regen_damage,
+        bsengine_get_regen_rate,
+        bsengine_get_regen_delay,
+        bsengine_get_regen_delay_timer,
+        bsengine_is_regen_suppressed,
+        bsengine_is_regen_enabled,
     ],
 );
 
@@ -3438,6 +3548,15 @@ const Bsengine = {
     ammoJustEmptied:    (name)              => Deno.core.ops.bsengine_ammo_just_emptied(name),
     ammoJustReloaded:   (name)              => Deno.core.ops.bsengine_ammo_just_reloaded(name),
     isAmmoEnabled:      (name)              => Deno.core.ops.bsengine_is_ammo_enabled(name),
+    setRegenRate:       (name, rate)        => Deno.core.ops.bsengine_set_regen_rate(name, rate),
+    setRegenDelay:      (name, seconds)     => Deno.core.ops.bsengine_set_regen_delay(name, seconds),
+    setRegenEnabled:    (name, enabled)     => Deno.core.ops.bsengine_set_regen_enabled(name, enabled),
+    notifyRegenDamage:  (name)              => Deno.core.ops.bsengine_notify_regen_damage(name),
+    getRegenRate:       (name)              => Deno.core.ops.bsengine_get_regen_rate(name),
+    getRegenDelay:      (name)              => Deno.core.ops.bsengine_get_regen_delay(name),
+    getRegenDelayTimer: (name)              => Deno.core.ops.bsengine_get_regen_delay_timer(name),
+    isRegenSuppressed:  (name)              => Deno.core.ops.bsengine_is_regen_suppressed(name),
+    isRegenEnabled:     (name)              => Deno.core.ops.bsengine_is_regen_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -7843,6 +7962,87 @@ JSON.stringify(received)
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isAmmoEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn set_regen_rate_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRegenRate("Hero", 5.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetRegenRate { name, rate }
+                    if name == "Hero" && (*rate - 5.0).abs() < 1e-5)
+            });
+            assert!(found, "SetRegenRate not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_regen_delay_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRegenDelay("Hero", 3.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetRegenDelay { name, seconds }
+                    if name == "Hero" && (*seconds - 3.0).abs() < 1e-5)
+            });
+            assert!(found, "SetRegenDelay not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn notify_regen_damage_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.notifyRegenDamage("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::NotifyRegenDamage { name } if name == "Hero")
+            });
+            assert!(found, "NotifyRegenDamage not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_regen_rate_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getRegenRate("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_regen_delay_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getRegenDelay("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_regen_suppressed_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isRegenSuppressed("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_regen_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isRegenEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
     }
 }

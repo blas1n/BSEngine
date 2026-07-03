@@ -35,7 +35,7 @@ use crate::ops::{
     SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
     SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
     TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
     WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
@@ -1367,6 +1367,25 @@ fn run_scripts(world: &mut World) {
             tm_map.insert(name.0.clone(), (mode_u32, tm.exposure, tm.enabled));
         }
         TONE_MAP_SNAPSHOT.with(|s| *s.borrow_mut() = tm_map);
+    }
+    {
+        use bsengine_core::Vignette;
+        let mut vg_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Vignette)>();
+        for (_, name, vg) in q.iter(world) {
+            vg_map.insert(
+                name.0.clone(),
+                (
+                    vg.intensity,
+                    vg.smoothness,
+                    vg.color[0],
+                    vg.color[1],
+                    vg.color[2],
+                    vg.enabled,
+                ),
+            );
+        }
+        VIGNETTE_SNAPSHOT.with(|s| *s.borrow_mut() = vg_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3958,6 +3977,54 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut ab) = world.get_mut::<Absorption>(e) {
                         ab.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetVignetteIntensity { name, intensity } => {
+                use bsengine_core::Vignette;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<Vignette>(e) {
+                        vg.intensity = intensity.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetVignetteSmoothness { name, smoothness } => {
+                use bsengine_core::Vignette;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<Vignette>(e) {
+                        vg.smoothness = smoothness.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetVignetteColor { name, r, g, b } => {
+                use bsengine_core::Vignette;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<Vignette>(e) {
+                        vg.color = [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)];
+                    }
+                }
+            }
+            ScriptCommand::SetVignetteEnabled { name, enabled } => {
+                use bsengine_core::Vignette;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<Vignette>(e) {
+                        vg.enabled = enabled;
                     }
                 }
             }

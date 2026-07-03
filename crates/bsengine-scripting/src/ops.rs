@@ -841,6 +841,22 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetAbsorptionFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetAbsorptionPool {
+        name: String,
+        pool: f32,
+    },
+    SetAbsorptionMaxPool {
+        name: String,
+        max_pool: f32,
+    },
+    SetAbsorptionEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1498,6 +1514,10 @@ thread_local! {
     // entity name → (mode_u32, exposure, enabled)
     // ToneMappingMode: None=0, Reinhard=1, ReinhardLuminance=2, Aces=3, Filmic=4
     pub(crate) static TONE_MAP_SNAPSHOT: RefCell<HashMap<String, (u32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (fraction, pool, max_pool, absorbed_total, just_depleted, enabled)
+    pub(crate) static ABSORPTION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5898,6 +5918,98 @@ pub fn bsengine_is_tone_map_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_absorption_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAbsorptionFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_absorption_pool(#[string] name: String, pool: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAbsorptionPool { name, pool })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_absorption_max_pool(#[string] name: String, max_pool: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAbsorptionMaxPool { name, max_pool })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_absorption_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAbsorptionEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_absorption_fraction(#[string] name: String) -> f32 {
+    ABSORPTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(f, _, _, _, _, _)| *f)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_absorption_pool(#[string] name: String) -> f32 {
+    ABSORPTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, p, _, _, _, _)| *p)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_absorption_max_pool(#[string] name: String) -> f32 {
+    ABSORPTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, mp, _, _, _)| *mp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_absorption_absorbed_total(#[string] name: String) -> f32 {
+    ABSORPTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, at, _, _)| *at)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_absorption_just_depleted(#[string] name: String) -> bool {
+    ABSORPTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jd, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_absorption_enabled(#[string] name: String) -> bool {
+    ABSORPTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7218,6 +7330,16 @@ deno_core::extension!(
         bsengine_get_tone_map_mode,
         bsengine_get_tone_map_exposure,
         bsengine_is_tone_map_enabled,
+        bsengine_set_absorption_fraction,
+        bsengine_set_absorption_pool,
+        bsengine_set_absorption_max_pool,
+        bsengine_set_absorption_enabled,
+        bsengine_get_absorption_fraction,
+        bsengine_get_absorption_pool,
+        bsengine_get_absorption_max_pool,
+        bsengine_get_absorption_absorbed_total,
+        bsengine_is_absorption_just_depleted,
+        bsengine_is_absorption_enabled,
     ],
 );
 
@@ -7733,6 +7855,16 @@ const Bsengine = {
     getToneMapMode:     (name)             => Deno.core.ops.bsengine_get_tone_map_mode(name),
     getToneMapExposure: (name)             => Deno.core.ops.bsengine_get_tone_map_exposure(name),
     isToneMapEnabled:   (name)             => Deno.core.ops.bsengine_is_tone_map_enabled(name),
+    setAbsorptionFraction:(name, v)        => Deno.core.ops.bsengine_set_absorption_fraction(name, v),
+    setAbsorptionPool:  (name, v)          => Deno.core.ops.bsengine_set_absorption_pool(name, v),
+    setAbsorptionMaxPool:(name, v)         => Deno.core.ops.bsengine_set_absorption_max_pool(name, v),
+    setAbsorptionEnabled:(name, v)         => Deno.core.ops.bsengine_set_absorption_enabled(name, v),
+    getAbsorptionFraction:(name)           => Deno.core.ops.bsengine_get_absorption_fraction(name),
+    getAbsorptionPool:  (name)             => Deno.core.ops.bsengine_get_absorption_pool(name),
+    getAbsorptionMaxPool:(name)            => Deno.core.ops.bsengine_get_absorption_max_pool(name),
+    getAbsorptionAbsorbedTotal:(name)      => Deno.core.ops.bsengine_get_absorption_absorbed_total(name),
+    isAbsorptionJustDepleted:(name)        => Deno.core.ops.bsengine_is_absorption_just_depleted(name),
+    isAbsorptionEnabled:(name)             => Deno.core.ops.bsengine_is_absorption_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -14457,6 +14589,79 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetToneMapEnabled { name, enabled }
                 if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_absorption_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+
+        super::ABSORPTION_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.5, 80.0, 100.0, 20.0, false, true));
+        });
+
+        let frac = rt
+            .eval(r#"Bsengine.getAbsorptionFraction("Hero");"#)
+            .unwrap();
+        assert!((frac.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let pool = rt.eval(r#"Bsengine.getAbsorptionPool("Hero");"#).unwrap();
+        assert!((pool.trim().parse::<f32>().unwrap() - 80.0).abs() < 0.001);
+        let max_pool = rt
+            .eval(r#"Bsengine.getAbsorptionMaxPool("Hero");"#)
+            .unwrap();
+        assert!((max_pool.trim().parse::<f32>().unwrap() - 100.0).abs() < 0.001);
+        let total = rt
+            .eval(r#"Bsengine.getAbsorptionAbsorbedTotal("Hero");"#)
+            .unwrap();
+        assert!((total.trim().parse::<f32>().unwrap() - 20.0).abs() < 0.001);
+        let depleted = rt
+            .eval(r#"Bsengine.isAbsorptionJustDepleted("Hero");"#)
+            .unwrap();
+        assert_eq!(depleted.trim(), "false");
+        let en = rt.eval(r#"Bsengine.isAbsorptionEnabled("Hero");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+
+        super::ABSORPTION_SNAPSHOT.with(|s| s.borrow_mut().remove("Hero"));
+    }
+
+    #[test]
+    fn test_absorption_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAbsorptionFraction("Hero", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbsorptionPool("Hero", 50.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbsorptionMaxPool("Hero", 100.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbsorptionEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbsorptionFraction { name, fraction }
+                if name == "Hero" && (*fraction - 0.75).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbsorptionPool { name, pool }
+                if name == "Hero" && (*pool - 50.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbsorptionMaxPool { name, max_pool }
+                if name == "Hero" && (*max_pool - 100.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbsorptionEnabled { name, enabled }
+                if name == "Hero" && !*enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

@@ -14,7 +14,7 @@ use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPat
 use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
-    ScriptCommand, SpawnParams, AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT,
+    ScriptCommand, SpawnParams, ABSORPTION_SNAPSHOT, AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT,
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
     BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT,
     CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT,
@@ -1284,6 +1284,25 @@ fn run_scripts(world: &mut World) {
             );
         }
         COLOR_GRADING_SNAPSHOT.with(|s| *s.borrow_mut() = cg_map);
+    }
+    {
+        use bsengine_core::Absorption;
+        let mut ab_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Absorption)>();
+        for (_, name, ab) in q.iter(world) {
+            ab_map.insert(
+                name.0.clone(),
+                (
+                    ab.fraction,
+                    ab.pool,
+                    ab.max_pool,
+                    ab.absorbed_total,
+                    ab.just_depleted,
+                    ab.enabled,
+                ),
+            );
+        }
+        ABSORPTION_SNAPSHOT.with(|s| *s.borrow_mut() = ab_map);
     }
     {
         use bsengine_core::AmbientOcclusion;
@@ -3891,6 +3910,54 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut tm) = world.get_mut::<ToneMap>(e) {
                         tm.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetAbsorptionFraction { name, fraction } => {
+                use bsengine_core::Absorption;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Absorption>(e) {
+                        ab.fraction = fraction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAbsorptionPool { name, pool } => {
+                use bsengine_core::Absorption;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Absorption>(e) {
+                        ab.pool = pool.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAbsorptionMaxPool { name, max_pool } => {
+                use bsengine_core::Absorption;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Absorption>(e) {
+                        ab.max_pool = max_pool.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAbsorptionEnabled { name, enabled } => {
+                use bsengine_core::Absorption;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Absorption>(e) {
+                        ab.enabled = enabled;
                     }
                 }
             }

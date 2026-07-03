@@ -17,22 +17,22 @@ use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
     CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
-    GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
-    RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
-    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT,
-    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT,
+    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT,
+    INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
+    KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
+    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
+    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
+    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1119,6 +1119,27 @@ fn run_scripts(world: &mut World) {
             );
         }
         DIALOGUE_SNAPSHOT.with(|s| *s.borrow_mut() = dlg_map);
+    }
+    {
+        use bsengine_core::Dissolve;
+        let mut diss_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Dissolve)>();
+        for (name, d) in q.iter(world) {
+            diss_map.insert(
+                name.0.clone(),
+                (
+                    d.progress,
+                    d.edge_width,
+                    d.edge_color[0],
+                    d.edge_color[1],
+                    d.edge_color[2],
+                    d.edge_color[3],
+                    d.noise_scale,
+                    d.enabled,
+                ),
+            );
+        }
+        DISSOLVE_SNAPSHOT.with(|s| *s.borrow_mut() = diss_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2901,6 +2922,71 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut d) = world.get_mut::<Dialogue>(e) {
                         d.current_index = (index as usize).min(d.lines.len());
+                    }
+                }
+            }
+            ScriptCommand::SetDissolveProgress { name, progress } => {
+                use bsengine_core::Dissolve;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dissolve>(e) {
+                        d.progress = progress.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDissolveEdgeWidth { name, width } => {
+                use bsengine_core::Dissolve;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dissolve>(e) {
+                        d.edge_width = width.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDissolveEdgeColor { name, r, g, b, a } => {
+                use bsengine_core::Dissolve;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dissolve>(e) {
+                        d.edge_color = [
+                            r.clamp(0.0, 1.0),
+                            g.clamp(0.0, 1.0),
+                            b.clamp(0.0, 1.0),
+                            a.clamp(0.0, 1.0),
+                        ];
+                    }
+                }
+            }
+            ScriptCommand::SetDissolveNoiseScale { name, scale } => {
+                use bsengine_core::Dissolve;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dissolve>(e) {
+                        d.noise_scale = scale.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDissolveEnabled { name, enabled } => {
+                use bsengine_core::Dissolve;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dissolve>(e) {
+                        d.enabled = enabled;
                     }
                 }
             }

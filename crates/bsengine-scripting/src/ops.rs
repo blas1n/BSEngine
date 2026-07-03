@@ -436,6 +436,22 @@ pub enum ScriptCommand {
         name: String,
         hits: u32,
     },
+    SetProjectileSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetProjectileGravityScale {
+        name: String,
+        scale: f32,
+    },
+    SetProjectilePiercing {
+        name: String,
+        count: u32,
+    },
+    SetProjectileRange {
+        name: String,
+        range: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1013,6 +1029,10 @@ thread_local! {
 
     // entity name → (force, vertical_boost, hits_remaining, blocks_new, enabled)
     pub(crate) static KNOCKBACK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (speed, gravity_scale, piercing, range, distance_traveled)
+    pub(crate) static PROJECTILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -3439,6 +3459,93 @@ pub fn bsengine_is_knockback_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_projectile_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProjectileSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_projectile_gravity_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProjectileGravityScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_projectile_piercing(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProjectilePiercing { name, count })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_projectile_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProjectileRange { name, range })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_projectile_speed(#[string] name: String) -> f32 {
+    PROJECTILE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(sp, _, _, _, _)| *sp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_projectile_gravity_scale(#[string] name: String) -> f32 {
+    PROJECTILE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, gs, _, _, _)| *gs)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_projectile_piercing(#[string] name: String) -> u32 {
+    PROJECTILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, p, _, _)| *p).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_projectile_range(#[string] name: String) -> f32 {
+    PROJECTILE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, r, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_projectile_distance_traveled(#[string] name: String) -> f32 {
+    PROJECTILE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, dt)| *dt)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_projectile_out_of_range(#[string] name: String) -> bool {
+    PROJECTILE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, r, dt)| *r > 0.0 && *dt >= *r)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -4535,6 +4642,16 @@ deno_core::extension!(
         bsengine_is_knocked_back,
         bsengine_is_knockback_blocking,
         bsengine_is_knockback_enabled,
+        bsengine_set_projectile_speed,
+        bsengine_set_projectile_gravity_scale,
+        bsengine_set_projectile_piercing,
+        bsengine_set_projectile_range,
+        bsengine_get_projectile_speed,
+        bsengine_get_projectile_gravity_scale,
+        bsengine_get_projectile_piercing,
+        bsengine_get_projectile_range,
+        bsengine_get_projectile_distance_traveled,
+        bsengine_is_projectile_out_of_range,
     ],
 );
 
@@ -4826,6 +4943,16 @@ const Bsengine = {
     isKnockedBack:          (name)          => Deno.core.ops.bsengine_is_knocked_back(name),
     isKnockbackBlocking:    (name)          => Deno.core.ops.bsengine_is_knockback_blocking(name),
     isKnockbackEnabled:     (name)          => Deno.core.ops.bsengine_is_knockback_enabled(name),
+    setProjectileSpeed:     (name, speed)   => Deno.core.ops.bsengine_set_projectile_speed(name, speed),
+    setProjectileGravityScale:(name, scale) => Deno.core.ops.bsengine_set_projectile_gravity_scale(name, scale),
+    setProjectilePiercing:  (name, count)   => Deno.core.ops.bsengine_set_projectile_piercing(name, count),
+    setProjectileRange:     (name, range)   => Deno.core.ops.bsengine_set_projectile_range(name, range),
+    getProjectileSpeed:     (name)          => Deno.core.ops.bsengine_get_projectile_speed(name),
+    getProjectileGravityScale:(name)        => Deno.core.ops.bsengine_get_projectile_gravity_scale(name),
+    getProjectilePiercing:  (name)          => Deno.core.ops.bsengine_get_projectile_piercing(name),
+    getProjectileRange:     (name)          => Deno.core.ops.bsengine_get_projectile_range(name),
+    getProjectileDistanceTraveled:(name)    => Deno.core.ops.bsengine_get_projectile_distance_traveled(name),
+    isProjectileOutOfRange: (name)          => Deno.core.ops.bsengine_is_projectile_out_of_range(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -10058,5 +10185,166 @@ JSON.stringify(received)
             .unwrap();
         assert_eq!(en.trim(), "true");
         super::KNOCKBACK_SNAPSHOT.with(|s| s.borrow_mut().remove("Target"));
+    }
+
+    #[test]
+    fn set_projectile_speed_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setProjectileSpeed("Bullet", 50.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetProjectileSpeed { name, speed }
+                    if name == "Bullet" && (*speed - 50.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_projectile_gravity_scale_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setProjectileGravityScale("Grenade", 1.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetProjectileGravityScale { name, scale }
+                    if name == "Grenade" && (*scale - 1.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_projectile_piercing_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setProjectilePiercing("Arrow", 2);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetProjectilePiercing { name, count }
+                    if name == "Arrow" && *count == 2
+            )));
+        });
+    }
+
+    #[test]
+    fn set_projectile_range_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setProjectileRange("Laser", 100.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetProjectileRange { name, range }
+                    if name == "Laser" && (*range - 100.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn get_projectile_speed_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getProjectileSpeed("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_projectile_gravity_scale_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getProjectileGravityScale("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_projectile_piercing_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getProjectilePiercing("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_projectile_range_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getProjectileRange("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_projectile_distance_traveled_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getProjectileDistanceTraveled("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn is_projectile_out_of_range_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isProjectileOutOfRange("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn projectile_snapshot_read_ops() {
+        super::PROJECTILE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rocket".to_string(),
+                (40.0_f32, 0.5_f32, 1_u32, 80.0_f32, 80.0_f32),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let sp = rt
+            .eval(r#"Bsengine.getProjectileSpeed("Rocket");"#)
+            .unwrap();
+        assert!((sp.trim().parse::<f32>().unwrap() - 40.0).abs() < 0.001);
+        let gs = rt
+            .eval(r#"Bsengine.getProjectileGravityScale("Rocket");"#)
+            .unwrap();
+        assert!((gs.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let pi = rt
+            .eval(r#"Bsengine.getProjectilePiercing("Rocket");"#)
+            .unwrap();
+        assert_eq!(pi.trim(), "1");
+        let ra = rt
+            .eval(r#"Bsengine.getProjectileRange("Rocket");"#)
+            .unwrap();
+        assert!((ra.trim().parse::<f32>().unwrap() - 80.0).abs() < 0.001);
+        let dt = rt
+            .eval(r#"Bsengine.getProjectileDistanceTraveled("Rocket");"#)
+            .unwrap();
+        assert!((dt.trim().parse::<f32>().unwrap() - 80.0).abs() < 0.001);
+        let oor = rt
+            .eval(r#"Bsengine.isProjectileOutOfRange("Rocket");"#)
+            .unwrap();
+        assert_eq!(oor.trim(), "true");
+        super::PROJECTILE_SNAPSHOT.with(|s| s.borrow_mut().remove("Rocket"));
     }
 }

@@ -26,11 +26,11 @@ use crate::ops::{
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
+    RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
+    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -963,6 +963,24 @@ fn run_scripts(world: &mut World) {
             );
         }
         KNOCKBACK_SNAPSHOT.with(|s| *s.borrow_mut() = kb_map);
+    }
+    {
+        use bsengine_core::Projectile;
+        let mut proj_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Projectile)>();
+        for (name, p) in q.iter(world) {
+            proj_map.insert(
+                name.0.clone(),
+                (
+                    p.speed,
+                    p.gravity_scale,
+                    p.piercing,
+                    p.range,
+                    p.distance_traveled,
+                ),
+            );
+        }
+        PROJECTILE_SNAPSHOT.with(|s| *s.borrow_mut() = proj_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2287,6 +2305,54 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut k) = world.get_mut::<Knockback>(e) {
                         k.hits_remaining = hits;
+                    }
+                }
+            }
+            ScriptCommand::SetProjectileSpeed { name, speed } => {
+                use bsengine_core::Projectile;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut p) = world.get_mut::<Projectile>(e) {
+                        p.speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetProjectileGravityScale { name, scale } => {
+                use bsengine_core::Projectile;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut p) = world.get_mut::<Projectile>(e) {
+                        p.gravity_scale = scale.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetProjectilePiercing { name, count } => {
+                use bsengine_core::Projectile;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut p) = world.get_mut::<Projectile>(e) {
+                        p.piercing = count;
+                    }
+                }
+            }
+            ScriptCommand::SetProjectileRange { name, range } => {
+                use bsengine_core::Projectile;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut p) = world.get_mut::<Projectile>(e) {
+                        p.range = range.max(0.0);
                     }
                 }
             }

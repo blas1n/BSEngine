@@ -477,6 +477,26 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetInteractableRange {
+        name: String,
+        range: f32,
+    },
+    SetInteractablePrompt {
+        name: String,
+        prompt: String,
+    },
+    SetInteractableTrigger {
+        name: String,
+        trigger: u8,
+    },
+    SetInteractableHoldDuration {
+        name: String,
+        duration: f32,
+    },
+    SetInteractableEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1063,6 +1083,11 @@ thread_local! {
     // entity name → (state_u8, anchor_x, anchor_y, anchor_z, max_range, hook_speed, pull_force, rope_length, enabled)
     pub(crate) static GRAPPLE_SNAPSHOT: RefCell<
         HashMap<String, (u8, f32, f32, f32, f32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+
+    // entity name → (range, prompt, trigger_u8, hold_duration, enabled)
+    pub(crate) static INTERACTABLE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, String, u8, f32, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -3733,6 +3758,99 @@ pub fn bsengine_is_grapple_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_interactable_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInteractableRange { name, range })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interactable_prompt(#[string] name: String, #[string] prompt: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInteractablePrompt { name, prompt })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interactable_trigger(#[string] name: String, trigger: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetInteractableTrigger {
+            name,
+            trigger: trigger as u8,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interactable_hold_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInteractableHoldDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interactable_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInteractableEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_interactable_range(#[string] name: String) -> f32 {
+    INTERACTABLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_interactable_prompt(#[string] name: String) -> String {
+    INTERACTABLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, p, _, _, _)| p.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_interactable_trigger(#[string] name: String) -> u32 {
+    INTERACTABLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, t, _, _)| *t as u32)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_interactable_hold_duration(#[string] name: String) -> f32 {
+    INTERACTABLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, hd, _)| *hd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_interactable_enabled(#[string] name: String) -> bool {
+    INTERACTABLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -4857,6 +4975,16 @@ deno_core::extension!(
         bsengine_is_grapple_attached,
         bsengine_is_grapple_idle,
         bsengine_is_grapple_enabled,
+        bsengine_set_interactable_range,
+        bsengine_set_interactable_prompt,
+        bsengine_set_interactable_trigger,
+        bsengine_set_interactable_hold_duration,
+        bsengine_set_interactable_enabled,
+        bsengine_get_interactable_range,
+        bsengine_get_interactable_prompt,
+        bsengine_get_interactable_trigger,
+        bsengine_get_interactable_hold_duration,
+        bsengine_is_interactable_enabled,
     ],
 );
 
@@ -5176,6 +5304,16 @@ const Bsengine = {
     isGrappleAttached:      (name)          => Deno.core.ops.bsengine_is_grapple_attached(name),
     isGrappleIdle:          (name)          => Deno.core.ops.bsengine_is_grapple_idle(name),
     isGrappleEnabled:       (name)          => Deno.core.ops.bsengine_is_grapple_enabled(name),
+    setInteractableRange:   (name, range)   => Deno.core.ops.bsengine_set_interactable_range(name, range),
+    setInteractablePrompt:  (name, prompt)  => Deno.core.ops.bsengine_set_interactable_prompt(name, prompt),
+    setInteractableTrigger: (name, trigger) => Deno.core.ops.bsengine_set_interactable_trigger(name, trigger),
+    setInteractableHoldDuration:(name, dur) => Deno.core.ops.bsengine_set_interactable_hold_duration(name, dur),
+    setInteractableEnabled: (name, enabled) => Deno.core.ops.bsengine_set_interactable_enabled(name, enabled),
+    getInteractableRange:   (name)          => Deno.core.ops.bsengine_get_interactable_range(name),
+    getInteractablePrompt:  (name)          => Deno.core.ops.bsengine_get_interactable_prompt(name),
+    getInteractableTrigger: (name)          => Deno.core.ops.bsengine_get_interactable_trigger(name),
+    getInteractableHoldDuration:(name)      => Deno.core.ops.bsengine_get_interactable_hold_duration(name),
+    isInteractableEnabled:  (name)          => Deno.core.ops.bsengine_is_interactable_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -10702,5 +10840,126 @@ JSON.stringify(received)
         let idle = rt.eval(r#"Bsengine.isGrappleIdle("Hero");"#).unwrap();
         assert_eq!(idle.trim(), "false");
         super::GRAPPLE_SNAPSHOT.with(|s| s.borrow_mut().remove("Hero"));
+    }
+
+    #[test]
+    fn set_interactable_range_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setInteractableRange("Chest", 2.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetInteractableRange { name, range }
+                    if name == "Chest" && (*range - 2.5).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_interactable_prompt_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setInteractablePrompt("Door", "Open");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetInteractablePrompt { name, prompt }
+                    if name == "Door" && prompt == "Open"
+            )));
+        });
+    }
+
+    #[test]
+    fn set_interactable_trigger_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setInteractableTrigger("Lever", 2);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetInteractableTrigger { name, trigger }
+                    if name == "Lever" && *trigger == 2
+            )));
+        });
+    }
+
+    #[test]
+    fn set_interactable_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setInteractableEnabled("Button", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetInteractableEnabled { name, enabled }
+                    if name == "Button" && !enabled
+            )));
+        });
+    }
+
+    #[test]
+    fn get_interactable_range_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getInteractableRange("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_interactable_prompt_returns_empty_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getInteractablePrompt("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "");
+    }
+
+    #[test]
+    fn is_interactable_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isInteractableEnabled("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn interactable_snapshot_read_ops() {
+        super::INTERACTABLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "NPC".to_string(),
+                (3.0_f32, "Talk".to_string(), 0u8, 0.0_f32, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let ra = rt.eval(r#"Bsengine.getInteractableRange("NPC");"#).unwrap();
+        assert!((ra.trim().parse::<f32>().unwrap() - 3.0).abs() < 0.001);
+        let pr = rt
+            .eval(r#"Bsengine.getInteractablePrompt("NPC");"#)
+            .unwrap();
+        assert_eq!(pr.trim(), "Talk");
+        let tr = rt
+            .eval(r#"Bsengine.getInteractableTrigger("NPC");"#)
+            .unwrap();
+        assert_eq!(tr.trim(), "0");
+        let en = rt
+            .eval(r#"Bsengine.isInteractableEnabled("NPC");"#)
+            .unwrap();
+        assert_eq!(en.trim(), "true");
+        super::INTERACTABLE_SNAPSHOT.with(|s| s.borrow_mut().remove("NPC"));
     }
 }

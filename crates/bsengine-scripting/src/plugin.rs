@@ -20,17 +20,18 @@ use crate::ops::{
     COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
     EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
-    RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
-    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT,
+    INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
+    KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
+    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
+    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
+    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1009,6 +1010,29 @@ fn run_scripts(world: &mut World) {
             );
         }
         GRAPPLE_SNAPSHOT.with(|s| *s.borrow_mut() = grapple_map);
+    }
+    {
+        use bsengine_core::{InteractTrigger, Interactable};
+        let mut ia_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Interactable)>();
+        for (name, i) in q.iter(world) {
+            let trigger_u8 = match i.trigger {
+                InteractTrigger::OnPress => 0u8,
+                InteractTrigger::OnRelease => 1u8,
+                InteractTrigger::OnHold => 2u8,
+            };
+            ia_map.insert(
+                name.0.clone(),
+                (
+                    i.range,
+                    i.prompt.clone(),
+                    trigger_u8,
+                    i.hold_duration,
+                    i.enabled,
+                ),
+            );
+        }
+        INTERACTABLE_SNAPSHOT.with(|s| *s.borrow_mut() = ia_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2465,6 +2489,70 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut g) = world.get_mut::<Grapple>(e) {
                         g.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetInteractableRange { name, range } => {
+                use bsengine_core::Interactable;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut i) = world.get_mut::<Interactable>(e) {
+                        i.range = range.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetInteractablePrompt { name, prompt } => {
+                use bsengine_core::Interactable;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut i) = world.get_mut::<Interactable>(e) {
+                        i.prompt = prompt;
+                    }
+                }
+            }
+            ScriptCommand::SetInteractableTrigger { name, trigger } => {
+                use bsengine_core::{InteractTrigger, Interactable};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut i) = world.get_mut::<Interactable>(e) {
+                        i.trigger = match trigger {
+                            1 => InteractTrigger::OnRelease,
+                            2 => InteractTrigger::OnHold,
+                            _ => InteractTrigger::OnPress,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetInteractableHoldDuration { name, duration } => {
+                use bsengine_core::Interactable;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut i) = world.get_mut::<Interactable>(e) {
+                        i.hold_duration = duration.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetInteractableEnabled { name, enabled } => {
+                use bsengine_core::Interactable;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut i) = world.get_mut::<Interactable>(e) {
+                        i.enabled = enabled;
                     }
                 }
             }

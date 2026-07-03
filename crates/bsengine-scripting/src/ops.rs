@@ -410,6 +410,32 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyKnockbackDir {
+        name: String,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+        force: f32,
+    },
+    ApplyKnockbackFromPoint {
+        name: String,
+        ox: f32,
+        oy: f32,
+        oz: f32,
+        force: f32,
+    },
+    SetKnockbackEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetKnockbackVerticalBoost {
+        name: String,
+        boost: f32,
+    },
+    SetKnockbackHits {
+        name: String,
+        hits: u32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -983,6 +1009,10 @@ thread_local! {
     // entity name → (speed, angular_speed, stopping_distance, state_u8, enabled)
     // state: 0=Idle, 1=Moving, 2=Arrived, 3=NoPath
     pub(crate) static NAV_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u8, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (force, vertical_boost, hits_remaining, blocks_new, enabled)
+    pub(crate) static KNOCKBACK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -3293,6 +3323,122 @@ pub fn bsengine_is_nav_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_apply_knockback_dir(#[string] name: String, dx: f32, dy: f32, dz: f32, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyKnockbackDir {
+            name,
+            dx,
+            dy,
+            dz,
+            force,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_knockback_from_point(
+    #[string] name: String,
+    ox: f32,
+    oy: f32,
+    oz: f32,
+    force: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyKnockbackFromPoint {
+            name,
+            ox,
+            oy,
+            oz,
+            force,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_knockback_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKnockbackEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_knockback_vertical_boost(#[string] name: String, boost: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKnockbackVerticalBoost { name, boost })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_knockback_hits(#[string] name: String, hits: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKnockbackHits { name, hits })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knockback_force(#[string] name: String) -> f32 {
+    KNOCKBACK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(f, _, _, _, _)| *f)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knockback_vertical_boost(#[string] name: String) -> f32 {
+    KNOCKBACK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, vb, _, _, _)| *vb)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knockback_hits_remaining(#[string] name: String) -> u32 {
+    KNOCKBACK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, hr, _, _)| *hr)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_knocked_back(#[string] name: String) -> bool {
+    KNOCKBACK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, hr, _, _)| *hr > 0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_knockback_blocking(#[string] name: String) -> bool {
+    KNOCKBACK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, bn, _)| *bn)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_knockback_enabled(#[string] name: String) -> bool {
+    KNOCKBACK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -4378,6 +4524,17 @@ deno_core::extension!(
         bsengine_is_nav_idle,
         bsengine_nav_has_no_path,
         bsengine_is_nav_enabled,
+        bsengine_apply_knockback_dir,
+        bsengine_apply_knockback_from_point,
+        bsengine_set_knockback_enabled,
+        bsengine_set_knockback_vertical_boost,
+        bsengine_set_knockback_hits,
+        bsengine_get_knockback_force,
+        bsengine_get_knockback_vertical_boost,
+        bsengine_get_knockback_hits_remaining,
+        bsengine_is_knocked_back,
+        bsengine_is_knockback_blocking,
+        bsengine_is_knockback_enabled,
     ],
 );
 
@@ -4658,6 +4815,17 @@ const Bsengine = {
     isNavIdle:              (name)          => Deno.core.ops.bsengine_is_nav_idle(name),
     navHasNoPath:           (name)          => Deno.core.ops.bsengine_nav_has_no_path(name),
     isNavEnabled:           (name)          => Deno.core.ops.bsengine_is_nav_enabled(name),
+    applyKnockbackDir:      (name, dx, dy, dz, force) => Deno.core.ops.bsengine_apply_knockback_dir(name, dx, dy, dz, force),
+    applyKnockbackFromPoint:(name, ox, oy, oz, force) => Deno.core.ops.bsengine_apply_knockback_from_point(name, ox, oy, oz, force),
+    setKnockbackEnabled:    (name, enabled) => Deno.core.ops.bsengine_set_knockback_enabled(name, enabled),
+    setKnockbackVerticalBoost:(name, boost) => Deno.core.ops.bsengine_set_knockback_vertical_boost(name, boost),
+    setKnockbackHits:       (name, hits)    => Deno.core.ops.bsengine_set_knockback_hits(name, hits),
+    getKnockbackForce:      (name)          => Deno.core.ops.bsengine_get_knockback_force(name),
+    getKnockbackVerticalBoost:(name)        => Deno.core.ops.bsengine_get_knockback_vertical_boost(name),
+    getKnockbackHitsRemaining:(name)        => Deno.core.ops.bsengine_get_knockback_hits_remaining(name),
+    isKnockedBack:          (name)          => Deno.core.ops.bsengine_is_knocked_back(name),
+    isKnockbackBlocking:    (name)          => Deno.core.ops.bsengine_is_knockback_blocking(name),
+    isKnockbackEnabled:     (name)          => Deno.core.ops.bsengine_is_knockback_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -9721,5 +9889,174 @@ JSON.stringify(received)
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isNavEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn apply_knockback_dir_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyKnockbackDir("Player", 1.0, 0.0, 0.0, 10.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplyKnockbackDir { name, dx, force, .. }
+                    if name == "Player" && (*dx - 1.0).abs() < 0.001 && (*force - 10.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn apply_knockback_from_point_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyKnockbackFromPoint("Enemy", 5.0, 0.0, 3.0, 8.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplyKnockbackFromPoint { name, ox, force, .. }
+                    if name == "Enemy" && (*ox - 5.0).abs() < 0.001 && (*force - 8.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_knockback_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setKnockbackEnabled("Player", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetKnockbackEnabled { name, enabled }
+                    if name == "Player" && !enabled
+            )));
+        });
+    }
+
+    #[test]
+    fn set_knockback_vertical_boost_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setKnockbackVerticalBoost("Player", 3.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetKnockbackVerticalBoost { name, boost }
+                    if name == "Player" && (*boost - 3.5).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_knockback_hits_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setKnockbackHits("Player", 3);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetKnockbackHits { name, hits }
+                    if name == "Player" && *hits == 3
+            )));
+        });
+    }
+
+    #[test]
+    fn get_knockback_force_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getKnockbackForce("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_knockback_vertical_boost_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getKnockbackVerticalBoost("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn get_knockback_hits_remaining_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getKnockbackHitsRemaining("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn is_knocked_back_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isKnockedBack("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_knockback_blocking_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isKnockbackBlocking("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_knockback_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isKnockbackEnabled("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn knockback_snapshot_read_ops() {
+        super::KNOCKBACK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Target".to_string(), (12.0_f32, 2.5_f32, 2_u32, true, true))
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let f = rt.eval(r#"Bsengine.getKnockbackForce("Target");"#).unwrap();
+        assert!((f.trim().parse::<f32>().unwrap() - 12.0).abs() < 0.001);
+        let vb = rt
+            .eval(r#"Bsengine.getKnockbackVerticalBoost("Target");"#)
+            .unwrap();
+        assert!((vb.trim().parse::<f32>().unwrap() - 2.5).abs() < 0.001);
+        let hr = rt
+            .eval(r#"Bsengine.getKnockbackHitsRemaining("Target");"#)
+            .unwrap();
+        assert_eq!(hr.trim(), "2");
+        let ib = rt.eval(r#"Bsengine.isKnockedBack("Target");"#).unwrap();
+        assert_eq!(ib.trim(), "true");
+        let bl = rt
+            .eval(r#"Bsengine.isKnockbackBlocking("Target");"#)
+            .unwrap();
+        assert_eq!(bl.trim(), "true");
+        let en = rt
+            .eval(r#"Bsengine.isKnockbackEnabled("Target");"#)
+            .unwrap();
+        assert_eq!(en.trim(), "true");
+        super::KNOCKBACK_SNAPSHOT.with(|s| s.borrow_mut().remove("Target"));
     }
 }

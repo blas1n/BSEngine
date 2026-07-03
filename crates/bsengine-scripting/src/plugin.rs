@@ -21,8 +21,8 @@ use crate::ops::{
     EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LEVEL_SNAPSHOT,
-    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
+    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
@@ -945,6 +945,24 @@ fn run_scripts(world: &mut World) {
             );
         }
         NAV_SNAPSHOT.with(|s| *s.borrow_mut() = nav_map);
+    }
+    {
+        use bsengine_core::Knockback;
+        let mut kb_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Knockback)>();
+        for (name, k) in q.iter(world) {
+            kb_map.insert(
+                name.0.clone(),
+                (
+                    k.force,
+                    k.vertical_boost,
+                    k.hits_remaining,
+                    k.blocks_new,
+                    k.enabled,
+                ),
+            );
+        }
+        KNOCKBACK_SNAPSHOT.with(|s| *s.borrow_mut() = kb_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2195,6 +2213,80 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
                         a.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyKnockbackDir {
+                name,
+                dx,
+                dy,
+                dz,
+                force,
+            } => {
+                use bsengine_core::Knockback;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    world
+                        .entity_mut(e)
+                        .insert(Knockback::from_direction(Vec3::new(dx, dy, dz), force));
+                }
+            }
+            ScriptCommand::ApplyKnockbackFromPoint {
+                name,
+                ox,
+                oy,
+                oz,
+                force,
+            } => {
+                use bsengine_core::Knockback;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    world
+                        .entity_mut(e)
+                        .insert(Knockback::from_point(Vec3::new(ox, oy, oz), force));
+                }
+            }
+            ScriptCommand::SetKnockbackEnabled { name, enabled } => {
+                use bsengine_core::Knockback;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut k) = world.get_mut::<Knockback>(e) {
+                        k.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetKnockbackVerticalBoost { name, boost } => {
+                use bsengine_core::Knockback;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut k) = world.get_mut::<Knockback>(e) {
+                        k.vertical_boost = boost;
+                    }
+                }
+            }
+            ScriptCommand::SetKnockbackHits { name, hits } => {
+                use bsengine_core::Knockback;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut k) = world.get_mut::<Knockback>(e) {
+                        k.hits_remaining = hits;
                     }
                 }
             }

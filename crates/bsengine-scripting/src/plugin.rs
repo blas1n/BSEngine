@@ -18,20 +18,20 @@ use crate::ops::{
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
     CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
     COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
-    EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT,
-    INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
-    KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
-    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
-    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
+    GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
+    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
+    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
+    RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT,
+    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1045,6 +1045,36 @@ fn run_scripts(world: &mut World) {
             );
         }
         SCREEN_SHAKE_SNAPSHOT.with(|s| *s.borrow_mut() = ss_map);
+    }
+    {
+        use bsengine_core::{Footstep, SurfaceKind};
+        let mut fs_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Footstep)>();
+        for (name, f) in q.iter(world) {
+            let surface_u8 = match &f.surface {
+                SurfaceKind::Concrete => 0u8,
+                SurfaceKind::Grass => 1u8,
+                SurfaceKind::Wood => 2u8,
+                SurfaceKind::Metal => 3u8,
+                SurfaceKind::Sand => 4u8,
+                SurfaceKind::Water => 5u8,
+                SurfaceKind::Gravel => 6u8,
+                SurfaceKind::Custom(_) => 7u8,
+            };
+            fs_map.insert(
+                name.0.clone(),
+                (
+                    f.step_interval,
+                    f.distance_accumulated,
+                    f.volume,
+                    f.audio_prefix.clone(),
+                    surface_u8,
+                    f.min_speed,
+                    f.enabled,
+                ),
+            );
+        }
+        FOOTSTEP_SNAPSHOT.with(|s| *s.borrow_mut() = fs_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2625,6 +2655,99 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut ss) = world.get_mut::<ScreenShake>(e) {
                         ss.frequency = frequency.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFootstepStepInterval { name, interval } => {
+                use bsengine_core::Footstep;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.step_interval = interval.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFootstepVolume { name, volume } => {
+                use bsengine_core::Footstep;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.volume = volume.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFootstepAudioPrefix { name, prefix } => {
+                use bsengine_core::Footstep;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.audio_prefix = prefix;
+                    }
+                }
+            }
+            ScriptCommand::SetFootstepSurface { name, surface } => {
+                use bsengine_core::{Footstep, SurfaceKind};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.surface = match surface {
+                            0 => SurfaceKind::Concrete,
+                            1 => SurfaceKind::Grass,
+                            2 => SurfaceKind::Wood,
+                            3 => SurfaceKind::Metal,
+                            4 => SurfaceKind::Sand,
+                            5 => SurfaceKind::Water,
+                            6 => SurfaceKind::Gravel,
+                            _ => SurfaceKind::Custom(String::new()),
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetFootstepMinSpeed { name, speed } => {
+                use bsengine_core::Footstep;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.min_speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFootstepEnabled { name, enabled } => {
+                use bsengine_core::Footstep;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ResetFootstep { name } => {
+                use bsengine_core::Footstep;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Footstep>(e) {
+                        f.reset();
                     }
                 }
             }

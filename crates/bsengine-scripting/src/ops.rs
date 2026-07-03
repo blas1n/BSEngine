@@ -517,6 +517,33 @@ pub enum ScriptCommand {
         name: String,
         frequency: f32,
     },
+    SetFootstepStepInterval {
+        name: String,
+        interval: f32,
+    },
+    SetFootstepVolume {
+        name: String,
+        volume: f32,
+    },
+    SetFootstepAudioPrefix {
+        name: String,
+        prefix: String,
+    },
+    SetFootstepSurface {
+        name: String,
+        surface: u8,
+    },
+    SetFootstepMinSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetFootstepEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ResetFootstep {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1113,6 +1140,11 @@ thread_local! {
     // entity name → (trauma, amplitude, decay_rate, frequency)
     pub(crate) static SCREEN_SHAKE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32)>> =
         RefCell::new(HashMap::new());
+
+    // entity name → (step_interval, distance_accumulated, volume, audio_prefix, surface_u8, min_speed, enabled)
+    pub(crate) static FOOTSTEP_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, String, u8, f32, bool)>,
+    > = RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -3955,6 +3987,132 @@ pub fn bsengine_is_screen_shake_done(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_footstep_step_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFootstepStepInterval { name, interval })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_footstep_volume(#[string] name: String, volume: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFootstepVolume { name, volume })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_footstep_audio_prefix(#[string] name: String, #[string] prefix: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFootstepAudioPrefix { name, prefix })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_footstep_surface(#[string] name: String, surface: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetFootstepSurface {
+            name,
+            surface: surface as u8,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_footstep_min_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFootstepMinSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_footstep_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFootstepEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_footstep(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetFootstep { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_get_footstep_step_interval(#[string] name: String) -> f32 {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(si, _, _, _, _, _, _)| *si)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_footstep_distance_accumulated(#[string] name: String) -> f32 {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, da, _, _, _, _, _)| *da)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_footstep_volume(#[string] name: String) -> f32 {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, v, _, _, _, _)| *v)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_footstep_audio_prefix(#[string] name: String) -> String {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ap, _, _, _)| ap.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_footstep_surface(#[string] name: String) -> u32 {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, su, _, _)| *su as u32)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_footstep_min_speed(#[string] name: String) -> f32 {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, ms, _)| *ms)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_footstep_enabled(#[string] name: String) -> bool {
+    FOOTSTEP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5100,6 +5258,20 @@ deno_core::extension!(
         bsengine_get_screen_shake_frequency,
         bsengine_get_screen_shake_intensity,
         bsengine_is_screen_shake_done,
+        bsengine_set_footstep_step_interval,
+        bsengine_set_footstep_volume,
+        bsengine_set_footstep_audio_prefix,
+        bsengine_set_footstep_surface,
+        bsengine_set_footstep_min_speed,
+        bsengine_set_footstep_enabled,
+        bsengine_reset_footstep,
+        bsengine_get_footstep_step_interval,
+        bsengine_get_footstep_distance_accumulated,
+        bsengine_get_footstep_volume,
+        bsengine_get_footstep_audio_prefix,
+        bsengine_get_footstep_surface,
+        bsengine_get_footstep_min_speed,
+        bsengine_is_footstep_enabled,
     ],
 );
 
@@ -5440,6 +5612,20 @@ const Bsengine = {
     getScreenShakeFrequency:(name)          => Deno.core.ops.bsengine_get_screen_shake_frequency(name),
     getScreenShakeIntensity:(name)          => Deno.core.ops.bsengine_get_screen_shake_intensity(name),
     isScreenShakeDone:      (name)          => Deno.core.ops.bsengine_is_screen_shake_done(name),
+    setFootstepStepInterval:(name, interval)=> Deno.core.ops.bsengine_set_footstep_step_interval(name, interval),
+    setFootstepVolume:      (name, volume)  => Deno.core.ops.bsengine_set_footstep_volume(name, volume),
+    setFootstepAudioPrefix: (name, prefix)  => Deno.core.ops.bsengine_set_footstep_audio_prefix(name, prefix),
+    setFootstepSurface:     (name, surface) => Deno.core.ops.bsengine_set_footstep_surface(name, surface),
+    setFootstepMinSpeed:    (name, speed)   => Deno.core.ops.bsengine_set_footstep_min_speed(name, speed),
+    setFootstepEnabled:     (name, enabled) => Deno.core.ops.bsengine_set_footstep_enabled(name, enabled),
+    resetFootstep:          (name)          => Deno.core.ops.bsengine_reset_footstep(name),
+    getFootstepStepInterval:(name)          => Deno.core.ops.bsengine_get_footstep_step_interval(name),
+    getFootstepDistanceAccumulated:(name)   => Deno.core.ops.bsengine_get_footstep_distance_accumulated(name),
+    getFootstepVolume:      (name)          => Deno.core.ops.bsengine_get_footstep_volume(name),
+    getFootstepAudioPrefix: (name)          => Deno.core.ops.bsengine_get_footstep_audio_prefix(name),
+    getFootstepSurface:     (name)          => Deno.core.ops.bsengine_get_footstep_surface(name),
+    getFootstepMinSpeed:    (name)          => Deno.core.ops.bsengine_get_footstep_min_speed(name),
+    isFootstepEnabled:      (name)          => Deno.core.ops.bsengine_is_footstep_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -11179,5 +11365,73 @@ JSON.stringify(received)
         let d = rt.eval(r#"Bsengine.isScreenShakeDone("Cam");"#).unwrap();
         assert_eq!(d.trim(), "false");
         super::SCREEN_SHAKE_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn footstep_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFootstepStepInterval("Player", 0.4);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFootstepVolume("Player", 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFootstepAudioPrefix("Player", "stone");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFootstepSurface("Player", 2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFootstepMinSpeed("Player", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFootstepEnabled("Player", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.resetFootstep("Player");"#).unwrap();
+        let cmds = super::COMMAND_BUFFER.with(|c| c.borrow().len());
+        assert_eq!(cmds, 7);
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn footstep_snapshot_read_ops() {
+        // step_interval=0.4, distance_accumulated=1.2, volume=0.8, audio_prefix="grass", surface=1, min_speed=1.5, enabled=true
+        super::FOOTSTEP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (
+                    0.4_f32,
+                    1.2_f32,
+                    0.8_f32,
+                    "grass".to_string(),
+                    1_u8,
+                    1.5_f32,
+                    true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let si = rt
+            .eval(r#"Bsengine.getFootstepStepInterval("Player");"#)
+            .unwrap();
+        assert!((si.trim().parse::<f32>().unwrap() - 0.4).abs() < 0.001);
+        let da = rt
+            .eval(r#"Bsengine.getFootstepDistanceAccumulated("Player");"#)
+            .unwrap();
+        assert!((da.trim().parse::<f32>().unwrap() - 1.2).abs() < 0.001);
+        let v = rt.eval(r#"Bsengine.getFootstepVolume("Player");"#).unwrap();
+        assert!((v.trim().parse::<f32>().unwrap() - 0.8).abs() < 0.001);
+        let ap = rt
+            .eval(r#"Bsengine.getFootstepAudioPrefix("Player");"#)
+            .unwrap();
+        assert_eq!(ap.trim(), "grass");
+        let su = rt
+            .eval(r#"Bsengine.getFootstepSurface("Player");"#)
+            .unwrap();
+        assert_eq!(su.trim().parse::<u32>().unwrap(), 1);
+        let ms = rt
+            .eval(r#"Bsengine.getFootstepMinSpeed("Player");"#)
+            .unwrap();
+        assert!((ms.trim().parse::<f32>().unwrap() - 1.5).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isFootstepEnabled("Player");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        super::FOOTSTEP_SNAPSHOT.with(|s| s.borrow_mut().remove("Player"));
     }
 }

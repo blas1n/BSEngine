@@ -1059,6 +1059,49 @@ pub enum ScriptCommand {
         name: String,
         piercing: bool,
     },
+    SetSpawnPointTag {
+        name: String,
+        tag: String,
+    },
+    SetSpawnPointTeam {
+        name: String,
+        team: u32,
+    },
+    ClearSpawnPointTeam {
+        name: String,
+    },
+    SetSpawnPointEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetStatusEffectId {
+        name: String,
+        id: String,
+    },
+    SetStatusEffectKind {
+        name: String,
+        kind: u32,
+    },
+    SetStatusEffectKindCustom {
+        name: String,
+        custom_id: u32,
+    },
+    SetStatusEffectValue {
+        name: String,
+        value: f32,
+    },
+    SetStatusEffectDuration {
+        name: String,
+        duration: f32,
+    },
+    SetStatusEffectTicksEveryFrame {
+        name: String,
+        ticks: bool,
+    },
+    SetStatusEffectEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1772,6 +1815,13 @@ thread_local! {
     // entity name → (amount, type_u32, custom_id, multiplier, piercing)
     // DamageType: Physical=0, Fire=1, Ice=2, Lightning=3, Poison=4, Custom=5 (custom_id relevant)
     pub(crate) static DAMAGE_SNAPSHOT: RefCell<HashMap<String, (f32, u32, u32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (tag, team_u32, enabled); team=u32::MAX means None/shared
+    pub(crate) static SPAWN_POINT_SNAPSHOT: RefCell<HashMap<String, (String, u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (id, kind_u32, custom_id, value, duration, ticks_every_frame, enabled)
+    // EffectKind: StatMultiplier=0, DamageOverTime=1, Immobilize=2, Silence=3, Custom=4
+    pub(crate) static STATUS_EFFECT_SNAPSHOT: RefCell<HashMap<String, (String, u32, u32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -7278,6 +7328,201 @@ pub fn bsengine_get_damage_effective(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_spawn_point_tag(#[string] name: String, #[string] tag: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetSpawnPointTag { name, tag });
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_spawn_point_tag(#[string] name: String) -> String {
+    SPAWN_POINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(tag, _, _)| format!("\"{tag}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spawn_point_team(#[string] name: String, team: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetSpawnPointTeam { name, team });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_spawn_point_team(#[string] name: String) -> u32 {
+    SPAWN_POINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, team, _)| *team)
+            .unwrap_or(u32::MAX)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_spawn_point_team(#[string] name: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::ClearSpawnPointTeam { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spawn_point_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetSpawnPointEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_is_spawn_point_enabled(#[string] name: String) -> bool {
+    SPAWN_POINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, e)| *e).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_id(#[string] name: String, #[string] id: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectId { name, id });
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_status_effect_id(#[string] name: String) -> String {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(id, _, _, _, _, _, _)| format!("\"{id}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_kind(#[string] name: String, kind: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectKind { name, kind });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_status_effect_kind(#[string] name: String) -> u32 {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, k, _, _, _, _, _)| *k)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_kind_custom(#[string] name: String, custom_id: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectKindCustom { name, custom_id });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_status_effect_kind_custom_id(#[string] name: String) -> u32 {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, id, _, _, _, _)| *id)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_value(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectValue { name, value });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_status_effect_value(#[string] name: String) -> f32 {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, v, _, _, _)| *v)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectDuration { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_status_effect_duration(#[string] name: String) -> f32 {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, d, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_ticks_every_frame(#[string] name: String, ticks: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectTicksEveryFrame { name, ticks });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_is_status_effect_ticks_every_frame(#[string] name: String) -> bool {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, t, _)| *t)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_status_effect_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetStatusEffectEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_is_status_effect_enabled(#[string] name: String) -> bool {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, e)| *e)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_status_effect_expired(#[string] name: String) -> bool {
+    STATUS_EFFECT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, d, _, _)| *d <= 0.0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -8277,6 +8522,28 @@ deno_core::extension!(
         bsengine_get_damage_multiplier,
         bsengine_is_damage_piercing,
         bsengine_get_damage_effective,
+        bsengine_set_spawn_point_tag,
+        bsengine_get_spawn_point_tag,
+        bsengine_set_spawn_point_team,
+        bsengine_get_spawn_point_team,
+        bsengine_clear_spawn_point_team,
+        bsengine_set_spawn_point_enabled,
+        bsengine_is_spawn_point_enabled,
+        bsengine_set_status_effect_id,
+        bsengine_get_status_effect_id,
+        bsengine_set_status_effect_kind,
+        bsengine_get_status_effect_kind,
+        bsengine_set_status_effect_kind_custom,
+        bsengine_get_status_effect_kind_custom_id,
+        bsengine_set_status_effect_value,
+        bsengine_get_status_effect_value,
+        bsengine_set_status_effect_duration,
+        bsengine_get_status_effect_duration,
+        bsengine_set_status_effect_ticks_every_frame,
+        bsengine_is_status_effect_ticks_every_frame,
+        bsengine_set_status_effect_enabled,
+        bsengine_is_status_effect_enabled,
+        bsengine_is_status_effect_expired,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -9363,6 +9630,28 @@ const Bsengine = {
     getDamageMultiplier:(name)            => Deno.core.ops.bsengine_get_damage_multiplier(name),
     isDamagePiercing:(name)               => Deno.core.ops.bsengine_is_damage_piercing(name),
     getDamageEffective:(name)             => Deno.core.ops.bsengine_get_damage_effective(name),
+    setSpawnPointTag:   (name, tag)        => Deno.core.ops.bsengine_set_spawn_point_tag(name, tag),
+    getSpawnPointTag:   (name)             => JSON.parse(Deno.core.ops.bsengine_get_spawn_point_tag(name)),
+    setSpawnPointTeam:  (name, team)       => Deno.core.ops.bsengine_set_spawn_point_team(name, team),
+    getSpawnPointTeam:  (name)             => Deno.core.ops.bsengine_get_spawn_point_team(name),
+    clearSpawnPointTeam:(name)             => Deno.core.ops.bsengine_clear_spawn_point_team(name),
+    setSpawnPointEnabled:(name, en)        => Deno.core.ops.bsengine_set_spawn_point_enabled(name, en),
+    isSpawnPointEnabled:(name)             => Deno.core.ops.bsengine_is_spawn_point_enabled(name),
+    setStatusEffectId:  (name, id)         => Deno.core.ops.bsengine_set_status_effect_id(name, id),
+    getStatusEffectId:  (name)             => JSON.parse(Deno.core.ops.bsengine_get_status_effect_id(name)),
+    setStatusEffectKind:(name, kind)       => Deno.core.ops.bsengine_set_status_effect_kind(name, kind),
+    getStatusEffectKind:(name)             => Deno.core.ops.bsengine_get_status_effect_kind(name),
+    setStatusEffectKindCustom:(name, id)   => Deno.core.ops.bsengine_set_status_effect_kind_custom(name, id),
+    getStatusEffectKindCustomId:(name)     => Deno.core.ops.bsengine_get_status_effect_kind_custom_id(name),
+    setStatusEffectValue:(name, val)       => Deno.core.ops.bsengine_set_status_effect_value(name, val),
+    getStatusEffectValue:(name)            => Deno.core.ops.bsengine_get_status_effect_value(name),
+    setStatusEffectDuration:(name, dur)    => Deno.core.ops.bsengine_set_status_effect_duration(name, dur),
+    getStatusEffectDuration:(name)         => Deno.core.ops.bsengine_get_status_effect_duration(name),
+    setStatusEffectTicksEveryFrame:(name, t) => Deno.core.ops.bsengine_set_status_effect_ticks_every_frame(name, t),
+    isStatusEffectTicksEveryFrame:(name)   => Deno.core.ops.bsengine_is_status_effect_ticks_every_frame(name),
+    setStatusEffectEnabled:(name, en)      => Deno.core.ops.bsengine_set_status_effect_enabled(name, en),
+    isStatusEffectEnabled:(name)           => Deno.core.ops.bsengine_is_status_effect_enabled(name),
+    isStatusEffectExpired:(name)           => Deno.core.ops.bsengine_is_status_effect_expired(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -16990,6 +17279,183 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetDamagePiercing { name, piercing }
                 if name == "Arrow" && *piercing
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_spawn_point_read_ops() {
+        super::SPAWN_POINT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("SpawnA".to_string(), ("alpha".to_string(), 1, true));
+            s.borrow_mut()
+                .insert("SpawnB".to_string(), ("beta".to_string(), u32::MAX, false));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let tag = rt.eval(r#"Bsengine.getSpawnPointTag("SpawnA");"#).unwrap();
+        assert_eq!(tag.trim(), "alpha");
+        let team = rt.eval(r#"Bsengine.getSpawnPointTeam("SpawnA");"#).unwrap();
+        assert_eq!(team.trim().parse::<u32>().unwrap(), 1);
+        let no_team = rt.eval(r#"Bsengine.getSpawnPointTeam("SpawnB");"#).unwrap();
+        assert_eq!(no_team.trim().parse::<u32>().unwrap(), u32::MAX);
+        let enabled = rt
+            .eval(r#"Bsengine.isSpawnPointEnabled("SpawnA");"#)
+            .unwrap();
+        assert_eq!(enabled.trim(), "true");
+        let disabled = rt
+            .eval(r#"Bsengine.isSpawnPointEnabled("SpawnB");"#)
+            .unwrap();
+        assert_eq!(disabled.trim(), "false");
+        super::SPAWN_POINT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_spawn_point_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpawnPointTag("Point", "red");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpawnPointTeam("Point", 2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearSpawnPointTeam("Point");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpawnPointEnabled("Point", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpawnPointTag { name, tag }
+                if name == "Point" && tag == "red"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpawnPointTeam { name, team }
+                if name == "Point" && *team == 2
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ClearSpawnPointTeam { name }
+                if name == "Point"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpawnPointEnabled { name, enabled }
+                if name == "Point" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_status_effect_read_ops() {
+        super::STATUS_EFFECT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Enemy".to_string(),
+                ("burn".to_string(), 1, 0, 5.0, 3.0, true, true),
+            );
+            s.borrow_mut().insert(
+                "Boss".to_string(),
+                ("slow".to_string(), 4, 7, 0.5, 0.0, false, false),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let id = rt.eval(r#"Bsengine.getStatusEffectId("Enemy");"#).unwrap();
+        assert_eq!(id.trim(), "burn");
+        let kind = rt
+            .eval(r#"Bsengine.getStatusEffectKind("Enemy");"#)
+            .unwrap();
+        assert_eq!(kind.trim().parse::<u32>().unwrap(), 1);
+        let value = rt
+            .eval(r#"Bsengine.getStatusEffectValue("Enemy");"#)
+            .unwrap();
+        assert!((value.trim().parse::<f32>().unwrap() - 5.0).abs() < 0.001);
+        let dur = rt
+            .eval(r#"Bsengine.getStatusEffectDuration("Enemy");"#)
+            .unwrap();
+        assert!((dur.trim().parse::<f32>().unwrap() - 3.0).abs() < 0.001);
+        let ticks = rt
+            .eval(r#"Bsengine.isStatusEffectTicksEveryFrame("Enemy");"#)
+            .unwrap();
+        assert_eq!(ticks.trim(), "true");
+        let enabled = rt
+            .eval(r#"Bsengine.isStatusEffectEnabled("Enemy");"#)
+            .unwrap();
+        assert_eq!(enabled.trim(), "true");
+        let expired = rt
+            .eval(r#"Bsengine.isStatusEffectExpired("Enemy");"#)
+            .unwrap();
+        assert_eq!(expired.trim(), "false");
+        let custom_id = rt
+            .eval(r#"Bsengine.getStatusEffectKindCustomId("Boss");"#)
+            .unwrap();
+        assert_eq!(custom_id.trim().parse::<u32>().unwrap(), 7);
+        let expired_boss = rt
+            .eval(r#"Bsengine.isStatusEffectExpired("Boss");"#)
+            .unwrap();
+        assert_eq!(expired_boss.trim(), "true");
+        super::STATUS_EFFECT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_status_effect_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectId("Hero", "haste");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectKind("Hero", 0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectKindCustom("Hero", 5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectValue("Hero", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectDuration("Hero", 10.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectTicksEveryFrame("Hero", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setStatusEffectEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectId { name, id }
+                if name == "Hero" && id == "haste"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectKind { name, kind }
+                if name == "Hero" && *kind == 0
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectKindCustom { name, custom_id }
+                if name == "Hero" && *custom_id == 5
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectValue { name, value }
+                if name == "Hero" && (*value - 1.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectDuration { name, duration }
+                if name == "Hero" && (*duration - 10.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectTicksEveryFrame { name, ticks }
+                if name == "Hero" && *ticks
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStatusEffectEnabled { name, enabled }
+                if name == "Hero" && !enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

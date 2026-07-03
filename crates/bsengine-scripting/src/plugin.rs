@@ -34,11 +34,11 @@ use crate::ops::{
     MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT,
     PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
     SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT,
-    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT,
+    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1631,6 +1631,43 @@ fn run_scripts(world: &mut World) {
             );
         }
         DAMAGE_SNAPSHOT.with(|s| *s.borrow_mut() = d_map);
+    }
+    {
+        use bsengine_core::SpawnPoint;
+        let mut sp_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &SpawnPoint)>();
+        for (_, name, sp) in q.iter(world) {
+            let team_u32 = sp.team.unwrap_or(u32::MAX);
+            sp_map.insert(name.0.clone(), (sp.tag.clone(), team_u32, sp.enabled));
+        }
+        SPAWN_POINT_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
+    }
+    {
+        use bsengine_core::{EffectKind, StatusEffect};
+        let mut se_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &StatusEffect)>();
+        for (_, name, se) in q.iter(world) {
+            let (kind_u32, custom_id) = match se.kind {
+                EffectKind::StatMultiplier => (0u32, 0u32),
+                EffectKind::DamageOverTime => (1, 0),
+                EffectKind::Immobilize => (2, 0),
+                EffectKind::Silence => (3, 0),
+                EffectKind::Custom(id) => (4, id),
+            };
+            se_map.insert(
+                name.0.clone(),
+                (
+                    se.id.clone(),
+                    kind_u32,
+                    custom_id,
+                    se.value,
+                    se.duration,
+                    se.ticks_every_frame,
+                    se.enabled,
+                ),
+            );
+        }
+        STATUS_EFFECT_SNAPSHOT.with(|s| *s.borrow_mut() = se_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4847,6 +4884,144 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut d) = world.get_mut::<Damage>(e) {
                         d.piercing = piercing;
+                    }
+                }
+            }
+            ScriptCommand::SetSpawnPointTag { name, tag } => {
+                use bsengine_core::SpawnPoint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<SpawnPoint>(e) {
+                        sp.tag = tag;
+                    }
+                }
+            }
+            ScriptCommand::SetSpawnPointTeam { name, team } => {
+                use bsengine_core::SpawnPoint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<SpawnPoint>(e) {
+                        sp.team = if team == u32::MAX { None } else { Some(team) };
+                    }
+                }
+            }
+            ScriptCommand::ClearSpawnPointTeam { name } => {
+                use bsengine_core::SpawnPoint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<SpawnPoint>(e) {
+                        sp.team = None;
+                    }
+                }
+            }
+            ScriptCommand::SetSpawnPointEnabled { name, enabled } => {
+                use bsengine_core::SpawnPoint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<SpawnPoint>(e) {
+                        sp.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectId { name, id } => {
+                use bsengine_core::StatusEffect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.id = id;
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectKind { name, kind } => {
+                use bsengine_core::{EffectKind, StatusEffect};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.kind = match kind {
+                            0 => EffectKind::StatMultiplier,
+                            1 => EffectKind::DamageOverTime,
+                            2 => EffectKind::Immobilize,
+                            3 => EffectKind::Silence,
+                            _ => EffectKind::StatMultiplier,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectKindCustom { name, custom_id } => {
+                use bsengine_core::{EffectKind, StatusEffect};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.kind = EffectKind::Custom(custom_id);
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectValue { name, value } => {
+                use bsengine_core::StatusEffect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.value = value;
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectDuration { name, duration } => {
+                use bsengine_core::StatusEffect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.duration = duration;
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectTicksEveryFrame { name, ticks } => {
+                use bsengine_core::StatusEffect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.ticks_every_frame = ticks;
+                    }
+                }
+            }
+            ScriptCommand::SetStatusEffectEnabled { name, enabled } => {
+                use bsengine_core::StatusEffect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
+                        se.enabled = enabled;
                     }
                 }
             }

@@ -902,6 +902,30 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetSpringTarget {
+        name: String,
+        target: String,
+    },
+    SetSpringRestLength {
+        name: String,
+        length: f32,
+    },
+    SetSpringStiffness {
+        name: String,
+        stiffness: f32,
+    },
+    SetSpringDamping {
+        name: String,
+        damping: f32,
+    },
+    SetSpringBreakExtension {
+        name: String,
+        ext: f32,
+    },
+    SetSpringEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1571,6 +1595,10 @@ thread_local! {
     // entity name → (r, g, b, a, density, start_distance, end_distance, mode_u32, enabled)
     // FogMode: Linear=0, Exponential=1, ExponentialSquared=2
     pub(crate) static FOG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, f32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (target_name, rest_length, stiffness, damping, break_ext, enabled)
+    // break_ext = -1.0 means no break limit (Option::None)
+    pub(crate) static SPRING_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6293,6 +6321,125 @@ pub fn bsengine_is_fog_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_spring_target(#[string] name: String, #[string] target: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpringTarget { name, target })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spring_rest_length(#[string] name: String, length: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpringRestLength { name, length })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spring_stiffness(#[string] name: String, stiffness: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpringStiffness { name, stiffness })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spring_damping(#[string] name: String, damping: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpringDamping { name, damping })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spring_break_extension(#[string] name: String, ext: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpringBreakExtension { name, ext })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_spring_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpringEnabled { name, enabled })
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_spring_target(#[string] name: String) -> String {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(t, _, _, _, _, _)| format!("\"{t}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_spring_rest_length(#[string] name: String) -> f32 {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, l, _, _, _, _)| *l)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_spring_stiffness(#[string] name: String) -> f32 {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, k, _, _, _)| *k)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_spring_damping(#[string] name: String) -> f32 {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, d, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_spring_break_extension(#[string] name: String) -> f32 {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, e, _)| *e)
+            .unwrap_or(-1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_spring_breakable(#[string] name: String) -> bool {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, e, _)| *e >= 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_spring_enabled(#[string] name: String) -> bool {
+    SPRING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7202,6 +7349,19 @@ deno_core::extension!(
         bsengine_get_fog_end_distance,
         bsengine_get_fog_mode,
         bsengine_is_fog_enabled,
+        bsengine_set_spring_target,
+        bsengine_set_spring_rest_length,
+        bsengine_set_spring_stiffness,
+        bsengine_set_spring_damping,
+        bsengine_set_spring_break_extension,
+        bsengine_set_spring_enabled,
+        bsengine_get_spring_target,
+        bsengine_get_spring_rest_length,
+        bsengine_get_spring_stiffness,
+        bsengine_get_spring_damping,
+        bsengine_get_spring_break_extension,
+        bsengine_is_spring_breakable,
+        bsengine_is_spring_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -8198,6 +8358,19 @@ const Bsengine = {
     getFogEndDistance:(name)               => Deno.core.ops.bsengine_get_fog_end_distance(name),
     getFogMode:     (name)                 => Deno.core.ops.bsengine_get_fog_mode(name),
     isFogEnabled:   (name)                 => Deno.core.ops.bsengine_is_fog_enabled(name),
+    setSpringTarget:(name, target)         => Deno.core.ops.bsengine_set_spring_target(name, target),
+    setSpringRestLength:(name, len)        => Deno.core.ops.bsengine_set_spring_rest_length(name, len),
+    setSpringStiffness:(name, stiffness)   => Deno.core.ops.bsengine_set_spring_stiffness(name, stiffness),
+    setSpringDamping:(name, damping)       => Deno.core.ops.bsengine_set_spring_damping(name, damping),
+    setSpringBreakExtension:(name, ext)    => Deno.core.ops.bsengine_set_spring_break_extension(name, ext),
+    setSpringEnabled:(name, enabled)       => Deno.core.ops.bsengine_set_spring_enabled(name, enabled),
+    getSpringTarget:(name)                 => { const r = Deno.core.ops.bsengine_get_spring_target(name); return JSON.parse(r); },
+    getSpringRestLength:(name)             => Deno.core.ops.bsengine_get_spring_rest_length(name),
+    getSpringStiffness:(name)              => Deno.core.ops.bsengine_get_spring_stiffness(name),
+    getSpringDamping:(name)                => Deno.core.ops.bsengine_get_spring_damping(name),
+    getSpringBreakExtension:(name)         => Deno.core.ops.bsengine_get_spring_break_extension(name),
+    isSpringBreakable:(name)               => Deno.core.ops.bsengine_is_spring_breakable(name),
+    isSpringEnabled:(name)                 => Deno.core.ops.bsengine_is_spring_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -15151,6 +15324,96 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetFogEnabled { name, enabled }
                 if name == "Scene" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_spring_read_ops() {
+        super::SPRING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rope".to_string(),
+                ("Anchor".to_string(), 3.0, 200.0, 10.0, 1.5, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let tgt = rt.eval(r#"Bsengine.getSpringTarget("Rope");"#).unwrap();
+        assert!(tgt.contains("Anchor"), "expected Anchor: {tgt}");
+        let len = rt.eval(r#"Bsengine.getSpringRestLength("Rope");"#).unwrap();
+        assert!((len.trim().parse::<f32>().unwrap() - 3.0).abs() < 0.001);
+        let stiff = rt.eval(r#"Bsengine.getSpringStiffness("Rope");"#).unwrap();
+        assert!((stiff.trim().parse::<f32>().unwrap() - 200.0).abs() < 0.001);
+        let damp = rt.eval(r#"Bsengine.getSpringDamping("Rope");"#).unwrap();
+        assert!((damp.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        let brk = rt
+            .eval(r#"Bsengine.getSpringBreakExtension("Rope");"#)
+            .unwrap();
+        assert!((brk.trim().parse::<f32>().unwrap() - 1.5).abs() < 0.001);
+        let breakable = rt.eval(r#"Bsengine.isSpringBreakable("Rope");"#).unwrap();
+        assert_eq!(breakable.trim(), "true");
+        let en = rt.eval(r#"Bsengine.isSpringEnabled("Rope");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        let tgt_unk = rt
+            .eval(r#"String(Bsengine.getSpringTarget("Unknown"));"#)
+            .unwrap();
+        assert!(tgt_unk.contains("null") || tgt_unk.contains("undefined"));
+        let brk_unk = rt
+            .eval(r#"Bsengine.getSpringBreakExtension("Unknown");"#)
+            .unwrap();
+        assert!((brk_unk.trim().parse::<f32>().unwrap() - (-1.0)).abs() < 0.001);
+        super::SPRING_SNAPSHOT.with(|s| s.borrow_mut().remove("Rope"));
+    }
+
+    #[test]
+    fn test_spring_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSpringTarget("Rope", "Anchor");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpringRestLength("Rope", 2.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpringStiffness("Rope", 150.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpringDamping("Rope", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpringBreakExtension("Rope", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setSpringEnabled("Rope", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpringTarget { name, target }
+                if name == "Rope" && target == "Anchor"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpringRestLength { name, length }
+                if name == "Rope" && (*length - 2.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpringStiffness { name, stiffness }
+                if name == "Rope" && (*stiffness - 150.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpringDamping { name, damping }
+                if name == "Rope" && (*damping - 5.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpringBreakExtension { name, ext }
+                if name == "Rope" && (*ext - 3.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSpringEnabled { name, enabled }
+                if name == "Rope" && !*enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

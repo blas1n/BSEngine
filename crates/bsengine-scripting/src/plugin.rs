@@ -33,8 +33,8 @@ use crate::ops::{
     MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
     PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
     SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
+    SOUND_STATE_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
+    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
     TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
     WORLD_TRANSFORM_SNAPSHOT,
 };
@@ -1413,6 +1413,32 @@ fn run_scripts(world: &mut World) {
             );
         }
         FOG_SNAPSHOT.with(|s| *s.borrow_mut() = fog_map);
+    }
+    {
+        use bsengine_core::Spring;
+        let mut sp_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Spring)>();
+        for (_, name, sp) in q.iter(world) {
+            let target_name = ENTITY_NAME_MAP.with(|m| {
+                m.borrow()
+                    .get(&sp.target.to_bits())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            let break_ext = sp.break_extension.unwrap_or(-1.0);
+            sp_map.insert(
+                name.0.clone(),
+                (
+                    target_name,
+                    sp.rest_length,
+                    sp.stiffness,
+                    sp.damping,
+                    break_ext,
+                    sp.enabled,
+                ),
+            );
+        }
+        SPRING_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4133,6 +4159,82 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut fog) = world.get_mut::<Fog>(e) {
                         fog.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetSpringTarget { name, target } => {
+                use bsengine_core::Spring;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                let target_entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == target).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(te)) = (entity, target_entity) {
+                    if let Some(mut sp) = world.get_mut::<Spring>(e) {
+                        sp.target = te;
+                    }
+                }
+            }
+            ScriptCommand::SetSpringRestLength { name, length } => {
+                use bsengine_core::Spring;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Spring>(e) {
+                        sp.rest_length = length.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetSpringStiffness { name, stiffness } => {
+                use bsengine_core::Spring;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Spring>(e) {
+                        sp.stiffness = stiffness.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetSpringDamping { name, damping } => {
+                use bsengine_core::Spring;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Spring>(e) {
+                        sp.damping = damping.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetSpringBreakExtension { name, ext } => {
+                use bsengine_core::Spring;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Spring>(e) {
+                        sp.break_extension = if ext >= 0.0 { Some(ext) } else { None };
+                    }
+                }
+            }
+            ScriptCommand::SetSpringEnabled { name, enabled } => {
+                use bsengine_core::Spring;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Spring>(e) {
+                        sp.enabled = enabled;
                     }
                 }
             }

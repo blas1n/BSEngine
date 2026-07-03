@@ -19,7 +19,7 @@ use crate::ops::{
     ARMOR_SNAPSHOT, BILLBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
     BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT,
     COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
+    COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DAMAGE_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
     DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
     ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT,
     FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
@@ -36,8 +36,9 @@ use crate::ops::{
     SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
     SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT,
     STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1601,6 +1602,35 @@ fn run_scripts(world: &mut World) {
             );
         }
         ANCHOR_SNAPSHOT.with(|s| *s.borrow_mut() = a_map);
+    }
+    {
+        use bsengine_core::Trigger;
+        let mut t_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Trigger)>();
+        for (_, name, t) in q.iter(world) {
+            t_map.insert(name.0.clone(), (t.layer_mask, t.enabled));
+        }
+        TRIGGER_SNAPSHOT.with(|s| *s.borrow_mut() = t_map);
+    }
+    {
+        use bsengine_core::{Damage, DamageType};
+        let mut d_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Damage)>();
+        for (_, name, d) in q.iter(world) {
+            let (type_u32, custom_id) = match d.damage_type {
+                DamageType::Physical => (0u32, 0u32),
+                DamageType::Fire => (1, 0),
+                DamageType::Ice => (2, 0),
+                DamageType::Lightning => (3, 0),
+                DamageType::Poison => (4, 0),
+                DamageType::Custom(id) => (5, id),
+            };
+            d_map.insert(
+                name.0.clone(),
+                (d.amount, type_u32, custom_id, d.multiplier, d.piercing),
+            );
+        }
+        DAMAGE_SNAPSHOT.with(|s| *s.borrow_mut() = d_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4727,6 +4757,96 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut a) = world.get_mut::<Anchor>(e) {
                         a.offset = Vec2::new(x, y);
+                    }
+                }
+            }
+            ScriptCommand::SetTriggerLayerMask { name, mask } => {
+                use bsengine_core::Trigger;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Trigger>(e) {
+                        t.layer_mask = mask;
+                    }
+                }
+            }
+            ScriptCommand::SetTriggerEnabled { name, enabled } => {
+                use bsengine_core::Trigger;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Trigger>(e) {
+                        t.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetDamageAmount { name, amount } => {
+                use bsengine_core::Damage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Damage>(e) {
+                        d.amount = amount.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDamageType { name, damage_type } => {
+                use bsengine_core::{Damage, DamageType};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Damage>(e) {
+                        d.damage_type = match damage_type {
+                            1 => DamageType::Fire,
+                            2 => DamageType::Ice,
+                            3 => DamageType::Lightning,
+                            4 => DamageType::Poison,
+                            _ => DamageType::Physical,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetDamageTypeCustom { name, id } => {
+                use bsengine_core::{Damage, DamageType};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Damage>(e) {
+                        d.damage_type = DamageType::Custom(id);
+                    }
+                }
+            }
+            ScriptCommand::SetDamageMultiplier { name, multiplier } => {
+                use bsengine_core::Damage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Damage>(e) {
+                        d.multiplier = multiplier.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDamagePiercing { name, piercing } => {
+                use bsengine_core::Damage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Damage>(e) {
+                        d.piercing = piercing;
                     }
                 }
             }

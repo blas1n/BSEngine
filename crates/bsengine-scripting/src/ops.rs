@@ -307,6 +307,22 @@ pub enum ScriptCommand {
         name: String,
         rate: f32,
     },
+    RepairArmor {
+        name: String,
+        amount: f32,
+    },
+    SetArmorEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetArmorFlat {
+        name: String,
+        value: f32,
+    },
+    SetArmorPercent {
+        name: String,
+        value: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -859,6 +875,10 @@ thread_local! {
 
     // entity name → (current, max_charge, is_charging, is_fully_charged, enabled)
     pub(crate) static CHARGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (flat_reduction, percent_reduction, durability, max_durability, enabled)
+    pub(crate) static ARMOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2581,6 +2601,114 @@ pub fn bsengine_is_charge_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_repair_armor(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RepairArmor { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_armor_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetArmorEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_armor_flat(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetArmorFlat { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_armor_percent(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetArmorPercent { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_armor_flat(#[string] name: String) -> f32 {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(flat, _, _, _, _)| *flat)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_armor_percent(#[string] name: String) -> f32 {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, pct, _, _, _)| *pct)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_armor_durability(#[string] name: String) -> f32 {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_armor_max_durability(#[string] name: String) -> f32 {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, max, _)| *max)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_armor_durability_fraction(#[string] name: String) -> f32 {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, max, _)| {
+                if *max > 0.0 {
+                    (*dur / *max).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_armor_broken(#[string] name: String) -> bool {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, _, _)| *dur <= 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_armor_enabled(#[string] name: String) -> bool {
+    ARMOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3602,6 +3730,17 @@ deno_core::extension!(
         bsengine_is_charging,
         bsengine_is_fully_charged,
         bsengine_is_charge_enabled,
+        bsengine_repair_armor,
+        bsengine_set_armor_enabled,
+        bsengine_set_armor_flat,
+        bsengine_set_armor_percent,
+        bsengine_get_armor_flat,
+        bsengine_get_armor_percent,
+        bsengine_get_armor_durability,
+        bsengine_get_armor_max_durability,
+        bsengine_get_armor_durability_fraction,
+        bsengine_is_armor_broken,
+        bsengine_is_armor_enabled,
     ],
 );
 
@@ -3818,6 +3957,17 @@ const Bsengine = {
     isCharging:         (name)              => Deno.core.ops.bsengine_is_charging(name),
     isFullyCharged:     (name)              => Deno.core.ops.bsengine_is_fully_charged(name),
     isChargeEnabled:    (name)              => Deno.core.ops.bsengine_is_charge_enabled(name),
+    repairArmor:            (name, amount)  => Deno.core.ops.bsengine_repair_armor(name, amount),
+    setArmorEnabled:        (name, enabled) => Deno.core.ops.bsengine_set_armor_enabled(name, enabled),
+    setArmorFlat:           (name, value)   => Deno.core.ops.bsengine_set_armor_flat(name, value),
+    setArmorPercent:        (name, value)   => Deno.core.ops.bsengine_set_armor_percent(name, value),
+    getArmorFlat:           (name)          => Deno.core.ops.bsengine_get_armor_flat(name),
+    getArmorPercent:        (name)          => Deno.core.ops.bsengine_get_armor_percent(name),
+    getArmorDurability:     (name)          => Deno.core.ops.bsengine_get_armor_durability(name),
+    getArmorMaxDurability:  (name)          => Deno.core.ops.bsengine_get_armor_max_durability(name),
+    getArmorDurabilityFraction: (name)      => Deno.core.ops.bsengine_get_armor_durability_fraction(name),
+    isArmorBroken:          (name)          => Deno.core.ops.bsengine_is_armor_broken(name),
+    isArmorEnabled:         (name)          => Deno.core.ops.bsengine_is_armor_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -8464,6 +8614,81 @@ JSON.stringify(received)
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isChargeEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn repair_armor_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.repairArmor("Knight", 25.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::RepairArmor { name, amount }
+                    if name == "Knight" && (*amount - 25.0).abs() < 1e-5)
+            });
+            assert!(found, "RepairArmor not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_armor_flat_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setArmorFlat("Knight", 10.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetArmorFlat { name, value }
+                    if name == "Knight" && (*value - 10.0).abs() < 1e-5)
+            });
+            assert!(found, "SetArmorFlat not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_armor_flat_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getArmorFlat("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_armor_percent_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getArmorPercent("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_armor_durability_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getArmorDurabilityFraction("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_armor_broken_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isArmorBroken("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_armor_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isArmorEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
     }
 }

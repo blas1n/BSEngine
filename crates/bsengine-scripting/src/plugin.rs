@@ -15,10 +15,10 @@ use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
-    ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT,
-    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
-    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
-    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
+    CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
+    COOLDOWN_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
+    EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT,
@@ -842,6 +842,24 @@ fn run_scripts(world: &mut World) {
             );
         }
         CHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = charge_map);
+    }
+    {
+        use bsengine_core::Armor;
+        let mut armor_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Armor)>();
+        for (name, a) in q.iter(world) {
+            armor_map.insert(
+                name.0.clone(),
+                (
+                    a.flat_reduction,
+                    a.percent_reduction,
+                    a.durability,
+                    a.max_durability,
+                    a.enabled,
+                ),
+            );
+        }
+        ARMOR_SNAPSHOT.with(|s| *s.borrow_mut() = armor_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -1780,6 +1798,54 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut c) = world.get_mut::<Charge>(e) {
                         c.charge_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::RepairArmor { name, amount } => {
+                use bsengine_core::Armor;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Armor>(e) {
+                        a.repair(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetArmorEnabled { name, enabled } => {
+                use bsengine_core::Armor;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Armor>(e) {
+                        a.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetArmorFlat { name, value } => {
+                use bsengine_core::Armor;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Armor>(e) {
+                        a.flat_reduction = value.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetArmorPercent { name, value } => {
+                use bsengine_core::Armor;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Armor>(e) {
+                        a.percent_reduction = value.clamp(0.0, 1.0);
                     }
                 }
             }

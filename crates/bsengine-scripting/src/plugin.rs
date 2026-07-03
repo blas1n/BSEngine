@@ -33,13 +33,14 @@ use crate::ops::{
     MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
-    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT,
-    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT,
+    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT,
+    STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT,
+    TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1770,6 +1771,87 @@ fn run_scripts(world: &mut World) {
             );
         }
         BEACON_SNAPSHOT.with(|s| *s.borrow_mut() = bec_map);
+    }
+    {
+        use bsengine_core::ShieldBreak;
+        let mut sb_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ShieldBreak)>();
+        for (_, name, sb) in q.iter(world) {
+            sb_map.insert(
+                name.0.clone(),
+                (
+                    sb.duration,
+                    sb.timer,
+                    sb.reduction_fraction,
+                    sb.just_broken,
+                    sb.just_recovered,
+                    sb.enabled,
+                ),
+            );
+        }
+        SHIELD_BREAK_SNAPSHOT.with(|s| *s.borrow_mut() = sb_map);
+    }
+    {
+        use bsengine_core::Root;
+        let mut root_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Root)>();
+        for (_, name, root) in q.iter(world) {
+            root_map.insert(
+                name.0.clone(),
+                (
+                    root.duration,
+                    root.timer,
+                    root.allows_rotation,
+                    root.allows_attack,
+                    root.just_rooted,
+                    root.just_freed,
+                    root.enabled,
+                ),
+            );
+        }
+        ROOT_SNAPSHOT.with(|s| *s.borrow_mut() = root_map);
+    }
+    {
+        use bsengine_core::Slow;
+        let mut sl_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Slow)>();
+        for (_, name, sl) in q.iter(world) {
+            sl_map.insert(
+                name.0.clone(),
+                (
+                    sl.reduction,
+                    sl.duration,
+                    sl.timer,
+                    sl.just_slowed,
+                    sl.just_recovered,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLOW_SNAPSHOT.with(|s| *s.borrow_mut() = sl_map);
+    }
+    {
+        use bsengine_core::{Stun, StunSeverity};
+        let mut st_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Stun)>();
+        for (_, name, st) in q.iter(world) {
+            let sev = match st.severity {
+                StunSeverity::Light => 0u32,
+                StunSeverity::Heavy => 1u32,
+                StunSeverity::Knockdown => 2u32,
+            };
+            st_map.insert(
+                name.0.clone(),
+                (
+                    sev,
+                    st.timer,
+                    st.just_stunned,
+                    st.just_recovered,
+                    st.enabled,
+                ),
+            );
+        }
+        STUN_SNAPSHOT.with(|s| *s.borrow_mut() = st_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -5472,6 +5554,247 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut bec) = world.get_mut::<Beacon>(e) {
                         bec.extinguish();
+                    }
+                }
+            }
+            ScriptCommand::ApplyShieldBreak { name, duration } => {
+                use bsengine_core::ShieldBreak;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sb) = world.get_mut::<ShieldBreak>(e) {
+                        sb.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearShieldBreak { name } => {
+                use bsengine_core::ShieldBreak;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sb) = world.get_mut::<ShieldBreak>(e) {
+                        sb.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetShieldBreakDuration { name, duration } => {
+                use bsengine_core::ShieldBreak;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sb) = world.get_mut::<ShieldBreak>(e) {
+                        sb.duration = duration;
+                    }
+                }
+            }
+            ScriptCommand::SetShieldBreakReduction { name, reduction } => {
+                use bsengine_core::ShieldBreak;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sb) = world.get_mut::<ShieldBreak>(e) {
+                        sb.reduction_fraction = reduction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetShieldBreakEnabled { name, enabled } => {
+                use bsengine_core::ShieldBreak;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sb) = world.get_mut::<ShieldBreak>(e) {
+                        sb.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyRoot { name, duration } => {
+                use bsengine_core::Root;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut root) = world.get_mut::<Root>(e) {
+                        root.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearRoot { name } => {
+                use bsengine_core::Root;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut root) = world.get_mut::<Root>(e) {
+                        root.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetRootDuration { name, duration } => {
+                use bsengine_core::Root;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut root) = world.get_mut::<Root>(e) {
+                        root.duration = duration.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetRootAllowsRotation { name, allows } => {
+                use bsengine_core::Root;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut root) = world.get_mut::<Root>(e) {
+                        root.allows_rotation = allows;
+                    }
+                }
+            }
+            ScriptCommand::SetRootAllowsAttack { name, allows } => {
+                use bsengine_core::Root;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut root) = world.get_mut::<Root>(e) {
+                        root.allows_attack = allows;
+                    }
+                }
+            }
+            ScriptCommand::SetRootEnabled { name, enabled } => {
+                use bsengine_core::Root;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut root) = world.get_mut::<Root>(e) {
+                        root.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplySlow {
+                name,
+                reduction,
+                duration,
+            } => {
+                use bsengine_core::Slow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sl) = world.get_mut::<Slow>(e) {
+                        sl.apply(reduction, duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearSlow { name } => {
+                use bsengine_core::Slow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sl) = world.get_mut::<Slow>(e) {
+                        sl.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetSlowReduction { name, reduction } => {
+                use bsengine_core::Slow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sl) = world.get_mut::<Slow>(e) {
+                        sl.reduction = reduction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetSlowDuration { name, duration } => {
+                use bsengine_core::Slow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sl) = world.get_mut::<Slow>(e) {
+                        sl.duration = duration.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetSlowEnabled { name, enabled } => {
+                use bsengine_core::Slow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sl) = world.get_mut::<Slow>(e) {
+                        sl.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyStun {
+                name,
+                duration,
+                severity,
+            } => {
+                use bsengine_core::{Stun, StunSeverity};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut st) = world.get_mut::<Stun>(e) {
+                        let sev = match severity {
+                            1 => StunSeverity::Heavy,
+                            2 => StunSeverity::Knockdown,
+                            _ => StunSeverity::Light,
+                        };
+                        st.apply(duration, sev);
+                    }
+                }
+            }
+            ScriptCommand::ClearStun { name } => {
+                use bsengine_core::Stun;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut st) = world.get_mut::<Stun>(e) {
+                        st.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetStunEnabled { name, enabled } => {
+                use bsengine_core::Stun;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut st) = world.get_mut::<Stun>(e) {
+                        st.enabled = enabled;
                     }
                 }
             }

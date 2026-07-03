@@ -497,6 +497,26 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AddScreenShakeTrauma {
+        name: String,
+        amount: f32,
+    },
+    SetScreenShakeTrauma {
+        name: String,
+        trauma: f32,
+    },
+    SetScreenShakeAmplitude {
+        name: String,
+        amplitude: f32,
+    },
+    SetScreenShakeDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetScreenShakeFrequency {
+        name: String,
+        frequency: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1089,6 +1109,10 @@ thread_local! {
     pub(crate) static INTERACTABLE_SNAPSHOT: RefCell<
         HashMap<String, (f32, String, u8, f32, bool)>,
     > = RefCell::new(HashMap::new());
+
+    // entity name → (trauma, amplitude, decay_rate, frequency)
+    pub(crate) static SCREEN_SHAKE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -3851,6 +3875,86 @@ pub fn bsengine_is_interactable_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_add_screen_shake_trauma(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddScreenShakeTrauma { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_screen_shake_trauma(#[string] name: String, trauma: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScreenShakeTrauma { name, trauma })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_screen_shake_amplitude(#[string] name: String, amplitude: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScreenShakeAmplitude { name, amplitude })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_screen_shake_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScreenShakeDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_screen_shake_frequency(#[string] name: String, frequency: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScreenShakeFrequency { name, frequency })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_screen_shake_trauma(#[string] name: String) -> f32 {
+    SCREEN_SHAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(t, _, _, _)| *t).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_screen_shake_amplitude(#[string] name: String) -> f32 {
+    SCREEN_SHAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, a, _, _)| *a).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_screen_shake_decay_rate(#[string] name: String) -> f32 {
+    SCREEN_SHAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, d, _)| *d).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_screen_shake_frequency(#[string] name: String) -> f32 {
+    SCREEN_SHAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, _, f)| *f).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_screen_shake_intensity(#[string] name: String) -> f32 {
+    SCREEN_SHAKE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(t, _, _, _)| *t * *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_screen_shake_done(#[string] name: String) -> bool {
+    SCREEN_SHAKE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(t, _, _, _)| *t == 0.0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -4985,6 +5089,17 @@ deno_core::extension!(
         bsengine_get_interactable_trigger,
         bsengine_get_interactable_hold_duration,
         bsengine_is_interactable_enabled,
+        bsengine_add_screen_shake_trauma,
+        bsengine_set_screen_shake_trauma,
+        bsengine_set_screen_shake_amplitude,
+        bsengine_set_screen_shake_decay_rate,
+        bsengine_set_screen_shake_frequency,
+        bsengine_get_screen_shake_trauma,
+        bsengine_get_screen_shake_amplitude,
+        bsengine_get_screen_shake_decay_rate,
+        bsengine_get_screen_shake_frequency,
+        bsengine_get_screen_shake_intensity,
+        bsengine_is_screen_shake_done,
     ],
 );
 
@@ -5314,6 +5429,17 @@ const Bsengine = {
     getInteractableTrigger: (name)          => Deno.core.ops.bsengine_get_interactable_trigger(name),
     getInteractableHoldDuration:(name)      => Deno.core.ops.bsengine_get_interactable_hold_duration(name),
     isInteractableEnabled:  (name)          => Deno.core.ops.bsengine_is_interactable_enabled(name),
+    addScreenShakeTrauma:   (name, amount)  => Deno.core.ops.bsengine_add_screen_shake_trauma(name, amount),
+    setScreenShakeTrauma:   (name, trauma)  => Deno.core.ops.bsengine_set_screen_shake_trauma(name, trauma),
+    setScreenShakeAmplitude:(name, amp)     => Deno.core.ops.bsengine_set_screen_shake_amplitude(name, amp),
+    setScreenShakeDecayRate:(name, rate)    => Deno.core.ops.bsengine_set_screen_shake_decay_rate(name, rate),
+    setScreenShakeFrequency:(name, freq)    => Deno.core.ops.bsengine_set_screen_shake_frequency(name, freq),
+    getScreenShakeTrauma:   (name)          => Deno.core.ops.bsengine_get_screen_shake_trauma(name),
+    getScreenShakeAmplitude:(name)          => Deno.core.ops.bsengine_get_screen_shake_amplitude(name),
+    getScreenShakeDecayRate:(name)          => Deno.core.ops.bsengine_get_screen_shake_decay_rate(name),
+    getScreenShakeFrequency:(name)          => Deno.core.ops.bsengine_get_screen_shake_frequency(name),
+    getScreenShakeIntensity:(name)          => Deno.core.ops.bsengine_get_screen_shake_intensity(name),
+    isScreenShakeDone:      (name)          => Deno.core.ops.bsengine_is_screen_shake_done(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -10961,5 +11087,97 @@ JSON.stringify(received)
             .unwrap();
         assert_eq!(en.trim(), "true");
         super::INTERACTABLE_SNAPSHOT.with(|s| s.borrow_mut().remove("NPC"));
+    }
+
+    #[test]
+    fn add_screen_shake_trauma_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addScreenShakeTrauma("Camera", 0.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::AddScreenShakeTrauma { name, amount }
+                    if name == "Camera" && (*amount - 0.5).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_screen_shake_amplitude_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setScreenShakeAmplitude("Camera", 0.3);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetScreenShakeAmplitude { name, amplitude }
+                    if name == "Camera" && (*amplitude - 0.3).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_screen_shake_decay_rate_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setScreenShakeDecayRate("Camera", 2.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetScreenShakeDecayRate { name, rate }
+                    if name == "Camera" && (*rate - 2.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn get_screen_shake_trauma_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getScreenShakeTrauma("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn is_screen_shake_done_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isScreenShakeDone("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn screen_shake_snapshot_read_ops() {
+        // trauma=0.5, amplitude=0.3, decay_rate=1.5, frequency=8.0
+        super::SCREEN_SHAKE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Cam".to_string(), (0.5_f32, 0.3_f32, 1.5_f32, 8.0_f32))
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let t = rt.eval(r#"Bsengine.getScreenShakeTrauma("Cam");"#).unwrap();
+        assert!((t.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let a = rt
+            .eval(r#"Bsengine.getScreenShakeAmplitude("Cam");"#)
+            .unwrap();
+        assert!((a.trim().parse::<f32>().unwrap() - 0.3).abs() < 0.001);
+        let i = rt
+            .eval(r#"Bsengine.getScreenShakeIntensity("Cam");"#)
+            .unwrap();
+        assert!((i.trim().parse::<f32>().unwrap() - 0.25).abs() < 0.001);
+        let d = rt.eval(r#"Bsengine.isScreenShakeDone("Cam");"#).unwrap();
+        assert_eq!(d.trim(), "false");
+        super::SCREEN_SHAKE_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
     }
 }

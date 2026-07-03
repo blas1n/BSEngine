@@ -986,6 +986,33 @@ pub enum ScriptCommand {
         y: f32,
         z: f32,
     },
+    SetBillboardMode {
+        name: String,
+        mode: u32,
+    },
+    SetOutlineColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetOutlineWidth {
+        name: String,
+        width: f32,
+    },
+    SetOutlineMode {
+        name: String,
+        mode: u32,
+    },
+    SetOutlineVisible {
+        name: String,
+        visible: bool,
+    },
+    SetZIndex {
+        name: String,
+        index: i32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1674,6 +1701,16 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (target_name, up_x, up_y, up_z)
     pub(crate) static LOOK_AT_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
+    // entity name → mode (0 = Full, 1 = Vertical)
+    pub(crate) static BILLBOARD_SNAPSHOT: RefCell<HashMap<String, u32>> =
+        RefCell::new(HashMap::new());
+    // entity name → (r, g, b, a, width, mode, visible)
+    // OutlineMode: Outer=0, Inner=1, Center=2
+    pub(crate) static OUTLINE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → z-index (i32; 0 = default draw order)
+    pub(crate) static Z_INDEX_SNAPSHOT: RefCell<HashMap<String, i32>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6850,6 +6887,134 @@ pub fn bsengine_get_look_at_up_z(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_billboard_mode(#[string] name: String, mode: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetBillboardMode { name, mode });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_billboard_mode(#[string] name: String) -> u32 {
+    BILLBOARD_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_outline_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|buf| {
+        buf.borrow_mut()
+            .push(ScriptCommand::SetOutlineColor { name, r, g, b, a });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_outline_width(#[string] name: String, width: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetOutlineWidth { name, width });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_outline_mode(#[string] name: String, mode: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetOutlineMode { name, mode });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_outline_visible(#[string] name: String, visible: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetOutlineVisible { name, visible });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_outline_r(#[string] name: String) -> f32 {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_outline_g(#[string] name: String) -> f32 {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, g, _, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_outline_b(#[string] name: String) -> f32 {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, b, _, _, _, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_outline_a(#[string] name: String) -> f32 {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, a, _, _, _)| *a)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_outline_width(#[string] name: String) -> f32 {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, w, _, _)| *w)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_outline_mode(#[string] name: String) -> u32 {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, m, _)| *m)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_outline_visible(#[string] name: String) -> bool {
+    OUTLINE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, v)| *v)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_z_index(#[string] name: String, index: i32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetZIndex { name, index });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_z_index(#[string] name: String) -> i32 {
+    Z_INDEX_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0))
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7809,6 +7974,21 @@ deno_core::extension!(
         bsengine_get_look_at_up_x,
         bsengine_get_look_at_up_y,
         bsengine_get_look_at_up_z,
+        bsengine_set_billboard_mode,
+        bsengine_get_billboard_mode,
+        bsengine_set_outline_color,
+        bsengine_set_outline_width,
+        bsengine_set_outline_mode,
+        bsengine_set_outline_visible,
+        bsengine_get_outline_r,
+        bsengine_get_outline_g,
+        bsengine_get_outline_b,
+        bsengine_get_outline_a,
+        bsengine_get_outline_width,
+        bsengine_get_outline_mode,
+        bsengine_is_outline_visible,
+        bsengine_set_z_index,
+        bsengine_get_z_index,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -8855,6 +9035,21 @@ const Bsengine = {
     getLookAtUpX:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_x(name),
     getLookAtUpY:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_y(name),
     getLookAtUpZ:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_z(name),
+    setBillboardMode:(name, mode)          => Deno.core.ops.bsengine_set_billboard_mode(name, mode),
+    getBillboardMode:(name)               => Deno.core.ops.bsengine_get_billboard_mode(name),
+    setOutlineColor:(name, r, g, b, a)    => Deno.core.ops.bsengine_set_outline_color(name, r, g, b, a),
+    setOutlineWidth:(name, width)          => Deno.core.ops.bsengine_set_outline_width(name, width),
+    setOutlineMode: (name, mode)           => Deno.core.ops.bsengine_set_outline_mode(name, mode),
+    setOutlineVisible:(name, visible)      => Deno.core.ops.bsengine_set_outline_visible(name, visible),
+    getOutlineR:    (name)                 => Deno.core.ops.bsengine_get_outline_r(name),
+    getOutlineG:    (name)                 => Deno.core.ops.bsengine_get_outline_g(name),
+    getOutlineB:    (name)                 => Deno.core.ops.bsengine_get_outline_b(name),
+    getOutlineA:    (name)                 => Deno.core.ops.bsengine_get_outline_a(name),
+    getOutlineWidth:(name)                => Deno.core.ops.bsengine_get_outline_width(name),
+    getOutlineMode: (name)                 => Deno.core.ops.bsengine_get_outline_mode(name),
+    isOutlineVisible:(name)               => Deno.core.ops.bsengine_is_outline_visible(name),
+    setZIndex:      (name, index)          => Deno.core.ops.bsengine_set_z_index(name, index),
+    getZIndex:      (name)                 => Deno.core.ops.bsengine_get_z_index(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -16143,6 +16338,134 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetLookAtUp { name, x, y, z }
                 if name == "Camera" && x.abs() < 0.001 && (*y - 1.0).abs() < 0.001 && z.abs() < 0.001
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_billboard_read_ops() {
+        super::BILLBOARD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Sprite".to_string(), 1);
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let mode = rt.eval(r#"Bsengine.getBillboardMode("Sprite");"#).unwrap();
+        assert_eq!(mode.trim().parse::<u32>().unwrap(), 1);
+        let unknown = rt.eval(r#"Bsengine.getBillboardMode("Unknown");"#).unwrap();
+        assert_eq!(unknown.trim().parse::<u32>().unwrap(), 0);
+        super::BILLBOARD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_billboard_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setBillboardMode("Tree", 1);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBillboardMode { name, mode }
+                if name == "Tree" && *mode == 1
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_outline_read_ops() {
+        super::OUTLINE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Enemy".to_string(), (1.0, 0.0, 0.0, 1.0, 2.5, 1, false));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getOutlineR("Enemy");"#).unwrap();
+        assert!((r.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let g = rt.eval(r#"Bsengine.getOutlineG("Enemy");"#).unwrap();
+        assert!(g.trim().parse::<f32>().unwrap().abs() < 0.001);
+        let b = rt.eval(r#"Bsengine.getOutlineB("Enemy");"#).unwrap();
+        assert!(b.trim().parse::<f32>().unwrap().abs() < 0.001);
+        let a = rt.eval(r#"Bsengine.getOutlineA("Enemy");"#).unwrap();
+        assert!((a.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let w = rt.eval(r#"Bsengine.getOutlineWidth("Enemy");"#).unwrap();
+        assert!((w.trim().parse::<f32>().unwrap() - 2.5).abs() < 0.001);
+        let m = rt.eval(r#"Bsengine.getOutlineMode("Enemy");"#).unwrap();
+        assert_eq!(m.trim().parse::<u32>().unwrap(), 1);
+        let v = rt.eval(r#"Bsengine.isOutlineVisible("Enemy");"#).unwrap();
+        assert_eq!(v.trim(), "false");
+        super::OUTLINE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_outline_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setOutlineColor("Hero", 0.0, 1.0, 0.0, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOutlineWidth("Hero", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOutlineMode("Hero", 2);"#).unwrap();
+        rt.eval(r#"Bsengine.setOutlineVisible("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetOutlineColor { name, r, g, b, a }
+                if name == "Hero" && r.abs() < 0.001 && (*g - 1.0).abs() < 0.001 && b.abs() < 0.001 && (*a - 1.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetOutlineWidth { name, width }
+                if name == "Hero" && (*width - 3.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetOutlineMode { name, mode }
+                if name == "Hero" && *mode == 2
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetOutlineVisible { name, visible }
+                if name == "Hero" && !visible
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_z_index_read_ops() {
+        super::Z_INDEX_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("UI".to_string(), 10);
+            s.borrow_mut().insert("Background".to_string(), -5);
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let ui = rt.eval(r#"Bsengine.getZIndex("UI");"#).unwrap();
+        assert_eq!(ui.trim().parse::<i32>().unwrap(), 10);
+        let bg = rt.eval(r#"Bsengine.getZIndex("Background");"#).unwrap();
+        assert_eq!(bg.trim().parse::<i32>().unwrap(), -5);
+        let unknown = rt.eval(r#"Bsengine.getZIndex("Unknown");"#).unwrap();
+        assert_eq!(unknown.trim().parse::<i32>().unwrap(), 0);
+        super::Z_INDEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_z_index_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setZIndex("Panel", -3);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetZIndex { name, index }
+                if name == "Panel" && *index == -3
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

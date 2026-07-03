@@ -16,27 +16,28 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     ScriptCommand, SpawnParams, ABSORPTION_SNAPSHOT, AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT,
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
-    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT,
-    CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
-    COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT,
-    DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT,
-    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
-    FOG_SNAPSHOT, FOLLOW_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
-    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT,
-    MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    BILLBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT,
+    CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
+    COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
+    CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT,
+    DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
+    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT, FOOTSTEP_SNAPSHOT,
+    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
+    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
-    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT,
+    PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
+    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT,
+    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1526,6 +1527,47 @@ fn run_scripts(world: &mut World) {
             la_map.insert(name.0.clone(), (target_name, la.up.x, la.up.y, la.up.z));
         }
         LOOK_AT_SNAPSHOT.with(|s| *s.borrow_mut() = la_map);
+    }
+    {
+        use bsengine_core::{Billboard, BillboardMode};
+        let mut bb_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Billboard)>();
+        for (_, name, bb) in q.iter(world) {
+            let mode = match bb.mode {
+                BillboardMode::Full => 0u32,
+                BillboardMode::Vertical => 1u32,
+            };
+            bb_map.insert(name.0.clone(), mode);
+        }
+        BILLBOARD_SNAPSHOT.with(|s| *s.borrow_mut() = bb_map);
+    }
+    {
+        use bsengine_core::{Outline, OutlineMode};
+        let mut ol_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Outline)>();
+        for (_, name, ol) in q.iter(world) {
+            let mode = match ol.mode {
+                OutlineMode::Outer => 0u32,
+                OutlineMode::Inner => 1u32,
+                OutlineMode::Center => 2u32,
+            };
+            ol_map.insert(
+                name.0.clone(),
+                (
+                    ol.color.r, ol.color.g, ol.color.b, ol.color.a, ol.width, mode, ol.visible,
+                ),
+            );
+        }
+        OUTLINE_SNAPSHOT.with(|s| *s.borrow_mut() = ol_map);
+    }
+    {
+        use bsengine_core::ZIndex;
+        let mut zi_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ZIndex)>();
+        for (_, name, zi) in q.iter(world) {
+            zi_map.insert(name.0.clone(), zi.value());
+        }
+        Z_INDEX_SNAPSHOT.with(|s| *s.borrow_mut() = zi_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4512,6 +4554,86 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut la) = world.get_mut::<LookAt>(e) {
                         la.up = Vec3::new(x, y, z);
+                    }
+                }
+            }
+            ScriptCommand::SetBillboardMode { name, mode } => {
+                use bsengine_core::{Billboard, BillboardMode};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bb) = world.get_mut::<Billboard>(e) {
+                        bb.mode = if mode == 1 {
+                            BillboardMode::Vertical
+                        } else {
+                            BillboardMode::Full
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetOutlineColor { name, r, g, b, a } => {
+                use bsengine_core::{Color, Outline};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outline>(e) {
+                        ol.color = Color { r, g, b, a };
+                    }
+                }
+            }
+            ScriptCommand::SetOutlineWidth { name, width } => {
+                use bsengine_core::Outline;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outline>(e) {
+                        ol.width = width.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOutlineMode { name, mode } => {
+                use bsengine_core::{Outline, OutlineMode};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outline>(e) {
+                        ol.mode = match mode {
+                            1 => OutlineMode::Inner,
+                            2 => OutlineMode::Center,
+                            _ => OutlineMode::Outer,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetOutlineVisible { name, visible } => {
+                use bsengine_core::Outline;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outline>(e) {
+                        ol.visible = visible;
+                    }
+                }
+            }
+            ScriptCommand::SetZIndex { name, index } => {
+                use bsengine_core::ZIndex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut zi) = world.get_mut::<ZIndex>(e) {
+                        *zi = ZIndex::new(index);
                     }
                 }
             }

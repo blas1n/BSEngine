@@ -2104,6 +2104,139 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyKneel {
+        name: String,
+        duration: f32,
+    },
+    ClearKneel {
+        name: String,
+    },
+    SetKneelSpeedFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetKneelEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeginKnit {
+        name: String,
+        duration: f32,
+    },
+    InterruptKnit {
+        name: String,
+        damage: f32,
+    },
+    SetKnitHealRate {
+        name: String,
+        rate: f32,
+    },
+    SetKnitInterruptionThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetKnitEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyLacerate {
+        name: String,
+        duration: f32,
+    },
+    ClearLacerate {
+        name: String,
+    },
+    SetLacerateMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetLacerateDamagePerStack {
+        name: String,
+        dps: f32,
+    },
+    SetLacerateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddLaden {
+        name: String,
+        amount: f32,
+    },
+    RemoveLaden {
+        name: String,
+        amount: f32,
+    },
+    SetLadenMaxLoad {
+        name: String,
+        max_load: f32,
+    },
+    SetLadenSpeedPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetLadenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyLament {
+        name: String,
+        intensity: f32,
+    },
+    SetLamentDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetLamentDamagePenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetLamentSpeedPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetLamentEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ThrustLance {
+        name: String,
+        current_speed: f32,
+        duration: f32,
+    },
+    RetractLance {
+        name: String,
+    },
+    SetLanceBaseDamage {
+        name: String,
+        damage: f32,
+    },
+    SetLanceSpeedScale {
+        name: String,
+        scale: f32,
+    },
+    SetLanceSpeedThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetLanceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ResetLapse {
+        name: String,
+    },
+    SetLapseInterval {
+        name: String,
+        interval: f32,
+    },
+    SetLapseDuration {
+        name: String,
+        duration: f32,
+    },
+    SetLapseEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -3039,6 +3172,34 @@ thread_local! {
     // entity name → (charges, max_charges, just_juked, enabled)
     pub(crate) static JUKE_SNAPSHOT: RefCell<
         HashMap<String, (u32, u32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, speed_fraction, just_kneeled, just_risen, enabled)
+    pub(crate) static KNEEL_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, heal_rate, interruption_threshold, just_began, just_completed, just_interrupted, enabled)
+    pub(crate) static KNIT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, damage_per_stack_per_second, duration, timer, just_lacerated, just_closed, enabled)
+    pub(crate) static LACERATE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (current_load, max_load, speed_penalty, enabled)
+    pub(crate) static LADEN_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (intensity, decay_rate, damage_penalty, speed_penalty, just_lamented, just_recovered, enabled)
+    pub(crate) static LAMENT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, base_damage, speed_scale, speed_threshold, just_struck, just_ended, enabled)
+    pub(crate) static LANCE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (lapsing, interval_timer, duration_timer, interval, lapse_duration, just_lapsed, just_focused, enabled)
+    pub(crate) static LAPSE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -14905,6 +15066,587 @@ pub fn bsengine_set_juke_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Kneel ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_kneeled(#[string] name: String) -> bool {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_kneel_duration(#[string] name: String) -> f32 {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_kneel_timer(#[string] name: String) -> f32 {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_kneel_speed_fraction(#[string] name: String) -> f32 {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_kneeled(#[string] name: String) -> bool {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_risen(#[string] name: String) -> bool {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_kneel_enabled(#[string] name: String) -> bool {
+    KNEEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_kneel(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyKneel { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_kneel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearKneel { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_kneel_speed_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKneelSpeedFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_kneel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKneelEnabled { name, enabled })
+    });
+}
+
+// ── Knit ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_knitting(#[string] name: String) -> bool {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knit_duration(#[string] name: String) -> f32 {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knit_timer(#[string] name: String) -> f32 {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knit_heal_rate(#[string] name: String) -> f32 {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_knit_interruption_threshold(#[string] name: String) -> f32 {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_knit_began(#[string] name: String) -> bool {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_knit_completed(#[string] name: String) -> bool {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_knit_interrupted(#[string] name: String) -> bool {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_knit_enabled(#[string] name: String) -> bool {
+    KNIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_begin_knit(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeginKnit { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_interrupt_knit(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InterruptKnit { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_knit_heal_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKnitHealRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_knit_interruption_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKnitInterruptionThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_knit_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetKnitEnabled { name, enabled })
+    });
+}
+
+// ── Lacerate ─────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_lacerate_stacks(#[string] name: String) -> u32 {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lacerate_max_stacks(#[string] name: String) -> u32 {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(1))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lacerate_damage_per_stack(#[string] name: String) -> f32 {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lacerate_duration(#[string] name: String) -> f32 {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lacerate_timer(#[string] name: String) -> f32 {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lacerated(#[string] name: String) -> bool {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lacerate_closed(#[string] name: String) -> bool {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lacerate_enabled(#[string] name: String) -> bool {
+    LACERATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_lacerate(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyLacerate { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_lacerate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearLacerate { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lacerate_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLacerateMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lacerate_damage_per_stack(#[string] name: String, dps: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLacerateDamagePerStack { name, dps })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lacerate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLacerateEnabled { name, enabled })
+    });
+}
+
+// ── Laden ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_laden_load(#[string] name: String) -> f32 {
+    LADEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_laden_max_load(#[string] name: String) -> f32 {
+    LADEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_laden_speed_penalty(#[string] name: String) -> f32 {
+    LADEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_laden_enabled(#[string] name: String) -> bool {
+    LADEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_overladen(#[string] name: String) -> bool {
+    LADEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| v.3 && v.0 > v.1)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_laden_load_fraction(#[string] name: String) -> f32 {
+    LADEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 > 0.0 {
+                    (v.0 / v.1).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_laden(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddLaden { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_remove_laden(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RemoveLaden { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_laden_max_load(#[string] name: String, max_load: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLadenMaxLoad { name, max_load })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_laden_speed_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLadenSpeedPenalty { name, penalty })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_laden_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLadenEnabled { name, enabled })
+    });
+}
+
+// ── Lament ───────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_lament_intensity(#[string] name: String) -> f32 {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lament_decay_rate(#[string] name: String) -> f32 {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lament_damage_penalty(#[string] name: String) -> f32 {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lament_speed_penalty(#[string] name: String) -> f32 {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lamented(#[string] name: String) -> bool {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lament_recovered(#[string] name: String) -> bool {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lament_enabled(#[string] name: String) -> bool {
+    LAMENT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_lament(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyLament { name, intensity })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lament_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLamentDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lament_damage_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLamentDamagePenalty { name, penalty })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lament_speed_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLamentSpeedPenalty { name, penalty })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lament_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLamentEnabled { name, enabled })
+    });
+}
+
+// ── Lance ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_lancing(#[string] name: String) -> bool {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lance_duration(#[string] name: String) -> f32 {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lance_timer(#[string] name: String) -> f32 {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lance_base_damage(#[string] name: String) -> f32 {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lance_speed_scale(#[string] name: String) -> f32 {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lance_speed_threshold(#[string] name: String) -> f32 {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lance_struck(#[string] name: String) -> bool {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lance_ended(#[string] name: String) -> bool {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lance_enabled(#[string] name: String) -> bool {
+    LANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_thrust_lance(#[string] name: String, current_speed: f32, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ThrustLance {
+            name,
+            current_speed,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_retract_lance(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RetractLance { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lance_base_damage(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLanceBaseDamage { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lance_speed_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLanceSpeedScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lance_speed_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLanceSpeedThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lance_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLanceEnabled { name, enabled })
+    });
+}
+
+// ── Lapse ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_lapsing(#[string] name: String) -> bool {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lapse_interval_timer(#[string] name: String) -> f32 {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lapse_duration_timer(#[string] name: String) -> f32 {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lapse_interval(#[string] name: String) -> f32 {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lapse_duration(#[string] name: String) -> f32 {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lapsed(#[string] name: String) -> bool {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lapse_focused(#[string] name: String) -> bool {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lapse_enabled(#[string] name: String) -> bool {
+    LAPSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lapse_focus_fraction(#[string] name: String) -> f32 {
+    LAPSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.0 {
+                    0.0
+                } else if v.3 > 0.0 {
+                    1.0 - (v.1 / v.3).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_lapse(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetLapse { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lapse_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLapseInterval { name, interval })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lapse_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLapseDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lapse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLapseEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -16619,6 +17361,95 @@ deno_core::extension!(
         bsengine_consume_juke,
         bsengine_set_juke_max_charges,
         bsengine_set_juke_enabled,
+        bsengine_is_kneeled,
+        bsengine_get_kneel_duration,
+        bsengine_get_kneel_timer,
+        bsengine_get_kneel_speed_fraction,
+        bsengine_is_just_kneeled,
+        bsengine_is_just_risen,
+        bsengine_is_kneel_enabled,
+        bsengine_apply_kneel,
+        bsengine_clear_kneel,
+        bsengine_set_kneel_speed_fraction,
+        bsengine_set_kneel_enabled,
+        bsengine_is_knitting,
+        bsengine_get_knit_duration,
+        bsengine_get_knit_timer,
+        bsengine_get_knit_heal_rate,
+        bsengine_get_knit_interruption_threshold,
+        bsengine_is_just_knit_began,
+        bsengine_is_just_knit_completed,
+        bsengine_is_just_knit_interrupted,
+        bsengine_is_knit_enabled,
+        bsengine_begin_knit,
+        bsengine_interrupt_knit,
+        bsengine_set_knit_heal_rate,
+        bsengine_set_knit_interruption_threshold,
+        bsengine_set_knit_enabled,
+        bsengine_get_lacerate_stacks,
+        bsengine_get_lacerate_max_stacks,
+        bsengine_get_lacerate_damage_per_stack,
+        bsengine_get_lacerate_duration,
+        bsengine_get_lacerate_timer,
+        bsengine_is_just_lacerated,
+        bsengine_is_just_lacerate_closed,
+        bsengine_is_lacerate_enabled,
+        bsengine_apply_lacerate,
+        bsengine_clear_lacerate,
+        bsengine_set_lacerate_max_stacks,
+        bsengine_set_lacerate_damage_per_stack,
+        bsengine_set_lacerate_enabled,
+        bsengine_get_laden_load,
+        bsengine_get_laden_max_load,
+        bsengine_get_laden_speed_penalty,
+        bsengine_is_laden_enabled,
+        bsengine_is_overladen,
+        bsengine_get_laden_load_fraction,
+        bsengine_add_laden,
+        bsengine_remove_laden,
+        bsengine_set_laden_max_load,
+        bsengine_set_laden_speed_penalty,
+        bsengine_set_laden_enabled,
+        bsengine_get_lament_intensity,
+        bsengine_get_lament_decay_rate,
+        bsengine_get_lament_damage_penalty,
+        bsengine_get_lament_speed_penalty,
+        bsengine_is_just_lamented,
+        bsengine_is_just_lament_recovered,
+        bsengine_is_lament_enabled,
+        bsengine_apply_lament,
+        bsengine_set_lament_decay_rate,
+        bsengine_set_lament_damage_penalty,
+        bsengine_set_lament_speed_penalty,
+        bsengine_set_lament_enabled,
+        bsengine_is_lancing,
+        bsengine_get_lance_duration,
+        bsengine_get_lance_timer,
+        bsengine_get_lance_base_damage,
+        bsengine_get_lance_speed_scale,
+        bsengine_get_lance_speed_threshold,
+        bsengine_is_just_lance_struck,
+        bsengine_is_just_lance_ended,
+        bsengine_is_lance_enabled,
+        bsengine_thrust_lance,
+        bsengine_retract_lance,
+        bsengine_set_lance_base_damage,
+        bsengine_set_lance_speed_scale,
+        bsengine_set_lance_speed_threshold,
+        bsengine_set_lance_enabled,
+        bsengine_is_lapsing,
+        bsengine_get_lapse_interval_timer,
+        bsengine_get_lapse_duration_timer,
+        bsengine_get_lapse_interval,
+        bsengine_get_lapse_duration,
+        bsengine_is_just_lapsed,
+        bsengine_is_just_lapse_focused,
+        bsengine_is_lapse_enabled,
+        bsengine_get_lapse_focus_fraction,
+        bsengine_reset_lapse,
+        bsengine_set_lapse_interval,
+        bsengine_set_lapse_duration,
+        bsengine_set_lapse_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -18440,6 +19271,102 @@ const Bsengine = {
     consumeJuke:                   (name)           => Deno.core.ops.bsengine_consume_juke(name),
     setJukeMaxCharges:             (name, m)        => Deno.core.ops.bsengine_set_juke_max_charges(name, m),
     setJukeEnabled:                (name, en)       => Deno.core.ops.bsengine_set_juke_enabled(name, en),
+
+    isKneeled:                     (name)           => Deno.core.ops.bsengine_is_kneeled(name),
+    getKneelDuration:              (name)           => Deno.core.ops.bsengine_get_kneel_duration(name),
+    getKneelTimer:                 (name)           => Deno.core.ops.bsengine_get_kneel_timer(name),
+    getKneelSpeedFraction:         (name)           => Deno.core.ops.bsengine_get_kneel_speed_fraction(name),
+    isJustKneeled:                 (name)           => Deno.core.ops.bsengine_is_just_kneeled(name),
+    isJustRisen:                   (name)           => Deno.core.ops.bsengine_is_just_risen(name),
+    isKneelEnabled:                (name)           => Deno.core.ops.bsengine_is_kneel_enabled(name),
+    applyKneel:                    (name, d)        => Deno.core.ops.bsengine_apply_kneel(name, d),
+    clearKneel:                    (name)           => Deno.core.ops.bsengine_clear_kneel(name),
+    setKneelSpeedFraction:         (name, f)        => Deno.core.ops.bsengine_set_kneel_speed_fraction(name, f),
+    setKneelEnabled:               (name, en)       => Deno.core.ops.bsengine_set_kneel_enabled(name, en),
+
+    isKnitting:                    (name)           => Deno.core.ops.bsengine_is_knitting(name),
+    getKnitDuration:               (name)           => Deno.core.ops.bsengine_get_knit_duration(name),
+    getKnitTimer:                  (name)           => Deno.core.ops.bsengine_get_knit_timer(name),
+    getKnitHealRate:               (name)           => Deno.core.ops.bsengine_get_knit_heal_rate(name),
+    getKnitInterruptionThreshold:  (name)           => Deno.core.ops.bsengine_get_knit_interruption_threshold(name),
+    isJustKnitBegan:               (name)           => Deno.core.ops.bsengine_is_just_knit_began(name),
+    isJustKnitCompleted:           (name)           => Deno.core.ops.bsengine_is_just_knit_completed(name),
+    isJustKnitInterrupted:         (name)           => Deno.core.ops.bsengine_is_just_knit_interrupted(name),
+    isKnitEnabled:                 (name)           => Deno.core.ops.bsengine_is_knit_enabled(name),
+    beginKnit:                     (name, d)        => Deno.core.ops.bsengine_begin_knit(name, d),
+    interruptKnit:                 (name, dmg)      => Deno.core.ops.bsengine_interrupt_knit(name, dmg),
+    setKnitHealRate:               (name, r)        => Deno.core.ops.bsengine_set_knit_heal_rate(name, r),
+    setKnitInterruptionThreshold:  (name, t)        => Deno.core.ops.bsengine_set_knit_interruption_threshold(name, t),
+    setKnitEnabled:                (name, en)       => Deno.core.ops.bsengine_set_knit_enabled(name, en),
+
+    getLacerateStacks:             (name)           => Deno.core.ops.bsengine_get_lacerate_stacks(name),
+    getLacerateMaxStacks:          (name)           => Deno.core.ops.bsengine_get_lacerate_max_stacks(name),
+    getLacerateDamagePerStack:     (name)           => Deno.core.ops.bsengine_get_lacerate_damage_per_stack(name),
+    getLacerateDuration:           (name)           => Deno.core.ops.bsengine_get_lacerate_duration(name),
+    getLacerateTimer:              (name)           => Deno.core.ops.bsengine_get_lacerate_timer(name),
+    isJustLacerated:               (name)           => Deno.core.ops.bsengine_is_just_lacerated(name),
+    isJustLacerateClosed:          (name)           => Deno.core.ops.bsengine_is_just_lacerate_closed(name),
+    isLacerateEnabled:             (name)           => Deno.core.ops.bsengine_is_lacerate_enabled(name),
+    applyLacerate:                 (name, d)        => Deno.core.ops.bsengine_apply_lacerate(name, d),
+    clearLacerate:                 (name)           => Deno.core.ops.bsengine_clear_lacerate(name),
+    setLacerateMaxStacks:          (name, m)        => Deno.core.ops.bsengine_set_lacerate_max_stacks(name, m),
+    setLacerateDamagePerStack:     (name, dps)      => Deno.core.ops.bsengine_set_lacerate_damage_per_stack(name, dps),
+    setLacerateEnabled:            (name, en)       => Deno.core.ops.bsengine_set_lacerate_enabled(name, en),
+
+    getLadenLoad:                  (name)           => Deno.core.ops.bsengine_get_laden_load(name),
+    getLadenMaxLoad:               (name)           => Deno.core.ops.bsengine_get_laden_max_load(name),
+    getLadenSpeedPenalty:          (name)           => Deno.core.ops.bsengine_get_laden_speed_penalty(name),
+    isLadenEnabled:                (name)           => Deno.core.ops.bsengine_is_laden_enabled(name),
+    isOverladen:                   (name)           => Deno.core.ops.bsengine_is_overladen(name),
+    getLadenLoadFraction:          (name)           => Deno.core.ops.bsengine_get_laden_load_fraction(name),
+    addLaden:                      (name, a)        => Deno.core.ops.bsengine_add_laden(name, a),
+    removeLaden:                   (name, a)        => Deno.core.ops.bsengine_remove_laden(name, a),
+    setLadenMaxLoad:               (name, m)        => Deno.core.ops.bsengine_set_laden_max_load(name, m),
+    setLadenSpeedPenalty:          (name, p)        => Deno.core.ops.bsengine_set_laden_speed_penalty(name, p),
+    setLadenEnabled:               (name, en)       => Deno.core.ops.bsengine_set_laden_enabled(name, en),
+
+    getLamentIntensity:            (name)           => Deno.core.ops.bsengine_get_lament_intensity(name),
+    getLamentDecayRate:            (name)           => Deno.core.ops.bsengine_get_lament_decay_rate(name),
+    getLamentDamagePenalty:        (name)           => Deno.core.ops.bsengine_get_lament_damage_penalty(name),
+    getLamentSpeedPenalty:         (name)           => Deno.core.ops.bsengine_get_lament_speed_penalty(name),
+    isJustLamented:                (name)           => Deno.core.ops.bsengine_is_just_lamented(name),
+    isJustLamentRecovered:         (name)           => Deno.core.ops.bsengine_is_just_lament_recovered(name),
+    isLamentEnabled:               (name)           => Deno.core.ops.bsengine_is_lament_enabled(name),
+    applyLament:                   (name, i)        => Deno.core.ops.bsengine_apply_lament(name, i),
+    setLamentDecayRate:            (name, r)        => Deno.core.ops.bsengine_set_lament_decay_rate(name, r),
+    setLamentDamagePenalty:        (name, p)        => Deno.core.ops.bsengine_set_lament_damage_penalty(name, p),
+    setLamentSpeedPenalty:         (name, p)        => Deno.core.ops.bsengine_set_lament_speed_penalty(name, p),
+    setLamentEnabled:              (name, en)       => Deno.core.ops.bsengine_set_lament_enabled(name, en),
+
+    isLancing:                     (name)           => Deno.core.ops.bsengine_is_lancing(name),
+    getLanceDuration:              (name)           => Deno.core.ops.bsengine_get_lance_duration(name),
+    getLanceTimer:                 (name)           => Deno.core.ops.bsengine_get_lance_timer(name),
+    getLanceBaseDamage:            (name)           => Deno.core.ops.bsengine_get_lance_base_damage(name),
+    getLanceSpeedScale:            (name)           => Deno.core.ops.bsengine_get_lance_speed_scale(name),
+    getLanceSpeedThreshold:        (name)           => Deno.core.ops.bsengine_get_lance_speed_threshold(name),
+    isJustLanceStruck:             (name)           => Deno.core.ops.bsengine_is_just_lance_struck(name),
+    isJustLanceEnded:              (name)           => Deno.core.ops.bsengine_is_just_lance_ended(name),
+    isLanceEnabled:                (name)           => Deno.core.ops.bsengine_is_lance_enabled(name),
+    thrustLance:                   (name, spd, d)   => Deno.core.ops.bsengine_thrust_lance(name, spd, d),
+    retractLance:                  (name)           => Deno.core.ops.bsengine_retract_lance(name),
+    setLanceBaseDamage:            (name, dmg)      => Deno.core.ops.bsengine_set_lance_base_damage(name, dmg),
+    setLanceSpeedScale:            (name, s)        => Deno.core.ops.bsengine_set_lance_speed_scale(name, s),
+    setLanceSpeedThreshold:        (name, t)        => Deno.core.ops.bsengine_set_lance_speed_threshold(name, t),
+    setLanceEnabled:               (name, en)       => Deno.core.ops.bsengine_set_lance_enabled(name, en),
+
+    isLapsing:                     (name)           => Deno.core.ops.bsengine_is_lapsing(name),
+    getLapseIntervalTimer:         (name)           => Deno.core.ops.bsengine_get_lapse_interval_timer(name),
+    getLapseDurationTimer:         (name)           => Deno.core.ops.bsengine_get_lapse_duration_timer(name),
+    getLapseInterval:              (name)           => Deno.core.ops.bsengine_get_lapse_interval(name),
+    getLapseDuration:              (name)           => Deno.core.ops.bsengine_get_lapse_duration(name),
+    isJustLapsed:                  (name)           => Deno.core.ops.bsengine_is_just_lapsed(name),
+    isJustLapseFocused:            (name)           => Deno.core.ops.bsengine_is_just_lapse_focused(name),
+    isLapseEnabled:                (name)           => Deno.core.ops.bsengine_is_lapse_enabled(name),
+    getLapseFocusFraction:         (name)           => Deno.core.ops.bsengine_get_lapse_focus_fraction(name),
+    resetLapse:                    (name)           => Deno.core.ops.bsengine_reset_lapse(name),
+    setLapseInterval:              (name, i)        => Deno.core.ops.bsengine_set_lapse_interval(name, i),
+    setLapseDuration:              (name, d)        => Deno.core.ops.bsengine_set_lapse_duration(name, d),
+    setLapseEnabled:               (name, en)       => Deno.core.ops.bsengine_set_lapse_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -29401,6 +30328,570 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PrimeJuke { name } if name == "Trickster")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeJuke { name } if name == "Trickster")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJukeEnabled { name, enabled } if name == "Trickster" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_kneel_read_ops() {
+        // (duration, timer, speed_fraction, just_kneeled, just_risen, enabled)
+        super::KNEEL_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Penitent".to_string(), (2.0, 1.5, 0.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isKneeled("Penitent")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getKneelDuration("Penitent")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getKneelTimer("Penitent")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getKneelSpeedFraction("Penitent")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustKneeled("Penitent")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustRisen("Penitent")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isKneelEnabled("Penitent")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isKneeled("Unknown")"#).unwrap(),
+            "false"
+        );
+        super::KNEEL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_kneel_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyKneel("Penitent", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearKneel("Penitent");"#).unwrap();
+        rt.eval(r#"Bsengine.setKneelSpeedFraction("Penitent", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setKneelEnabled("Penitent", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyKneel { name, duration } if name == "Penitent" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearKneel { name } if name == "Penitent")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetKneelSpeedFraction { name, fraction } if name == "Penitent" && (*fraction - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetKneelEnabled { name, enabled } if name == "Penitent" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_knit_read_ops() {
+        // (duration, timer, heal_rate, interruption_threshold, just_began, just_completed, just_interrupted, enabled)
+        super::KNIT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mender".to_string(),
+                (4.0, 2.0, 10.0, 5.0, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isKnitting("Mender")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getKnitDuration("Mender")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getKnitTimer("Mender")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getKnitHealRate("Mender")"#).unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getKnitInterruptionThreshold("Mender")"#)
+                .unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustKnitBegan("Mender")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustKnitCompleted("Mender")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustKnitInterrupted("Mender")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isKnitEnabled("Mender")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isKnitting("Unknown")"#).unwrap(),
+            "false"
+        );
+        super::KNIT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_knit_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginKnit("Mender", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.interruptKnit("Mender", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setKnitHealRate("Mender", 15.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setKnitInterruptionThreshold("Mender", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setKnitEnabled("Mender", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginKnit { name, duration } if name == "Mender" && (*duration - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InterruptKnit { name, damage } if name == "Mender" && (*damage - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetKnitHealRate { name, rate } if name == "Mender" && (*rate - 15.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetKnitInterruptionThreshold { name, threshold } if name == "Mender" && (*threshold - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetKnitEnabled { name, enabled } if name == "Mender" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lacerate_read_ops() {
+        // (stacks, max_stacks, damage_per_stack_per_second, duration, timer, just_lacerated, just_closed, enabled)
+        super::LACERATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Slasher".to_string(),
+                (3u32, 5u32, 2.5, 3.0, 1.5, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLacerateStacks("Slasher")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLacerateMaxStacks("Slasher")"#)
+                .unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLacerateDamagePerStack("Slasher")"#)
+                .unwrap(),
+            "2.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLacerateDuration("Slasher")"#)
+                .unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLacerateTimer("Slasher")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLacerated("Slasher")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLacerateClosed("Slasher")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLacerateEnabled("Slasher")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLacerateStacks("Unknown")"#).unwrap(),
+            "0"
+        );
+        super::LACERATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lacerate_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyLacerate("Slasher", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearLacerate("Slasher");"#).unwrap();
+        rt.eval(r#"Bsengine.setLacerateMaxStacks("Slasher", 8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLacerateDamagePerStack("Slasher", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLacerateEnabled("Slasher", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyLacerate { name, duration } if name == "Slasher" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearLacerate { name } if name == "Slasher")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLacerateMaxStacks { name, max_stacks } if name == "Slasher" && *max_stacks == 8)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLacerateDamagePerStack { name, dps } if name == "Slasher" && (*dps - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLacerateEnabled { name, enabled } if name == "Slasher" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_laden_read_ops() {
+        // (current_load, max_load, speed_penalty, enabled)
+        super::LADEN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Carrier".to_string(), (50.0, 100.0, 0.25, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLadenLoad("Carrier")"#).unwrap(),
+            "50"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLadenMaxLoad("Carrier")"#).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLadenSpeedPenalty("Carrier")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLadenEnabled("Carrier")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverladen("Carrier")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLadenLoadFraction("Carrier")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getLadenLoad("Unknown")"#).unwrap(), "0");
+        super::LADEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_laden_overladen() {
+        super::LADEN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Overburdened".to_string(), (150.0, 100.0, 0.5, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverladen("Overburdened")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLadenLoadFraction("Overburdened")"#)
+                .unwrap(),
+            "1"
+        );
+        super::LADEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_laden_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addLaden("Carrier", 20.0);"#).unwrap();
+        rt.eval(r#"Bsengine.removeLaden("Carrier", 10.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLadenMaxLoad("Carrier", 120.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLadenSpeedPenalty("Carrier", 0.4);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLadenEnabled("Carrier", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddLaden { name, amount } if name == "Carrier" && (*amount - 20.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RemoveLaden { name, amount } if name == "Carrier" && (*amount - 10.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLadenMaxLoad { name, max_load } if name == "Carrier" && (*max_load - 120.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLadenSpeedPenalty { name, penalty } if name == "Carrier" && (*penalty - 0.4).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLadenEnabled { name, enabled } if name == "Carrier" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lament_read_ops() {
+        // (intensity, decay_rate, damage_penalty, speed_penalty, just_lamented, just_recovered, enabled)
+        super::LAMENT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mourner".to_string(),
+                (0.75, 0.125, 0.25, 0.125, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLamentIntensity("Mourner")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLamentDecayRate("Mourner")"#)
+                .unwrap(),
+            "0.125"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLamentDamagePenalty("Mourner")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLamentSpeedPenalty("Mourner")"#)
+                .unwrap(),
+            "0.125"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLamented("Mourner")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLamentRecovered("Mourner")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLamentEnabled("Mourner")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLamentIntensity("Unknown")"#)
+                .unwrap(),
+            "0"
+        );
+        super::LAMENT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lament_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyLament("Mourner", 0.8);"#).unwrap();
+        rt.eval(r#"Bsengine.setLamentDecayRate("Mourner", 0.2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLamentDamagePenalty("Mourner", 0.3);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLamentSpeedPenalty("Mourner", 0.1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLamentEnabled("Mourner", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyLament { name, intensity } if name == "Mourner" && (*intensity - 0.8).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLamentDecayRate { name, rate } if name == "Mourner" && (*rate - 0.2).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLamentDamagePenalty { name, penalty } if name == "Mourner" && (*penalty - 0.3).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLamentSpeedPenalty { name, penalty } if name == "Mourner" && (*penalty - 0.1).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLamentEnabled { name, enabled } if name == "Mourner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lance_read_ops() {
+        // (duration, timer, base_damage, speed_scale, speed_threshold, just_struck, just_ended, enabled)
+        super::LANCE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Charger".to_string(),
+                (1.5, 0.75, 20.0, 0.5, 10.0, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isLancing("Charger")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLanceDuration("Charger")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLanceTimer("Charger")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLanceBaseDamage("Charger")"#)
+                .unwrap(),
+            "20"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLanceSpeedScale("Charger")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLanceSpeedThreshold("Charger")"#)
+                .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLanceStruck("Charger")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLanceEnded("Charger")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLanceEnabled("Charger")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLancing("Unknown")"#).unwrap(),
+            "false"
+        );
+        super::LANCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lance_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.thrustLance("Charger", 15.0, 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.retractLance("Charger");"#).unwrap();
+        rt.eval(r#"Bsengine.setLanceBaseDamage("Charger", 25.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLanceSpeedScale("Charger", 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLanceSpeedThreshold("Charger", 12.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLanceEnabled("Charger", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ThrustLance { name, current_speed, duration } if name == "Charger" && (*current_speed - 15.0).abs() < 1e-5 && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetractLance { name } if name == "Charger")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLanceBaseDamage { name, damage } if name == "Charger" && (*damage - 25.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLanceSpeedScale { name, scale } if name == "Charger" && (*scale - 0.8).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLanceSpeedThreshold { name, threshold } if name == "Charger" && (*threshold - 12.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLanceEnabled { name, enabled } if name == "Charger" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lapse_read_ops() {
+        // (lapsing, interval_timer, duration_timer, interval, lapse_duration, just_lapsed, just_focused, enabled)
+        super::LAPSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Drifter".to_string(),
+                (false, 2.5, 0.0, 5.0, 2.0, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLapsing("Drifter")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLapseIntervalTimer("Drifter")"#)
+                .unwrap(),
+            "2.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLapseDurationTimer("Drifter")"#)
+                .unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLapseInterval("Drifter")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLapseDuration("Drifter")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLapsed("Drifter")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLapseFocused("Drifter")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLapseEnabled("Drifter")"#).unwrap(),
+            "true"
+        );
+        // focus_fraction = 1.0 - (2.5/5.0) = 0.5
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLapseFocusFraction("Drifter")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLapsing("Unknown")"#).unwrap(),
+            "false"
+        );
+        super::LAPSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lapse_focus_fraction_while_lapsing() {
+        super::LAPSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Lapsed".to_string(),
+                (true, 0.0, 1.0, 5.0, 2.0, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isLapsing("Lapsed")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLapseFocusFraction("Lapsed")"#)
+                .unwrap(),
+            "0"
+        );
+        super::LAPSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lapse_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.resetLapse("Drifter");"#).unwrap();
+        rt.eval(r#"Bsengine.setLapseInterval("Drifter", 6.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLapseDuration("Drifter", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLapseEnabled("Drifter", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetLapse { name } if name == "Drifter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLapseInterval { name, interval } if name == "Drifter" && (*interval - 6.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLapseDuration { name, duration } if name == "Drifter" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLapseEnabled { name, enabled } if name == "Drifter" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

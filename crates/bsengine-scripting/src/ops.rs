@@ -622,6 +622,22 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetGridSnapCellSize {
+        name: String,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+    },
+    SetGridSnapOffset {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    SetGridSnapEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1238,6 +1254,10 @@ thread_local! {
 
     // entity name → (color_r, color_g, color_b, color_a, intensity, contributes_to_bloom, enabled)
     pub(crate) static EMISSIVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (cell_x, cell_y, cell_z, off_x, off_y, off_z, enabled)
+    pub(crate) static GRID_SNAP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -4657,6 +4677,100 @@ pub fn bsengine_is_emissive_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_grid_snap_cell_size(#[string] name: String, vx: f32, vy: f32, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGridSnapCellSize { name, vx, vy, vz })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_grid_snap_offset(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGridSnapOffset { name, x, y, z })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_grid_snap_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGridSnapEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grid_snap_cell_size_x(#[string] name: String) -> f32 {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cx, _, _, _, _, _, _)| *cx)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grid_snap_cell_size_y(#[string] name: String) -> f32 {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, cy, _, _, _, _, _)| *cy)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grid_snap_cell_size_z(#[string] name: String) -> f32 {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, cz, _, _, _, _)| *cz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grid_snap_offset_x(#[string] name: String) -> f32 {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ox, _, _, _)| *ox)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grid_snap_offset_y(#[string] name: String) -> f32 {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, oy, _, _)| *oy)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grid_snap_offset_z(#[string] name: String) -> f32 {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, oz, _)| *oz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_grid_snap_enabled(#[string] name: String) -> bool {
+    GRID_SNAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5865,6 +5979,16 @@ deno_core::extension!(
         bsengine_get_emissive_intensity,
         bsengine_is_emissive_contributes_to_bloom,
         bsengine_is_emissive_enabled,
+        bsengine_set_grid_snap_cell_size,
+        bsengine_set_grid_snap_offset,
+        bsengine_set_grid_snap_enabled,
+        bsengine_get_grid_snap_cell_size_x,
+        bsengine_get_grid_snap_cell_size_y,
+        bsengine_get_grid_snap_cell_size_z,
+        bsengine_get_grid_snap_offset_x,
+        bsengine_get_grid_snap_offset_y,
+        bsengine_get_grid_snap_offset_z,
+        bsengine_is_grid_snap_enabled,
     ],
 );
 
@@ -6268,6 +6392,16 @@ const Bsengine = {
     getEmissiveIntensity:   (name)          => Deno.core.ops.bsengine_get_emissive_intensity(name),
     isEmissiveContributesToBloom:(name)     => Deno.core.ops.bsengine_is_emissive_contributes_to_bloom(name),
     isEmissiveEnabled:      (name)          => Deno.core.ops.bsengine_is_emissive_enabled(name),
+    setGridSnapCellSize:    (name, vx, vy, vz) => Deno.core.ops.bsengine_set_grid_snap_cell_size(name, vx, vy, vz),
+    setGridSnapOffset:      (name, x, y, z) => Deno.core.ops.bsengine_set_grid_snap_offset(name, x, y, z),
+    setGridSnapEnabled:     (name, v)       => Deno.core.ops.bsengine_set_grid_snap_enabled(name, v),
+    getGridSnapCellSizeX:   (name)          => Deno.core.ops.bsengine_get_grid_snap_cell_size_x(name),
+    getGridSnapCellSizeY:   (name)          => Deno.core.ops.bsengine_get_grid_snap_cell_size_y(name),
+    getGridSnapCellSizeZ:   (name)          => Deno.core.ops.bsengine_get_grid_snap_cell_size_z(name),
+    getGridSnapOffsetX:     (name)          => Deno.core.ops.bsengine_get_grid_snap_offset_x(name),
+    getGridSnapOffsetY:     (name)          => Deno.core.ops.bsengine_get_grid_snap_offset_y(name),
+    getGridSnapOffsetZ:     (name)          => Deno.core.ops.bsengine_get_grid_snap_offset_z(name),
+    isGridSnapEnabled:      (name)          => Deno.core.ops.bsengine_is_grid_snap_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -12350,5 +12484,67 @@ JSON.stringify(received)
         let en = rt.eval(r#"Bsengine.isEmissiveEnabled("Light");"#).unwrap();
         assert_eq!(en.trim(), "true");
         super::EMISSIVE_SNAPSHOT.with(|s| s.borrow_mut().remove("Light"));
+    }
+
+    #[test]
+    fn grid_snap_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setGridSnapCellSize("Tile", 2.0, 2.0, 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setGridSnapOffset("Tile", 0.5, 0.0, 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setGridSnapEnabled("Tile", false);"#)
+            .unwrap();
+        let cmds: Vec<_> = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        assert_eq!(cmds.len(), 3);
+        assert!(matches!(
+            &cmds[0],
+            super::ScriptCommand::SetGridSnapCellSize { name, vx, .. }
+                if name == "Tile" && (*vx - 2.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[1],
+            super::ScriptCommand::SetGridSnapOffset { name, x, .. }
+                if name == "Tile" && (*x - 0.5).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[2],
+            super::ScriptCommand::SetGridSnapEnabled { name, enabled: false }
+                if name == "Tile"
+        ));
+    }
+
+    #[test]
+    fn grid_snap_snapshot_read_ops() {
+        // cell_size=(2,2,2), offset=(0.5,0,0.5), enabled=true
+        super::GRID_SNAP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Tile".to_string(),
+                (2.0_f32, 2.0_f32, 2.0_f32, 0.5_f32, 0.0_f32, 0.5_f32, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let cx = rt
+            .eval(r#"Bsengine.getGridSnapCellSizeX("Tile");"#)
+            .unwrap();
+        assert!((cx.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let cy = rt
+            .eval(r#"Bsengine.getGridSnapCellSizeY("Tile");"#)
+            .unwrap();
+        assert!((cy.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let cz = rt
+            .eval(r#"Bsengine.getGridSnapCellSizeZ("Tile");"#)
+            .unwrap();
+        assert!((cz.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let ox = rt.eval(r#"Bsengine.getGridSnapOffsetX("Tile");"#).unwrap();
+        assert!((ox.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let oz = rt.eval(r#"Bsengine.getGridSnapOffsetZ("Tile");"#).unwrap();
+        assert!((oz.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isGridSnapEnabled("Tile");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        super::GRID_SNAP_SNAPSHOT.with(|s| s.borrow_mut().remove("Tile"));
     }
 }

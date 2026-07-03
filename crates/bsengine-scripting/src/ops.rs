@@ -2389,6 +2389,155 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetMagnetMode {
+        name: String,
+        mode_u32: u32,
+    },
+    SetMagnetRadius {
+        name: String,
+        radius: f32,
+    },
+    SetMagnetStrength {
+        name: String,
+        strength: f32,
+    },
+    SetMagnetFalloff {
+        name: String,
+        falloff: f32,
+    },
+    SetMagnetAffectsProjectiles {
+        name: String,
+        affects: bool,
+    },
+    SetMagnetAffectsEntities {
+        name: String,
+        affects: bool,
+    },
+    SetMagnetEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyMaim {
+        name: String,
+        amount: u32,
+    },
+    HealMaim {
+        name: String,
+        amount: u32,
+    },
+    SetMaimMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetMaimSpeedFractionPerStack {
+        name: String,
+        fraction: f32,
+    },
+    SetMaimBleedPerStackPerSecond {
+        name: String,
+        bleed: f32,
+    },
+    SetMaimEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddMaliceStack {
+        name: String,
+    },
+    ClearMalice {
+        name: String,
+    },
+    SetMaliceMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetMaliceDamageAmplifyPerStack {
+        name: String,
+        amplify: f32,
+    },
+    SetMaliceDecayInterval {
+        name: String,
+        interval: f32,
+    },
+    SetMaliceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyMark {
+        name: String,
+        kind: u32,
+        bonus: f32,
+        duration: f32,
+    },
+    ClearMarks {
+        name: String,
+    },
+    SetMarkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeginMelee {
+        name: String,
+        dir_x: f32,
+        dir_y: f32,
+        dir_z: f32,
+    },
+    SetMeleeReach {
+        name: String,
+        reach: f32,
+    },
+    SetMeleeArcAngle {
+        name: String,
+        angle: f32,
+    },
+    SetMeleeWindupTime {
+        name: String,
+        time: f32,
+    },
+    SetMeleeActiveTime {
+        name: String,
+        time: f32,
+    },
+    SetMeleeRecoveryTime {
+        name: String,
+        time: f32,
+    },
+    SetMeleeMaxHits {
+        name: String,
+        max_hits: u32,
+    },
+    SetMeleeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    MendHealth {
+        name: String,
+        amount: f32,
+    },
+    SetMendRate {
+        name: String,
+        rate: f32,
+    },
+    SetMendEnabled {
+        name: String,
+        enabled: bool,
+    },
+    MergeWith {
+        name: String,
+        amount: f32,
+    },
+    SetMergeCanMerge {
+        name: String,
+        can_merge: bool,
+    },
+    SetMergeMaxWeight {
+        name: String,
+        max_weight: f32,
+    },
+    SetMergeEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -3383,6 +3532,36 @@ thread_local! {
     // entity name → (detection_range_fraction, ambush_multiplier, lurking, just_lurked, just_struck, enabled)
     pub(crate) static LURK_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (mode_u32, radius, strength, falloff, affects_projectiles, affects_entities, enabled)
+    // MagnetMode: Attract=0, Repel=1
+    pub(crate) static MAGNET_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, speed_fraction_per_stack, bleed_per_stack_per_second, just_maimed, just_healed, enabled)
+    pub(crate) static MAIM_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, damage_amplify_per_stack, decay_interval, decay_timer, just_stacked, just_cleared, enabled)
+    pub(crate) static MALICE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (mark_count, total_damage_bonus, just_marked, just_unmarked, enabled)
+    pub(crate) static MARK_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (phase_u32, dir_x, dir_y, dir_z, reach, arc_angle, windup_time, active_time, recovery_time, timer, hit_count, max_hits, combo_step, combo_buffered, can_cancel_recovery, enabled)
+    // MeleePhase: Idle=0, Windup=1, Active=2, Recovery=3
+    pub(crate) static MELEE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, u32, u32, u32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (mend_pool, rate, just_depleted, enabled)
+    pub(crate) static MEND_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (can_merge, merge_weight, max_weight, just_merged, enabled)
+    pub(crate) static MERGE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -16553,6 +16732,635 @@ pub fn bsengine_set_lurk_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Magnet ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_magnet_mode(#[string] name: String) -> u32 {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_magnet_attracting(#[string] name: String) -> bool {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 0).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_magnet_radius(#[string] name: String) -> f32 {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_magnet_strength(#[string] name: String) -> f32 {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_magnet_falloff(#[string] name: String) -> f32 {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(2.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_does_magnet_affect_projectiles(#[string] name: String) -> bool {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_does_magnet_affect_entities(#[string] name: String) -> bool {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_magnet_enabled(#[string] name: String) -> bool {
+    MAGNET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_mode(#[string] name: String, mode_u32: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetMode { name, mode_u32 })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_strength(#[string] name: String, strength: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetStrength { name, strength })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_falloff(#[string] name: String, falloff: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetFalloff { name, falloff })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_affects_projectiles(#[string] name: String, affects: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetAffectsProjectiles { name, affects })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_affects_entities(#[string] name: String, affects: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetAffectsEntities { name, affects })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_magnet_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMagnetEnabled { name, enabled })
+    });
+}
+
+// ── Maim ──────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_maim_stacks(#[string] name: String) -> u32 {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_maim_max_stacks(#[string] name: String) -> u32 {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(1))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_maim_speed_fraction_per_stack(#[string] name: String) -> f32 {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_maim_bleed_per_stack_per_second(#[string] name: String) -> f32 {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_maimed(#[string] name: String) -> bool {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_maim_healed(#[string] name: String) -> bool {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_maim_enabled(#[string] name: String) -> bool {
+    MAIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_maim_speed_penalty(#[string] name: String) -> f32 {
+    MAIM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| (v.0 as f32 * v.2).min(1.0))
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_maim(#[string] name: String, amount: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyMaim { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_heal_maim(#[string] name: String, amount: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HealMaim { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_maim_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaimMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_maim_speed_fraction_per_stack(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaimSpeedFractionPerStack { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_maim_bleed_per_stack_per_second(#[string] name: String, bleed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaimBleedPerStackPerSecond { name, bleed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_maim_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaimEnabled { name, enabled })
+    });
+}
+
+// ── Malice ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_malice_stacks(#[string] name: String) -> u32 {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_malice_max_stacks(#[string] name: String) -> u32 {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(1))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_malice_damage_amplify_per_stack(#[string] name: String) -> f32 {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_malice_decay_interval(#[string] name: String) -> f32 {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_malice_decay_timer(#[string] name: String) -> f32 {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_malice_stacked(#[string] name: String) -> bool {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_malice_cleared(#[string] name: String) -> bool {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_malice_enabled(#[string] name: String) -> bool {
+    MALICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_malice_total_multiplier(#[string] name: String) -> f32 {
+    MALICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| 1.0 + v.0 as f32 * v.2)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_malice_stack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AddMaliceStack { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_malice(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearMalice { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_malice_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaliceMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_malice_damage_amplify_per_stack(#[string] name: String, amplify: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaliceDamageAmplifyPerStack { name, amplify })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_malice_decay_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaliceDecayInterval { name, interval })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_malice_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaliceEnabled { name, enabled })
+    });
+}
+
+// ── Mark ──────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_mark_count(#[string] name: String) -> u32 {
+    MARK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mark_total_damage_bonus(#[string] name: String) -> f32 {
+    MARK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_marked(#[string] name: String) -> bool {
+    MARK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 > 0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_marked(#[string] name: String) -> bool {
+    MARK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_unmarked(#[string] name: String) -> bool {
+    MARK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_mark_enabled(#[string] name: String) -> bool {
+    MARK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_mark(#[string] name: String, kind: u32, bonus: f32, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyMark {
+            name,
+            kind,
+            bonus,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_marks(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearMarks { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mark_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMarkEnabled { name, enabled })
+    });
+}
+
+// ── Melee ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_melee_phase(#[string] name: String) -> u32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_melee_idle(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 0).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_melee_winding_up(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 1).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_melee_active(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_melee_in_recovery(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_dir_x(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_dir_y(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_dir_z(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_reach(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_arc_angle(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_windup_time(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_active_time(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_recovery_time(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_timer(#[string] name: String) -> f32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_hit_count(#[string] name: String) -> u32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_max_hits(#[string] name: String) -> u32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_melee_combo_step(#[string] name: String) -> u32 {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.12).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_melee_combo_buffered(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.13).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_can_cancel_melee_recovery(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.14).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_melee_enabled(#[string] name: String) -> bool {
+    MELEE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.15).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_begin_melee(#[string] name: String, dir_x: f32, dir_y: f32, dir_z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::BeginMelee {
+            name,
+            dir_x,
+            dir_y,
+            dir_z,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_reach(#[string] name: String, reach: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeReach { name, reach })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_arc_angle(#[string] name: String, angle: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeArcAngle { name, angle })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_windup_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeWindupTime { name, time })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_active_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeActiveTime { name, time })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_recovery_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeRecoveryTime { name, time })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_max_hits(#[string] name: String, max_hits: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeMaxHits { name, max_hits })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_melee_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeleeEnabled { name, enabled })
+    });
+}
+
+// ── Mend ──────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_mend_pool(#[string] name: String) -> f32 {
+    MEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mend_rate(#[string] name: String) -> f32 {
+    MEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_mend_depleted(#[string] name: String) -> bool {
+    MEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_mend_enabled(#[string] name: String) -> bool {
+    MEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_mend_health(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MendHealth { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mend_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMendRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mend_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMendEnabled { name, enabled })
+    });
+}
+
+// ── Merge ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_can_merge(#[string] name: String) -> bool {
+    MERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_merge_weight(#[string] name: String) -> f32 {
+    MERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_merge_max_weight(#[string] name: String) -> f32 {
+    MERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_merged(#[string] name: String) -> bool {
+    MERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_merge_enabled(#[string] name: String) -> bool {
+    MERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_merge_weight_fraction(#[string] name: String) -> f32 {
+    MERGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| if v.2 > 0.0 { v.1 / v.2 } else { 0.0 })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_merge_with(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MergeWith { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_merge_can_merge(#[string] name: String, can_merge: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMergeCanMerge { name, can_merge })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_merge_max_weight(#[string] name: String, max_weight: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMergeMaxWeight { name, max_weight })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_merge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMergeEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -18467,6 +19275,104 @@ deno_core::extension!(
         bsengine_set_lurk_detection_range_fraction,
         bsengine_set_lurk_ambush_multiplier,
         bsengine_set_lurk_enabled,
+        bsengine_get_magnet_mode,
+        bsengine_is_magnet_attracting,
+        bsengine_get_magnet_radius,
+        bsengine_get_magnet_strength,
+        bsengine_get_magnet_falloff,
+        bsengine_does_magnet_affect_projectiles,
+        bsengine_does_magnet_affect_entities,
+        bsengine_is_magnet_enabled,
+        bsengine_set_magnet_mode,
+        bsengine_set_magnet_radius,
+        bsengine_set_magnet_strength,
+        bsengine_set_magnet_falloff,
+        bsengine_set_magnet_affects_projectiles,
+        bsengine_set_magnet_affects_entities,
+        bsengine_set_magnet_enabled,
+        bsengine_get_maim_stacks,
+        bsengine_get_maim_max_stacks,
+        bsengine_get_maim_speed_fraction_per_stack,
+        bsengine_get_maim_bleed_per_stack_per_second,
+        bsengine_is_just_maimed,
+        bsengine_is_just_maim_healed,
+        bsengine_is_maim_enabled,
+        bsengine_get_maim_speed_penalty,
+        bsengine_apply_maim,
+        bsengine_heal_maim,
+        bsengine_set_maim_max_stacks,
+        bsengine_set_maim_speed_fraction_per_stack,
+        bsengine_set_maim_bleed_per_stack_per_second,
+        bsengine_set_maim_enabled,
+        bsengine_get_malice_stacks,
+        bsengine_get_malice_max_stacks,
+        bsengine_get_malice_damage_amplify_per_stack,
+        bsengine_get_malice_decay_interval,
+        bsengine_get_malice_decay_timer,
+        bsengine_is_just_malice_stacked,
+        bsengine_is_just_malice_cleared,
+        bsengine_is_malice_enabled,
+        bsengine_get_malice_total_multiplier,
+        bsengine_add_malice_stack,
+        bsengine_clear_malice,
+        bsengine_set_malice_max_stacks,
+        bsengine_set_malice_damage_amplify_per_stack,
+        bsengine_set_malice_decay_interval,
+        bsengine_set_malice_enabled,
+        bsengine_get_mark_count,
+        bsengine_get_mark_total_damage_bonus,
+        bsengine_is_marked,
+        bsengine_is_just_marked,
+        bsengine_is_just_unmarked,
+        bsengine_is_mark_enabled,
+        bsengine_apply_mark,
+        bsengine_clear_marks,
+        bsengine_set_mark_enabled,
+        bsengine_get_melee_phase,
+        bsengine_is_melee_idle,
+        bsengine_is_melee_winding_up,
+        bsengine_is_melee_active,
+        bsengine_is_melee_in_recovery,
+        bsengine_get_melee_dir_x,
+        bsengine_get_melee_dir_y,
+        bsengine_get_melee_dir_z,
+        bsengine_get_melee_reach,
+        bsengine_get_melee_arc_angle,
+        bsengine_get_melee_windup_time,
+        bsengine_get_melee_active_time,
+        bsengine_get_melee_recovery_time,
+        bsengine_get_melee_timer,
+        bsengine_get_melee_hit_count,
+        bsengine_get_melee_max_hits,
+        bsengine_get_melee_combo_step,
+        bsengine_is_melee_combo_buffered,
+        bsengine_can_cancel_melee_recovery,
+        bsengine_is_melee_enabled,
+        bsengine_begin_melee,
+        bsengine_set_melee_reach,
+        bsengine_set_melee_arc_angle,
+        bsengine_set_melee_windup_time,
+        bsengine_set_melee_active_time,
+        bsengine_set_melee_recovery_time,
+        bsengine_set_melee_max_hits,
+        bsengine_set_melee_enabled,
+        bsengine_get_mend_pool,
+        bsengine_get_mend_rate,
+        bsengine_is_just_mend_depleted,
+        bsengine_is_mend_enabled,
+        bsengine_mend_health,
+        bsengine_set_mend_rate,
+        bsengine_set_mend_enabled,
+        bsengine_can_merge,
+        bsengine_get_merge_weight,
+        bsengine_get_merge_max_weight,
+        bsengine_is_just_merged,
+        bsengine_is_merge_enabled,
+        bsengine_get_merge_weight_fraction,
+        bsengine_merge_with,
+        bsengine_set_merge_can_merge,
+        bsengine_set_merge_max_weight,
+        bsengine_set_merge_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -20502,6 +21408,111 @@ const Bsengine = {
     setLurkDetectionRangeFraction: (name, f)        => Deno.core.ops.bsengine_set_lurk_detection_range_fraction(name, f),
     setLurkAmbushMultiplier:       (name, m)        => Deno.core.ops.bsengine_set_lurk_ambush_multiplier(name, m),
     setLurkEnabled:                (name, en)       => Deno.core.ops.bsengine_set_lurk_enabled(name, en),
+
+    getMagnetMode:                 (name)           => Deno.core.ops.bsengine_get_magnet_mode(name),
+    isMagnetAttracting:            (name)           => Deno.core.ops.bsengine_is_magnet_attracting(name),
+    getMagnetRadius:               (name)           => Deno.core.ops.bsengine_get_magnet_radius(name),
+    getMagnetStrength:             (name)           => Deno.core.ops.bsengine_get_magnet_strength(name),
+    getMagnetFalloff:              (name)           => Deno.core.ops.bsengine_get_magnet_falloff(name),
+    doesMagnetAffectProjectiles:   (name)           => Deno.core.ops.bsengine_does_magnet_affect_projectiles(name),
+    doesMagnetAffectEntities:      (name)           => Deno.core.ops.bsengine_does_magnet_affect_entities(name),
+    isMagnetEnabled:               (name)           => Deno.core.ops.bsengine_is_magnet_enabled(name),
+    setMagnetMode:                 (name, m)        => Deno.core.ops.bsengine_set_magnet_mode(name, m),
+    setMagnetRadius:               (name, r)        => Deno.core.ops.bsengine_set_magnet_radius(name, r),
+    setMagnetStrength:             (name, s)        => Deno.core.ops.bsengine_set_magnet_strength(name, s),
+    setMagnetFalloff:              (name, f)        => Deno.core.ops.bsengine_set_magnet_falloff(name, f),
+    setMagnetAffectsProjectiles:   (name, v)        => Deno.core.ops.bsengine_set_magnet_affects_projectiles(name, v),
+    setMagnetAffectsEntities:      (name, v)        => Deno.core.ops.bsengine_set_magnet_affects_entities(name, v),
+    setMagnetEnabled:              (name, en)       => Deno.core.ops.bsengine_set_magnet_enabled(name, en),
+
+    getMaimStacks:                 (name)           => Deno.core.ops.bsengine_get_maim_stacks(name),
+    getMaimMaxStacks:              (name)           => Deno.core.ops.bsengine_get_maim_max_stacks(name),
+    getMaimSpeedFractionPerStack:  (name)           => Deno.core.ops.bsengine_get_maim_speed_fraction_per_stack(name),
+    getMaimBleedPerStackPerSecond: (name)           => Deno.core.ops.bsengine_get_maim_bleed_per_stack_per_second(name),
+    isJustMaimed:                  (name)           => Deno.core.ops.bsengine_is_just_maimed(name),
+    isJustMaimHealed:              (name)           => Deno.core.ops.bsengine_is_just_maim_healed(name),
+    isMaimEnabled:                 (name)           => Deno.core.ops.bsengine_is_maim_enabled(name),
+    getMaimSpeedPenalty:           (name)           => Deno.core.ops.bsengine_get_maim_speed_penalty(name),
+    applyMaim:                     (name, n)        => Deno.core.ops.bsengine_apply_maim(name, n),
+    healMaim:                      (name, n)        => Deno.core.ops.bsengine_heal_maim(name, n),
+    setMaimMaxStacks:              (name, n)        => Deno.core.ops.bsengine_set_maim_max_stacks(name, n),
+    setMaimSpeedFractionPerStack:  (name, f)        => Deno.core.ops.bsengine_set_maim_speed_fraction_per_stack(name, f),
+    setMaimBleedPerStackPerSecond: (name, b)        => Deno.core.ops.bsengine_set_maim_bleed_per_stack_per_second(name, b),
+    setMaimEnabled:                (name, en)       => Deno.core.ops.bsengine_set_maim_enabled(name, en),
+
+    getMaliceStacks:               (name)           => Deno.core.ops.bsengine_get_malice_stacks(name),
+    getMaliceMaxStacks:            (name)           => Deno.core.ops.bsengine_get_malice_max_stacks(name),
+    getMaliceDamageAmplifyPerStack:(name)           => Deno.core.ops.bsengine_get_malice_damage_amplify_per_stack(name),
+    getMaliceDecayInterval:        (name)           => Deno.core.ops.bsengine_get_malice_decay_interval(name),
+    getMaliceDecayTimer:           (name)           => Deno.core.ops.bsengine_get_malice_decay_timer(name),
+    isJustMaliceStacked:           (name)           => Deno.core.ops.bsengine_is_just_malice_stacked(name),
+    isJustMaliceCleared:           (name)           => Deno.core.ops.bsengine_is_just_malice_cleared(name),
+    isMaliceEnabled:               (name)           => Deno.core.ops.bsengine_is_malice_enabled(name),
+    getMaliceTotalMultiplier:      (name)           => Deno.core.ops.bsengine_get_malice_total_multiplier(name),
+    addMaliceStack:                (name)           => Deno.core.ops.bsengine_add_malice_stack(name),
+    clearMalice:                   (name)           => Deno.core.ops.bsengine_clear_malice(name),
+    setMaliceMaxStacks:            (name, n)        => Deno.core.ops.bsengine_set_malice_max_stacks(name, n),
+    setMaliceDamageAmplifyPerStack:(name, a)        => Deno.core.ops.bsengine_set_malice_damage_amplify_per_stack(name, a),
+    setMaliceDecayInterval:        (name, i)        => Deno.core.ops.bsengine_set_malice_decay_interval(name, i),
+    setMaliceEnabled:              (name, en)       => Deno.core.ops.bsengine_set_malice_enabled(name, en),
+
+    getMarkCount:                  (name)           => Deno.core.ops.bsengine_get_mark_count(name),
+    getMarkTotalDamageBonus:       (name)           => Deno.core.ops.bsengine_get_mark_total_damage_bonus(name),
+    isMarked:                      (name)           => Deno.core.ops.bsengine_is_marked(name),
+    isJustMarked:                  (name)           => Deno.core.ops.bsengine_is_just_marked(name),
+    isJustUnmarked:                (name)           => Deno.core.ops.bsengine_is_just_unmarked(name),
+    isMarkEnabled:                 (name)           => Deno.core.ops.bsengine_is_mark_enabled(name),
+    applyMark:                 (name, k, b, d)      => Deno.core.ops.bsengine_apply_mark(name, k, b, d),
+    clearMarks:                    (name)           => Deno.core.ops.bsengine_clear_marks(name),
+    setMarkEnabled:                (name, en)       => Deno.core.ops.bsengine_set_mark_enabled(name, en),
+
+    getMeleePhase:                 (name)           => Deno.core.ops.bsengine_get_melee_phase(name),
+    isMeleeIdle:                   (name)           => Deno.core.ops.bsengine_is_melee_idle(name),
+    isMeleeWindingUp:              (name)           => Deno.core.ops.bsengine_is_melee_winding_up(name),
+    isMeleeActive:                 (name)           => Deno.core.ops.bsengine_is_melee_active(name),
+    isMeleeInRecovery:             (name)           => Deno.core.ops.bsengine_is_melee_in_recovery(name),
+    getMeleeDirX:                  (name)           => Deno.core.ops.bsengine_get_melee_dir_x(name),
+    getMeleeDirY:                  (name)           => Deno.core.ops.bsengine_get_melee_dir_y(name),
+    getMeleeDirZ:                  (name)           => Deno.core.ops.bsengine_get_melee_dir_z(name),
+    getMeleeReach:                 (name)           => Deno.core.ops.bsengine_get_melee_reach(name),
+    getMeleeArcAngle:              (name)           => Deno.core.ops.bsengine_get_melee_arc_angle(name),
+    getMeleeWindupTime:            (name)           => Deno.core.ops.bsengine_get_melee_windup_time(name),
+    getMeleeActiveTime:            (name)           => Deno.core.ops.bsengine_get_melee_active_time(name),
+    getMeleeRecoveryTime:          (name)           => Deno.core.ops.bsengine_get_melee_recovery_time(name),
+    getMeleeTimer:                 (name)           => Deno.core.ops.bsengine_get_melee_timer(name),
+    getMeleeHitCount:              (name)           => Deno.core.ops.bsengine_get_melee_hit_count(name),
+    getMeleeMaxHits:               (name)           => Deno.core.ops.bsengine_get_melee_max_hits(name),
+    getMeleeComboStep:             (name)           => Deno.core.ops.bsengine_get_melee_combo_step(name),
+    isMeleeComboBuffered:          (name)           => Deno.core.ops.bsengine_is_melee_combo_buffered(name),
+    canCancelMeleeRecovery:        (name)           => Deno.core.ops.bsengine_can_cancel_melee_recovery(name),
+    isMeleeEnabled:                (name)           => Deno.core.ops.bsengine_is_melee_enabled(name),
+    beginMelee:          (name, dx, dy, dz)         => Deno.core.ops.bsengine_begin_melee(name, dx, dy, dz),
+    setMeleeReach:                 (name, r)        => Deno.core.ops.bsengine_set_melee_reach(name, r),
+    setMeleeArcAngle:              (name, a)        => Deno.core.ops.bsengine_set_melee_arc_angle(name, a),
+    setMeleeWindupTime:            (name, t)        => Deno.core.ops.bsengine_set_melee_windup_time(name, t),
+    setMeleeActiveTime:            (name, t)        => Deno.core.ops.bsengine_set_melee_active_time(name, t),
+    setMeleeRecoveryTime:          (name, t)        => Deno.core.ops.bsengine_set_melee_recovery_time(name, t),
+    setMeleeMaxHits:               (name, n)        => Deno.core.ops.bsengine_set_melee_max_hits(name, n),
+    setMeleeEnabled:               (name, en)       => Deno.core.ops.bsengine_set_melee_enabled(name, en),
+
+    getMendPool:                   (name)           => Deno.core.ops.bsengine_get_mend_pool(name),
+    getMendRate:                   (name)           => Deno.core.ops.bsengine_get_mend_rate(name),
+    isJustMendDepleted:            (name)           => Deno.core.ops.bsengine_is_just_mend_depleted(name),
+    isMendEnabled:                 (name)           => Deno.core.ops.bsengine_is_mend_enabled(name),
+    mendHealth:                    (name, a)        => Deno.core.ops.bsengine_mend_health(name, a),
+    setMendRate:                   (name, r)        => Deno.core.ops.bsengine_set_mend_rate(name, r),
+    setMendEnabled:                (name, en)       => Deno.core.ops.bsengine_set_mend_enabled(name, en),
+
+    canMerge:                      (name)           => Deno.core.ops.bsengine_can_merge(name),
+    getMergeWeight:                (name)           => Deno.core.ops.bsengine_get_merge_weight(name),
+    getMergeMaxWeight:             (name)           => Deno.core.ops.bsengine_get_merge_max_weight(name),
+    isJustMerged:                  (name)           => Deno.core.ops.bsengine_is_just_merged(name),
+    isMergeEnabled:                (name)           => Deno.core.ops.bsengine_is_merge_enabled(name),
+    getMergeWeightFraction:        (name)           => Deno.core.ops.bsengine_get_merge_weight_fraction(name),
+    mergeWith:                     (name, a)        => Deno.core.ops.bsengine_merge_with(name, a),
+    setMergeCanMerge:              (name, v)        => Deno.core.ops.bsengine_set_merge_can_merge(name, v),
+    setMergeMaxWeight:             (name, w)        => Deno.core.ops.bsengine_set_merge_max_weight(name, w),
+    setMergeEnabled:               (name, en)       => Deno.core.ops.bsengine_set_merge_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -32550,6 +33561,500 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLurkDetectionRangeFraction { name, fraction } if name == "Shadow" && (*fraction - 0.5).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLurkAmbushMultiplier { name, multiplier } if name == "Shadow" && (*multiplier - 3.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLurkEnabled { name, enabled } if name == "Shadow" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_magnet_read_ops() {
+        // (mode_u32, radius, strength, falloff, affects_projectiles, affects_entities, enabled)
+        super::MAGNET_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Lodestone".to_string(),
+                (0, 5.0, 2.0, 0.5, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMagnetMode("Lodestone")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMagnetAttracting("Lodestone")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMagnetRadius("Lodestone")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMagnetStrength("Lodestone")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMagnetFalloff("Lodestone")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesMagnetAffectProjectiles("Lodestone")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesMagnetAffectEntities("Lodestone")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMagnetEnabled("Lodestone")"#).unwrap(),
+            "true"
+        );
+        super::MAGNET_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_magnet_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMagnetMode("Lodestone", 1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMagnetRadius("Lodestone", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMagnetStrength("Lodestone", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMagnetFalloff("Lodestone", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMagnetAffectsProjectiles("Lodestone", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMagnetAffectsEntities("Lodestone", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMagnetEnabled("Lodestone", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetMode { name, mode_u32 } if name == "Lodestone" && *mode_u32 == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetRadius { name, radius } if name == "Lodestone" && (*radius - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetStrength { name, strength } if name == "Lodestone" && (*strength - 1.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetFalloff { name, falloff } if name == "Lodestone" && (*falloff - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetAffectsProjectiles { name, affects } if name == "Lodestone" && *affects)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetAffectsEntities { name, affects } if name == "Lodestone" && !affects)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMagnetEnabled { name, enabled } if name == "Lodestone" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_maim_read_ops() {
+        // (stacks, max_stacks, speed_fraction_per_stack, bleed_per_stack_per_second, just_maimed, just_healed, enabled)
+        super::MAIM_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Cripple".to_string(), (3, 5, 0.25, 0.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaimStacks("Cripple")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaimMaxStacks("Cripple")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaimSpeedFractionPerStack("Cripple")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaimBleedPerStackPerSecond("Cripple")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMaimed("Cripple")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMaimHealed("Cripple")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMaimEnabled("Cripple")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaimSpeedPenalty("Cripple")"#)
+                .unwrap(),
+            "0.75"
+        );
+        super::MAIM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_maim_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyMaim("Cripple", 2);"#).unwrap();
+        rt.eval(r#"Bsengine.healMaim("Cripple", 1);"#).unwrap();
+        rt.eval(r#"Bsengine.setMaimMaxStacks("Cripple", 8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMaimSpeedFractionPerStack("Cripple", 0.125);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMaimBleedPerStackPerSecond("Cripple", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMaimEnabled("Cripple", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyMaim { name, amount } if name == "Cripple" && *amount == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HealMaim { name, amount } if name == "Cripple" && *amount == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaimMaxStacks { name, max_stacks } if name == "Cripple" && *max_stacks == 8)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaimSpeedFractionPerStack { name, fraction } if name == "Cripple" && (*fraction - 0.125).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaimBleedPerStackPerSecond { name, bleed } if name == "Cripple" && (*bleed - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaimEnabled { name, enabled } if name == "Cripple" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_malice_read_ops() {
+        // (stacks, max_stacks, damage_amplify_per_stack, decay_interval, decay_timer, just_stacked, just_cleared, enabled)
+        super::MALICE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fury".to_string(),
+                (2, 8, 0.25, 4.0, 1.5, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMaliceStacks("Fury")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaliceMaxStacks("Fury")"#).unwrap(),
+            "8"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaliceDamageAmplifyPerStack("Fury")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaliceDecayInterval("Fury")"#)
+                .unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaliceDecayTimer("Fury")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMaliceStacked("Fury")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMaliceCleared("Fury")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMaliceEnabled("Fury")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMaliceTotalMultiplier("Fury")"#)
+                .unwrap(),
+            "1.5"
+        );
+        super::MALICE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_malice_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addMaliceStack("Fury");"#).unwrap();
+        rt.eval(r#"Bsengine.clearMalice("Fury");"#).unwrap();
+        rt.eval(r#"Bsengine.setMaliceMaxStacks("Fury", 10);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMaliceDamageAmplifyPerStack("Fury", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMaliceDecayInterval("Fury", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMaliceEnabled("Fury", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddMaliceStack { name } if name == "Fury")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearMalice { name } if name == "Fury")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaliceMaxStacks { name, max_stacks } if name == "Fury" && *max_stacks == 10)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaliceDamageAmplifyPerStack { name, amplify } if name == "Fury" && (*amplify - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaliceDecayInterval { name, interval } if name == "Fury" && (*interval - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaliceEnabled { name, enabled } if name == "Fury" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mark_read_ops() {
+        // (mark_count, total_damage_bonus, just_marked, just_unmarked, enabled)
+        super::MARK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Quarry".to_string(), (2, 0.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMarkCount("Quarry")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMarkTotalDamageBonus("Quarry")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.isMarked("Quarry")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMarked("Quarry")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustUnmarked("Quarry")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMarkEnabled("Quarry")"#).unwrap(),
+            "true"
+        );
+        super::MARK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mark_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyMark("Quarry", 1, 0.5, 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearMarks("Quarry");"#).unwrap();
+        rt.eval(r#"Bsengine.setMarkEnabled("Quarry", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyMark { name, kind, bonus, duration } if name == "Quarry" && *kind == 1 && (*bonus - 0.5).abs() < 1e-5 && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearMarks { name } if name == "Quarry")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMarkEnabled { name, enabled } if name == "Quarry" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_melee_read_ops() {
+        // (phase_u32, dir_x, dir_y, dir_z, reach, arc_angle, windup_time, active_time, recovery_time, timer, hit_count, max_hits, combo_step, combo_buffered, can_cancel_recovery, enabled)
+        super::MELEE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sword".to_string(),
+                (
+                    1, 0.5, 0.0, 0.5, 2.0, 90.0, 0.25, 0.5, 0.75, 0.125, 1, 3, 1, true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMeleePhase("Sword")"#).unwrap(), "1");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMeleeIdle("Sword")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMeleeWindingUp("Sword")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMeleeActive("Sword")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMeleeInRecovery("Sword")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getMeleeDirX("Sword")"#).unwrap(), "0.5");
+        assert_eq!(rt.eval(r#"Bsengine.getMeleeDirY("Sword")"#).unwrap(), "0");
+        assert_eq!(rt.eval(r#"Bsengine.getMeleeDirZ("Sword")"#).unwrap(), "0.5");
+        assert_eq!(rt.eval(r#"Bsengine.getMeleeReach("Sword")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeArcAngle("Sword")"#).unwrap(),
+            "90"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeWindupTime("Sword")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeActiveTime("Sword")"#).unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeRecoveryTime("Sword")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeTimer("Sword")"#).unwrap(),
+            "0.125"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeHitCount("Sword")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeMaxHits("Sword")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeleeComboStep("Sword")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMeleeComboBuffered("Sword")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.canCancelMeleeRecovery("Sword")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMeleeEnabled("Sword")"#).unwrap(),
+            "true"
+        );
+        super::MELEE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_melee_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginMelee("Sword", 1.0, 0.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeleeReach("Sword", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setMeleeArcAngle("Sword", 45.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeleeWindupTime("Sword", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeleeActiveTime("Sword", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeleeRecoveryTime("Sword", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeleeMaxHits("Sword", 5);"#).unwrap();
+        rt.eval(r#"Bsengine.setMeleeEnabled("Sword", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginMelee { name, dir_x, dir_y, dir_z } if name == "Sword" && (*dir_x - 1.0).abs() < 1e-5 && (*dir_y).abs() < 1e-5 && (*dir_z).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeReach { name, reach } if name == "Sword" && (*reach - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeArcAngle { name, angle } if name == "Sword" && (*angle - 45.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeWindupTime { name, time } if name == "Sword" && (*time - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeActiveTime { name, time } if name == "Sword" && (*time - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeRecoveryTime { name, time } if name == "Sword" && (*time - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeMaxHits { name, max_hits } if name == "Sword" && *max_hits == 5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeleeEnabled { name, enabled } if name == "Sword" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mend_read_ops() {
+        // (mend_pool, rate, just_depleted, enabled)
+        super::MEND_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Healer".to_string(), (4.0, 0.5, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMendPool("Healer")"#).unwrap(), "4");
+        assert_eq!(rt.eval(r#"Bsengine.getMendRate("Healer")"#).unwrap(), "0.5");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMendDepleted("Healer")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMendEnabled("Healer")"#).unwrap(),
+            "true"
+        );
+        super::MEND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mend_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.mendHealth("Healer", 2.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setMendRate("Healer", 0.25);"#).unwrap();
+        rt.eval(r#"Bsengine.setMendEnabled("Healer", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MendHealth { name, amount } if name == "Healer" && (*amount - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMendRate { name, rate } if name == "Healer" && (*rate - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMendEnabled { name, enabled } if name == "Healer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_merge_read_ops() {
+        // (can_merge, merge_weight, max_weight, just_merged, enabled)
+        super::MERGE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Blob".to_string(), (true, 2.0, 8.0, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.canMerge("Blob")"#).unwrap(), "true");
+        assert_eq!(rt.eval(r#"Bsengine.getMergeWeight("Blob")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMergeMaxWeight("Blob")"#).unwrap(),
+            "8"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMerged("Blob")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMergeEnabled("Blob")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMergeWeightFraction("Blob")"#)
+                .unwrap(),
+            "0.25"
+        );
+        super::MERGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_merge_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.mergeWith("Blob", 1.5);"#).unwrap();
+        rt.eval(r#"Bsengine.setMergeCanMerge("Blob", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMergeMaxWeight("Blob", 16.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMergeEnabled("Blob", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MergeWith { name, amount } if name == "Blob" && (*amount - 1.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMergeCanMerge { name, can_merge } if name == "Blob" && !can_merge)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMergeMaxWeight { name, max_weight } if name == "Blob" && (*max_weight - 16.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMergeEnabled { name, enabled } if name == "Blob" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

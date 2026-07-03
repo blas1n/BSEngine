@@ -32,7 +32,7 @@ use crate::ops::{
     RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
     SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT,
     STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    TINT_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
     WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
@@ -1224,6 +1224,34 @@ fn run_scripts(world: &mut World) {
             );
         }
         BLOOM_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
+    }
+    {
+        use bsengine_core::{Tint, TintMode};
+        let mut tint_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Tint)>();
+        for (_, name, t) in q.iter(world) {
+            let mode_u32 = match t.mode {
+                TintMode::Constant => 0u32,
+                TintMode::Fading => 1u32,
+                TintMode::Pulsing => 2u32,
+            };
+            tint_map.insert(
+                name.0.clone(),
+                (
+                    t.color.x,
+                    t.color.y,
+                    t.color.z,
+                    t.intensity,
+                    mode_u32,
+                    t.fade_rate,
+                    t.pulse_speed,
+                    t.pulse_phase,
+                    t.peak_intensity,
+                    t.enabled,
+                ),
+            );
+        }
+        TINT_SNAPSHOT.with(|s| *s.borrow_mut() = tint_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3342,6 +3370,124 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut b) = world.get_mut::<Bloom>(e) {
                         b.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetTintColor { name, r, g, b } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.color = Vec3::new(r, g, b);
+                    }
+                }
+            }
+            ScriptCommand::SetTintIntensity { name, intensity } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.intensity = intensity.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetTintMode { name, mode } => {
+                use bsengine_core::{Tint, TintMode};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.mode = match mode {
+                            1 => TintMode::Fading,
+                            2 => TintMode::Pulsing,
+                            _ => TintMode::Constant,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetTintFadeRate { name, rate } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.fade_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetTintPulseSpeed { name, speed } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.pulse_speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetTintPeakIntensity { name, peak } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.peak_intensity = peak.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetTintEnabled { name, enabled } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetTint {
+                name,
+                r,
+                g,
+                b,
+                intensity,
+            } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.set(Vec3::new(r, g, b), intensity);
+                    }
+                }
+            }
+            ScriptCommand::ClearTint { name } => {
+                use bsengine_core::Tint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Tint>(e) {
+                        t.clear();
                     }
                 }
             }

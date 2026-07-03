@@ -31,7 +31,8 @@ use crate::ops::{
     RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
     SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT,
     STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1075,6 +1076,25 @@ fn run_scripts(world: &mut World) {
             );
         }
         FOOTSTEP_SNAPSHOT.with(|s| *s.borrow_mut() = fs_map);
+    }
+    {
+        use bsengine_core::Wind;
+        let mut wind_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wind)>();
+        for (name, w) in q.iter(world) {
+            wind_map.insert(
+                name.0.clone(),
+                (
+                    w.velocity.x,
+                    w.velocity.y,
+                    w.velocity.z,
+                    w.turbulence,
+                    w.turbulence_frequency,
+                    w.radius,
+                ),
+            );
+        }
+        WIND_SNAPSHOT.with(|s| *s.borrow_mut() = wind_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2748,6 +2768,55 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut f) = world.get_mut::<Footstep>(e) {
                         f.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetWindVelocity { name, vx, vy, vz } => {
+                use bsengine_core::Wind;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<Wind>(e) {
+                        w.velocity = Vec3::new(vx, vy, vz);
+                    }
+                }
+            }
+            ScriptCommand::SetWindTurbulence { name, turbulence } => {
+                use bsengine_core::Wind;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<Wind>(e) {
+                        w.turbulence = turbulence.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWindTurbulenceFrequency { name, frequency } => {
+                use bsengine_core::Wind;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<Wind>(e) {
+                        w.turbulence_frequency = frequency.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWindRadius { name, radius } => {
+                use bsengine_core::Wind;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<Wind>(e) {
+                        w.radius = radius.max(0.0);
                     }
                 }
             }

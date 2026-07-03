@@ -452,6 +452,31 @@ pub enum ScriptCommand {
         name: String,
         range: f32,
     },
+    FireGrapple {
+        name: String,
+    },
+    RetractGrapple {
+        name: String,
+    },
+    ResetGrapple {
+        name: String,
+    },
+    SetGrappleMaxRange {
+        name: String,
+        range: f32,
+    },
+    SetGrappleHookSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetGrapplePullForce {
+        name: String,
+        force: f32,
+    },
+    SetGrappleEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1034,6 +1059,11 @@ thread_local! {
     // entity name → (speed, gravity_scale, piercing, range, distance_traveled)
     pub(crate) static PROJECTILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, f32, f32)>> =
         RefCell::new(HashMap::new());
+
+    // entity name → (state_u8, anchor_x, anchor_y, anchor_z, max_range, hook_speed, pull_force, rope_length, enabled)
+    pub(crate) static GRAPPLE_SNAPSHOT: RefCell<
+        HashMap<String, (u8, f32, f32, f32, f32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -3546,6 +3576,163 @@ pub fn bsengine_is_projectile_out_of_range(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_fire_grapple(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FireGrapple { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_retract_grapple(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RetractGrapple { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_grapple(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetGrapple { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_grapple_max_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGrappleMaxRange { name, range })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_grapple_hook_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGrappleHookSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_grapple_pull_force(#[string] name: String, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGrapplePullForce { name, force })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_grapple_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGrappleEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_state(#[string] name: String) -> u32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _)| *st as u32)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_anchor_x(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, ax, _, _, _, _, _, _, _)| *ax)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_anchor_y(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, ay, _, _, _, _, _, _)| *ay)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_anchor_z(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, az, _, _, _, _, _)| *az)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_max_range(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, mr, _, _, _, _)| *mr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_hook_speed(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, hs, _, _, _)| *hs)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_pull_force(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, pf, _, _)| *pf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_grapple_rope_length(#[string] name: String) -> f32 {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, rl, _)| *rl)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_grapple_attached(#[string] name: String) -> bool {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _)| *st == 2)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_grapple_idle(#[string] name: String) -> bool {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _)| *st == 0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_grapple_enabled(#[string] name: String) -> bool {
+    GRAPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -4652,6 +4839,24 @@ deno_core::extension!(
         bsengine_get_projectile_range,
         bsengine_get_projectile_distance_traveled,
         bsengine_is_projectile_out_of_range,
+        bsengine_fire_grapple,
+        bsengine_retract_grapple,
+        bsengine_reset_grapple,
+        bsengine_set_grapple_max_range,
+        bsengine_set_grapple_hook_speed,
+        bsengine_set_grapple_pull_force,
+        bsengine_set_grapple_enabled,
+        bsengine_get_grapple_state,
+        bsengine_get_grapple_anchor_x,
+        bsengine_get_grapple_anchor_y,
+        bsengine_get_grapple_anchor_z,
+        bsengine_get_grapple_max_range,
+        bsengine_get_grapple_hook_speed,
+        bsengine_get_grapple_pull_force,
+        bsengine_get_grapple_rope_length,
+        bsengine_is_grapple_attached,
+        bsengine_is_grapple_idle,
+        bsengine_is_grapple_enabled,
     ],
 );
 
@@ -4953,6 +5158,24 @@ const Bsengine = {
     getProjectileRange:     (name)          => Deno.core.ops.bsengine_get_projectile_range(name),
     getProjectileDistanceTraveled:(name)    => Deno.core.ops.bsengine_get_projectile_distance_traveled(name),
     isProjectileOutOfRange: (name)          => Deno.core.ops.bsengine_is_projectile_out_of_range(name),
+    fireGrapple:            (name)          => Deno.core.ops.bsengine_fire_grapple(name),
+    retractGrapple:         (name)          => Deno.core.ops.bsengine_retract_grapple(name),
+    resetGrapple:           (name)          => Deno.core.ops.bsengine_reset_grapple(name),
+    setGrappleMaxRange:     (name, range)   => Deno.core.ops.bsengine_set_grapple_max_range(name, range),
+    setGrappleHookSpeed:    (name, speed)   => Deno.core.ops.bsengine_set_grapple_hook_speed(name, speed),
+    setGrapplePullForce:    (name, force)   => Deno.core.ops.bsengine_set_grapple_pull_force(name, force),
+    setGrappleEnabled:      (name, enabled) => Deno.core.ops.bsengine_set_grapple_enabled(name, enabled),
+    getGrappleState:        (name)          => Deno.core.ops.bsengine_get_grapple_state(name),
+    getGrappleAnchorX:      (name)          => Deno.core.ops.bsengine_get_grapple_anchor_x(name),
+    getGrappleAnchorY:      (name)          => Deno.core.ops.bsengine_get_grapple_anchor_y(name),
+    getGrappleAnchorZ:      (name)          => Deno.core.ops.bsengine_get_grapple_anchor_z(name),
+    getGrappleMaxRange:     (name)          => Deno.core.ops.bsengine_get_grapple_max_range(name),
+    getGrappleHookSpeed:    (name)          => Deno.core.ops.bsengine_get_grapple_hook_speed(name),
+    getGrapplePullForce:    (name)          => Deno.core.ops.bsengine_get_grapple_pull_force(name),
+    getGrappleRopeLength:   (name)          => Deno.core.ops.bsengine_get_grapple_rope_length(name),
+    isGrappleAttached:      (name)          => Deno.core.ops.bsengine_is_grapple_attached(name),
+    isGrappleIdle:          (name)          => Deno.core.ops.bsengine_is_grapple_idle(name),
+    isGrappleEnabled:       (name)          => Deno.core.ops.bsengine_is_grapple_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -10346,5 +10569,138 @@ JSON.stringify(received)
             .unwrap();
         assert_eq!(oor.trim(), "true");
         super::PROJECTILE_SNAPSHOT.with(|s| s.borrow_mut().remove("Rocket"));
+    }
+
+    #[test]
+    fn fire_grapple_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.fireGrapple("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::FireGrapple { name } if name == "Player")
+            ));
+        });
+    }
+
+    #[test]
+    fn retract_grapple_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.retractGrapple("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::RetractGrapple { name } if name == "Player")));
+        });
+    }
+
+    #[test]
+    fn reset_grapple_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.resetGrapple("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::ResetGrapple { name } if name == "Player")
+            ));
+        });
+    }
+
+    #[test]
+    fn set_grapple_max_range_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setGrappleMaxRange("Player", 30.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetGrappleMaxRange { name, range }
+                    if name == "Player" && (*range - 30.0).abs() < 0.001
+            )));
+        });
+    }
+
+    #[test]
+    fn set_grapple_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setGrappleEnabled("Player", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetGrappleEnabled { name, enabled }
+                    if name == "Player" && !enabled
+            )));
+        });
+    }
+
+    #[test]
+    fn get_grapple_state_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getGrappleState("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "0");
+    }
+
+    #[test]
+    fn is_grapple_idle_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isGrappleIdle("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn is_grapple_attached_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isGrappleAttached("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_grapple_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isGrappleEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn grapple_snapshot_read_ops() {
+        // state=2 (Attached), anchor=(1,2,3), max_range=20, hook_speed=30, pull_force=50, rope_length=10, enabled=true
+        super::GRAPPLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    2u8, 1.0f32, 2.0f32, 3.0f32, 20.0f32, 30.0f32, 50.0f32, 10.0f32, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let st = rt.eval(r#"Bsengine.getGrappleState("Hero");"#).unwrap();
+        assert_eq!(st.trim(), "2");
+        let ax = rt.eval(r#"Bsengine.getGrappleAnchorX("Hero");"#).unwrap();
+        assert!((ax.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let rl = rt
+            .eval(r#"Bsengine.getGrappleRopeLength("Hero");"#)
+            .unwrap();
+        assert!((rl.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        let att = rt.eval(r#"Bsengine.isGrappleAttached("Hero");"#).unwrap();
+        assert_eq!(att.trim(), "true");
+        let idle = rt.eval(r#"Bsengine.isGrappleIdle("Hero");"#).unwrap();
+        assert_eq!(idle.trim(), "false");
+        super::GRAPPLE_SNAPSHOT.with(|s| s.borrow_mut().remove("Hero"));
     }
 }

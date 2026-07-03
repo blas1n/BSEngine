@@ -20,7 +20,7 @@ use crate::ops::{
     COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
     EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, JUMP_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, JUMP_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
     LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
@@ -981,6 +981,34 @@ fn run_scripts(world: &mut World) {
             );
         }
         PROJECTILE_SNAPSHOT.with(|s| *s.borrow_mut() = proj_map);
+    }
+    {
+        use bsengine_core::{Grapple, GrappleState};
+        let mut grapple_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Grapple)>();
+        for (name, g) in q.iter(world) {
+            let state_u8 = match g.state {
+                GrappleState::Idle => 0u8,
+                GrappleState::InFlight => 1u8,
+                GrappleState::Attached => 2u8,
+                GrappleState::Retracting => 3u8,
+            };
+            grapple_map.insert(
+                name.0.clone(),
+                (
+                    state_u8,
+                    g.anchor_point.x,
+                    g.anchor_point.y,
+                    g.anchor_point.z,
+                    g.max_range,
+                    g.hook_speed,
+                    g.pull_force,
+                    g.rope_length,
+                    g.enabled,
+                ),
+            );
+        }
+        GRAPPLE_SNAPSHOT.with(|s| *s.borrow_mut() = grapple_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2353,6 +2381,90 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut p) = world.get_mut::<Projectile>(e) {
                         p.range = range.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::FireGrapple { name } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.fire();
+                    }
+                }
+            }
+            ScriptCommand::RetractGrapple { name } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.retract();
+                    }
+                }
+            }
+            ScriptCommand::ResetGrapple { name } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetGrappleMaxRange { name, range } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.max_range = range.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetGrappleHookSpeed { name, speed } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.hook_speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetGrapplePullForce { name, force } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.pull_force = force.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetGrappleEnabled { name, enabled } => {
+                use bsengine_core::Grapple;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<Grapple>(e) {
+                        g.enabled = enabled;
                     }
                 }
             }

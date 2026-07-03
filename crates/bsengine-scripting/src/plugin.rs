@@ -15,18 +15,18 @@ use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, ABSORPTION_SNAPSHOT, AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT,
-    ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
-    BILLBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT,
-    CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
-    COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
-    CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT,
-    DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT, FOOTSTEP_SNAPSHOT,
-    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    ANCHOR_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT,
+    ARMOR_SNAPSHOT, BILLBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
+    BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT,
+    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER,
+    COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
+    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT,
+    FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
     HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LAYER_SNAPSHOT, LEVEL_SNAPSHOT,
     LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
@@ -1568,6 +1568,39 @@ fn run_scripts(world: &mut World) {
             zi_map.insert(name.0.clone(), zi.value());
         }
         Z_INDEX_SNAPSHOT.with(|s| *s.borrow_mut() = zi_map);
+    }
+    {
+        use bsengine_core::Layer;
+        let mut l_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Layer)>();
+        for (_, name, l) in q.iter(world) {
+            l_map.insert(name.0.clone(), l.bits());
+        }
+        LAYER_SNAPSHOT.with(|s| *s.borrow_mut() = l_map);
+    }
+    {
+        use bsengine_core::{Anchor, AnchorPreset};
+        let mut a_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Anchor)>();
+        for (_, name, a) in q.iter(world) {
+            let (preset_u32, norm_x, norm_y) = match a.preset {
+                AnchorPreset::Center => (0u32, 0.5f32, 0.5f32),
+                AnchorPreset::TopLeft => (1, 0.0, 1.0),
+                AnchorPreset::TopCenter => (2, 0.5, 1.0),
+                AnchorPreset::TopRight => (3, 1.0, 1.0),
+                AnchorPreset::MiddleLeft => (4, 0.0, 0.5),
+                AnchorPreset::MiddleRight => (5, 1.0, 0.5),
+                AnchorPreset::BottomLeft => (6, 0.0, 0.0),
+                AnchorPreset::BottomCenter => (7, 0.5, 0.0),
+                AnchorPreset::BottomRight => (8, 1.0, 0.0),
+                AnchorPreset::Custom(v) => (9, v.x, v.y),
+            };
+            a_map.insert(
+                name.0.clone(),
+                (preset_u32, norm_x, norm_y, a.offset.x, a.offset.y),
+            );
+        }
+        ANCHOR_SNAPSHOT.with(|s| *s.borrow_mut() = a_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4634,6 +4667,66 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut zi) = world.get_mut::<ZIndex>(e) {
                         *zi = ZIndex::new(index);
+                    }
+                }
+            }
+            ScriptCommand::SetLayer { name, bits } => {
+                use bsengine_core::Layer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut l) = world.get_mut::<Layer>(e) {
+                        *l = Layer::new(bits);
+                    }
+                }
+            }
+            ScriptCommand::SetAnchorPreset { name, preset } => {
+                use bsengine_core::{Anchor, AnchorPreset};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Anchor>(e) {
+                        a.preset = match preset {
+                            1 => AnchorPreset::TopLeft,
+                            2 => AnchorPreset::TopCenter,
+                            3 => AnchorPreset::TopRight,
+                            4 => AnchorPreset::MiddleLeft,
+                            5 => AnchorPreset::MiddleRight,
+                            6 => AnchorPreset::BottomLeft,
+                            7 => AnchorPreset::BottomCenter,
+                            8 => AnchorPreset::BottomRight,
+                            _ => AnchorPreset::Center,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetAnchorCustom { name, x, y } => {
+                use bsengine_core::{Anchor, AnchorPreset};
+                use glam::Vec2;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Anchor>(e) {
+                        a.preset = AnchorPreset::Custom(Vec2::new(x, y));
+                    }
+                }
+            }
+            ScriptCommand::SetAnchorOffset { name, x, y } => {
+                use bsengine_core::Anchor;
+                use glam::Vec2;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<Anchor>(e) {
+                        a.offset = Vec2::new(x, y);
                     }
                 }
             }

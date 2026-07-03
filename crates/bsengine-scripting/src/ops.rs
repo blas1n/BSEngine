@@ -1013,6 +1013,24 @@ pub enum ScriptCommand {
         name: String,
         index: i32,
     },
+    SetLayer {
+        name: String,
+        bits: u32,
+    },
+    SetAnchorPreset {
+        name: String,
+        preset: u32,
+    },
+    SetAnchorCustom {
+        name: String,
+        x: f32,
+        y: f32,
+    },
+    SetAnchorOffset {
+        name: String,
+        x: f32,
+        y: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1711,6 +1729,14 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → z-index (i32; 0 = default draw order)
     pub(crate) static Z_INDEX_SNAPSHOT: RefCell<HashMap<String, i32>> =
+        RefCell::new(HashMap::new());
+    // entity name → layer bitmask (u32)
+    pub(crate) static LAYER_SNAPSHOT: RefCell<HashMap<String, u32>> =
+        RefCell::new(HashMap::new());
+    // entity name → (preset_u32, norm_x, norm_y, offset_x, offset_y)
+    // AnchorPreset: Center=0, TopLeft=1, TopCenter=2, TopRight=3,
+    //   MiddleLeft=4, MiddleRight=5, BottomLeft=6, BottomCenter=7, BottomRight=8, Custom=9
+    pub(crate) static ANCHOR_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -7015,6 +7041,87 @@ pub fn bsengine_get_z_index(#[string] name: String) -> i32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_layer(#[string] name: String, bits: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut().push(ScriptCommand::SetLayer { name, bits });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_layer(#[string] name: String) -> u32 {
+    LAYER_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(u32::MAX))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_anchor_preset(#[string] name: String, preset: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAnchorPreset { name, preset });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_anchor_custom(#[string] name: String, x: f32, y: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAnchorCustom { name, x, y });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_anchor_offset(#[string] name: String, x: f32, y: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAnchorOffset { name, x, y });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_anchor_preset(#[string] name: String) -> u32 {
+    ANCHOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(p, _, _, _, _)| *p).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_anchor_norm_x(#[string] name: String) -> f32 {
+    ANCHOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, nx, _, _, _)| *nx)
+            .unwrap_or(0.5)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_anchor_norm_y(#[string] name: String) -> f32 {
+    ANCHOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, ny, _, _)| *ny)
+            .unwrap_or(0.5)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_anchor_offset_x(#[string] name: String) -> f32 {
+    ANCHOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ox, _)| *ox)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_anchor_offset_y(#[string] name: String) -> f32 {
+    ANCHOR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, oy)| *oy)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7989,6 +8096,16 @@ deno_core::extension!(
         bsengine_is_outline_visible,
         bsengine_set_z_index,
         bsengine_get_z_index,
+        bsengine_set_layer,
+        bsengine_get_layer,
+        bsengine_set_anchor_preset,
+        bsengine_set_anchor_custom,
+        bsengine_set_anchor_offset,
+        bsengine_get_anchor_preset,
+        bsengine_get_anchor_norm_x,
+        bsengine_get_anchor_norm_y,
+        bsengine_get_anchor_offset_x,
+        bsengine_get_anchor_offset_y,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -9050,6 +9167,16 @@ const Bsengine = {
     isOutlineVisible:(name)               => Deno.core.ops.bsengine_is_outline_visible(name),
     setZIndex:      (name, index)          => Deno.core.ops.bsengine_set_z_index(name, index),
     getZIndex:      (name)                 => Deno.core.ops.bsengine_get_z_index(name),
+    setLayer:       (name, bits)           => Deno.core.ops.bsengine_set_layer(name, bits),
+    getLayer:       (name)                 => Deno.core.ops.bsengine_get_layer(name),
+    setAnchorPreset:(name, preset)         => Deno.core.ops.bsengine_set_anchor_preset(name, preset),
+    setAnchorCustom:(name, x, y)           => Deno.core.ops.bsengine_set_anchor_custom(name, x, y),
+    setAnchorOffset:(name, x, y)           => Deno.core.ops.bsengine_set_anchor_offset(name, x, y),
+    getAnchorPreset:(name)                => Deno.core.ops.bsengine_get_anchor_preset(name),
+    getAnchorNormX: (name)                 => Deno.core.ops.bsengine_get_anchor_norm_x(name),
+    getAnchorNormY: (name)                 => Deno.core.ops.bsengine_get_anchor_norm_y(name),
+    getAnchorOffsetX:(name)               => Deno.core.ops.bsengine_get_anchor_offset_x(name),
+    getAnchorOffsetY:(name)               => Deno.core.ops.bsengine_get_anchor_offset_y(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -16466,6 +16593,92 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetZIndex { name, index }
                 if name == "Panel" && *index == -3
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_layer_read_ops() {
+        super::LAYER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Enemy".to_string(), 0b0101);
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let bits = rt.eval(r#"Bsengine.getLayer("Enemy");"#).unwrap();
+        assert_eq!(bits.trim().parse::<u32>().unwrap(), 5);
+        let unknown = rt.eval(r#"Bsengine.getLayer("Unknown");"#).unwrap();
+        assert_eq!(unknown.trim().parse::<u32>().unwrap(), u32::MAX);
+        super::LAYER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_layer_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setLayer("Wall", 3);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetLayer { name, bits }
+                if name == "Wall" && *bits == 3
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_anchor_read_ops() {
+        super::ANCHOR_SNAPSHOT.with(|s| {
+            // TopRight preset: (3, 1.0, 1.0, 0.0, 0.0)
+            s.borrow_mut()
+                .insert("Button".to_string(), (3, 1.0, 1.0, 5.0, -2.0));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let preset = rt.eval(r#"Bsengine.getAnchorPreset("Button");"#).unwrap();
+        assert_eq!(preset.trim().parse::<u32>().unwrap(), 3);
+        let nx = rt.eval(r#"Bsengine.getAnchorNormX("Button");"#).unwrap();
+        assert!((nx.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let ny = rt.eval(r#"Bsengine.getAnchorNormY("Button");"#).unwrap();
+        assert!((ny.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let ox = rt.eval(r#"Bsengine.getAnchorOffsetX("Button");"#).unwrap();
+        assert!((ox.trim().parse::<f32>().unwrap() - 5.0).abs() < 0.001);
+        let oy = rt.eval(r#"Bsengine.getAnchorOffsetY("Button");"#).unwrap();
+        assert!((oy.trim().parse::<f32>().unwrap() - (-2.0)).abs() < 0.001);
+        let unknown_nx = rt.eval(r#"Bsengine.getAnchorNormX("Unknown");"#).unwrap();
+        assert!((unknown_nx.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        super::ANCHOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_anchor_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAnchorPreset("Panel", 6);"#).unwrap();
+        rt.eval(r#"Bsengine.setAnchorCustom("Panel", 0.25, 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAnchorOffset("Panel", 10.0, -5.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAnchorPreset { name, preset }
+                if name == "Panel" && *preset == 6
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAnchorCustom { name, x, y }
+                if name == "Panel" && (*x - 0.25).abs() < 0.001 && (*y - 0.75).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAnchorOffset { name, x, y }
+                if name == "Panel" && (*x - 10.0).abs() < 0.001 && (*y - (-5.0)).abs() < 0.001
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

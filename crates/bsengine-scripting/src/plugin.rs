@@ -15,28 +15,29 @@ use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, ABILITY_SNAPSHOT, ABSORPTION_SNAPSHOT, ALARM_SNAPSHOT,
-    AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT, ANCHOR_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT,
-    ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BILLBOARD_SNAPSHOT,
-    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT,
-    CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
-    COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DAMAGE_SNAPSHOT,
-    DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT,
-    EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
-    EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT,
-    FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
-    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LAYER_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT,
-    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
-    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT,
-    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
-    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT,
-    OUTLINE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
-    RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
-    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT,
-    SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, TAG_SNAPSHOT,
-    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
+    AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT, AMPLIFY_SNAPSHOT, ANCHOR_SNAPSHOT,
+    ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
+    BARRIER_SNAPSHOT, BEACON_SNAPSHOT, BILLBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT,
+    BOOTSTRAP_JS, BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT,
+    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER,
+    COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DAMAGE_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
+    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT,
+    FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
+    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LAYER_SNAPSHOT, LEVEL_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT,
+    PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
+    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT,
+    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
     TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT,
     VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
@@ -1708,6 +1709,67 @@ fn run_scripts(world: &mut World) {
             );
         }
         ALARM_SNAPSHOT.with(|s| *s.borrow_mut() = al_map);
+    }
+    {
+        use bsengine_core::Amplify;
+        let mut amp_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Amplify)>();
+        for (_, name, amp) in q.iter(world) {
+            amp_map.insert(
+                name.0.clone(),
+                (
+                    amp.duration,
+                    amp.timer,
+                    amp.power_multiplier,
+                    amp.just_amplified,
+                    amp.just_faded,
+                    amp.enabled,
+                ),
+            );
+        }
+        AMPLIFY_SNAPSHOT.with(|s| *s.borrow_mut() = amp_map);
+    }
+    {
+        use bsengine_core::Barrier;
+        let mut bar_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Barrier)>();
+        for (_, name, bar) in q.iter(world) {
+            bar_map.insert(
+                name.0.clone(),
+                (
+                    bar.capacity,
+                    bar.current,
+                    bar.regen_rate,
+                    bar.regen_delay,
+                    bar.regen_timer,
+                    bar.just_broken,
+                    bar.just_restored,
+                    bar.enabled,
+                ),
+            );
+        }
+        BARRIER_SNAPSHOT.with(|s| *s.borrow_mut() = bar_map);
+    }
+    {
+        use bsengine_core::Beacon;
+        let mut bec_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Beacon)>();
+        for (_, name, bec) in q.iter(world) {
+            bec_map.insert(
+                name.0.clone(),
+                (
+                    bec.priority,
+                    bec.broadcast_radius,
+                    bec.duration,
+                    bec.timer,
+                    bec.lit,
+                    bec.just_lit,
+                    bec.just_extinguished,
+                    bec.enabled,
+                ),
+            );
+        }
+        BEACON_SNAPSHOT.with(|s| *s.borrow_mut() = bec_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -5206,6 +5268,210 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut al) = world.get_mut::<Alarm>(e) {
                         al.calm();
+                    }
+                }
+            }
+            ScriptCommand::ApplyAmplify { name, duration } => {
+                use bsengine_core::Amplify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut amp) = world.get_mut::<Amplify>(e) {
+                        amp.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearAmplify { name } => {
+                use bsengine_core::Amplify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut amp) = world.get_mut::<Amplify>(e) {
+                        amp.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetAmplifyDuration { name, duration } => {
+                use bsengine_core::Amplify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut amp) = world.get_mut::<Amplify>(e) {
+                        amp.duration = duration;
+                    }
+                }
+            }
+            ScriptCommand::SetAmplifyPowerMultiplier { name, multiplier } => {
+                use bsengine_core::Amplify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut amp) = world.get_mut::<Amplify>(e) {
+                        amp.power_multiplier = multiplier.max(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAmplifyEnabled { name, enabled } => {
+                use bsengine_core::Amplify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut amp) = world.get_mut::<Amplify>(e) {
+                        amp.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetBarrierCapacity { name, capacity } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.capacity = capacity.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBarrierCurrent { name, current } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.current = current.clamp(0.0, bar.capacity);
+                    }
+                }
+            }
+            ScriptCommand::SetBarrierRegenRate { name, rate } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.regen_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBarrierRegenDelay { name, delay } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.regen_delay = delay.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBarrierEnabled { name, enabled } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RestoreBarrier { name } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.restore();
+                    }
+                }
+            }
+            ScriptCommand::DrainBarrier { name } => {
+                use bsengine_core::Barrier;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bar) = world.get_mut::<Barrier>(e) {
+                        bar.drain();
+                    }
+                }
+            }
+            ScriptCommand::SetBeaconPriority { name, priority } => {
+                use bsengine_core::Beacon;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bec) = world.get_mut::<Beacon>(e) {
+                        bec.priority = priority;
+                    }
+                }
+            }
+            ScriptCommand::SetBeaconBroadcastRadius { name, radius } => {
+                use bsengine_core::Beacon;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bec) = world.get_mut::<Beacon>(e) {
+                        bec.broadcast_radius = radius.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBeaconEnabled { name, enabled } => {
+                use bsengine_core::Beacon;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bec) = world.get_mut::<Beacon>(e) {
+                        bec.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::LightBeacon { name, duration } => {
+                use bsengine_core::Beacon;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bec) = world.get_mut::<Beacon>(e) {
+                        bec.light(duration);
+                    }
+                }
+            }
+            ScriptCommand::ExtinguishBeacon { name } => {
+                use bsengine_core::Beacon;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut bec) = world.get_mut::<Beacon>(e) {
+                        bec.extinguish();
                     }
                 }
             }

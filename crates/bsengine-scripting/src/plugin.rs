@@ -21,7 +21,7 @@ use crate::ops::{
     EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
-    GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
+    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
     LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
@@ -1075,6 +1075,26 @@ fn run_scripts(world: &mut World) {
             );
         }
         FOOTSTEP_SNAPSHOT.with(|s| *s.borrow_mut() = fs_map);
+    }
+    {
+        use bsengine_core::GridSnap;
+        let mut gs_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &GridSnap)>();
+        for (name, gs) in q.iter(world) {
+            gs_map.insert(
+                name.0.clone(),
+                (
+                    gs.cell_size.x,
+                    gs.cell_size.y,
+                    gs.cell_size.z,
+                    gs.offset.x,
+                    gs.offset.y,
+                    gs.offset.z,
+                    gs.enabled,
+                ),
+            );
+        }
+        GRID_SNAP_SNAPSHOT.with(|s| *s.borrow_mut() = gs_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2748,6 +2768,44 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut f) = world.get_mut::<Footstep>(e) {
                         f.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetGridSnapCellSize { name, vx, vy, vz } => {
+                use bsengine_core::GridSnap;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut gs) = world.get_mut::<GridSnap>(e) {
+                        gs.cell_size = Vec3::new(vx, vy, vz).max(Vec3::ZERO);
+                    }
+                }
+            }
+            ScriptCommand::SetGridSnapOffset { name, x, y, z } => {
+                use bsengine_core::GridSnap;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut gs) = world.get_mut::<GridSnap>(e) {
+                        gs.offset = Vec3::new(x, y, z);
+                    }
+                }
+            }
+            ScriptCommand::SetGridSnapEnabled { name, enabled } => {
+                use bsengine_core::GridSnap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut gs) = world.get_mut::<GridSnap>(e) {
+                        gs.enabled = enabled;
                     }
                 }
             }

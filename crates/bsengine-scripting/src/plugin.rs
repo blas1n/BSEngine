@@ -47,15 +47,16 @@ use crate::ops::{
     MIRAGE_SNAPSHOT, MOMENTUM_SNAPSHOT, MORALE_SNAPSHOT, MORPH_SNAPSHOT, MOTION_BLUR_SNAPSHOT,
     MOUNT_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    MUFFLE_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    POISON_SNAPSHOT, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT,
-    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT,
-    SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT,
-    STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
-    TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT,
-    TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    MUFFLE_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT, NIMBLE_SNAPSHOT, NOTICE_SNAPSHOT,
+    NOURISH_SNAPSHOT, NOVA_SNAPSHOT, NPC_SNAPSHOT, NULLIFY_SNAPSHOT, NUMB_SNAPSHOT,
+    OUTLINE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, POISON_SNAPSHOT, PROJECTILE_SNAPSHOT,
+    REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SLOW_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT,
+    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT,
+    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -3404,6 +3405,187 @@ fn run_scripts(world: &mut World) {
             );
         }
         MUFFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{NetworkAuthority, NetworkId};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &NetworkId)>();
+        for (_, name, nid) in q.iter(world) {
+            let (auth_kind, peer_id_str) = match nid.authority {
+                NetworkAuthority::Server => (0u32, String::new()),
+                NetworkAuthority::Client { peer_id } => (1u32, peer_id.to_string()),
+                NetworkAuthority::Local => (2u32, String::new()),
+            };
+            map.insert(name.0.clone(), (nid.id.to_string(), auth_kind, peer_id_str));
+        }
+        NETWORK_ID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nimble;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nimble)>();
+        for (_, name, ni) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ni.duration,
+                    ni.timer,
+                    ni.dodge_chance,
+                    ni.speed_bonus_fraction,
+                    ni.just_quickened,
+                    ni.just_faded,
+                    ni.enabled,
+                ),
+            );
+        }
+        NIMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Notice, NoticeState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Notice)>();
+        for (_, name, no) in q.iter(world) {
+            let state_u32 = match no.state {
+                NoticeState::Unaware => 0u32,
+                NoticeState::Alert => 1u32,
+                NoticeState::Alarmed => 2u32,
+                NoticeState::Searching => 3u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    no.suspicion,
+                    no.suspicion_decay_rate,
+                    no.alert_threshold,
+                    no.alarm_threshold,
+                    no.last_known_position.x,
+                    no.last_known_position.y,
+                    no.last_known_position.z,
+                    no.investigate_timer,
+                    no.max_investigate_time,
+                    no.has_last_known,
+                    no.enabled,
+                ),
+            );
+        }
+        NOTICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nourish;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nourish)>();
+        for (_, name, no) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    no.satiety,
+                    no.decay_rate,
+                    no.regen_scale,
+                    no.just_starved,
+                    no.enabled,
+                ),
+            );
+        }
+        NOURISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nova;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nova)>();
+        for (_, name, nv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    nv.charge_time,
+                    nv.charge_timer,
+                    nv.radius,
+                    nv.damage,
+                    nv.just_primed,
+                    nv.just_discharged,
+                    nv.enabled,
+                ),
+            );
+        }
+        NOVA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Npc, NpcRole, NpcState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Npc)>();
+        for (_, name, np) in q.iter(world) {
+            let role_u32 = match np.role {
+                NpcRole::Civilian => 0u32,
+                NpcRole::Guard => 1u32,
+                NpcRole::Creature => 2u32,
+                NpcRole::Vendor => 3u32,
+                NpcRole::Scripted => 4u32,
+            };
+            let state_u32 = match np.state {
+                NpcState::Idle => 0u32,
+                NpcState::Patrolling => 1u32,
+                NpcState::Investigating => 2u32,
+                NpcState::Alerted => 3u32,
+                NpcState::Engaging => 4u32,
+                NpcState::Fleeing => 5u32,
+                NpcState::Interacting => 6u32,
+                NpcState::Dead => 7u32,
+            };
+            let template_id = np.template_id.clone().unwrap_or_default();
+            map.insert(
+                name.0.clone(),
+                (
+                    role_u32,
+                    state_u32,
+                    np.display_name.clone(),
+                    template_id,
+                    np.faction_id,
+                    np.alert,
+                    np.alert_decay,
+                    np.enabled,
+                ),
+            );
+        }
+        NPC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nullify;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nullify)>();
+        for (_, name, nu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    nu.duration,
+                    nu.timer,
+                    nu.blocks_buffs,
+                    nu.blocks_debuffs,
+                    nu.just_activated,
+                    nu.just_expired,
+                    nu.enabled,
+                ),
+            );
+        }
+        NULLIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Numb;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Numb)>();
+        for (_, name, nu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    nu.duration,
+                    nu.timer,
+                    nu.damage_fraction,
+                    nu.just_numbed,
+                    nu.just_worn_off,
+                    nu.enabled,
+                ),
+            );
+        }
+        NUMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -11799,6 +11981,460 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut mu) = world.get_mut::<Muffle>(e) {
                         mu.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyNimble { name, duration } => {
+                use bsengine_core::Nimble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ni) = world.get_mut::<Nimble>(e) {
+                        ni.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearNimble { name } => {
+                use bsengine_core::Nimble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ni) = world.get_mut::<Nimble>(e) {
+                        ni.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetNimbleDodgeChance { name, chance } => {
+                use bsengine_core::Nimble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ni) = world.get_mut::<Nimble>(e) {
+                        ni.dodge_chance = chance.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNimbleSpeedBonusFraction { name, fraction } => {
+                use bsengine_core::Nimble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ni) = world.get_mut::<Nimble>(e) {
+                        ni.speed_bonus_fraction = fraction.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNimbleEnabled { name, enabled } => {
+                use bsengine_core::Nimble;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ni) = world.get_mut::<Nimble>(e) {
+                        ni.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RaiseNotice {
+                name,
+                amount,
+                x,
+                y,
+                z,
+            } => {
+                use bsengine_core::Notice;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Notice>(e) {
+                        no.raise(amount, Vec3::new(x, y, z));
+                    }
+                }
+            }
+            ScriptCommand::LoseSight { name } => {
+                use bsengine_core::Notice;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Notice>(e) {
+                        no.lose_sight();
+                    }
+                }
+            }
+            ScriptCommand::ResetNotice { name } => {
+                use bsengine_core::Notice;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Notice>(e) {
+                        no.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetNoticeSuspicionDecayRate { name, rate } => {
+                use bsengine_core::Notice;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Notice>(e) {
+                        no.suspicion_decay_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNoticeEnabled { name, enabled } => {
+                use bsengine_core::Notice;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Notice>(e) {
+                        no.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::FeedNourish { name, amount } => {
+                use bsengine_core::Nourish;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Nourish>(e) {
+                        no.feed(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetNourishDecayRate { name, rate } => {
+                use bsengine_core::Nourish;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Nourish>(e) {
+                        no.decay_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNourishRegenScale { name, scale } => {
+                use bsengine_core::Nourish;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Nourish>(e) {
+                        no.regen_scale = scale.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNourishEnabled { name, enabled } => {
+                use bsengine_core::Nourish;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut no) = world.get_mut::<Nourish>(e) {
+                        no.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::PrimeNova { name } => {
+                use bsengine_core::Nova;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nv) = world.get_mut::<Nova>(e) {
+                        nv.prime();
+                    }
+                }
+            }
+            ScriptCommand::CancelNova { name } => {
+                use bsengine_core::Nova;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nv) = world.get_mut::<Nova>(e) {
+                        nv.cancel();
+                    }
+                }
+            }
+            ScriptCommand::SetNovaChargeTime { name, time } => {
+                use bsengine_core::Nova;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nv) = world.get_mut::<Nova>(e) {
+                        nv.charge_time = time.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNovaRadius { name, radius } => {
+                use bsengine_core::Nova;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nv) = world.get_mut::<Nova>(e) {
+                        nv.radius = radius.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNovaDamage { name, damage } => {
+                use bsengine_core::Nova;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nv) = world.get_mut::<Nova>(e) {
+                        nv.damage = damage.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNovaEnabled { name, enabled } => {
+                use bsengine_core::Nova;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nv) = world.get_mut::<Nova>(e) {
+                        nv.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetNpcRole { name, role } => {
+                use bsengine_core::{Npc, NpcRole};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.role = match role {
+                            1 => NpcRole::Guard,
+                            2 => NpcRole::Creature,
+                            3 => NpcRole::Vendor,
+                            4 => NpcRole::Scripted,
+                            _ => NpcRole::Civilian,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetNpcState { name, state } => {
+                use bsengine_core::{Npc, NpcState};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.state = match state {
+                            1 => NpcState::Patrolling,
+                            2 => NpcState::Investigating,
+                            3 => NpcState::Alerted,
+                            4 => NpcState::Engaging,
+                            5 => NpcState::Fleeing,
+                            6 => NpcState::Interacting,
+                            7 => NpcState::Dead,
+                            _ => NpcState::Idle,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetNpcDisplayName { name, display_name } => {
+                use bsengine_core::Npc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.display_name = display_name;
+                    }
+                }
+            }
+            ScriptCommand::SetNpcFactionId { name, faction_id } => {
+                use bsengine_core::Npc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.faction_id = faction_id;
+                    }
+                }
+            }
+            ScriptCommand::RaiseNpcAlert { name, amount } => {
+                use bsengine_core::Npc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.raise_alert(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetNpcAlertDecay { name, rate } => {
+                use bsengine_core::Npc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.alert_decay = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNpcEnabled { name, enabled } => {
+                use bsengine_core::Npc;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut np) = world.get_mut::<Npc>(e) {
+                        np.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyNullify { name, duration } => {
+                use bsengine_core::Nullify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Nullify>(e) {
+                        nu.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearNullify { name } => {
+                use bsengine_core::Nullify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Nullify>(e) {
+                        nu.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetNullifyBlocksBuffs { name, blocks } => {
+                use bsengine_core::Nullify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Nullify>(e) {
+                        nu.blocks_buffs = blocks;
+                    }
+                }
+            }
+            ScriptCommand::SetNullifyBlocksDebuffs { name, blocks } => {
+                use bsengine_core::Nullify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Nullify>(e) {
+                        nu.blocks_debuffs = blocks;
+                    }
+                }
+            }
+            ScriptCommand::SetNullifyEnabled { name, enabled } => {
+                use bsengine_core::Nullify;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Nullify>(e) {
+                        nu.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyNumb { name, duration } => {
+                use bsengine_core::Numb;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Numb>(e) {
+                        nu.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearNumb { name } => {
+                use bsengine_core::Numb;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Numb>(e) {
+                        nu.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetNumbDamageFraction { name, fraction } => {
+                use bsengine_core::Numb;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Numb>(e) {
+                        nu.damage_fraction = fraction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNumbEnabled { name, enabled } => {
+                use bsengine_core::Numb;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut nu) = world.get_mut::<Numb>(e) {
+                        nu.enabled = enabled;
                     }
                 }
             }

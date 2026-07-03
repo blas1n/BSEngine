@@ -544,6 +544,24 @@ pub enum ScriptCommand {
     ResetFootstep {
         name: String,
     },
+    SetWindVelocity {
+        name: String,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+    },
+    SetWindTurbulence {
+        name: String,
+        turbulence: f32,
+    },
+    SetWindTurbulenceFrequency {
+        name: String,
+        frequency: f32,
+    },
+    SetWindRadius {
+        name: String,
+        radius: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1145,6 +1163,10 @@ thread_local! {
     pub(crate) static FOOTSTEP_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, String, u8, f32, bool)>,
     > = RefCell::new(HashMap::new());
+
+    // entity name → (vx, vy, vz, turbulence, turbulence_frequency, radius)
+    pub(crate) static WIND_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -4113,6 +4135,118 @@ pub fn bsengine_is_footstep_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_wind_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWindVelocity { name, vx, vy, vz })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_wind_turbulence(#[string] name: String, turbulence: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWindTurbulence { name, turbulence })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_wind_turbulence_frequency(#[string] name: String, frequency: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWindTurbulenceFrequency { name, frequency })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_wind_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWindRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_velocity_x(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(vx, _, _, _, _, _)| *vx)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_velocity_y(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, vy, _, _, _, _)| *vy)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_velocity_z(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, vz, _, _, _)| *vz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_turbulence(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, t, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_turbulence_frequency(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, tf, _)| *tf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_radius(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, r)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_wind_speed(#[string] name: String) -> f32 {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(vx, vy, vz, _, _, _)| (vx * vx + vy * vy + vz * vz).sqrt())
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_wind_global(#[string] name: String) -> bool {
+    WIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, r)| *r == 0.0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5272,6 +5406,18 @@ deno_core::extension!(
         bsengine_get_footstep_surface,
         bsengine_get_footstep_min_speed,
         bsengine_is_footstep_enabled,
+        bsengine_set_wind_velocity,
+        bsengine_set_wind_turbulence,
+        bsengine_set_wind_turbulence_frequency,
+        bsengine_set_wind_radius,
+        bsengine_get_wind_velocity_x,
+        bsengine_get_wind_velocity_y,
+        bsengine_get_wind_velocity_z,
+        bsengine_get_wind_turbulence,
+        bsengine_get_wind_turbulence_frequency,
+        bsengine_get_wind_radius,
+        bsengine_get_wind_speed,
+        bsengine_is_wind_global,
     ],
 );
 
@@ -5626,6 +5772,18 @@ const Bsengine = {
     getFootstepSurface:     (name)          => Deno.core.ops.bsengine_get_footstep_surface(name),
     getFootstepMinSpeed:    (name)          => Deno.core.ops.bsengine_get_footstep_min_speed(name),
     isFootstepEnabled:      (name)          => Deno.core.ops.bsengine_is_footstep_enabled(name),
+    setWindVelocity:        (name, vx, vy, vz) => Deno.core.ops.bsengine_set_wind_velocity(name, vx, vy, vz),
+    setWindTurbulence:      (name, t)       => Deno.core.ops.bsengine_set_wind_turbulence(name, t),
+    setWindTurbulenceFrequency:(name, f)    => Deno.core.ops.bsengine_set_wind_turbulence_frequency(name, f),
+    setWindRadius:          (name, r)       => Deno.core.ops.bsengine_set_wind_radius(name, r),
+    getWindVelocityX:       (name)          => Deno.core.ops.bsengine_get_wind_velocity_x(name),
+    getWindVelocityY:       (name)          => Deno.core.ops.bsengine_get_wind_velocity_y(name),
+    getWindVelocityZ:       (name)          => Deno.core.ops.bsengine_get_wind_velocity_z(name),
+    getWindTurbulence:      (name)          => Deno.core.ops.bsengine_get_wind_turbulence(name),
+    getWindTurbulenceFrequency:(name)       => Deno.core.ops.bsengine_get_wind_turbulence_frequency(name),
+    getWindRadius:          (name)          => Deno.core.ops.bsengine_get_wind_radius(name),
+    getWindSpeed:           (name)          => Deno.core.ops.bsengine_get_wind_speed(name),
+    isWindGlobal:           (name)          => Deno.core.ops.bsengine_is_wind_global(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -11433,5 +11591,53 @@ JSON.stringify(received)
         let en = rt.eval(r#"Bsengine.isFootstepEnabled("Player");"#).unwrap();
         assert_eq!(en.trim(), "true");
         super::FOOTSTEP_SNAPSHOT.with(|s| s.borrow_mut().remove("Player"));
+    }
+
+    #[test]
+    fn wind_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setWindVelocity("Wind", 1.0, 0.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setWindTurbulence("Wind", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setWindTurbulenceFrequency("Wind", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setWindRadius("Wind", 50.0);"#).unwrap();
+        let cmds = super::COMMAND_BUFFER.with(|c| c.borrow().len());
+        assert_eq!(cmds, 4);
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn wind_snapshot_read_ops() {
+        // vx=3.0, vy=4.0, vz=0.0, turbulence=0.5, turbulence_frequency=2.0, radius=0.0
+        super::WIND_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wind".to_string(),
+                (3.0_f32, 4.0_f32, 0.0_f32, 0.5_f32, 2.0_f32, 0.0_f32),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let vx = rt.eval(r#"Bsengine.getWindVelocityX("Wind");"#).unwrap();
+        assert!((vx.trim().parse::<f32>().unwrap() - 3.0).abs() < 0.001);
+        let vy = rt.eval(r#"Bsengine.getWindVelocityY("Wind");"#).unwrap();
+        assert!((vy.trim().parse::<f32>().unwrap() - 4.0).abs() < 0.001);
+        let vz = rt.eval(r#"Bsengine.getWindVelocityZ("Wind");"#).unwrap();
+        assert!((vz.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let spd = rt.eval(r#"Bsengine.getWindSpeed("Wind");"#).unwrap();
+        assert!((spd.trim().parse::<f32>().unwrap() - 5.0).abs() < 0.001);
+        let t = rt.eval(r#"Bsengine.getWindTurbulence("Wind");"#).unwrap();
+        assert!((t.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let tf = rt
+            .eval(r#"Bsengine.getWindTurbulenceFrequency("Wind");"#)
+            .unwrap();
+        assert!((tf.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let r = rt.eval(r#"Bsengine.getWindRadius("Wind");"#).unwrap();
+        assert!((r.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let global = rt.eval(r#"Bsengine.isWindGlobal("Wind");"#).unwrap();
+        assert_eq!(global.trim(), "true");
+        super::WIND_SNAPSHOT.with(|s| s.borrow_mut().remove("Wind"));
     }
 }

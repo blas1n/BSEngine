@@ -1375,6 +1375,101 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyBlind {
+        name: String,
+        duration: f32,
+    },
+    ClearBlind {
+        name: String,
+    },
+    SetBlindRangeLimit {
+        name: String,
+        limit: f32,
+    },
+    SetBlindAimDeviation {
+        name: String,
+        deviation: f32,
+    },
+    SetBlindEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyCharm {
+        name: String,
+        source_name: String,
+        duration: f32,
+    },
+    ClearCharm {
+        name: String,
+    },
+    SetCharmEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyConfuse {
+        name: String,
+        duration: f32,
+    },
+    ClearConfuse {
+        name: String,
+    },
+    SetConfuseChance {
+        name: String,
+        chance: f32,
+    },
+    SetConfuseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyCripple {
+        name: String,
+        duration: f32,
+    },
+    ClearCripple {
+        name: String,
+    },
+    SetCrippleSpeedFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetCripplePreventsJump {
+        name: String,
+        prevents: bool,
+    },
+    SetCrippleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyDaze {
+        name: String,
+        duration: f32,
+    },
+    ClearDaze {
+        name: String,
+    },
+    SetDazeSlowFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetDazeAimDeviation {
+        name: String,
+        deviation: f32,
+    },
+    SetDazeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyDisarm {
+        name: String,
+        duration: f32,
+    },
+    ClearDisarm {
+        name: String,
+    },
+    SetDisarmEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2141,6 +2236,24 @@ thread_local! {
     pub(crate) static FREEZE_SNAPSHOT: RefCell<
         HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, range_limit, aim_deviation_rad, just_blinded, just_unblinded, enabled)
+    pub(crate) static BLIND_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, just_charmed, just_uncharmed, enabled)
+    pub(crate) static CHARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, chance, just_confused, just_unconfused, enabled)
+    pub(crate) static CONFUSE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, speed_fraction, prevents_jump, just_crippled, just_recovered, enabled)
+    pub(crate) static CRIPPLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, slow_fraction, aim_deviation_rad, just_dazed, just_undazed, enabled)
+    pub(crate) static DAZE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, just_disarmed, just_rearmed, enabled)
+    pub(crate) static DISARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -9550,6 +9663,636 @@ pub fn bsengine_set_freeze_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// --- Blind ---
+
+#[op2(fast)]
+pub fn bsengine_is_blind_active(#[string] name: String) -> bool {
+    // timer counts down; active while timer > 0
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_blind_duration(#[string] name: String) -> f32 {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_blind_timer(#[string] name: String) -> f32 {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_blind_range_limit(#[string] name: String) -> f32 {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, r, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_blind_aim_deviation(#[string] name: String) -> f32 {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, a, _, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_blind_just_blinded(#[string] name: String) -> bool {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jb, _, _)| *jb)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_blind_just_unblinded(#[string] name: String) -> bool {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, ju, _)| *ju)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_blind_enabled(#[string] name: String) -> bool {
+    BLIND_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_blind(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyBlind { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_blind(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearBlind { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_blind_range_limit(#[string] name: String, limit: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBlindRangeLimit { name, limit })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_blind_aim_deviation(#[string] name: String, deviation: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBlindAimDeviation { name, deviation })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_blind_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBlindEnabled { name, enabled })
+    });
+}
+
+// --- Charm ---
+
+#[op2(fast)]
+pub fn bsengine_is_charm_active(#[string] name: String) -> bool {
+    // timer counts up; active while timer < duration
+    CHARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, t, _, _, _)| *t < *d)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_charm_duration(#[string] name: String) -> f32 {
+    CHARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_charm_timer(#[string] name: String) -> f32 {
+    CHARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_charm_just_charmed(#[string] name: String) -> bool {
+    CHARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, jc, _, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_charm_just_uncharmed(#[string] name: String) -> bool {
+    CHARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ju, _)| *ju)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_charm_enabled(#[string] name: String) -> bool {
+    CHARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_charm(#[string] name: String, #[string] source_name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyCharm {
+            name,
+            source_name,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_charm(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearCharm { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_charm_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCharmEnabled { name, enabled })
+    });
+}
+
+// --- Confuse ---
+
+#[op2(fast)]
+pub fn bsengine_is_confuse_active(#[string] name: String) -> bool {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_confuse_duration(#[string] name: String) -> f32 {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_confuse_timer(#[string] name: String) -> f32 {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_confuse_chance(#[string] name: String) -> f32 {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, ch, _, _, _)| *ch)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_confuse_just_confused(#[string] name: String) -> bool {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jc, _, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_confuse_just_unconfused(#[string] name: String) -> bool {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, ju, _)| *ju)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_confuse_enabled(#[string] name: String) -> bool {
+    CONFUSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_confuse(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyConfuse { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_confuse(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearConfuse { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_confuse_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetConfuseChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_confuse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetConfuseEnabled { name, enabled })
+    });
+}
+
+// --- Cripple ---
+
+#[op2(fast)]
+pub fn bsengine_is_cripple_active(#[string] name: String) -> bool {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_cripple_duration(#[string] name: String) -> f32 {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_cripple_timer(#[string] name: String) -> f32 {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_cripple_speed_fraction(#[string] name: String) -> f32 {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, sf, _, _, _, _)| *sf)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_cripple_prevents_jump(#[string] name: String) -> bool {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, pj, _, _, _)| *pj)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_cripple_just_crippled(#[string] name: String) -> bool {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jc, _, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_cripple_just_recovered(#[string] name: String) -> bool {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_cripple_enabled(#[string] name: String) -> bool {
+    CRIPPLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_cripple(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyCripple { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_cripple(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearCripple { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_cripple_speed_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrippleSpeedFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_cripple_prevents_jump(#[string] name: String, prevents: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCripplePreventsJump { name, prevents })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_cripple_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrippleEnabled { name, enabled })
+    });
+}
+
+// --- Daze ---
+
+#[op2(fast)]
+pub fn bsengine_is_daze_active(#[string] name: String) -> bool {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_daze_duration(#[string] name: String) -> f32 {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_daze_timer(#[string] name: String) -> f32 {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_daze_slow_fraction(#[string] name: String) -> f32 {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, sf, _, _, _, _)| *sf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_daze_aim_deviation(#[string] name: String) -> f32 {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, a, _, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_daze_just_dazed(#[string] name: String) -> bool {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jd, _, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_daze_just_undazed(#[string] name: String) -> bool {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, ju, _)| *ju)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_daze_enabled(#[string] name: String) -> bool {
+    DAZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_daze(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyDaze { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_daze(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearDaze { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_daze_slow_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDazeSlowFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_daze_aim_deviation(#[string] name: String, deviation: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDazeAimDeviation { name, deviation })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_daze_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDazeEnabled { name, enabled })
+    });
+}
+
+// --- Disarm ---
+
+#[op2(fast)]
+pub fn bsengine_is_disarm_active(#[string] name: String) -> bool {
+    // timer counts up; active while timer < duration
+    DISARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, t, _, _, _)| *t < *d)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_disarm_duration(#[string] name: String) -> f32 {
+    DISARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_disarm_timer(#[string] name: String) -> f32 {
+    DISARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_disarm_just_disarmed(#[string] name: String) -> bool {
+    DISARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, jd, _, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_disarm_just_rearmed(#[string] name: String) -> bool {
+    DISARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_disarm_enabled(#[string] name: String) -> bool {
+    DISARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_disarm(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyDisarm { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_disarm(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearDisarm { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_disarm_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDisarmEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -10755,6 +11498,74 @@ deno_core::extension!(
         bsengine_set_freeze_chill_slow,
         bsengine_set_freeze_frozen_duration,
         bsengine_set_freeze_enabled,
+        bsengine_is_blind_active,
+        bsengine_get_blind_duration,
+        bsengine_get_blind_timer,
+        bsengine_get_blind_range_limit,
+        bsengine_get_blind_aim_deviation,
+        bsengine_is_blind_just_blinded,
+        bsengine_is_blind_just_unblinded,
+        bsengine_is_blind_enabled,
+        bsengine_apply_blind,
+        bsengine_clear_blind,
+        bsengine_set_blind_range_limit,
+        bsengine_set_blind_aim_deviation,
+        bsengine_set_blind_enabled,
+        bsengine_is_charm_active,
+        bsengine_get_charm_duration,
+        bsengine_get_charm_timer,
+        bsengine_is_charm_just_charmed,
+        bsengine_is_charm_just_uncharmed,
+        bsengine_is_charm_enabled,
+        bsengine_apply_charm,
+        bsengine_clear_charm,
+        bsengine_set_charm_enabled,
+        bsengine_is_confuse_active,
+        bsengine_get_confuse_duration,
+        bsengine_get_confuse_timer,
+        bsengine_get_confuse_chance,
+        bsengine_is_confuse_just_confused,
+        bsengine_is_confuse_just_unconfused,
+        bsengine_is_confuse_enabled,
+        bsengine_apply_confuse,
+        bsengine_clear_confuse,
+        bsengine_set_confuse_chance,
+        bsengine_set_confuse_enabled,
+        bsengine_is_cripple_active,
+        bsengine_get_cripple_duration,
+        bsengine_get_cripple_timer,
+        bsengine_get_cripple_speed_fraction,
+        bsengine_is_cripple_prevents_jump,
+        bsengine_is_cripple_just_crippled,
+        bsengine_is_cripple_just_recovered,
+        bsengine_is_cripple_enabled,
+        bsengine_apply_cripple,
+        bsengine_clear_cripple,
+        bsengine_set_cripple_speed_fraction,
+        bsengine_set_cripple_prevents_jump,
+        bsengine_set_cripple_enabled,
+        bsengine_is_daze_active,
+        bsengine_get_daze_duration,
+        bsengine_get_daze_timer,
+        bsengine_get_daze_slow_fraction,
+        bsengine_get_daze_aim_deviation,
+        bsengine_is_daze_just_dazed,
+        bsengine_is_daze_just_undazed,
+        bsengine_is_daze_enabled,
+        bsengine_apply_daze,
+        bsengine_clear_daze,
+        bsengine_set_daze_slow_fraction,
+        bsengine_set_daze_aim_deviation,
+        bsengine_set_daze_enabled,
+        bsengine_is_disarm_active,
+        bsengine_get_disarm_duration,
+        bsengine_get_disarm_timer,
+        bsengine_is_disarm_just_disarmed,
+        bsengine_is_disarm_just_rearmed,
+        bsengine_is_disarm_enabled,
+        bsengine_apply_disarm,
+        bsengine_clear_disarm,
+        bsengine_set_disarm_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -12053,6 +12864,74 @@ const Bsengine = {
     setFreezeChillSlow:     (name, s)        => Deno.core.ops.bsengine_set_freeze_chill_slow(name, s),
     setFreezeFrozenDuration:(name, d)        => Deno.core.ops.bsengine_set_freeze_frozen_duration(name, d),
     setFreezeEnabled:       (name, en)       => Deno.core.ops.bsengine_set_freeze_enabled(name, en),
+    isBlindActive:          (name)           => Deno.core.ops.bsengine_is_blind_active(name),
+    getBlindDuration:       (name)           => Deno.core.ops.bsengine_get_blind_duration(name),
+    getBlindTimer:          (name)           => Deno.core.ops.bsengine_get_blind_timer(name),
+    getBlindRangeLimit:     (name)           => Deno.core.ops.bsengine_get_blind_range_limit(name),
+    getBlindAimDeviation:   (name)           => Deno.core.ops.bsengine_get_blind_aim_deviation(name),
+    isBlindJustBlinded:     (name)           => Deno.core.ops.bsengine_is_blind_just_blinded(name),
+    isBlindJustUnblinded:   (name)           => Deno.core.ops.bsengine_is_blind_just_unblinded(name),
+    isBlindEnabled:         (name)           => Deno.core.ops.bsengine_is_blind_enabled(name),
+    applyBlind:             (name, dur)      => Deno.core.ops.bsengine_apply_blind(name, dur),
+    clearBlind:             (name)           => Deno.core.ops.bsengine_clear_blind(name),
+    setBlindRangeLimit:     (name, r)        => Deno.core.ops.bsengine_set_blind_range_limit(name, r),
+    setBlindAimDeviation:   (name, d)        => Deno.core.ops.bsengine_set_blind_aim_deviation(name, d),
+    setBlindEnabled:        (name, en)       => Deno.core.ops.bsengine_set_blind_enabled(name, en),
+    isCharmActive:          (name)           => Deno.core.ops.bsengine_is_charm_active(name),
+    getCharmDuration:       (name)           => Deno.core.ops.bsengine_get_charm_duration(name),
+    getCharmTimer:          (name)           => Deno.core.ops.bsengine_get_charm_timer(name),
+    isCharmJustCharmed:     (name)           => Deno.core.ops.bsengine_is_charm_just_charmed(name),
+    isCharmJustUncharmed:   (name)           => Deno.core.ops.bsengine_is_charm_just_uncharmed(name),
+    isCharmEnabled:         (name)           => Deno.core.ops.bsengine_is_charm_enabled(name),
+    applyCharm:             (name, src, dur) => Deno.core.ops.bsengine_apply_charm(name, src, dur),
+    clearCharm:             (name)           => Deno.core.ops.bsengine_clear_charm(name),
+    setCharmEnabled:        (name, en)       => Deno.core.ops.bsengine_set_charm_enabled(name, en),
+    isConfuseActive:        (name)           => Deno.core.ops.bsengine_is_confuse_active(name),
+    getConfuseDuration:     (name)           => Deno.core.ops.bsengine_get_confuse_duration(name),
+    getConfuseTimer:        (name)           => Deno.core.ops.bsengine_get_confuse_timer(name),
+    getConfuseChance:       (name)           => Deno.core.ops.bsengine_get_confuse_chance(name),
+    isConfuseJustConfused:  (name)           => Deno.core.ops.bsengine_is_confuse_just_confused(name),
+    isConfuseJustUnconfused:(name)           => Deno.core.ops.bsengine_is_confuse_just_unconfused(name),
+    isConfuseEnabled:       (name)           => Deno.core.ops.bsengine_is_confuse_enabled(name),
+    applyConfuse:           (name, dur)      => Deno.core.ops.bsengine_apply_confuse(name, dur),
+    clearConfuse:           (name)           => Deno.core.ops.bsengine_clear_confuse(name),
+    setConfuseChance:       (name, ch)       => Deno.core.ops.bsengine_set_confuse_chance(name, ch),
+    setConfuseEnabled:      (name, en)       => Deno.core.ops.bsengine_set_confuse_enabled(name, en),
+    isCrippleActive:        (name)           => Deno.core.ops.bsengine_is_cripple_active(name),
+    getCrippleDuration:     (name)           => Deno.core.ops.bsengine_get_cripple_duration(name),
+    getCrippleTimer:        (name)           => Deno.core.ops.bsengine_get_cripple_timer(name),
+    getCrippleSpeedFraction:(name)           => Deno.core.ops.bsengine_get_cripple_speed_fraction(name),
+    isCripplePreventsJump:  (name)           => Deno.core.ops.bsengine_is_cripple_prevents_jump(name),
+    isCrippleJustCrippled:  (name)           => Deno.core.ops.bsengine_is_cripple_just_crippled(name),
+    isCrippleJustRecovered: (name)           => Deno.core.ops.bsengine_is_cripple_just_recovered(name),
+    isCrippleEnabled:       (name)           => Deno.core.ops.bsengine_is_cripple_enabled(name),
+    applyCripple:           (name, dur)      => Deno.core.ops.bsengine_apply_cripple(name, dur),
+    clearCripple:           (name)           => Deno.core.ops.bsengine_clear_cripple(name),
+    setCrippleSpeedFraction:(name, f)        => Deno.core.ops.bsengine_set_cripple_speed_fraction(name, f),
+    setCripplePreventsJump: (name, p)        => Deno.core.ops.bsengine_set_cripple_prevents_jump(name, p),
+    setCrippleEnabled:      (name, en)       => Deno.core.ops.bsengine_set_cripple_enabled(name, en),
+    isDazeActive:           (name)           => Deno.core.ops.bsengine_is_daze_active(name),
+    getDazeDuration:        (name)           => Deno.core.ops.bsengine_get_daze_duration(name),
+    getDazeTimer:           (name)           => Deno.core.ops.bsengine_get_daze_timer(name),
+    getDazeSlowFraction:    (name)           => Deno.core.ops.bsengine_get_daze_slow_fraction(name),
+    getDazeAimDeviation:    (name)           => Deno.core.ops.bsengine_get_daze_aim_deviation(name),
+    isDazeJustDazed:        (name)           => Deno.core.ops.bsengine_is_daze_just_dazed(name),
+    isDazeJustUndazed:      (name)           => Deno.core.ops.bsengine_is_daze_just_undazed(name),
+    isDazeEnabled:          (name)           => Deno.core.ops.bsengine_is_daze_enabled(name),
+    applyDaze:              (name, dur)      => Deno.core.ops.bsengine_apply_daze(name, dur),
+    clearDaze:              (name)           => Deno.core.ops.bsengine_clear_daze(name),
+    setDazeSlowFraction:    (name, f)        => Deno.core.ops.bsengine_set_daze_slow_fraction(name, f),
+    setDazeAimDeviation:    (name, d)        => Deno.core.ops.bsengine_set_daze_aim_deviation(name, d),
+    setDazeEnabled:         (name, en)       => Deno.core.ops.bsengine_set_daze_enabled(name, en),
+    isDisarmActive:         (name)           => Deno.core.ops.bsengine_is_disarm_active(name),
+    getDisarmDuration:      (name)           => Deno.core.ops.bsengine_get_disarm_duration(name),
+    getDisarmTimer:         (name)           => Deno.core.ops.bsengine_get_disarm_timer(name),
+    isDisarmJustDisarmed:   (name)           => Deno.core.ops.bsengine_is_disarm_just_disarmed(name),
+    isDisarmJustRearmed:    (name)           => Deno.core.ops.bsengine_is_disarm_just_rearmed(name),
+    isDisarmEnabled:        (name)           => Deno.core.ops.bsengine_is_disarm_enabled(name),
+    applyDisarm:            (name, dur)      => Deno.core.ops.bsengine_apply_disarm(name, dur),
+    clearDisarm:            (name)           => Deno.core.ops.bsengine_clear_disarm(name),
+    setDisarmEnabled:       (name, en)       => Deno.core.ops.bsengine_set_disarm_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -20898,6 +21777,310 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyCold { name, amount } if name == "Hero" && (*amount - 25.0).abs() < 0.001)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ThawFreeze { name } if name == "Hero")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFreezeEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_blind_read_ops() {
+        // (duration, timer, range_limit, aim_deviation_rad, just_blinded, just_unblinded, enabled)
+        super::BLIND_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Enemy".to_string(),
+                (3.0f32, 2.5f32, 5.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBlindActive("Enemy")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBlindJustBlinded("Enemy")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBlindEnabled("Enemy")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::BLIND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_blind_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyBlind("Enemy", 2.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearBlind("Enemy");"#).unwrap();
+        rt.eval(r#"Bsengine.setBlindEnabled("Enemy", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyBlind { name, duration } if name == "Enemy" && (*duration - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearBlind { name } if name == "Enemy")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetBlindEnabled { name, enabled } if name == "Enemy" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_charm_read_ops() {
+        // (duration, timer, just_charmed, just_uncharmed, enabled); is_active = timer < duration
+        super::CHARM_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Minion".to_string(), (5.0f32, 1.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCharmActive("Minion")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCharmJustCharmed("Minion")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCharmEnabled("Minion")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::CHARM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_charm_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyCharm("Minion", "Wizard", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearCharm("Minion");"#).unwrap();
+        rt.eval(r#"Bsengine.setCharmEnabled("Minion", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyCharm { name, source_name, duration } if name == "Minion" && source_name == "Wizard" && (*duration - 4.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearCharm { name } if name == "Minion")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetCharmEnabled { name, enabled } if name == "Minion" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_confuse_read_ops() {
+        // (duration, timer, chance, just_confused, just_unconfused, enabled)
+        super::CONFUSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guard".to_string(),
+                (4.0f32, 3.0f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isConfuseActive("Guard")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isConfuseJustConfused("Guard")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isConfuseEnabled("Guard")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::CONFUSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_confuse_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyConfuse("Guard", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearConfuse("Guard");"#).unwrap();
+        rt.eval(r#"Bsengine.setConfuseEnabled("Guard", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyConfuse { name, duration } if name == "Guard" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearConfuse { name } if name == "Guard")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetConfuseEnabled { name, enabled } if name == "Guard" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_cripple_read_ops() {
+        // (duration, timer, speed_fraction, prevents_jump, just_crippled, just_recovered, enabled)
+        super::CRIPPLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Soldier".to_string(),
+                (5.0f32, 3.0f32, 0.2f32, true, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCrippleActive("Soldier")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCrippleJustCrippled("Soldier")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCripplePreventsJump("Soldier")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isCrippleEnabled("Soldier")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::CRIPPLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_cripple_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyCripple("Soldier", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearCripple("Soldier");"#).unwrap();
+        rt.eval(r#"Bsengine.setCrippleEnabled("Soldier", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyCripple { name, duration } if name == "Soldier" && (*duration - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearCripple { name } if name == "Soldier")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetCrippleEnabled { name, enabled } if name == "Soldier" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_daze_read_ops() {
+        // (duration, timer, slow_fraction, aim_deviation_rad, just_dazed, just_undazed, enabled)
+        super::DAZE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Knight".to_string(),
+                (2.0f32, 1.5f32, 0.3f32, 0.2f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isDazeActive("Knight")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isDazeJustDazed("Knight")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isDazeEnabled("Knight")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::DAZE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_daze_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyDaze("Knight", 2.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearDaze("Knight");"#).unwrap();
+        rt.eval(r#"Bsengine.setDazeEnabled("Knight", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyDaze { name, duration } if name == "Knight" && (*duration - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearDaze { name } if name == "Knight")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDazeEnabled { name, enabled } if name == "Knight" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_disarm_read_ops() {
+        // (duration, timer, just_disarmed, just_rearmed, enabled); is_active = timer < duration
+        super::DISARM_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Archer".to_string(), (4.0f32, 1.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isDisarmActive("Archer")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isDisarmJustDisarmed("Archer")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isDisarmEnabled("Archer")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::DISARM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_disarm_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyDisarm("Archer", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearDisarm("Archer");"#).unwrap();
+        rt.eval(r#"Bsengine.setDisarmEnabled("Archer", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyDisarm { name, duration } if name == "Archer" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearDisarm { name } if name == "Archer")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDisarmEnabled { name, enabled } if name == "Archer" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

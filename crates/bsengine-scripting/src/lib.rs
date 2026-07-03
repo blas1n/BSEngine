@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 // bsengine-scripting
 pub mod ops;
 pub mod plugin;

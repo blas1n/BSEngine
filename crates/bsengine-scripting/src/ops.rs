@@ -1470,6 +1470,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyConcuss {
+        name: String,
+        duration: f32,
+    },
+    ClearConcuss {
+        name: String,
+    },
+    SetConcussAimDeviation {
+        name: String,
+        deviation: f32,
+    },
+    SetConcussSuppressChance {
+        name: String,
+        chance: f32,
+    },
+    SetConcussEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyCorrosion {
+        name: String,
+        amount: f32,
+    },
+    SetCorrosionDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetCorrosionArmorReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetCorrosionEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyCurse {
+        name: String,
+        kind: u32,
+        strength: f32,
+        duration: f32,
+    },
+    ClearCurse {
+        name: String,
+    },
+    SetCurseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetDreadRadius {
+        name: String,
+        radius: f32,
+    },
+    SetDreadPulseInterval {
+        name: String,
+        interval: f32,
+    },
+    SetDreadBuildupPerPulse {
+        name: String,
+        buildup: u32,
+    },
+    SetDreadEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyDoom {
+        name: String,
+        duration: f32,
+    },
+    CleanseDoom {
+        name: String,
+    },
+    SetDoomEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyDemoralize {
+        name: String,
+        duration: f32,
+    },
+    ClearDemoralize {
+        name: String,
+    },
+    SetDemoralizeDamageFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetDemoralizeFleeChance {
+        name: String,
+        chance: f32,
+    },
+    SetDemoralizeEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2254,6 +2348,31 @@ thread_local! {
     // entity name → (duration, timer, just_disarmed, just_rearmed, enabled)
     pub(crate) static DISARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
+    // entity name → (duration, timer, aim_deviation_rad, ability_suppress_chance, just_concussed, just_cleared, enabled)
+    pub(crate) static CONCUSS_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, decay_rate, armor_reduction_per_stack, just_corroded, just_cleared, enabled)
+    pub(crate) static CORROSION_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (kind_u32, strength, duration, timer, just_cursed, just_lifted, enabled)
+    // CurseKind: DamageDown=0, SpeedDown=1, ArmorDown=2, DamageTakenUp=3, Custom=4
+    pub(crate) static CURSE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (radius, pulse_interval, pulse_timer, buildup_per_pulse, just_pulsed, enabled)
+    pub(crate) static DREAD_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, u32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (active, countdown, max_countdown, just_doomed, just_expired, enabled)
+    pub(crate) static DOOM_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage_fraction, flee_chance, just_demoralized, just_recovered, enabled)
+    pub(crate) static DEMORALIZE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -10293,6 +10412,643 @@ pub fn bsengine_set_disarm_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// --- Concuss ---
+
+#[op2(fast)]
+pub fn bsengine_is_concuss_active(#[string] name: String) -> bool {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_concuss_duration(#[string] name: String) -> f32 {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_concuss_timer(#[string] name: String) -> f32 {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_concuss_aim_deviation(#[string] name: String) -> f32 {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, a, _, _, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_concuss_suppress_chance(#[string] name: String) -> f32 {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, sc, _, _, _)| *sc)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_concuss_just_concussed(#[string] name: String) -> bool {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jc, _, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_concuss_just_cleared(#[string] name: String) -> bool {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jcl, _)| *jcl)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_concuss_enabled(#[string] name: String) -> bool {
+    CONCUSS_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_concuss(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyConcuss { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_concuss(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearConcuss { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_concuss_aim_deviation(#[string] name: String, deviation: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetConcussAimDeviation { name, deviation })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_concuss_suppress_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetConcussSuppressChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_concuss_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetConcussEnabled { name, enabled })
+    });
+}
+
+// --- Corrosion ---
+
+#[op2(fast)]
+pub fn bsengine_is_corrosion_active(#[string] name: String) -> bool {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _)| *st > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_corrosion_stacks(#[string] name: String) -> f32 {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _)| *st)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_corrosion_max_stacks(#[string] name: String) -> f32 {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, m, _, _, _, _, _)| *m)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_corrosion_decay_rate(#[string] name: String) -> f32 {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dr, _, _, _, _)| *dr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_corrosion_armor_reduction(#[string] name: String) -> f32 {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ar, _, _, _)| *ar)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_corrosion_just_corroded(#[string] name: String) -> bool {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jc, _, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_corrosion_just_cleared(#[string] name: String) -> bool {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jcl, _)| *jcl)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_corrosion_enabled(#[string] name: String) -> bool {
+    CORROSION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_corrosion(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyCorrosion { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_corrosion_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCorrosionDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_corrosion_armor_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCorrosionArmorReduction { name, reduction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_corrosion_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCorrosionEnabled { name, enabled })
+    });
+}
+
+// --- Curse ---
+
+#[op2(fast)]
+pub fn bsengine_is_curse_active(#[string] name: String) -> bool {
+    // timer counts up; active while timer < duration
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, d, t, _, _, _)| *t < *d)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_curse_kind(#[string] name: String) -> u32 {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(k, _, _, _, _, _, _)| *k)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_curse_strength(#[string] name: String) -> f32 {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, st, _, _, _, _, _)| *st)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_curse_duration(#[string] name: String) -> f32 {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_curse_timer(#[string] name: String) -> f32 {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, t, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_curse_just_cursed(#[string] name: String) -> bool {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jc, _, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_curse_just_lifted(#[string] name: String) -> bool {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jl, _)| *jl)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_curse_enabled(#[string] name: String) -> bool {
+    CURSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_curse(#[string] name: String, kind: u32, strength: f32, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyCurse {
+            name,
+            kind,
+            strength,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_curse(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearCurse { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_curse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCurseEnabled { name, enabled })
+    });
+}
+
+// --- Dread ---
+
+#[op2(fast)]
+pub fn bsengine_get_dread_radius(#[string] name: String) -> f32 {
+    DREAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dread_pulse_interval(#[string] name: String) -> f32 {
+    DREAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, pi, _, _, _, _)| *pi)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dread_pulse_timer(#[string] name: String) -> f32 {
+    DREAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, pt, _, _, _)| *pt)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dread_buildup_per_pulse(#[string] name: String) -> u32 {
+    DREAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, bp, _, _)| *bp)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dread_just_pulsed(#[string] name: String) -> bool {
+    DREAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jp, _)| *jp)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dread_enabled(#[string] name: String) -> bool {
+    DREAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dread_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDreadRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dread_pulse_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDreadPulseInterval { name, interval })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dread_buildup_per_pulse(#[string] name: String, buildup: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDreadBuildupPerPulse { name, buildup })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dread_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDreadEnabled { name, enabled })
+    });
+}
+
+// --- Doom ---
+
+#[op2(fast)]
+pub fn bsengine_is_doomed(#[string] name: String) -> bool {
+    DOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(a, _, _, _, _, _)| *a)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_doom_countdown(#[string] name: String) -> f32 {
+    DOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, cd, _, _, _, _)| *cd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_doom_max_countdown(#[string] name: String) -> f32 {
+    DOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, mc, _, _, _)| *mc)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_doom_just_doomed(#[string] name: String) -> bool {
+    DOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jd, _, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_doom_just_expired(#[string] name: String) -> bool {
+    DOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, je, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_doom_enabled(#[string] name: String) -> bool {
+    DOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_doom(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyDoom { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_cleanse_doom(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CleanseDoom { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_doom_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDoomEnabled { name, enabled })
+    });
+}
+
+// --- Demoralize ---
+
+#[op2(fast)]
+pub fn bsengine_is_demoralize_active(#[string] name: String) -> bool {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_demoralize_duration(#[string] name: String) -> f32 {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_demoralize_timer(#[string] name: String) -> f32 {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_demoralize_damage_fraction(#[string] name: String) -> f32 {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, df, _, _, _, _)| *df)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_demoralize_flee_chance(#[string] name: String) -> f32 {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, fc, _, _, _)| *fc)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_demoralize_just_demoralized(#[string] name: String) -> bool {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jd, _, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_demoralize_just_recovered(#[string] name: String) -> bool {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_demoralize_enabled(#[string] name: String) -> bool {
+    DEMORALIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_demoralize(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyDemoralize { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_demoralize(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearDemoralize { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_demoralize_damage_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDemoralizeDamageFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_demoralize_flee_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDemoralizeFleeChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_demoralize_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDemoralizeEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -11566,6 +12322,74 @@ deno_core::extension!(
         bsengine_apply_disarm,
         bsengine_clear_disarm,
         bsengine_set_disarm_enabled,
+        bsengine_is_concuss_active,
+        bsengine_get_concuss_duration,
+        bsengine_get_concuss_timer,
+        bsengine_get_concuss_aim_deviation,
+        bsengine_get_concuss_suppress_chance,
+        bsengine_is_concuss_just_concussed,
+        bsengine_is_concuss_just_cleared,
+        bsengine_is_concuss_enabled,
+        bsengine_apply_concuss,
+        bsengine_clear_concuss,
+        bsengine_set_concuss_aim_deviation,
+        bsengine_set_concuss_suppress_chance,
+        bsengine_set_concuss_enabled,
+        bsengine_is_corrosion_active,
+        bsengine_get_corrosion_stacks,
+        bsengine_get_corrosion_max_stacks,
+        bsengine_get_corrosion_decay_rate,
+        bsengine_get_corrosion_armor_reduction,
+        bsengine_is_corrosion_just_corroded,
+        bsengine_is_corrosion_just_cleared,
+        bsengine_is_corrosion_enabled,
+        bsengine_apply_corrosion,
+        bsengine_set_corrosion_decay_rate,
+        bsengine_set_corrosion_armor_reduction,
+        bsengine_set_corrosion_enabled,
+        bsengine_is_curse_active,
+        bsengine_get_curse_kind,
+        bsengine_get_curse_strength,
+        bsengine_get_curse_duration,
+        bsengine_get_curse_timer,
+        bsengine_is_curse_just_cursed,
+        bsengine_is_curse_just_lifted,
+        bsengine_is_curse_enabled,
+        bsengine_apply_curse,
+        bsengine_clear_curse,
+        bsengine_set_curse_enabled,
+        bsengine_get_dread_radius,
+        bsengine_get_dread_pulse_interval,
+        bsengine_get_dread_pulse_timer,
+        bsengine_get_dread_buildup_per_pulse,
+        bsengine_is_dread_just_pulsed,
+        bsengine_is_dread_enabled,
+        bsengine_set_dread_radius,
+        bsengine_set_dread_pulse_interval,
+        bsengine_set_dread_buildup_per_pulse,
+        bsengine_set_dread_enabled,
+        bsengine_is_doomed,
+        bsengine_get_doom_countdown,
+        bsengine_get_doom_max_countdown,
+        bsengine_is_doom_just_doomed,
+        bsengine_is_doom_just_expired,
+        bsengine_is_doom_enabled,
+        bsengine_apply_doom,
+        bsengine_cleanse_doom,
+        bsengine_set_doom_enabled,
+        bsengine_is_demoralize_active,
+        bsengine_get_demoralize_duration,
+        bsengine_get_demoralize_timer,
+        bsengine_get_demoralize_damage_fraction,
+        bsengine_get_demoralize_flee_chance,
+        bsengine_is_demoralize_just_demoralized,
+        bsengine_is_demoralize_just_recovered,
+        bsengine_is_demoralize_enabled,
+        bsengine_apply_demoralize,
+        bsengine_clear_demoralize,
+        bsengine_set_demoralize_damage_fraction,
+        bsengine_set_demoralize_flee_chance,
+        bsengine_set_demoralize_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -12932,6 +13756,74 @@ const Bsengine = {
     applyDisarm:            (name, dur)      => Deno.core.ops.bsengine_apply_disarm(name, dur),
     clearDisarm:            (name)           => Deno.core.ops.bsengine_clear_disarm(name),
     setDisarmEnabled:       (name, en)       => Deno.core.ops.bsengine_set_disarm_enabled(name, en),
+    isConcussActive:        (name)           => Deno.core.ops.bsengine_is_concuss_active(name),
+    getConcussDuration:     (name)           => Deno.core.ops.bsengine_get_concuss_duration(name),
+    getConcussTimer:        (name)           => Deno.core.ops.bsengine_get_concuss_timer(name),
+    getConcussAimDeviation: (name)           => Deno.core.ops.bsengine_get_concuss_aim_deviation(name),
+    getConcussSuppressChance:(name)          => Deno.core.ops.bsengine_get_concuss_suppress_chance(name),
+    isConcussJustConcussed: (name)           => Deno.core.ops.bsengine_is_concuss_just_concussed(name),
+    isConcussJustCleared:   (name)           => Deno.core.ops.bsengine_is_concuss_just_cleared(name),
+    isConcussEnabled:       (name)           => Deno.core.ops.bsengine_is_concuss_enabled(name),
+    applyConcuss:           (name, dur)      => Deno.core.ops.bsengine_apply_concuss(name, dur),
+    clearConcuss:           (name)           => Deno.core.ops.bsengine_clear_concuss(name),
+    setConcussAimDeviation: (name, dev)      => Deno.core.ops.bsengine_set_concuss_aim_deviation(name, dev),
+    setConcussSuppressChance:(name, ch)      => Deno.core.ops.bsengine_set_concuss_suppress_chance(name, ch),
+    setConcussEnabled:      (name, en)       => Deno.core.ops.bsengine_set_concuss_enabled(name, en),
+    isCorrosionActive:      (name)           => Deno.core.ops.bsengine_is_corrosion_active(name),
+    getCorrosionStacks:     (name)           => Deno.core.ops.bsengine_get_corrosion_stacks(name),
+    getCorrosionMaxStacks:  (name)           => Deno.core.ops.bsengine_get_corrosion_max_stacks(name),
+    getCorrosionDecayRate:  (name)           => Deno.core.ops.bsengine_get_corrosion_decay_rate(name),
+    getCorrosionArmorReduction:(name)        => Deno.core.ops.bsengine_get_corrosion_armor_reduction(name),
+    isCorrosionJustCorroded:(name)           => Deno.core.ops.bsengine_is_corrosion_just_corroded(name),
+    isCorrosionJustCleared: (name)           => Deno.core.ops.bsengine_is_corrosion_just_cleared(name),
+    isCorrosionEnabled:     (name)           => Deno.core.ops.bsengine_is_corrosion_enabled(name),
+    applyCorrosion:         (name, amt)      => Deno.core.ops.bsengine_apply_corrosion(name, amt),
+    setCorrosionDecayRate:  (name, rate)     => Deno.core.ops.bsengine_set_corrosion_decay_rate(name, rate),
+    setCorrosionArmorReduction:(name, red)   => Deno.core.ops.bsengine_set_corrosion_armor_reduction(name, red),
+    setCorrosionEnabled:    (name, en)       => Deno.core.ops.bsengine_set_corrosion_enabled(name, en),
+    isCurseActive:          (name)           => Deno.core.ops.bsengine_is_curse_active(name),
+    getCurseKind:           (name)           => Deno.core.ops.bsengine_get_curse_kind(name),
+    getCurseStrength:       (name)           => Deno.core.ops.bsengine_get_curse_strength(name),
+    getCurseDuration:       (name)           => Deno.core.ops.bsengine_get_curse_duration(name),
+    getCurseTimer:          (name)           => Deno.core.ops.bsengine_get_curse_timer(name),
+    isCurseJustCursed:      (name)           => Deno.core.ops.bsengine_is_curse_just_cursed(name),
+    isCurseJustLifted:      (name)           => Deno.core.ops.bsengine_is_curse_just_lifted(name),
+    isCurseEnabled:         (name)           => Deno.core.ops.bsengine_is_curse_enabled(name),
+    applyCurse:             (name, kind, str, dur) => Deno.core.ops.bsengine_apply_curse(name, kind, str, dur),
+    clearCurse:             (name)           => Deno.core.ops.bsengine_clear_curse(name),
+    setCurseEnabled:        (name, en)       => Deno.core.ops.bsengine_set_curse_enabled(name, en),
+    getDreadRadius:         (name)           => Deno.core.ops.bsengine_get_dread_radius(name),
+    getDreadPulseInterval:  (name)           => Deno.core.ops.bsengine_get_dread_pulse_interval(name),
+    getDreadPulseTimer:     (name)           => Deno.core.ops.bsengine_get_dread_pulse_timer(name),
+    getDreadBuildupPerPulse:(name)           => Deno.core.ops.bsengine_get_dread_buildup_per_pulse(name),
+    isDreadJustPulsed:      (name)           => Deno.core.ops.bsengine_is_dread_just_pulsed(name),
+    isDreadEnabled:         (name)           => Deno.core.ops.bsengine_is_dread_enabled(name),
+    setDreadRadius:         (name, r)        => Deno.core.ops.bsengine_set_dread_radius(name, r),
+    setDreadPulseInterval:  (name, iv)       => Deno.core.ops.bsengine_set_dread_pulse_interval(name, iv),
+    setDreadBuildupPerPulse:(name, bp)       => Deno.core.ops.bsengine_set_dread_buildup_per_pulse(name, bp),
+    setDreadEnabled:        (name, en)       => Deno.core.ops.bsengine_set_dread_enabled(name, en),
+    isDoomed:               (name)           => Deno.core.ops.bsengine_is_doomed(name),
+    getDoomCountdown:       (name)           => Deno.core.ops.bsengine_get_doom_countdown(name),
+    getDoomMaxCountdown:    (name)           => Deno.core.ops.bsengine_get_doom_max_countdown(name),
+    isDoomJustDoomed:       (name)           => Deno.core.ops.bsengine_is_doom_just_doomed(name),
+    isDoomJustExpired:      (name)           => Deno.core.ops.bsengine_is_doom_just_expired(name),
+    isDoomEnabled:          (name)           => Deno.core.ops.bsengine_is_doom_enabled(name),
+    applyDoom:              (name, dur)      => Deno.core.ops.bsengine_apply_doom(name, dur),
+    cleanseDoom:            (name)           => Deno.core.ops.bsengine_cleanse_doom(name),
+    setDoomEnabled:         (name, en)       => Deno.core.ops.bsengine_set_doom_enabled(name, en),
+    isDemoralizeActive:     (name)           => Deno.core.ops.bsengine_is_demoralize_active(name),
+    getDemoralizeDuration:  (name)           => Deno.core.ops.bsengine_get_demoralize_duration(name),
+    getDemoralizeTimer:     (name)           => Deno.core.ops.bsengine_get_demoralize_timer(name),
+    getDemoralizeDamageFraction:(name)       => Deno.core.ops.bsengine_get_demoralize_damage_fraction(name),
+    getDemoralizeFleeChance:(name)           => Deno.core.ops.bsengine_get_demoralize_flee_chance(name),
+    isDemoralizeJustDemoralized:(name)       => Deno.core.ops.bsengine_is_demoralize_just_demoralized(name),
+    isDemoralizeJustRecovered:(name)         => Deno.core.ops.bsengine_is_demoralize_just_recovered(name),
+    isDemoralizeEnabled:    (name)           => Deno.core.ops.bsengine_is_demoralize_enabled(name),
+    applyDemoralize:        (name, dur)      => Deno.core.ops.bsengine_apply_demoralize(name, dur),
+    clearDemoralize:        (name)           => Deno.core.ops.bsengine_clear_demoralize(name),
+    setDemoralizeDamageFraction:(name, frac) => Deno.core.ops.bsengine_set_demoralize_damage_fraction(name, frac),
+    setDemoralizeFleeChance:(name, ch)       => Deno.core.ops.bsengine_set_demoralize_flee_chance(name, ch),
+    setDemoralizeEnabled:   (name, en)       => Deno.core.ops.bsengine_set_demoralize_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -22081,6 +22973,318 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyDisarm { name, duration } if name == "Archer" && (*duration - 3.0).abs() < 0.001)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearDisarm { name } if name == "Archer")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDisarmEnabled { name, enabled } if name == "Archer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_concuss_read_ops() {
+        // (duration, timer, aim_deviation_rad, ability_suppress_chance, just_concussed, just_cleared, enabled)
+        super::CONCUSS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Knight".to_string(),
+                (2.0f32, 1.5f32, 0.3f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isConcussActive("Knight")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let dur = rt
+            .eval(r#"Bsengine.getConcussDuration("Knight")"#)
+            .unwrap()
+            .to_string();
+        assert!((dur.parse::<f64>().unwrap() - 2.0).abs() < 0.001);
+        let dev = rt
+            .eval(r#"Bsengine.getConcussAimDeviation("Knight")"#)
+            .unwrap()
+            .to_string();
+        assert!((dev.parse::<f64>().unwrap() - 0.3).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isConcussJustConcussed("Knight")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isConcussEnabled("Knight")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::CONCUSS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_concuss_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyConcuss("Knight", 2.5);"#).unwrap();
+        rt.eval(r#"Bsengine.clearConcuss("Knight");"#).unwrap();
+        rt.eval(r#"Bsengine.setConcussEnabled("Knight", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyConcuss { name, duration } if name == "Knight" && (*duration - 2.5).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearConcuss { name } if name == "Knight")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetConcussEnabled { name, enabled } if name == "Knight" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_corrosion_read_ops() {
+        // (stacks, max_stacks, decay_rate, armor_reduction_per_stack, just_corroded, just_cleared, enabled)
+        super::CORROSION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Golem".to_string(),
+                (3.0f32, 10.0f32, 0.5f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isCorrosionActive("Golem")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let stacks = rt
+            .eval(r#"Bsengine.getCorrosionStacks("Golem")"#)
+            .unwrap()
+            .to_string();
+        assert!((stacks.parse::<f64>().unwrap() - 3.0).abs() < 0.001);
+        let armor_red = rt
+            .eval(r#"Bsengine.getCorrosionArmorReduction("Golem")"#)
+            .unwrap()
+            .to_string();
+        assert!((armor_red.parse::<f64>().unwrap() - 2.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isCorrosionJustCorroded("Golem")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::CORROSION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_corrosion_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyCorrosion("Golem", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setCorrosionDecayRate("Golem", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setCorrosionEnabled("Golem", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyCorrosion { name, amount } if name == "Golem" && (*amount - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetCorrosionDecayRate { name, rate } if name == "Golem" && (*rate - 1.5).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetCorrosionEnabled { name, enabled } if name == "Golem" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_curse_read_ops() {
+        // (kind_u32, strength, duration, timer, just_cursed, just_lifted, enabled)
+        // kind: DamageDown=0
+        super::CURSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Witch".to_string(),
+                (0u32, 0.7f32, 5.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        // timer(2.0) < duration(5.0) => active
+        assert!(rt
+            .eval(r#"Bsengine.isCurseActive("Witch")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let kind = rt
+            .eval(r#"Bsengine.getCurseKind("Witch")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(kind.trim(), "0");
+        let strength = rt
+            .eval(r#"Bsengine.getCurseStrength("Witch")"#)
+            .unwrap()
+            .to_string();
+        assert!((strength.parse::<f64>().unwrap() - 0.7).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isCurseJustCursed("Witch")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::CURSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_curse_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyCurse("Witch", 1, 0.5, 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearCurse("Witch");"#).unwrap();
+        rt.eval(r#"Bsengine.setCurseEnabled("Witch", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyCurse { name, kind, strength, duration } if name == "Witch" && *kind == 1 && (*strength - 0.5).abs() < 0.001 && (*duration - 4.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearCurse { name } if name == "Witch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetCurseEnabled { name, enabled } if name == "Witch" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_dread_read_ops() {
+        // (radius, pulse_interval, pulse_timer, buildup_per_pulse, just_pulsed, enabled)
+        super::DREAD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wraith".to_string(),
+                (8.0f32, 2.0f32, 1.0f32, 3u32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let radius = rt
+            .eval(r#"Bsengine.getDreadRadius("Wraith")"#)
+            .unwrap()
+            .to_string();
+        assert!((radius.parse::<f64>().unwrap() - 8.0).abs() < 0.001);
+        let bp = rt
+            .eval(r#"Bsengine.getDreadBuildupPerPulse("Wraith")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(bp.trim(), "3");
+        assert!(rt
+            .eval(r#"Bsengine.isDreadJustPulsed("Wraith")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isDreadEnabled("Wraith")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::DREAD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_doom_read_ops() {
+        // (active, countdown, max_countdown, just_doomed, just_expired, enabled)
+        super::DOOM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (true, 3.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isDoomed("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let cd = rt
+            .eval(r#"Bsengine.getDoomCountdown("Hero")"#)
+            .unwrap()
+            .to_string();
+        assert!((cd.parse::<f64>().unwrap() - 3.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isDoomJustDoomed("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(!rt
+            .eval(r#"Bsengine.isDoomJustExpired("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::DOOM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_doom_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyDoom("Hero", 10.0);"#).unwrap();
+        rt.eval(r#"Bsengine.cleanseDoom("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setDoomEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyDoom { name, duration } if name == "Hero" && (*duration - 10.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseDoom { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDoomEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_demoralize_read_ops() {
+        // (duration, timer, damage_fraction, flee_chance, just_demoralized, just_recovered, enabled)
+        super::DEMORALIZE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guard".to_string(),
+                (4.0f32, 2.5f32, 0.6f32, 0.3f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        // timer(2.5) > 0 => active
+        assert!(rt
+            .eval(r#"Bsengine.isDemoralizeActive("Guard")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let df = rt
+            .eval(r#"Bsengine.getDemoralizeDamageFraction("Guard")"#)
+            .unwrap()
+            .to_string();
+        assert!((df.parse::<f64>().unwrap() - 0.6).abs() < 0.001);
+        let fc = rt
+            .eval(r#"Bsengine.getDemoralizeFleeChance("Guard")"#)
+            .unwrap()
+            .to_string();
+        assert!((fc.parse::<f64>().unwrap() - 0.3).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isDemoralizeJustDemoralized("Guard")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::DEMORALIZE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_demoralize_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyDemoralize("Guard", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearDemoralize("Guard");"#).unwrap();
+        rt.eval(r#"Bsengine.setDemoralizeDamageFraction("Guard", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDemoralizeFleeChance("Guard", 0.2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDemoralizeEnabled("Guard", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyDemoralize { name, duration } if name == "Guard" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearDemoralize { name } if name == "Guard")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDemoralizeDamageFraction { name, fraction } if name == "Guard" && (*fraction - 0.5).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDemoralizeFleeChance { name, chance } if name == "Guard" && (*chance - 0.2).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDemoralizeEnabled { name, enabled } if name == "Guard" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

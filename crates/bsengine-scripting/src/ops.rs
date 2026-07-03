@@ -829,6 +829,18 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetToneMapMode {
+        name: String,
+        mode: u32,
+    },
+    SetToneMapExposure {
+        name: String,
+        exposure: f32,
+    },
+    SetToneMapEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1481,6 +1493,11 @@ thread_local! {
 
     // entity name → (shutter_angle, sample_count, enabled)
     pub(crate) static MOTION_BLUR_SNAPSHOT: RefCell<HashMap<String, (f32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (mode_u32, exposure, enabled)
+    // ToneMappingMode: None=0, Reinhard=1, ReinhardLuminance=2, Aces=3, Filmic=4
+    pub(crate) static TONE_MAP_SNAPSHOT: RefCell<HashMap<String, (u32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5842,6 +5859,45 @@ pub fn bsengine_is_motion_blur_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_tone_map_mode(#[string] name: String, mode: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetToneMapMode { name, mode })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tone_map_exposure(#[string] name: String, exposure: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetToneMapExposure { name, exposure })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tone_map_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetToneMapEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tone_map_mode(#[string] name: String) -> u32 {
+    TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(m, _, _)| *m).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tone_map_exposure(#[string] name: String) -> f32 {
+    TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, e, _)| *e).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_tone_map_enabled(#[string] name: String) -> bool {
+    TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, en)| *en).unwrap_or(true))
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7156,6 +7212,12 @@ deno_core::extension!(
         bsengine_get_motion_blur_shutter_angle,
         bsengine_get_motion_blur_sample_count,
         bsengine_is_motion_blur_enabled,
+        bsengine_set_tone_map_mode,
+        bsengine_set_tone_map_exposure,
+        bsengine_set_tone_map_enabled,
+        bsengine_get_tone_map_mode,
+        bsengine_get_tone_map_exposure,
+        bsengine_is_tone_map_enabled,
     ],
 );
 
@@ -7665,6 +7727,12 @@ const Bsengine = {
     getMotionBlurShutterAngle:(name)       => Deno.core.ops.bsengine_get_motion_blur_shutter_angle(name),
     getMotionBlurSampleCount:(name)        => Deno.core.ops.bsengine_get_motion_blur_sample_count(name),
     isMotionBlurEnabled:(name)             => Deno.core.ops.bsengine_is_motion_blur_enabled(name),
+    setToneMapMode:     (name, v)          => Deno.core.ops.bsengine_set_tone_map_mode(name, v),
+    setToneMapExposure: (name, v)          => Deno.core.ops.bsengine_set_tone_map_exposure(name, v),
+    setToneMapEnabled:  (name, v)          => Deno.core.ops.bsengine_set_tone_map_enabled(name, v),
+    getToneMapMode:     (name)             => Deno.core.ops.bsengine_get_tone_map_mode(name),
+    getToneMapExposure: (name)             => Deno.core.ops.bsengine_get_tone_map_exposure(name),
+    isToneMapEnabled:   (name)             => Deno.core.ops.bsengine_is_tone_map_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -14337,6 +14405,57 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(
                 cmd,
                 super::ScriptCommand::SetMotionBlurEnabled { name, enabled }
+                if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_tone_map_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+
+        // Aces=3
+        super::TONE_MAP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cam".to_string(), (3, 0.0, true));
+        });
+
+        let mode = rt.eval(r#"Bsengine.getToneMapMode("Cam");"#).unwrap();
+        assert_eq!(mode.trim(), "3");
+        let exp = rt.eval(r#"Bsengine.getToneMapExposure("Cam");"#).unwrap();
+        assert!((exp.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isToneMapEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+
+        super::TONE_MAP_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn test_tone_map_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setToneMapMode("Cam", 1);"#).unwrap();
+        rt.eval(r#"Bsengine.setToneMapExposure("Cam", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setToneMapEnabled("Cam", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetToneMapMode { name, mode }
+                if name == "Cam" && *mode == 1
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetToneMapExposure { name, exposure }
+                if name == "Cam" && (*exposure - 1.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetToneMapEnabled { name, enabled }
                 if name == "Cam" && !*enabled
             )));
         });

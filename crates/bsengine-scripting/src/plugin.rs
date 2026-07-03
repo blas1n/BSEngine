@@ -34,8 +34,9 @@ use crate::ops::{
     PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
     SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
     SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1331,6 +1332,22 @@ fn run_scripts(world: &mut World) {
             );
         }
         MOTION_BLUR_SNAPSHOT.with(|s| *s.borrow_mut() = mb_map);
+    }
+    {
+        use bsengine_core::{ToneMap, ToneMappingMode};
+        let mut tm_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ToneMap)>();
+        for (_, name, tm) in q.iter(world) {
+            let mode_u32 = match tm.mode {
+                ToneMappingMode::None => 0u32,
+                ToneMappingMode::Reinhard => 1,
+                ToneMappingMode::ReinhardLuminance => 2,
+                ToneMappingMode::Aces => 3,
+                ToneMappingMode::Filmic => 4,
+            };
+            tm_map.insert(name.0.clone(), (mode_u32, tm.exposure, tm.enabled));
+        }
+        TONE_MAP_SNAPSHOT.with(|s| *s.borrow_mut() = tm_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3831,6 +3848,49 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut mb) = world.get_mut::<MotionBlur>(e) {
                         mb.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetToneMapMode { name, mode } => {
+                use bsengine_core::{ToneMap, ToneMappingMode};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tm) = world.get_mut::<ToneMap>(e) {
+                        tm.mode = match mode {
+                            0 => ToneMappingMode::None,
+                            1 => ToneMappingMode::Reinhard,
+                            2 => ToneMappingMode::ReinhardLuminance,
+                            3 => ToneMappingMode::Aces,
+                            4 => ToneMappingMode::Filmic,
+                            _ => ToneMappingMode::Aces,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetToneMapExposure { name, exposure } => {
+                use bsengine_core::ToneMap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tm) = world.get_mut::<ToneMap>(e) {
+                        tm.exposure = exposure;
+                    }
+                }
+            }
+            ScriptCommand::SetToneMapEnabled { name, enabled } => {
+                use bsengine_core::ToneMap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tm) = world.get_mut::<ToneMap>(e) {
+                        tm.enabled = enabled;
                     }
                 }
             }

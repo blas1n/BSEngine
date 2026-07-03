@@ -875,6 +875,33 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetFogColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetFogDensity {
+        name: String,
+        density: f32,
+    },
+    SetFogStartDistance {
+        name: String,
+        start: f32,
+    },
+    SetFogEndDistance {
+        name: String,
+        end: f32,
+    },
+    SetFogMode {
+        name: String,
+        mode: u32,
+    },
+    SetFogEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1540,6 +1567,10 @@ thread_local! {
 
     // entity name → (intensity, smoothness, r, g, b, enabled)
     pub(crate) static VIGNETTE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (r, g, b, a, density, start_distance, end_distance, mode_u32, enabled)
+    // FogMode: Linear=0, Exponential=1, ExponentialSquared=2
+    pub(crate) static FOG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, f32, u32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6124,6 +6155,144 @@ pub fn bsengine_is_vignette_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_fog_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogColor { name, r, g, b, a })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fog_density(#[string] name: String, density: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogDensity { name, density })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fog_start_distance(#[string] name: String, start: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogStartDistance { name, start })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fog_end_distance(#[string] name: String, end: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogEndDistance { name, end })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fog_mode(#[string] name: String, mode: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogMode { name, mode })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fog_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_color_r(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _, _, _, _)| *r)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_color_g(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, g, _, _, _, _, _, _, _)| *g)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_color_b(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, b, _, _, _, _, _, _)| *b)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_color_a(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, a, _, _, _, _, _)| *a)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_density(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_start_distance(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, sd, _, _, _)| *sd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_end_distance(#[string] name: String) -> f32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, ed, _, _)| *ed)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fog_mode(#[string] name: String) -> u32 {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, m, _)| *m)
+            .unwrap_or(1)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fog_enabled(#[string] name: String) -> bool {
+    FOG_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7018,6 +7187,21 @@ deno_core::extension!(
         bsengine_get_timer_fraction,
         bsengine_is_timer_finished,
         bsengine_is_timer_just_finished,
+        bsengine_set_fog_color,
+        bsengine_set_fog_density,
+        bsengine_set_fog_start_distance,
+        bsengine_set_fog_end_distance,
+        bsengine_set_fog_mode,
+        bsengine_set_fog_enabled,
+        bsengine_get_fog_color_r,
+        bsengine_get_fog_color_g,
+        bsengine_get_fog_color_b,
+        bsengine_get_fog_color_a,
+        bsengine_get_fog_density,
+        bsengine_get_fog_start_distance,
+        bsengine_get_fog_end_distance,
+        bsengine_get_fog_mode,
+        bsengine_is_fog_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -7999,6 +8183,21 @@ const Bsengine = {
     getVignetteColorG:(name)               => Deno.core.ops.bsengine_get_vignette_color_g(name),
     getVignetteColorB:(name)               => Deno.core.ops.bsengine_get_vignette_color_b(name),
     isVignetteEnabled:(name)               => Deno.core.ops.bsengine_is_vignette_enabled(name),
+    setFogColor:    (name, r, g, b, a)     => Deno.core.ops.bsengine_set_fog_color(name, r, g, b, a),
+    setFogDensity:  (name, density)        => Deno.core.ops.bsengine_set_fog_density(name, density),
+    setFogStartDistance:(name, start)      => Deno.core.ops.bsengine_set_fog_start_distance(name, start),
+    setFogEndDistance:(name, end)          => Deno.core.ops.bsengine_set_fog_end_distance(name, end),
+    setFogMode:     (name, mode)           => Deno.core.ops.bsengine_set_fog_mode(name, mode),
+    setFogEnabled:  (name, enabled)        => Deno.core.ops.bsengine_set_fog_enabled(name, enabled),
+    getFogColorR:   (name)                 => Deno.core.ops.bsengine_get_fog_color_r(name),
+    getFogColorG:   (name)                 => Deno.core.ops.bsengine_get_fog_color_g(name),
+    getFogColorB:   (name)                 => Deno.core.ops.bsengine_get_fog_color_b(name),
+    getFogColorA:   (name)                 => Deno.core.ops.bsengine_get_fog_color_a(name),
+    getFogDensity:  (name)                 => Deno.core.ops.bsengine_get_fog_density(name),
+    getFogStartDistance:(name)             => Deno.core.ops.bsengine_get_fog_start_distance(name),
+    getFogEndDistance:(name)               => Deno.core.ops.bsengine_get_fog_end_distance(name),
+    getFogMode:     (name)                 => Deno.core.ops.bsengine_get_fog_mode(name),
+    isFogEnabled:   (name)                 => Deno.core.ops.bsengine_is_fog_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -14861,6 +15060,97 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetVignetteEnabled { name, enabled }
                 if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fog_read_ops() {
+        super::FOG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cam".to_string(),
+                (0.5, 0.6, 0.7, 1.0, 0.02, 5.0, 80.0, 1u32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getFogColorR("Cam");"#).unwrap();
+        assert!((r.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let g = rt.eval(r#"Bsengine.getFogColorG("Cam");"#).unwrap();
+        assert!((g.trim().parse::<f32>().unwrap() - 0.6).abs() < 0.001);
+        let b = rt.eval(r#"Bsengine.getFogColorB("Cam");"#).unwrap();
+        assert!((b.trim().parse::<f32>().unwrap() - 0.7).abs() < 0.001);
+        let a = rt.eval(r#"Bsengine.getFogColorA("Cam");"#).unwrap();
+        assert!((a.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let d = rt.eval(r#"Bsengine.getFogDensity("Cam");"#).unwrap();
+        assert!((d.trim().parse::<f32>().unwrap() - 0.02).abs() < 0.001);
+        let sd = rt.eval(r#"Bsengine.getFogStartDistance("Cam");"#).unwrap();
+        assert!((sd.trim().parse::<f32>().unwrap() - 5.0).abs() < 0.001);
+        let ed = rt.eval(r#"Bsengine.getFogEndDistance("Cam");"#).unwrap();
+        assert!((ed.trim().parse::<f32>().unwrap() - 80.0).abs() < 0.001);
+        let m = rt.eval(r#"Bsengine.getFogMode("Cam");"#).unwrap();
+        assert_eq!(m.trim().parse::<u32>().unwrap(), 1u32);
+        let en = rt.eval(r#"Bsengine.isFogEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        let r_unk = rt.eval(r#"Bsengine.getFogColorR("Unknown");"#).unwrap();
+        assert!((r_unk.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let en_unk = rt.eval(r#"Bsengine.isFogEnabled("Unknown");"#).unwrap();
+        assert_eq!(en_unk.trim(), "true");
+        super::FOG_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn test_fog_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFogColor("Scene", 0.2, 0.3, 0.4, 0.9);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFogDensity("Scene", 0.05);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFogStartDistance("Scene", 20.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFogEndDistance("Scene", 200.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFogMode("Scene", 0);"#).unwrap();
+        rt.eval(r#"Bsengine.setFogEnabled("Scene", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogColor { name, r, g, b, a }
+                if name == "Scene"
+                    && (*r - 0.2).abs() < 0.001
+                    && (*g - 0.3).abs() < 0.001
+                    && (*b - 0.4).abs() < 0.001
+                    && (*a - 0.9).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogDensity { name, density }
+                if name == "Scene" && (*density - 0.05).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogStartDistance { name, start }
+                if name == "Scene" && (*start - 20.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogEndDistance { name, end }
+                if name == "Scene" && (*end - 200.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogMode { name, mode }
+                if name == "Scene" && *mode == 0
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogEnabled { name, enabled }
+                if name == "Scene" && !*enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

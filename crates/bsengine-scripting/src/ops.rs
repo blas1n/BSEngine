@@ -638,6 +638,49 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetCrosshairStyle {
+        name: String,
+        style: u8,
+    },
+    SetCrosshairColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetCrosshairSize {
+        name: String,
+        size: f32,
+    },
+    SetCrosshairThickness {
+        name: String,
+        thickness: f32,
+    },
+    SetCrosshairGap {
+        name: String,
+        gap: f32,
+    },
+    SetCrosshairSpread {
+        name: String,
+        spread: f32,
+    },
+    SetCrosshairMaxSpread {
+        name: String,
+        max_spread: f32,
+    },
+    SetCrosshairSpreadDecay {
+        name: String,
+        decay: f32,
+    },
+    SetCrosshairEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddCrosshairSpread {
+        name: String,
+        amount: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1258,6 +1301,10 @@ thread_local! {
 
     // entity name → (cell_x, cell_y, cell_z, off_x, off_y, off_z, enabled)
     pub(crate) static GRID_SNAP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (style_u8, color_r, color_g, color_b, color_a, size, thickness, gap, spread, max_spread, spread_decay, enabled)
+    pub(crate) static CROSSHAIR_SNAPSHOT: RefCell<HashMap<String, (u8, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -4771,6 +4818,216 @@ pub fn bsengine_is_grid_snap_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_crosshair_style(#[string] name: String, style: u8) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairStyle { name, style })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairColor { name, r, g, b, a })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_size(#[string] name: String, size: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairSize { name, size })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_thickness(#[string] name: String, thickness: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairThickness { name, thickness })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_gap(#[string] name: String, gap: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairGap { name, gap })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_spread(#[string] name: String, spread: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairSpread { name, spread })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_max_spread(#[string] name: String, max_spread: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairMaxSpread { name, max_spread })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_spread_decay(#[string] name: String, decay: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairSpreadDecay { name, decay })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_crosshair_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetCrosshairEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_crosshair_spread(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddCrosshairSpread { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_style(#[string] name: String) -> u32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _, _)| *st as u32)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_color_r(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, r, _, _, _, _, _, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_color_g(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, g, _, _, _, _, _, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_color_b(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, b, _, _, _, _, _, _, _, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_color_a(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, a, _, _, _, _, _, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_size(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, sz, _, _, _, _, _, _)| *sz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_thickness(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, th, _, _, _, _, _)| *th)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_gap(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, g, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_spread(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, sp, _, _, _)| *sp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_max_spread(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, ms, _, _)| *ms)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_spread_decay(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, sd, _)| *sd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_crosshair_effective_gap(#[string] name: String) -> f32 {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, g, sp, _, _, _)| *g + *sp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_crosshair_enabled(#[string] name: String) -> bool {
+    CROSSHAIR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5989,6 +6246,29 @@ deno_core::extension!(
         bsengine_get_grid_snap_offset_y,
         bsengine_get_grid_snap_offset_z,
         bsengine_is_grid_snap_enabled,
+        bsengine_set_crosshair_style,
+        bsengine_set_crosshair_color,
+        bsengine_set_crosshair_size,
+        bsengine_set_crosshair_thickness,
+        bsengine_set_crosshair_gap,
+        bsengine_set_crosshair_spread,
+        bsengine_set_crosshair_max_spread,
+        bsengine_set_crosshair_spread_decay,
+        bsengine_set_crosshair_enabled,
+        bsengine_add_crosshair_spread,
+        bsengine_get_crosshair_style,
+        bsengine_get_crosshair_color_r,
+        bsengine_get_crosshair_color_g,
+        bsengine_get_crosshair_color_b,
+        bsengine_get_crosshair_color_a,
+        bsengine_get_crosshair_size,
+        bsengine_get_crosshair_thickness,
+        bsengine_get_crosshair_gap,
+        bsengine_get_crosshair_spread,
+        bsengine_get_crosshair_max_spread,
+        bsengine_get_crosshair_spread_decay,
+        bsengine_get_crosshair_effective_gap,
+        bsengine_is_crosshair_enabled,
     ],
 );
 
@@ -6402,6 +6682,29 @@ const Bsengine = {
     getGridSnapOffsetY:     (name)          => Deno.core.ops.bsengine_get_grid_snap_offset_y(name),
     getGridSnapOffsetZ:     (name)          => Deno.core.ops.bsengine_get_grid_snap_offset_z(name),
     isGridSnapEnabled:      (name)          => Deno.core.ops.bsengine_is_grid_snap_enabled(name),
+    setCrosshairStyle:      (name, s)       => Deno.core.ops.bsengine_set_crosshair_style(name, s),
+    setCrosshairColor:      (name, r, g, b, a) => Deno.core.ops.bsengine_set_crosshair_color(name, r, g, b, a),
+    setCrosshairSize:       (name, s)       => Deno.core.ops.bsengine_set_crosshair_size(name, s),
+    setCrosshairThickness:  (name, t)       => Deno.core.ops.bsengine_set_crosshair_thickness(name, t),
+    setCrosshairGap:        (name, g)       => Deno.core.ops.bsengine_set_crosshair_gap(name, g),
+    setCrosshairSpread:     (name, s)       => Deno.core.ops.bsengine_set_crosshair_spread(name, s),
+    setCrosshairMaxSpread:  (name, s)       => Deno.core.ops.bsengine_set_crosshair_max_spread(name, s),
+    setCrosshairSpreadDecay:(name, d)       => Deno.core.ops.bsengine_set_crosshair_spread_decay(name, d),
+    setCrosshairEnabled:    (name, v)       => Deno.core.ops.bsengine_set_crosshair_enabled(name, v),
+    addCrosshairSpread:     (name, a)       => Deno.core.ops.bsengine_add_crosshair_spread(name, a),
+    getCrosshairStyle:      (name)          => Deno.core.ops.bsengine_get_crosshair_style(name),
+    getCrosshairColorR:     (name)          => Deno.core.ops.bsengine_get_crosshair_color_r(name),
+    getCrosshairColorG:     (name)          => Deno.core.ops.bsengine_get_crosshair_color_g(name),
+    getCrosshairColorB:     (name)          => Deno.core.ops.bsengine_get_crosshair_color_b(name),
+    getCrosshairColorA:     (name)          => Deno.core.ops.bsengine_get_crosshair_color_a(name),
+    getCrosshairSize:       (name)          => Deno.core.ops.bsengine_get_crosshair_size(name),
+    getCrosshairThickness:  (name)          => Deno.core.ops.bsengine_get_crosshair_thickness(name),
+    getCrosshairGap:        (name)          => Deno.core.ops.bsengine_get_crosshair_gap(name),
+    getCrosshairSpread:     (name)          => Deno.core.ops.bsengine_get_crosshair_spread(name),
+    getCrosshairMaxSpread:  (name)          => Deno.core.ops.bsengine_get_crosshair_max_spread(name),
+    getCrosshairSpreadDecay:(name)          => Deno.core.ops.bsengine_get_crosshair_spread_decay(name),
+    getCrosshairEffectiveGap:(name)         => Deno.core.ops.bsengine_get_crosshair_effective_gap(name),
+    isCrosshairEnabled:     (name)          => Deno.core.ops.bsengine_is_crosshair_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -12546,5 +12849,78 @@ JSON.stringify(received)
         let en = rt.eval(r#"Bsengine.isGridSnapEnabled("Tile");"#).unwrap();
         assert_eq!(en.trim(), "true");
         super::GRID_SNAP_SNAPSHOT.with(|s| s.borrow_mut().remove("Tile"));
+    }
+
+    #[test]
+    fn crosshair_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setCrosshairStyle("Cam", 1);"#).unwrap();
+        rt.eval(r#"Bsengine.setCrosshairColor("Cam", 1.0, 1.0, 1.0, 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setCrosshairSize("Cam", 32.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setCrosshairEnabled("Cam", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.addCrosshairSpread("Cam", 5.0);"#)
+            .unwrap();
+        let cmds: Vec<_> = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        assert_eq!(cmds.len(), 5);
+        assert!(matches!(
+            &cmds[0],
+            super::ScriptCommand::SetCrosshairStyle { name, style: 1 } if name == "Cam"
+        ));
+        assert!(matches!(
+            &cmds[1],
+            super::ScriptCommand::SetCrosshairColor { name, r, .. }
+                if name == "Cam" && (*r - 1.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[2],
+            super::ScriptCommand::SetCrosshairSize { name, size }
+                if name == "Cam" && (*size - 32.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[3],
+            super::ScriptCommand::SetCrosshairEnabled { name, enabled: false } if name == "Cam"
+        ));
+        assert!(matches!(
+            &cmds[4],
+            super::ScriptCommand::AddCrosshairSpread { name, amount }
+                if name == "Cam" && (*amount - 5.0).abs() < 0.001
+        ));
+    }
+
+    #[test]
+    fn crosshair_snapshot_read_ops() {
+        // style=0(Cross), color=[1,1,1,1], size=24, thickness=2, gap=4,
+        // spread=6, max_spread=32, spread_decay=20, enabled=true
+        super::CROSSHAIR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cam".to_string(),
+                (
+                    0_u8, 1.0_f32, 1.0_f32, 1.0_f32, 1.0_f32, 24.0_f32, 2.0_f32, 4.0_f32, 6.0_f32,
+                    32.0_f32, 20.0_f32, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let st = rt.eval(r#"Bsengine.getCrosshairStyle("Cam");"#).unwrap();
+        assert_eq!(st.trim(), "0");
+        let sz = rt.eval(r#"Bsengine.getCrosshairSize("Cam");"#).unwrap();
+        assert!((sz.trim().parse::<f32>().unwrap() - 24.0).abs() < 0.001);
+        let gap = rt.eval(r#"Bsengine.getCrosshairGap("Cam");"#).unwrap();
+        assert!((gap.trim().parse::<f32>().unwrap() - 4.0).abs() < 0.001);
+        let sp = rt.eval(r#"Bsengine.getCrosshairSpread("Cam");"#).unwrap();
+        assert!((sp.trim().parse::<f32>().unwrap() - 6.0).abs() < 0.001);
+        let eg = rt
+            .eval(r#"Bsengine.getCrosshairEffectiveGap("Cam");"#)
+            .unwrap();
+        assert!((eg.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isCrosshairEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        super::CROSSHAIR_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
     }
 }

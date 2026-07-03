@@ -797,6 +797,26 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetDofFocalDistance {
+        name: String,
+        distance: f32,
+    },
+    SetDofFocalRange {
+        name: String,
+        range: f32,
+    },
+    SetDofMaxBlur {
+        name: String,
+        max_blur: f32,
+    },
+    SetDofBokehScale {
+        name: String,
+        scale: f32,
+    },
+    SetDofEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1441,6 +1461,10 @@ thread_local! {
 
     // entity name → (radius, bias, intensity, sample_count, enabled)
     pub(crate) static AMBIENT_OCCLUSION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (focal_distance, focal_range, max_blur, bokeh_scale, enabled)
+    pub(crate) static DEPTH_OF_FIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5673,6 +5697,96 @@ pub fn bsengine_is_ao_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_dof_focal_distance(#[string] name: String, distance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDofFocalDistance { name, distance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dof_focal_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDofFocalRange { name, range })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dof_max_blur(#[string] name: String, max_blur: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDofMaxBlur { name, max_blur })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dof_bokeh_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDofBokehScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dof_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDofEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dof_focal_distance(#[string] name: String) -> f32 {
+    DEPTH_OF_FIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dof_focal_range(#[string] name: String) -> f32 {
+    DEPTH_OF_FIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, r, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dof_max_blur(#[string] name: String) -> f32 {
+    DEPTH_OF_FIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, mb, _, _)| *mb)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dof_bokeh_scale(#[string] name: String) -> f32 {
+    DEPTH_OF_FIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, bs, _)| *bs)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dof_enabled(#[string] name: String) -> bool {
+    DEPTH_OF_FIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -6971,6 +7085,16 @@ deno_core::extension!(
         bsengine_get_ao_intensity,
         bsengine_get_ao_sample_count,
         bsengine_is_ao_enabled,
+        bsengine_set_dof_focal_distance,
+        bsengine_set_dof_focal_range,
+        bsengine_set_dof_max_blur,
+        bsengine_set_dof_bokeh_scale,
+        bsengine_set_dof_enabled,
+        bsengine_get_dof_focal_distance,
+        bsengine_get_dof_focal_range,
+        bsengine_get_dof_max_blur,
+        bsengine_get_dof_bokeh_scale,
+        bsengine_is_dof_enabled,
     ],
 );
 
@@ -7464,6 +7588,16 @@ const Bsengine = {
     getAoIntensity:     (name)             => Deno.core.ops.bsengine_get_ao_intensity(name),
     getAoSampleCount:   (name)             => Deno.core.ops.bsengine_get_ao_sample_count(name),
     isAoEnabled:        (name)             => Deno.core.ops.bsengine_is_ao_enabled(name),
+    setDofFocalDistance:(name, v)          => Deno.core.ops.bsengine_set_dof_focal_distance(name, v),
+    setDofFocalRange:   (name, v)          => Deno.core.ops.bsengine_set_dof_focal_range(name, v),
+    setDofMaxBlur:      (name, v)          => Deno.core.ops.bsengine_set_dof_max_blur(name, v),
+    setDofBokehScale:   (name, v)          => Deno.core.ops.bsengine_set_dof_bokeh_scale(name, v),
+    setDofEnabled:      (name, v)          => Deno.core.ops.bsengine_set_dof_enabled(name, v),
+    getDofFocalDistance:(name)             => Deno.core.ops.bsengine_get_dof_focal_distance(name),
+    getDofFocalRange:   (name)             => Deno.core.ops.bsengine_get_dof_focal_range(name),
+    getDofMaxBlur:      (name)             => Deno.core.ops.bsengine_get_dof_max_blur(name),
+    getDofBokehScale:   (name)             => Deno.core.ops.bsengine_get_dof_bokeh_scale(name),
+    isDofEnabled:       (name)             => Deno.core.ops.bsengine_is_dof_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -14013,6 +14147,74 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(
                 cmd,
                 super::ScriptCommand::SetAoEnabled { name, enabled }
+                if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_dof_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+
+        super::DEPTH_OF_FIELD_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Cam".to_string(), (10.0, 2.0, 8.0, 1.0, true));
+        });
+
+        let fd = rt.eval(r#"Bsengine.getDofFocalDistance("Cam");"#).unwrap();
+        assert!((fd.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        let fr = rt.eval(r#"Bsengine.getDofFocalRange("Cam");"#).unwrap();
+        assert!((fr.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let mb = rt.eval(r#"Bsengine.getDofMaxBlur("Cam");"#).unwrap();
+        assert!((mb.trim().parse::<f32>().unwrap() - 8.0).abs() < 0.001);
+        let bs = rt.eval(r#"Bsengine.getDofBokehScale("Cam");"#).unwrap();
+        assert!((bs.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isDofEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+
+        super::DEPTH_OF_FIELD_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn test_dof_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDofFocalDistance("Cam", 15.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDofFocalRange("Cam", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDofMaxBlur("Cam", 12.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setDofBokehScale("Cam", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDofEnabled("Cam", false);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDofFocalDistance { name, distance }
+                if name == "Cam" && (*distance - 15.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDofFocalRange { name, range }
+                if name == "Cam" && (*range - 3.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDofMaxBlur { name, max_blur }
+                if name == "Cam" && (*max_blur - 12.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDofBokehScale { name, scale }
+                if name == "Cam" && (*scale - 1.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDofEnabled { name, enabled }
                 if name == "Cam" && !*enabled
             )));
         });

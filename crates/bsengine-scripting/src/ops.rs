@@ -701,6 +701,46 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetTintColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetTintIntensity {
+        name: String,
+        intensity: f32,
+    },
+    SetTintMode {
+        name: String,
+        mode: u32,
+    },
+    SetTintFadeRate {
+        name: String,
+        rate: f32,
+    },
+    SetTintPulseSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetTintPeakIntensity {
+        name: String,
+        peak: f32,
+    },
+    SetTintEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetTint {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        intensity: f32,
+    },
+    ClearTint {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1329,6 +1369,10 @@ thread_local! {
 
     // entity name → (intensity, threshold, radius, softness, enabled)
     pub(crate) static BLOOM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (color_r, color_g, color_b, intensity, mode_u32, fade_rate, pulse_speed, pulse_phase, peak_intensity, enabled)
+    pub(crate) static TINT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, u32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5142,6 +5186,180 @@ pub fn bsengine_is_bloom_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_tint_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintColor { name, r, g, b })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint_intensity(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintIntensity { name, intensity })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint_mode(#[string] name: String, mode: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintMode { name, mode })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint_fade_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintFadeRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint_pulse_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintPulseSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint_peak_intensity(#[string] name: String, peak: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintPeakIntensity { name, peak })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTintEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tint(#[string] name: String, r: f32, g: f32, b: f32, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetTint {
+            name,
+            r,
+            g,
+            b,
+            intensity,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_tint(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTint { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_color_r(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_color_g(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, g, _, _, _, _, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_color_b(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, b, _, _, _, _, _, _, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_intensity(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, intensity, _, _, _, _, _, _)| *intensity)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_mode(#[string] name: String) -> u32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, mode, _, _, _, _, _)| *mode)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_fade_rate(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, fade_rate, _, _, _, _)| *fade_rate)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_pulse_speed(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, pulse_speed, _, _, _)| *pulse_speed)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tint_peak_intensity(#[string] name: String) -> f32 {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, peak, _)| *peak)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_tint_enabled(#[string] name: String) -> bool {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_tint_active(#[string] name: String) -> bool {
+    TINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, intensity, _, _, _, _, _, en)| *en && *intensity > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -6393,6 +6611,25 @@ deno_core::extension!(
         bsengine_get_bloom_radius,
         bsengine_get_bloom_softness,
         bsengine_is_bloom_enabled,
+        bsengine_set_tint_color,
+        bsengine_set_tint_intensity,
+        bsengine_set_tint_mode,
+        bsengine_set_tint_fade_rate,
+        bsengine_set_tint_pulse_speed,
+        bsengine_set_tint_peak_intensity,
+        bsengine_set_tint_enabled,
+        bsengine_set_tint,
+        bsengine_clear_tint,
+        bsengine_get_tint_color_r,
+        bsengine_get_tint_color_g,
+        bsengine_get_tint_color_b,
+        bsengine_get_tint_intensity,
+        bsengine_get_tint_mode,
+        bsengine_get_tint_fade_rate,
+        bsengine_get_tint_pulse_speed,
+        bsengine_get_tint_peak_intensity,
+        bsengine_is_tint_enabled,
+        bsengine_is_tint_active,
     ],
 );
 
@@ -6839,6 +7076,25 @@ const Bsengine = {
     getBloomRadius:     (name)             => Deno.core.ops.bsengine_get_bloom_radius(name),
     getBloomSoftness:   (name)             => Deno.core.ops.bsengine_get_bloom_softness(name),
     isBloomEnabled:     (name)             => Deno.core.ops.bsengine_is_bloom_enabled(name),
+    setTintColor:       (name, r, g, b)    => Deno.core.ops.bsengine_set_tint_color(name, r, g, b),
+    setTintIntensity:   (name, v)          => Deno.core.ops.bsengine_set_tint_intensity(name, v),
+    setTintMode:        (name, v)          => Deno.core.ops.bsengine_set_tint_mode(name, v),
+    setTintFadeRate:    (name, v)          => Deno.core.ops.bsengine_set_tint_fade_rate(name, v),
+    setTintPulseSpeed:  (name, v)          => Deno.core.ops.bsengine_set_tint_pulse_speed(name, v),
+    setTintPeakIntensity:(name, v)         => Deno.core.ops.bsengine_set_tint_peak_intensity(name, v),
+    setTintEnabled:     (name, v)          => Deno.core.ops.bsengine_set_tint_enabled(name, v),
+    setTint:            (name, r, g, b, intensity) => Deno.core.ops.bsengine_set_tint(name, r, g, b, intensity),
+    clearTint:          (name)             => Deno.core.ops.bsengine_clear_tint(name),
+    getTintColorR:      (name)             => Deno.core.ops.bsengine_get_tint_color_r(name),
+    getTintColorG:      (name)             => Deno.core.ops.bsengine_get_tint_color_g(name),
+    getTintColorB:      (name)             => Deno.core.ops.bsengine_get_tint_color_b(name),
+    getTintIntensity:   (name)             => Deno.core.ops.bsengine_get_tint_intensity(name),
+    getTintMode:        (name)             => Deno.core.ops.bsengine_get_tint_mode(name),
+    getTintFadeRate:    (name)             => Deno.core.ops.bsengine_get_tint_fade_rate(name),
+    getTintPulseSpeed:  (name)             => Deno.core.ops.bsengine_get_tint_pulse_speed(name),
+    getTintPeakIntensity:(name)            => Deno.core.ops.bsengine_get_tint_peak_intensity(name),
+    isTintEnabled:      (name)             => Deno.core.ops.bsengine_is_tint_enabled(name),
+    isTintActive:       (name)             => Deno.core.ops.bsengine_is_tint_active(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -13120,6 +13376,96 @@ JSON.stringify(received)
                 super::ScriptCommand::SetBloomEnabled { name, enabled }
                 if name == "Cam" && !*enabled
             )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn tint_snapshot_read_ops() {
+        super::TINT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.0, 1.0, 0.0, 0.8, 1u32, 0.5, 2.0, 0.0, 1.0, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getTintColorR("Hero");"#).unwrap();
+        assert!((r.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let g = rt.eval(r#"Bsengine.getTintColorG("Hero");"#).unwrap();
+        assert!((g.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let b = rt.eval(r#"Bsengine.getTintColorB("Hero");"#).unwrap();
+        assert!((b.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let intensity = rt.eval(r#"Bsengine.getTintIntensity("Hero");"#).unwrap();
+        assert!((intensity.trim().parse::<f32>().unwrap() - 0.8).abs() < 0.001);
+        let mode = rt.eval(r#"Bsengine.getTintMode("Hero");"#).unwrap();
+        assert_eq!(mode.trim(), "1");
+        let fade = rt.eval(r#"Bsengine.getTintFadeRate("Hero");"#).unwrap();
+        assert!((fade.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let pulse = rt.eval(r#"Bsengine.getTintPulseSpeed("Hero");"#).unwrap();
+        assert!((pulse.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let peak = rt
+            .eval(r#"Bsengine.getTintPeakIntensity("Hero");"#)
+            .unwrap();
+        assert!((peak.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isTintEnabled("Hero");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        let active = rt.eval(r#"Bsengine.isTintActive("Hero");"#).unwrap();
+        assert_eq!(active.trim(), "true");
+        super::TINT_SNAPSHOT.with(|s| s.borrow_mut().remove("Hero"));
+    }
+
+    #[test]
+    fn tint_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setTintColor("Hero", 0.0, 1.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTintIntensity("Hero", 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTintMode("Hero", 1);"#).unwrap();
+        rt.eval(r#"Bsengine.setTintFadeRate("Hero", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTintPulseSpeed("Hero", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTintPeakIntensity("Hero", 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTintEnabled("Hero", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTint("Hero", 1.0, 0.0, 0.0, 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearTint("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTintColor { name, r, g, b }
+                if name == "Hero" && (*r - 0.0).abs() < 0.001 && (*g - 1.0).abs() < 0.001 && (*b - 0.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTintIntensity { name, intensity }
+                if name == "Hero" && (*intensity - 0.8).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTintMode { name, mode }
+                if name == "Hero" && *mode == 1
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTintEnabled { name, enabled }
+                if name == "Hero" && !*enabled
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTint { name, r, g, b, intensity }
+                if name == "Hero" && (*r - 1.0).abs() < 0.001 && (*intensity - 0.5).abs() < 0.001
+            )));
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::ClearTint { name } if name == "Hero")));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

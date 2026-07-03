@@ -741,6 +741,14 @@ pub enum ScriptCommand {
     ClearTint {
         name: String,
     },
+    SetChromAbIntensity {
+        name: String,
+        intensity: f32,
+    },
+    SetChromAbEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1373,6 +1381,10 @@ thread_local! {
 
     // entity name → (color_r, color_g, color_b, intensity, mode_u32, fade_rate, pulse_speed, pulse_phase, peak_intensity, enabled)
     pub(crate) static TINT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, u32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (intensity, enabled)
+    pub(crate) static CHROM_AB_SNAPSHOT: RefCell<HashMap<String, (f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5360,6 +5372,37 @@ pub fn bsengine_is_tint_active(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_chrom_ab_intensity(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetChromAbIntensity { name, intensity })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_chrom_ab_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetChromAbEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_chrom_ab_intensity(#[string] name: String) -> f32 {
+    CHROM_AB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(intensity, _)| *intensity)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_chrom_ab_enabled(#[string] name: String) -> bool {
+    CHROM_AB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, en)| *en).unwrap_or(true))
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -6630,6 +6673,10 @@ deno_core::extension!(
         bsengine_get_tint_peak_intensity,
         bsengine_is_tint_enabled,
         bsengine_is_tint_active,
+        bsengine_set_chrom_ab_intensity,
+        bsengine_set_chrom_ab_enabled,
+        bsengine_get_chrom_ab_intensity,
+        bsengine_is_chrom_ab_enabled,
     ],
 );
 
@@ -7095,6 +7142,10 @@ const Bsengine = {
     getTintPeakIntensity:(name)            => Deno.core.ops.bsengine_get_tint_peak_intensity(name),
     isTintEnabled:      (name)             => Deno.core.ops.bsengine_is_tint_enabled(name),
     isTintActive:       (name)             => Deno.core.ops.bsengine_is_tint_active(name),
+    setChromAbIntensity:(name, v)          => Deno.core.ops.bsengine_set_chrom_ab_intensity(name, v),
+    setChromAbEnabled:  (name, v)          => Deno.core.ops.bsengine_set_chrom_ab_enabled(name, v),
+    getChromAbIntensity:(name)             => Deno.core.ops.bsengine_get_chrom_ab_intensity(name),
+    isChromAbEnabled:   (name)             => Deno.core.ops.bsengine_is_chrom_ab_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -13466,6 +13517,45 @@ JSON.stringify(received)
             assert!(buf
                 .iter()
                 .any(|cmd| matches!(cmd, super::ScriptCommand::ClearTint { name } if name == "Hero")));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn chrom_ab_snapshot_read_ops() {
+        super::CHROM_AB_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cam".to_string(), (0.03, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let intensity = rt.eval(r#"Bsengine.getChromAbIntensity("Cam");"#).unwrap();
+        assert!((intensity.trim().parse::<f32>().unwrap() - 0.03).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isChromAbEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        super::CHROM_AB_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn chrom_ab_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setChromAbIntensity("Cam", 0.05);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setChromAbEnabled("Cam", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetChromAbIntensity { name, intensity }
+                if name == "Cam" && (*intensity - 0.05).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetChromAbEnabled { name, enabled }
+                if name == "Cam" && !*enabled
+            )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

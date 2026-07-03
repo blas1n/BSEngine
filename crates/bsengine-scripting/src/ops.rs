@@ -1286,6 +1286,95 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    IgniteBurn {
+        name: String,
+    },
+    ExtinguishBurn {
+        name: String,
+    },
+    SetBurnRate {
+        name: String,
+        rate: f32,
+    },
+    SetBurnMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetBurnDuration {
+        name: String,
+        duration: f32,
+    },
+    SetBurnEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyBleed {
+        name: String,
+    },
+    ClearBleed {
+        name: String,
+    },
+    SetBleedMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetBleedDamagePerStack {
+        name: String,
+        damage: f32,
+    },
+    SetBleedDuration {
+        name: String,
+        duration: f32,
+    },
+    SetBleedHealReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetBleedEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyPoison {
+        name: String,
+    },
+    ClearPoison {
+        name: String,
+    },
+    SetPoisonMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetPoisonDamagePerStack {
+        name: String,
+        damage: f32,
+    },
+    SetPoisonDuration {
+        name: String,
+        duration: f32,
+    },
+    SetPoisonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyCold {
+        name: String,
+        amount: f32,
+    },
+    ThawFreeze {
+        name: String,
+    },
+    SetFreezeChillSlow {
+        name: String,
+        slow: f32,
+    },
+    SetFreezeFrozenDuration {
+        name: String,
+        duration: f32,
+    },
+    SetFreezeEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2035,6 +2124,23 @@ thread_local! {
     // StunSeverity: Light=0, Heavy=1, Knockdown=2
     pub(crate) static STUN_SNAPSHOT: RefCell<HashMap<String, (u32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
+    // entity name → (burn_rate, stacks, max_stacks, remaining, duration, intensity, just_ignited, just_extinguished, ignitable, enabled)
+    pub(crate) static BURN_SNAPSHOT: RefCell<
+        HashMap<String, (f32, u32, u32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, damage_per_stack_per_tick, tick_interval, tick_timer, duration, duration_timer, heal_reduction, just_applied, just_cleared, enabled)
+    pub(crate) static BLEED_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, damage_per_stack_per_tick, base_tick_interval, min_tick_interval, tick_timer, duration, duration_timer, virulent, just_poisoned, just_cured, enabled)
+    pub(crate) static POISON_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, f32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state_u32, cold_buildup, chill_threshold, freeze_threshold, cold_decay_rate, chill_slow, frozen_duration, frozen_timer, just_frozen, just_thawed, immune, enabled)
+    // FreezeState: Normal=0, Chilled=1, Frozen=2
+    pub(crate) static FREEZE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -8925,6 +9031,525 @@ pub fn bsengine_clear_stun(#[string] name: String) {
     });
 }
 
+// --- Burn ---
+
+#[op2(fast)]
+pub fn bsengine_get_burn_rate(#[string] name: String) -> f32 {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_burn_stacks(#[string] name: String) -> u32 {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, st, _, _, _, _, _, _, _, _)| *st)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_burn_max_stacks(#[string] name: String) -> u32 {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, m, _, _, _, _, _, _, _)| *m)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_burn_remaining(#[string] name: String) -> f32 {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, rem, _, _, _, _, _, _)| *rem)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_burn_duration(#[string] name: String) -> f32 {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_burn_intensity(#[string] name: String) -> f32 {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, i, _, _, _, _)| *i)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_burn_just_ignited(#[string] name: String) -> bool {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, ji, _, _, _)| *ji)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_burn_just_extinguished(#[string] name: String) -> bool {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_burn_ignitable(#[string] name: String) -> bool {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, ig, _)| *ig)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_burn_enabled(#[string] name: String) -> bool {
+    BURN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_ignite_burn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::IgniteBurn { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_extinguish_burn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExtinguishBurn { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_burn_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBurnRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_burn_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBurnMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_burn_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBurnDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_burn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBurnEnabled { name, enabled })
+    });
+}
+
+// --- Bleed ---
+
+#[op2(fast)]
+pub fn bsengine_get_bleed_stacks(#[string] name: String) -> u32 {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _)| *st)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bleed_max_stacks(#[string] name: String) -> u32 {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, m, _, _, _, _, _, _, _, _, _)| *m)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bleed_damage_per_stack(#[string] name: String) -> f32 {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, d, _, _, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bleed_duration(#[string] name: String) -> f32 {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bleed_heal_reduction(#[string] name: String) -> f32 {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, hr, _, _, _)| *hr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_bleed_just_applied(#[string] name: String) -> bool {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, ja, _, _)| *ja)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_bleed_just_cleared(#[string] name: String) -> bool {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, jc, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_bleed_enabled(#[string] name: String) -> bool {
+    BLEED_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_bleed(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyBleed { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_bleed(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearBleed { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bleed_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBleedMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bleed_damage_per_stack(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBleedDamagePerStack { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bleed_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBleedDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bleed_heal_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBleedHealReduction { name, reduction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bleed_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBleedEnabled { name, enabled })
+    });
+}
+
+// --- Poison ---
+
+#[op2(fast)]
+pub fn bsengine_get_poison_stacks(#[string] name: String) -> u32 {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _, _)| *st)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_poison_max_stacks(#[string] name: String) -> u32 {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, m, _, _, _, _, _, _, _, _, _, _)| *m)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_poison_damage_per_stack(#[string] name: String) -> f32 {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, d, _, _, _, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_poison_duration(#[string] name: String) -> f32 {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_poison_virulent(#[string] name: String) -> bool {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, v, _, _, _)| *v)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_poison_just_poisoned(#[string] name: String) -> bool {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, jp, _, _)| *jp)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_poison_just_cured(#[string] name: String) -> bool {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, jc, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_poison_enabled(#[string] name: String) -> bool {
+    POISON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_poison(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyPoison { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_poison(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearPoison { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_poison_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoisonMaxStacks { name, max_stacks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_poison_damage_per_stack(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoisonDamagePerStack { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_poison_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoisonDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_poison_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoisonEnabled { name, enabled })
+    });
+}
+
+// --- Freeze ---
+
+#[op2(fast)]
+pub fn bsengine_get_freeze_state(#[string] name: String) -> u32 {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _, _)| *st)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_freeze_cold_buildup(#[string] name: String) -> f32 {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, cb, _, _, _, _, _, _, _, _, _, _)| *cb)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_freeze_chill_slow(#[string] name: String) -> f32 {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, cs, _, _, _, _, _, _)| *cs)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_freeze_frozen_duration(#[string] name: String) -> f32 {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, fd, _, _, _, _, _)| *fd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_freeze_just_frozen(#[string] name: String) -> bool {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, jf, _, _, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_freeze_just_thawed(#[string] name: String) -> bool {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, jt, _, _)| *jt)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_freeze_immune(#[string] name: String) -> bool {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, im, _)| *im)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_freeze_enabled(#[string] name: String) -> bool {
+    FREEZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_cold(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyCold { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_thaw_freeze(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ThawFreeze { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_freeze_chill_slow(#[string] name: String, slow: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFreezeChillSlow { name, slow })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_freeze_frozen_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFreezeFrozenDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_freeze_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFreezeEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -10072,6 +10697,64 @@ deno_core::extension!(
         bsengine_set_stun_enabled,
         bsengine_apply_stun,
         bsengine_clear_stun,
+        bsengine_get_burn_rate,
+        bsengine_get_burn_stacks,
+        bsengine_get_burn_max_stacks,
+        bsengine_get_burn_remaining,
+        bsengine_get_burn_duration,
+        bsengine_get_burn_intensity,
+        bsengine_is_burn_just_ignited,
+        bsengine_is_burn_just_extinguished,
+        bsengine_is_burn_ignitable,
+        bsengine_is_burn_enabled,
+        bsengine_ignite_burn,
+        bsengine_extinguish_burn,
+        bsengine_set_burn_rate,
+        bsengine_set_burn_max_stacks,
+        bsengine_set_burn_duration,
+        bsengine_set_burn_enabled,
+        bsengine_get_bleed_stacks,
+        bsengine_get_bleed_max_stacks,
+        bsengine_get_bleed_damage_per_stack,
+        bsengine_get_bleed_duration,
+        bsengine_get_bleed_heal_reduction,
+        bsengine_is_bleed_just_applied,
+        bsengine_is_bleed_just_cleared,
+        bsengine_is_bleed_enabled,
+        bsengine_apply_bleed,
+        bsengine_clear_bleed,
+        bsengine_set_bleed_max_stacks,
+        bsengine_set_bleed_damage_per_stack,
+        bsengine_set_bleed_duration,
+        bsengine_set_bleed_heal_reduction,
+        bsengine_set_bleed_enabled,
+        bsengine_get_poison_stacks,
+        bsengine_get_poison_max_stacks,
+        bsengine_get_poison_damage_per_stack,
+        bsengine_get_poison_duration,
+        bsengine_is_poison_virulent,
+        bsengine_is_poison_just_poisoned,
+        bsengine_is_poison_just_cured,
+        bsengine_is_poison_enabled,
+        bsengine_apply_poison,
+        bsengine_clear_poison,
+        bsengine_set_poison_max_stacks,
+        bsengine_set_poison_damage_per_stack,
+        bsengine_set_poison_duration,
+        bsengine_set_poison_enabled,
+        bsengine_get_freeze_state,
+        bsengine_get_freeze_cold_buildup,
+        bsengine_get_freeze_chill_slow,
+        bsengine_get_freeze_frozen_duration,
+        bsengine_is_freeze_just_frozen,
+        bsengine_is_freeze_just_thawed,
+        bsengine_is_freeze_immune,
+        bsengine_is_freeze_enabled,
+        bsengine_apply_cold,
+        bsengine_thaw_freeze,
+        bsengine_set_freeze_chill_slow,
+        bsengine_set_freeze_frozen_duration,
+        bsengine_set_freeze_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -11312,6 +11995,64 @@ const Bsengine = {
     setStunEnabled:         (name, en)       => Deno.core.ops.bsengine_set_stun_enabled(name, en),
     applyStun:              (name, dur, sev) => Deno.core.ops.bsengine_apply_stun(name, dur, sev),
     clearStun:              (name)           => Deno.core.ops.bsengine_clear_stun(name),
+    getBurnRate:            (name)           => Deno.core.ops.bsengine_get_burn_rate(name),
+    getBurnStacks:          (name)           => Deno.core.ops.bsengine_get_burn_stacks(name),
+    getBurnMaxStacks:       (name)           => Deno.core.ops.bsengine_get_burn_max_stacks(name),
+    getBurnRemaining:       (name)           => Deno.core.ops.bsengine_get_burn_remaining(name),
+    getBurnDuration:        (name)           => Deno.core.ops.bsengine_get_burn_duration(name),
+    getBurnIntensity:       (name)           => Deno.core.ops.bsengine_get_burn_intensity(name),
+    isBurnJustIgnited:      (name)           => Deno.core.ops.bsengine_is_burn_just_ignited(name),
+    isBurnJustExtinguished: (name)           => Deno.core.ops.bsengine_is_burn_just_extinguished(name),
+    isBurnIgnitable:        (name)           => Deno.core.ops.bsengine_is_burn_ignitable(name),
+    isBurnEnabled:          (name)           => Deno.core.ops.bsengine_is_burn_enabled(name),
+    igniteBurn:             (name)           => Deno.core.ops.bsengine_ignite_burn(name),
+    extinguishBurn:         (name)           => Deno.core.ops.bsengine_extinguish_burn(name),
+    setBurnRate:            (name, r)        => Deno.core.ops.bsengine_set_burn_rate(name, r),
+    setBurnMaxStacks:       (name, m)        => Deno.core.ops.bsengine_set_burn_max_stacks(name, m),
+    setBurnDuration:        (name, d)        => Deno.core.ops.bsengine_set_burn_duration(name, d),
+    setBurnEnabled:         (name, en)       => Deno.core.ops.bsengine_set_burn_enabled(name, en),
+    getBleedStacks:         (name)           => Deno.core.ops.bsengine_get_bleed_stacks(name),
+    getBleedMaxStacks:      (name)           => Deno.core.ops.bsengine_get_bleed_max_stacks(name),
+    getBleedDamagePerStack: (name)           => Deno.core.ops.bsengine_get_bleed_damage_per_stack(name),
+    getBleedDuration:       (name)           => Deno.core.ops.bsengine_get_bleed_duration(name),
+    getBleedHealReduction:  (name)           => Deno.core.ops.bsengine_get_bleed_heal_reduction(name),
+    isBleedJustApplied:     (name)           => Deno.core.ops.bsengine_is_bleed_just_applied(name),
+    isBleedJustCleared:     (name)           => Deno.core.ops.bsengine_is_bleed_just_cleared(name),
+    isBleedEnabled:         (name)           => Deno.core.ops.bsengine_is_bleed_enabled(name),
+    applyBleed:             (name)           => Deno.core.ops.bsengine_apply_bleed(name),
+    clearBleed:             (name)           => Deno.core.ops.bsengine_clear_bleed(name),
+    setBleedMaxStacks:      (name, m)        => Deno.core.ops.bsengine_set_bleed_max_stacks(name, m),
+    setBleedDamagePerStack: (name, d)        => Deno.core.ops.bsengine_set_bleed_damage_per_stack(name, d),
+    setBleedDuration:       (name, d)        => Deno.core.ops.bsengine_set_bleed_duration(name, d),
+    setBleedHealReduction:  (name, r)        => Deno.core.ops.bsengine_set_bleed_heal_reduction(name, r),
+    setBleedEnabled:        (name, en)       => Deno.core.ops.bsengine_set_bleed_enabled(name, en),
+    getPoisonStacks:        (name)           => Deno.core.ops.bsengine_get_poison_stacks(name),
+    getPoisonMaxStacks:     (name)           => Deno.core.ops.bsengine_get_poison_max_stacks(name),
+    getPoisonDamagePerStack:(name)           => Deno.core.ops.bsengine_get_poison_damage_per_stack(name),
+    getPoisonDuration:      (name)           => Deno.core.ops.bsengine_get_poison_duration(name),
+    isPoisonVirulent:       (name)           => Deno.core.ops.bsengine_is_poison_virulent(name),
+    isPoisonJustPoisoned:   (name)           => Deno.core.ops.bsengine_is_poison_just_poisoned(name),
+    isPoisonJustCured:      (name)           => Deno.core.ops.bsengine_is_poison_just_cured(name),
+    isPoisonEnabled:        (name)           => Deno.core.ops.bsengine_is_poison_enabled(name),
+    applyPoison:            (name)           => Deno.core.ops.bsengine_apply_poison(name),
+    clearPoison:            (name)           => Deno.core.ops.bsengine_clear_poison(name),
+    setPoisonMaxStacks:     (name, m)        => Deno.core.ops.bsengine_set_poison_max_stacks(name, m),
+    setPoisonDamagePerStack:(name, d)        => Deno.core.ops.bsengine_set_poison_damage_per_stack(name, d),
+    setPoisonDuration:      (name, d)        => Deno.core.ops.bsengine_set_poison_duration(name, d),
+    setPoisonEnabled:       (name, en)       => Deno.core.ops.bsengine_set_poison_enabled(name, en),
+    getFreezeState:         (name)           => Deno.core.ops.bsengine_get_freeze_state(name),
+    getFreezeColdBuildup:   (name)           => Deno.core.ops.bsengine_get_freeze_cold_buildup(name),
+    getFreezeChillSlow:     (name)           => Deno.core.ops.bsengine_get_freeze_chill_slow(name),
+    getFreezeFrozenDuration:(name)           => Deno.core.ops.bsengine_get_freeze_frozen_duration(name),
+    isFreezeJustFrozen:     (name)           => Deno.core.ops.bsengine_is_freeze_just_frozen(name),
+    isFreezeJustThawed:     (name)           => Deno.core.ops.bsengine_is_freeze_just_thawed(name),
+    isFreezeImmune:         (name)           => Deno.core.ops.bsengine_is_freeze_immune(name),
+    isFreezeEnabled:        (name)           => Deno.core.ops.bsengine_is_freeze_enabled(name),
+    applyCold:              (name, amt)      => Deno.core.ops.bsengine_apply_cold(name, amt),
+    thawFreeze:             (name)           => Deno.core.ops.bsengine_thaw_freeze(name),
+    setFreezeChillSlow:     (name, s)        => Deno.core.ops.bsengine_set_freeze_chill_slow(name, s),
+    setFreezeFrozenDuration:(name, d)        => Deno.core.ops.bsengine_set_freeze_frozen_duration(name, d),
+    setFreezeEnabled:       (name, en)       => Deno.core.ops.bsengine_set_freeze_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -19915,6 +20656,248 @@ JSON.stringify(received)
                 super::ScriptCommand::SetStunEnabled { name, enabled }
                 if name == "Boss" && !enabled
             )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_burn_read_ops() {
+        // (burn_rate, stacks, max_stacks, remaining, duration, intensity, just_ignited, just_extinguished, ignitable, enabled)
+        super::BURN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    5.0f32, 2u32, 3u32, 1.5f32, 3.0f32, 0.5f32, true, false, true, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getBurnStacks("Hero")"#).unwrap().trim(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getBurnMaxStacks("Hero")"#)
+                .unwrap()
+                .trim(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBurnJustIgnited("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBurnIgnitable("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBurnEnabled("Hero")"#).unwrap().trim(),
+            "true"
+        );
+        super::BURN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_burn_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.igniteBurn("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.extinguishBurn("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setBurnEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IgniteBurn { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExtinguishBurn { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetBurnEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_bleed_read_ops() {
+        // (stacks, max_stacks, damage_per_stack_per_tick, tick_interval, tick_timer, duration, duration_timer, heal_reduction, just_applied, just_cleared, enabled)
+        super::BLEED_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    3u32, 5u32, 2.0f32, 0.5f32, 0.0f32, 4.0f32, 0.0f32, 0.5f32, true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getBleedStacks("Hero")"#)
+                .unwrap()
+                .trim(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getBleedMaxStacks("Hero")"#)
+                .unwrap()
+                .trim(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBleedJustApplied("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBleedEnabled("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::BLEED_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_bleed_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyBleed("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.clearBleed("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setBleedEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyBleed { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearBleed { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetBleedEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_poison_read_ops() {
+        // (stacks, max_stacks, damage_per_stack_per_tick, base_tick_interval, min_tick_interval, tick_timer, duration, duration_timer, virulent, just_poisoned, just_cured, enabled)
+        super::POISON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    4u32, 8u32, 1.5f32, 1.0f32, 0.25f32, 0.0f32, 5.0f32, 0.0f32, true, true, false,
+                    true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPoisonStacks("Hero")"#)
+                .unwrap()
+                .trim(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPoisonMaxStacks("Hero")"#)
+                .unwrap()
+                .trim(),
+            "8"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoisonVirulent("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoisonJustPoisoned("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoisonEnabled("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::POISON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_poison_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyPoison("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.clearPoison("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setPoisonEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyPoison { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearPoison { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPoisonEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_freeze_read_ops() {
+        // (state_u32, cold_buildup, chill_threshold, freeze_threshold, cold_decay_rate, chill_slow, frozen_duration, frozen_timer, just_frozen, just_thawed, immune, enabled)
+        super::FREEZE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    2u32, 80.0f32, 30.0f32, 70.0f32, 5.0f32, 0.5f32, 3.0f32, 2.5f32, true, false,
+                    false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getFreezeState("Hero")"#)
+                .unwrap()
+                .trim(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isFreezeJustFrozen("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isFreezeImmune("Hero")"#)
+                .unwrap()
+                .trim(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isFreezeEnabled("Hero")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        super::FREEZE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_freeze_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyCold("Hero", 25.0);"#).unwrap();
+        rt.eval(r#"Bsengine.thawFreeze("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setFreezeEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyCold { name, amount } if name == "Hero" && (*amount - 25.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ThawFreeze { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFreezeEnabled { name, enabled } if name == "Hero" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

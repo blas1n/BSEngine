@@ -16,17 +16,17 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     ScriptCommand, SpawnParams, ABSORPTION_SNAPSHOT, AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT,
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
-    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT,
-    CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT,
-    COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
-    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOOTSTEP_SNAPSHOT,
-    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
-    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
-    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT,
+    CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
+    COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT,
+    DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
+    FOG_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
+    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
+    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
@@ -1475,6 +1475,24 @@ fn run_scripts(world: &mut World) {
             );
         }
         TWEEN_SNAPSHOT.with(|s| *s.borrow_mut() = tw_map);
+    }
+    {
+        use bsengine_core::Buoyancy;
+        let mut b_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Buoyancy)>();
+        for (_, name, b) in q.iter(world) {
+            b_map.insert(
+                name.0.clone(),
+                (
+                    b.fluid_density,
+                    b.volume,
+                    b.linear_drag,
+                    b.angular_drag,
+                    b.surface_y,
+                ),
+            );
+        }
+        BUOYANCY_SNAPSHOT.with(|s| *s.borrow_mut() = b_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4329,6 +4347,66 @@ fn run_scripts(world: &mut World) {
                     if let Some(mut tw) = world.get_mut::<Tween>(e) {
                         tw.elapsed = elapsed.clamp(0.0, tw.duration);
                         tw.finished = false;
+                    }
+                }
+            }
+            ScriptCommand::SetBuoyancyFluidDensity { name, density } => {
+                use bsengine_core::Buoyancy;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Buoyancy>(e) {
+                        b.fluid_density = density.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBuoyancyVolume { name, volume } => {
+                use bsengine_core::Buoyancy;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Buoyancy>(e) {
+                        b.volume = volume.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBuoyancyLinearDrag { name, drag } => {
+                use bsengine_core::Buoyancy;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Buoyancy>(e) {
+                        b.linear_drag = drag.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBuoyancyAngularDrag { name, drag } => {
+                use bsengine_core::Buoyancy;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Buoyancy>(e) {
+                        b.angular_drag = drag.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBuoyancySurfaceY { name, y } => {
+                use bsengine_core::Buoyancy;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Buoyancy>(e) {
+                        b.surface_y = y;
                     }
                 }
             }

@@ -1031,6 +1031,34 @@ pub enum ScriptCommand {
         x: f32,
         y: f32,
     },
+    SetTriggerLayerMask {
+        name: String,
+        mask: u32,
+    },
+    SetTriggerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetDamageAmount {
+        name: String,
+        amount: f32,
+    },
+    SetDamageType {
+        name: String,
+        damage_type: u32,
+    },
+    SetDamageTypeCustom {
+        name: String,
+        id: u32,
+    },
+    SetDamageMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetDamagePiercing {
+        name: String,
+        piercing: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1737,6 +1765,13 @@ thread_local! {
     // AnchorPreset: Center=0, TopLeft=1, TopCenter=2, TopRight=3,
     //   MiddleLeft=4, MiddleRight=5, BottomLeft=6, BottomCenter=7, BottomRight=8, Custom=9
     pub(crate) static ANCHOR_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (layer_mask, enabled)
+    pub(crate) static TRIGGER_SNAPSHOT: RefCell<HashMap<String, (u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (amount, type_u32, custom_id, multiplier, piercing)
+    // DamageType: Physical=0, Fire=1, Ice=2, Lightning=3, Poison=4, Custom=5 (custom_id relevant)
+    pub(crate) static DAMAGE_SNAPSHOT: RefCell<HashMap<String, (f32, u32, u32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -7122,6 +7157,127 @@ pub fn bsengine_get_anchor_offset_y(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_trigger_layer_mask(#[string] name: String, mask: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetTriggerLayerMask { name, mask });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_trigger_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetTriggerEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_trigger_layer_mask(#[string] name: String) -> u32 {
+    TRIGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(m, _)| *m).unwrap_or(u32::MAX))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_trigger_enabled(#[string] name: String) -> bool {
+    TRIGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, e)| *e).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_damage_amount(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetDamageAmount { name, amount });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_damage_type(#[string] name: String, damage_type: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetDamageType { name, damage_type });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_damage_type_custom(#[string] name: String, id: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetDamageTypeCustom { name, id });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_damage_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetDamageMultiplier { name, multiplier });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_damage_piercing(#[string] name: String, piercing: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetDamagePiercing { name, piercing });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_damage_amount(#[string] name: String) -> f32 {
+    DAMAGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(a, _, _, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_damage_type(#[string] name: String) -> u32 {
+    DAMAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, t, _, _, _)| *t).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_damage_type_custom_id(#[string] name: String) -> u32 {
+    DAMAGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, id, _, _)| *id)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_damage_multiplier(#[string] name: String) -> f32 {
+    DAMAGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, m, _)| *m)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_damage_piercing(#[string] name: String) -> bool {
+    DAMAGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, p)| *p)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_damage_effective(#[string] name: String) -> f32 {
+    DAMAGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(a, _, _, m, _)| a * m)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -8106,6 +8262,21 @@ deno_core::extension!(
         bsengine_get_anchor_norm_y,
         bsengine_get_anchor_offset_x,
         bsengine_get_anchor_offset_y,
+        bsengine_set_trigger_layer_mask,
+        bsengine_set_trigger_enabled,
+        bsengine_get_trigger_layer_mask,
+        bsengine_is_trigger_enabled,
+        bsengine_set_damage_amount,
+        bsengine_set_damage_type,
+        bsengine_set_damage_type_custom,
+        bsengine_set_damage_multiplier,
+        bsengine_set_damage_piercing,
+        bsengine_get_damage_amount,
+        bsengine_get_damage_type,
+        bsengine_get_damage_type_custom_id,
+        bsengine_get_damage_multiplier,
+        bsengine_is_damage_piercing,
+        bsengine_get_damage_effective,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -9177,6 +9348,21 @@ const Bsengine = {
     getAnchorNormY: (name)                 => Deno.core.ops.bsengine_get_anchor_norm_y(name),
     getAnchorOffsetX:(name)               => Deno.core.ops.bsengine_get_anchor_offset_x(name),
     getAnchorOffsetY:(name)               => Deno.core.ops.bsengine_get_anchor_offset_y(name),
+    setTriggerLayerMask:(name, mask)      => Deno.core.ops.bsengine_set_trigger_layer_mask(name, mask),
+    setTriggerEnabled:(name, enabled)     => Deno.core.ops.bsengine_set_trigger_enabled(name, enabled),
+    getTriggerLayerMask:(name)            => Deno.core.ops.bsengine_get_trigger_layer_mask(name),
+    isTriggerEnabled:(name)               => Deno.core.ops.bsengine_is_trigger_enabled(name),
+    setDamageAmount:(name, amount)        => Deno.core.ops.bsengine_set_damage_amount(name, amount),
+    setDamageType:  (name, type)          => Deno.core.ops.bsengine_set_damage_type(name, type),
+    setDamageTypeCustom:(name, id)        => Deno.core.ops.bsengine_set_damage_type_custom(name, id),
+    setDamageMultiplier:(name, mul)       => Deno.core.ops.bsengine_set_damage_multiplier(name, mul),
+    setDamagePiercing:(name, piercing)    => Deno.core.ops.bsengine_set_damage_piercing(name, piercing),
+    getDamageAmount:(name)                => Deno.core.ops.bsengine_get_damage_amount(name),
+    getDamageType:  (name)                => Deno.core.ops.bsengine_get_damage_type(name),
+    getDamageTypeCustomId:(name)          => Deno.core.ops.bsengine_get_damage_type_custom_id(name),
+    getDamageMultiplier:(name)            => Deno.core.ops.bsengine_get_damage_multiplier(name),
+    isDamagePiercing:(name)               => Deno.core.ops.bsengine_is_damage_piercing(name),
+    getDamageEffective:(name)             => Deno.core.ops.bsengine_get_damage_effective(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -16679,6 +16865,131 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetAnchorOffset { name, x, y }
                 if name == "Panel" && (*x - 10.0).abs() < 0.001 && (*y - (-5.0)).abs() < 0.001
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_trigger_read_ops() {
+        super::TRIGGER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Zone".to_string(), (0b0011, false));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let mask = rt.eval(r#"Bsengine.getTriggerLayerMask("Zone");"#).unwrap();
+        assert_eq!(mask.trim().parse::<u32>().unwrap(), 3);
+        let enabled = rt.eval(r#"Bsengine.isTriggerEnabled("Zone");"#).unwrap();
+        assert_eq!(enabled.trim(), "false");
+        let unknown_mask = rt
+            .eval(r#"Bsengine.getTriggerLayerMask("Unknown");"#)
+            .unwrap();
+        assert_eq!(unknown_mask.trim().parse::<u32>().unwrap(), u32::MAX);
+        let unknown_enabled = rt.eval(r#"Bsengine.isTriggerEnabled("Unknown");"#).unwrap();
+        assert_eq!(unknown_enabled.trim(), "true");
+        super::TRIGGER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_trigger_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setTriggerLayerMask("Door", 7);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTriggerEnabled("Door", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTriggerLayerMask { name, mask }
+                if name == "Door" && *mask == 7
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTriggerEnabled { name, enabled }
+                if name == "Door" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_damage_read_ops() {
+        super::DAMAGE_SNAPSHOT.with(|s| {
+            // Fire damage: (25.0, 1, 0, 2.0, true)
+            s.borrow_mut()
+                .insert("FireBall".to_string(), (25.0, 1, 0, 2.0, true));
+            // Custom damage: (10.0, 5, 42, 1.0, false)
+            s.borrow_mut()
+                .insert("CustomHit".to_string(), (10.0, 5, 42, 1.0, false));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let amount = rt.eval(r#"Bsengine.getDamageAmount("FireBall");"#).unwrap();
+        assert!((amount.trim().parse::<f32>().unwrap() - 25.0).abs() < 0.001);
+        let dtype = rt.eval(r#"Bsengine.getDamageType("FireBall");"#).unwrap();
+        assert_eq!(dtype.trim().parse::<u32>().unwrap(), 1);
+        let mul = rt
+            .eval(r#"Bsengine.getDamageMultiplier("FireBall");"#)
+            .unwrap();
+        assert!((mul.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let piercing = rt
+            .eval(r#"Bsengine.isDamagePiercing("FireBall");"#)
+            .unwrap();
+        assert_eq!(piercing.trim(), "true");
+        let effective = rt
+            .eval(r#"Bsengine.getDamageEffective("FireBall");"#)
+            .unwrap();
+        assert!((effective.trim().parse::<f32>().unwrap() - 50.0).abs() < 0.01);
+        let custom_id = rt
+            .eval(r#"Bsengine.getDamageTypeCustomId("CustomHit");"#)
+            .unwrap();
+        assert_eq!(custom_id.trim().parse::<u32>().unwrap(), 42);
+        super::DAMAGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_damage_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDamageAmount("Arrow", 15.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDamageType("Arrow", 0);"#).unwrap();
+        rt.eval(r#"Bsengine.setDamageTypeCustom("Arrow", 99);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDamageMultiplier("Arrow", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDamagePiercing("Arrow", true);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDamageAmount { name, amount }
+                if name == "Arrow" && (*amount - 15.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDamageType { name, damage_type }
+                if name == "Arrow" && *damage_type == 0
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDamageTypeCustom { name, id }
+                if name == "Arrow" && *id == 99
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDamageMultiplier { name, multiplier }
+                if name == "Arrow" && (*multiplier - 1.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetDamagePiercing { name, piercing }
+                if name == "Arrow" && *piercing
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

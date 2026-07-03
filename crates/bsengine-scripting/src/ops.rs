@@ -2695,6 +2695,146 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyNimble {
+        name: String,
+        duration: f32,
+    },
+    ClearNimble {
+        name: String,
+    },
+    SetNimbleDodgeChance {
+        name: String,
+        chance: f32,
+    },
+    SetNimbleSpeedBonusFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetNimbleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RaiseNotice {
+        name: String,
+        amount: f32,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    LoseSight {
+        name: String,
+    },
+    ResetNotice {
+        name: String,
+    },
+    SetNoticeSuspicionDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetNoticeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FeedNourish {
+        name: String,
+        amount: f32,
+    },
+    SetNourishDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetNourishRegenScale {
+        name: String,
+        scale: f32,
+    },
+    SetNourishEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PrimeNova {
+        name: String,
+    },
+    CancelNova {
+        name: String,
+    },
+    SetNovaChargeTime {
+        name: String,
+        time: f32,
+    },
+    SetNovaRadius {
+        name: String,
+        radius: f32,
+    },
+    SetNovaDamage {
+        name: String,
+        damage: f32,
+    },
+    SetNovaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetNpcRole {
+        name: String,
+        role: u32,
+    },
+    SetNpcState {
+        name: String,
+        state: u32,
+    },
+    SetNpcDisplayName {
+        name: String,
+        display_name: String,
+    },
+    SetNpcFactionId {
+        name: String,
+        faction_id: u32,
+    },
+    RaiseNpcAlert {
+        name: String,
+        amount: f32,
+    },
+    SetNpcAlertDecay {
+        name: String,
+        rate: f32,
+    },
+    SetNpcEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyNullify {
+        name: String,
+        duration: f32,
+    },
+    ClearNullify {
+        name: String,
+    },
+    SetNullifyBlocksBuffs {
+        name: String,
+        blocks: bool,
+    },
+    SetNullifyBlocksDebuffs {
+        name: String,
+        blocks: bool,
+    },
+    SetNullifyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyNumb {
+        name: String,
+        duration: f32,
+    },
+    ClearNumb {
+        name: String,
+    },
+    SetNumbDamageFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetNumbEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -3753,6 +3893,35 @@ thread_local! {
     pub(crate) static MUFFLE_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
+    // entity name → (id_str, authority_kind[0=Server,1=Client,2=Local], peer_id_str)
+    pub(crate) static NETWORK_ID_SNAPSHOT: RefCell<HashMap<String, (String, u32, String)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, dodge_chance, speed_bonus_fraction, just_quickened, just_faded, enabled)
+    pub(crate) static NIMBLE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state_u32, suspicion, decay_rate, alert_threshold, alarm_threshold, last_x, last_y, last_z, investigate_timer, max_investigate_time, has_last_known, enabled)
+    pub(crate) static NOTICE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (satiety, decay_rate, regen_scale, just_starved, enabled)
+    pub(crate) static NOURISH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (charge_time, charge_timer, radius, damage, just_primed, just_discharged, enabled)
+    pub(crate) static NOVA_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (role_u32, state_u32, display_name, template_id_or_empty, faction_id, alert, alert_decay, enabled)
+    pub(crate) static NPC_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, String, String, u32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, blocks_buffs, blocks_debuffs, just_activated, just_expired, enabled)
+    pub(crate) static NULLIFY_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage_fraction, just_numbed, just_worn_off, enabled)
+    pub(crate) static NUMB_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -18228,6 +18397,1039 @@ pub fn bsengine_set_muffle_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── NetworkId ─────────────────────────────────────────────────────────────────
+
+#[op2]
+#[string]
+pub fn bsengine_get_network_id(#[string] name: String) -> String {
+    NETWORK_ID_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(id, _, _)| id.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_network_authority(#[string] name: String) -> u32 {
+    NETWORK_ID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, auth, _)| *auth).unwrap_or(0))
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_network_peer_id(#[string] name: String) -> String {
+    NETWORK_ID_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, peer)| peer.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_network_replicated(#[string] name: String) -> bool {
+    NETWORK_ID_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, auth, _)| *auth != 2)
+            .unwrap_or(false)
+    })
+}
+
+// ── Nimble ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_nimble_duration(#[string] name: String) -> f32 {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nimble_timer(#[string] name: String) -> f32 {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nimble_dodge_chance(#[string] name: String) -> f32 {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dc, _, _, _, _)| *dc)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nimble_speed_bonus_fraction(#[string] name: String) -> f32 {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, sb, _, _, _)| *sb)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nimble_active(#[string] name: String) -> bool {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_nimble_quickened(#[string] name: String) -> bool {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jq, _, _)| *jq)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_nimble_faded(#[string] name: String) -> bool {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jf, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nimble_enabled(#[string] name: String) -> bool {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nimble_remaining_fraction(#[string] name: String) -> f32 {
+    NIMBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, t, _, _, _, _, _)| {
+                if *d <= 0.0 {
+                    0.0
+                } else {
+                    (t / d).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_nimble(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyNimble { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_nimble(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearNimble { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nimble_dodge_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNimbleDodgeChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nimble_speed_bonus_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNimbleSpeedBonusFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nimble_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNimbleEnabled { name, enabled })
+    });
+}
+
+// ── Notice ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_notice_state(#[string] name: String) -> u32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _, _)| *st)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_suspicion(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, su, _, _, _, _, _, _, _, _, _, _)| *su)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_suspicion_decay_rate(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dr, _, _, _, _, _, _, _, _, _)| *dr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_alert_threshold(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, at, _, _, _, _, _, _, _, _)| *at)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_alarm_threshold(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, am, _, _, _, _, _, _, _)| *am)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_last_known_x(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, lx, _, _, _, _, _, _)| *lx)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_last_known_y(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, ly, _, _, _, _, _)| *ly)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_last_known_z(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, lz, _, _, _, _)| *lz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_investigate_timer(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, it, _, _, _)| *it)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_max_investigate_time(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, mi, _, _)| *mi)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_has_notice_last_known(#[string] name: String) -> bool {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, hlk, _)| *hlk)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_notice_alarmed(#[string] name: String) -> bool {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _, _)| *st == 2)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_notice_searching(#[string] name: String) -> bool {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(st, _, _, _, _, _, _, _, _, _, _, _)| *st == 3)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_notice_enabled(#[string] name: String) -> bool {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_notice_suspicion_fraction(#[string] name: String) -> f32 {
+    NOTICE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, su, _, _, _, _, _, _, _, _, _, _)| su.clamp(0.0, 1.0))
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_raise_notice(#[string] name: String, amount: f32, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::RaiseNotice {
+            name,
+            amount,
+            x,
+            y,
+            z,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_notice_lose_sight(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LoseSight { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_notice(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetNotice { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_notice_suspicion_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNoticeSuspicionDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_notice_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNoticeEnabled { name, enabled })
+    });
+}
+
+// ── Nourish ───────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_nourish_satiety(#[string] name: String) -> f32 {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(sa, _, _, _, _)| *sa)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nourish_decay_rate(#[string] name: String) -> f32 {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, dr, _, _, _)| *dr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nourish_regen_scale(#[string] name: String) -> f32 {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, rs, _, _)| *rs)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nourish_starving(#[string] name: String) -> bool {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(sa, _, _, _, en)| *sa <= 0.0 && *en)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nourish_just_starved(#[string] name: String) -> bool {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, js, _)| *js)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nourish_enabled(#[string] name: String) -> bool {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nourish_regen_bonus(#[string] name: String) -> f32 {
+    NOURISH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(sa, _, rs, _, en)| if *en { sa * rs } else { 0.0 })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_feed_nourish(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FeedNourish { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nourish_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNourishDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nourish_regen_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNourishRegenScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nourish_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNourishEnabled { name, enabled })
+    });
+}
+
+// ── Nova ──────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_nova_charge_time(#[string] name: String) -> f32 {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ct, _, _, _, _, _, _)| *ct)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nova_charge_timer(#[string] name: String) -> f32 {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, ctr, _, _, _, _, _)| *ctr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nova_radius(#[string] name: String) -> f32 {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, r, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nova_damage(#[string] name: String) -> f32 {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, d, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nova_primed(#[string] name: String) -> bool {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, ctr, _, _, _, _, _)| *ctr > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nova_just_primed(#[string] name: String) -> bool {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jp, _, _)| *jp)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nova_just_discharged(#[string] name: String) -> bool {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jd, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nova_enabled(#[string] name: String) -> bool {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nova_charge_fraction(#[string] name: String) -> f32 {
+    NOVA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ct, ctr, _, _, _, _, _)| {
+                if *ct <= 0.0 || *ctr <= 0.0 {
+                    0.0
+                } else {
+                    (1.0 - ctr / ct).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_prime_nova(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PrimeNova { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_cancel_nova(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CancelNova { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nova_charge_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNovaChargeTime { name, time })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nova_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNovaRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nova_damage(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNovaDamage { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nova_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNovaEnabled { name, enabled })
+    });
+}
+
+// ── Npc ───────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_npc_role(#[string] name: String) -> u32 {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _, _, _)| *r)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_npc_state(#[string] name: String) -> u32 {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, st, _, _, _, _, _, _)| *st)
+            .unwrap_or(0)
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_npc_display_name(#[string] name: String) -> String {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dn, _, _, _, _, _)| dn.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_npc_template_id(#[string] name: String) -> String {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, tid, _, _, _, _)| tid.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_npc_faction_id(#[string] name: String) -> u32 {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, fid, _, _, _)| *fid)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_npc_alert(#[string] name: String) -> f32 {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, al, _, _)| *al)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_npc_alert_decay(#[string] name: String) -> f32 {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, ad, _)| *ad)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_npc_fully_alerted(#[string] name: String) -> bool {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, al, _, _)| *al >= 1.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_npc_hostile_state(#[string] name: String) -> bool {
+    // NpcState::Alerted=3, Engaging=4
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, st, _, _, _, _, _, _)| *st == 3 || *st == 4)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_npc_alive(#[string] name: String) -> bool {
+    // NpcState::Dead=7
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, st, _, _, _, _, _, _)| *st != 7)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_npc_enabled(#[string] name: String) -> bool {
+    NPC_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_npc_role(#[string] name: String, role: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNpcRole { name, role })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_npc_state(#[string] name: String, state: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNpcState { name, state })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_npc_display_name(#[string] name: String, #[string] display_name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNpcDisplayName { name, display_name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_npc_faction_id(#[string] name: String, faction_id: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNpcFactionId { name, faction_id })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_raise_npc_alert(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RaiseNpcAlert { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_npc_alert_decay(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNpcAlertDecay { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_npc_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNpcEnabled { name, enabled })
+    });
+}
+
+// ── Nullify ───────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_nullify_duration(#[string] name: String) -> f32 {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nullify_timer(#[string] name: String) -> f32 {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_does_nullify_block_buffs(#[string] name: String) -> bool {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, bb, _, _, _, _)| *bb)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_does_nullify_block_debuffs(#[string] name: String) -> bool {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, bd, _, _, _)| *bd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nullify_active(#[string] name: String) -> bool {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nullify_just_activated(#[string] name: String) -> bool {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, ja, _, _)| *ja)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nullify_just_expired(#[string] name: String) -> bool {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, je, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nullify_enabled(#[string] name: String) -> bool {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nullify_remaining_fraction(#[string] name: String) -> f32 {
+    NULLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, t, _, _, _, _, _)| {
+                if *d <= 0.0 {
+                    0.0
+                } else {
+                    (t / d).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_nullify(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyNullify { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_nullify(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearNullify { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nullify_blocks_buffs(#[string] name: String, blocks: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNullifyBlocksBuffs { name, blocks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nullify_blocks_debuffs(#[string] name: String, blocks: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNullifyBlocksDebuffs { name, blocks })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nullify_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNullifyEnabled { name, enabled })
+    });
+}
+
+// ── Numb ──────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_numb_duration(#[string] name: String) -> f32 {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_numb_timer(#[string] name: String) -> f32 {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_numb_damage_fraction(#[string] name: String) -> f32 {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, df, _, _, _)| *df)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_numb_active(#[string] name: String) -> bool {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_numb_just_numbed(#[string] name: String) -> bool {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jn, _, _)| *jn)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_numb_just_worn_off(#[string] name: String) -> bool {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jw, _)| *jw)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_numb_enabled(#[string] name: String) -> bool {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_numb_remaining_fraction(#[string] name: String) -> f32 {
+    NUMB_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, t, _, _, _, _)| {
+                if *d <= 0.0 {
+                    0.0
+                } else {
+                    (t / d).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_numb(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyNumb { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_numb(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearNumb { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_numb_damage_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNumbDamageFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_numb_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNumbEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -20340,6 +21542,114 @@ deno_core::extension!(
         bsengine_clear_muffle,
         bsengine_set_muffle_sound_radius_fraction,
         bsengine_set_muffle_enabled,
+        bsengine_get_network_id,
+        bsengine_get_network_authority,
+        bsengine_get_network_peer_id,
+        bsengine_is_network_replicated,
+        bsengine_get_nimble_duration,
+        bsengine_get_nimble_timer,
+        bsengine_get_nimble_dodge_chance,
+        bsengine_get_nimble_speed_bonus_fraction,
+        bsengine_is_nimble_active,
+        bsengine_is_just_nimble_quickened,
+        bsengine_is_just_nimble_faded,
+        bsengine_is_nimble_enabled,
+        bsengine_get_nimble_remaining_fraction,
+        bsengine_apply_nimble,
+        bsengine_clear_nimble,
+        bsengine_set_nimble_dodge_chance,
+        bsengine_set_nimble_speed_bonus_fraction,
+        bsengine_set_nimble_enabled,
+        bsengine_get_notice_state,
+        bsengine_get_notice_suspicion,
+        bsengine_get_notice_suspicion_decay_rate,
+        bsengine_get_notice_alert_threshold,
+        bsengine_get_notice_alarm_threshold,
+        bsengine_get_notice_last_known_x,
+        bsengine_get_notice_last_known_y,
+        bsengine_get_notice_last_known_z,
+        bsengine_get_notice_investigate_timer,
+        bsengine_get_notice_max_investigate_time,
+        bsengine_has_notice_last_known,
+        bsengine_is_notice_alarmed,
+        bsengine_is_notice_searching,
+        bsengine_is_notice_enabled,
+        bsengine_get_notice_suspicion_fraction,
+        bsengine_raise_notice,
+        bsengine_notice_lose_sight,
+        bsengine_reset_notice,
+        bsengine_set_notice_suspicion_decay_rate,
+        bsengine_set_notice_enabled,
+        bsengine_get_nourish_satiety,
+        bsengine_get_nourish_decay_rate,
+        bsengine_get_nourish_regen_scale,
+        bsengine_is_nourish_starving,
+        bsengine_is_nourish_just_starved,
+        bsengine_is_nourish_enabled,
+        bsengine_get_nourish_regen_bonus,
+        bsengine_feed_nourish,
+        bsengine_set_nourish_decay_rate,
+        bsengine_set_nourish_regen_scale,
+        bsengine_set_nourish_enabled,
+        bsengine_get_nova_charge_time,
+        bsengine_get_nova_charge_timer,
+        bsengine_get_nova_radius,
+        bsengine_get_nova_damage,
+        bsengine_is_nova_primed,
+        bsengine_is_nova_just_primed,
+        bsengine_is_nova_just_discharged,
+        bsengine_is_nova_enabled,
+        bsengine_get_nova_charge_fraction,
+        bsengine_prime_nova,
+        bsengine_cancel_nova,
+        bsengine_set_nova_charge_time,
+        bsengine_set_nova_radius,
+        bsengine_set_nova_damage,
+        bsengine_set_nova_enabled,
+        bsengine_get_npc_role,
+        bsengine_get_npc_state,
+        bsengine_get_npc_display_name,
+        bsengine_get_npc_template_id,
+        bsengine_get_npc_faction_id,
+        bsengine_get_npc_alert,
+        bsengine_get_npc_alert_decay,
+        bsengine_is_npc_fully_alerted,
+        bsengine_is_npc_hostile_state,
+        bsengine_is_npc_alive,
+        bsengine_is_npc_enabled,
+        bsengine_set_npc_role,
+        bsengine_set_npc_state,
+        bsengine_set_npc_display_name,
+        bsengine_set_npc_faction_id,
+        bsengine_raise_npc_alert,
+        bsengine_set_npc_alert_decay,
+        bsengine_set_npc_enabled,
+        bsengine_get_nullify_duration,
+        bsengine_get_nullify_timer,
+        bsengine_does_nullify_block_buffs,
+        bsengine_does_nullify_block_debuffs,
+        bsengine_is_nullify_active,
+        bsengine_is_nullify_just_activated,
+        bsengine_is_nullify_just_expired,
+        bsengine_is_nullify_enabled,
+        bsengine_get_nullify_remaining_fraction,
+        bsengine_apply_nullify,
+        bsengine_clear_nullify,
+        bsengine_set_nullify_blocks_buffs,
+        bsengine_set_nullify_blocks_debuffs,
+        bsengine_set_nullify_enabled,
+        bsengine_get_numb_duration,
+        bsengine_get_numb_timer,
+        bsengine_get_numb_damage_fraction,
+        bsengine_is_numb_active,
+        bsengine_is_numb_just_numbed,
+        bsengine_is_numb_just_worn_off,
+        bsengine_is_numb_enabled,
+        bsengine_get_numb_remaining_fraction,
+        bsengine_apply_numb,
+        bsengine_clear_numb,
+        bsengine_set_numb_damage_fraction,
+        bsengine_set_numb_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -22588,6 +23898,130 @@ const Bsengine = {
     clearMuffle:                   (name)           => Deno.core.ops.bsengine_clear_muffle(name),
     setMuffleSoundRadiusFraction:  (name, f)        => Deno.core.ops.bsengine_set_muffle_sound_radius_fraction(name, f),
     setMuffleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_muffle_enabled(name, en),
+
+    // NetworkId
+    getNetworkId:                  (name)           => Deno.core.ops.bsengine_get_network_id(name),
+    getNetworkAuthority:           (name)           => Deno.core.ops.bsengine_get_network_authority(name),
+    getNetworkPeerId:              (name)           => Deno.core.ops.bsengine_get_network_peer_id(name),
+    isNetworkReplicated:           (name)           => Deno.core.ops.bsengine_is_network_replicated(name),
+
+    // Nimble
+    getNimbleDuration:             (name)           => Deno.core.ops.bsengine_get_nimble_duration(name),
+    getNimbleTimer:                (name)           => Deno.core.ops.bsengine_get_nimble_timer(name),
+    getNimbleDodgeChance:          (name)           => Deno.core.ops.bsengine_get_nimble_dodge_chance(name),
+    getNimbleSpeedBonusFraction:   (name)           => Deno.core.ops.bsengine_get_nimble_speed_bonus_fraction(name),
+    isNimbleActive:                (name)           => Deno.core.ops.bsengine_is_nimble_active(name),
+    isJustNimbleQuickened:         (name)           => Deno.core.ops.bsengine_is_just_nimble_quickened(name),
+    isJustNimbleFaded:             (name)           => Deno.core.ops.bsengine_is_just_nimble_faded(name),
+    isNimbleEnabled:               (name)           => Deno.core.ops.bsengine_is_nimble_enabled(name),
+    getNimbleRemainingFraction:    (name)           => Deno.core.ops.bsengine_get_nimble_remaining_fraction(name),
+    applyNimble:                   (name, d)        => Deno.core.ops.bsengine_apply_nimble(name, d),
+    clearNimble:                   (name)           => Deno.core.ops.bsengine_clear_nimble(name),
+    setNimbleDodgeChance:          (name, c)        => Deno.core.ops.bsengine_set_nimble_dodge_chance(name, c),
+    setNimbleSpeedBonusFraction:   (name, f)        => Deno.core.ops.bsengine_set_nimble_speed_bonus_fraction(name, f),
+    setNimbleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_nimble_enabled(name, en),
+
+    // Notice
+    getNoticeState:                (name)           => Deno.core.ops.bsengine_get_notice_state(name),
+    getNoticeSuspicion:            (name)           => Deno.core.ops.bsengine_get_notice_suspicion(name),
+    getNoticeSuspicionDecayRate:   (name)           => Deno.core.ops.bsengine_get_notice_suspicion_decay_rate(name),
+    getNoticeAlertThreshold:       (name)           => Deno.core.ops.bsengine_get_notice_alert_threshold(name),
+    getNoticeAlarmThreshold:       (name)           => Deno.core.ops.bsengine_get_notice_alarm_threshold(name),
+    getNoticeLastKnownX:           (name)           => Deno.core.ops.bsengine_get_notice_last_known_x(name),
+    getNoticeLastKnownY:           (name)           => Deno.core.ops.bsengine_get_notice_last_known_y(name),
+    getNoticeLastKnownZ:           (name)           => Deno.core.ops.bsengine_get_notice_last_known_z(name),
+    getNoticeInvestigateTimer:     (name)           => Deno.core.ops.bsengine_get_notice_investigate_timer(name),
+    getNoticeMaxInvestigateTime:   (name)           => Deno.core.ops.bsengine_get_notice_max_investigate_time(name),
+    hasNoticeLastKnown:            (name)           => Deno.core.ops.bsengine_has_notice_last_known(name),
+    isNoticeAlarmed:               (name)           => Deno.core.ops.bsengine_is_notice_alarmed(name),
+    isNoticeSearching:             (name)           => Deno.core.ops.bsengine_is_notice_searching(name),
+    isNoticeEnabled:               (name)           => Deno.core.ops.bsengine_is_notice_enabled(name),
+    getNoticeSuspicionFraction:    (name)           => Deno.core.ops.bsengine_get_notice_suspicion_fraction(name),
+    raiseNotice:                   (name, a, x, y, z) => Deno.core.ops.bsengine_raise_notice(name, a, x, y, z),
+    noticeLoseSight:               (name)           => Deno.core.ops.bsengine_notice_lose_sight(name),
+    resetNotice:                   (name)           => Deno.core.ops.bsengine_reset_notice(name),
+    setNoticeSuspicionDecayRate:   (name, r)        => Deno.core.ops.bsengine_set_notice_suspicion_decay_rate(name, r),
+    setNoticeEnabled:              (name, en)       => Deno.core.ops.bsengine_set_notice_enabled(name, en),
+
+    // Nourish
+    getNourishSatiety:             (name)           => Deno.core.ops.bsengine_get_nourish_satiety(name),
+    getNourishDecayRate:           (name)           => Deno.core.ops.bsengine_get_nourish_decay_rate(name),
+    getNourishRegenScale:          (name)           => Deno.core.ops.bsengine_get_nourish_regen_scale(name),
+    isNourishStarving:             (name)           => Deno.core.ops.bsengine_is_nourish_starving(name),
+    isNourishJustStarved:          (name)           => Deno.core.ops.bsengine_is_nourish_just_starved(name),
+    isNourishEnabled:              (name)           => Deno.core.ops.bsengine_is_nourish_enabled(name),
+    getNourishRegenBonus:          (name)           => Deno.core.ops.bsengine_get_nourish_regen_bonus(name),
+    feedNourish:                   (name, a)        => Deno.core.ops.bsengine_feed_nourish(name, a),
+    setNourishDecayRate:           (name, r)        => Deno.core.ops.bsengine_set_nourish_decay_rate(name, r),
+    setNourishRegenScale:          (name, s)        => Deno.core.ops.bsengine_set_nourish_regen_scale(name, s),
+    setNourishEnabled:             (name, en)       => Deno.core.ops.bsengine_set_nourish_enabled(name, en),
+
+    // Nova
+    getNovaChargeTime:             (name)           => Deno.core.ops.bsengine_get_nova_charge_time(name),
+    getNovaChargeTimer:            (name)           => Deno.core.ops.bsengine_get_nova_charge_timer(name),
+    getNovaRadius:                 (name)           => Deno.core.ops.bsengine_get_nova_radius(name),
+    getNovaDamage:                 (name)           => Deno.core.ops.bsengine_get_nova_damage(name),
+    isNovaPrimed:                  (name)           => Deno.core.ops.bsengine_is_nova_primed(name),
+    isNovaJustPrimed:              (name)           => Deno.core.ops.bsengine_is_nova_just_primed(name),
+    isNovaJustDischarged:          (name)           => Deno.core.ops.bsengine_is_nova_just_discharged(name),
+    isNovaEnabled:                 (name)           => Deno.core.ops.bsengine_is_nova_enabled(name),
+    getNovaChargeFraction:         (name)           => Deno.core.ops.bsengine_get_nova_charge_fraction(name),
+    primeNova:                     (name)           => Deno.core.ops.bsengine_prime_nova(name),
+    cancelNova:                    (name)           => Deno.core.ops.bsengine_cancel_nova(name),
+    setNovaChargeTime:             (name, t)        => Deno.core.ops.bsengine_set_nova_charge_time(name, t),
+    setNovaRadius:                 (name, r)        => Deno.core.ops.bsengine_set_nova_radius(name, r),
+    setNovaDamage:                 (name, d)        => Deno.core.ops.bsengine_set_nova_damage(name, d),
+    setNovaEnabled:                (name, en)       => Deno.core.ops.bsengine_set_nova_enabled(name, en),
+
+    // Npc
+    getNpcRole:                    (name)           => Deno.core.ops.bsengine_get_npc_role(name),
+    getNpcState:                   (name)           => Deno.core.ops.bsengine_get_npc_state(name),
+    getNpcDisplayName:             (name)           => Deno.core.ops.bsengine_get_npc_display_name(name),
+    getNpcTemplateId:              (name)           => Deno.core.ops.bsengine_get_npc_template_id(name),
+    getNpcFactionId:               (name)           => Deno.core.ops.bsengine_get_npc_faction_id(name),
+    getNpcAlert:                   (name)           => Deno.core.ops.bsengine_get_npc_alert(name),
+    getNpcAlertDecay:              (name)           => Deno.core.ops.bsengine_get_npc_alert_decay(name),
+    isNpcFullyAlerted:             (name)           => Deno.core.ops.bsengine_is_npc_fully_alerted(name),
+    isNpcHostileState:             (name)           => Deno.core.ops.bsengine_is_npc_hostile_state(name),
+    isNpcAlive:                    (name)           => Deno.core.ops.bsengine_is_npc_alive(name),
+    isNpcEnabled:                  (name)           => Deno.core.ops.bsengine_is_npc_enabled(name),
+    setNpcRole:                    (name, r)        => Deno.core.ops.bsengine_set_npc_role(name, r),
+    setNpcState:                   (name, s)        => Deno.core.ops.bsengine_set_npc_state(name, s),
+    setNpcDisplayName:             (name, dn)       => Deno.core.ops.bsengine_set_npc_display_name(name, dn),
+    setNpcFactionId:               (name, fid)      => Deno.core.ops.bsengine_set_npc_faction_id(name, fid),
+    raiseNpcAlert:                 (name, a)        => Deno.core.ops.bsengine_raise_npc_alert(name, a),
+    setNpcAlertDecay:              (name, r)        => Deno.core.ops.bsengine_set_npc_alert_decay(name, r),
+    setNpcEnabled:                 (name, en)       => Deno.core.ops.bsengine_set_npc_enabled(name, en),
+
+    // Nullify
+    getNullifyDuration:            (name)           => Deno.core.ops.bsengine_get_nullify_duration(name),
+    getNullifyTimer:               (name)           => Deno.core.ops.bsengine_get_nullify_timer(name),
+    doesNullifyBlockBuffs:         (name)           => Deno.core.ops.bsengine_does_nullify_block_buffs(name),
+    doesNullifyBlockDebuffs:       (name)           => Deno.core.ops.bsengine_does_nullify_block_debuffs(name),
+    isNullifyActive:               (name)           => Deno.core.ops.bsengine_is_nullify_active(name),
+    isNullifyJustActivated:        (name)           => Deno.core.ops.bsengine_is_nullify_just_activated(name),
+    isNullifyJustExpired:          (name)           => Deno.core.ops.bsengine_is_nullify_just_expired(name),
+    isNullifyEnabled:              (name)           => Deno.core.ops.bsengine_is_nullify_enabled(name),
+    getNullifyRemainingFraction:   (name)           => Deno.core.ops.bsengine_get_nullify_remaining_fraction(name),
+    applyNullify:                  (name, d)        => Deno.core.ops.bsengine_apply_nullify(name, d),
+    clearNullify:                  (name)           => Deno.core.ops.bsengine_clear_nullify(name),
+    setNullifyBlocksBuffs:         (name, b)        => Deno.core.ops.bsengine_set_nullify_blocks_buffs(name, b),
+    setNullifyBlocksDebuffs:       (name, b)        => Deno.core.ops.bsengine_set_nullify_blocks_debuffs(name, b),
+    setNullifyEnabled:             (name, en)       => Deno.core.ops.bsengine_set_nullify_enabled(name, en),
+
+    // Numb
+    getNumbDuration:               (name)           => Deno.core.ops.bsengine_get_numb_duration(name),
+    getNumbTimer:                  (name)           => Deno.core.ops.bsengine_get_numb_timer(name),
+    getNumbDamageFraction:         (name)           => Deno.core.ops.bsengine_get_numb_damage_fraction(name),
+    isNumbActive:                  (name)           => Deno.core.ops.bsengine_is_numb_active(name),
+    isNumbJustNumbed:              (name)           => Deno.core.ops.bsengine_is_numb_just_numbed(name),
+    isNumbJustWornOff:             (name)           => Deno.core.ops.bsengine_is_numb_just_worn_off(name),
+    isNumbEnabled:                 (name)           => Deno.core.ops.bsengine_is_numb_enabled(name),
+    getNumbRemainingFraction:      (name)           => Deno.core.ops.bsengine_get_numb_remaining_fraction(name),
+    applyNumb:                     (name, d)        => Deno.core.ops.bsengine_apply_numb(name, d),
+    clearNumb:                     (name)           => Deno.core.ops.bsengine_clear_numb(name),
+    setNumbDamageFraction:         (name, f)        => Deno.core.ops.bsengine_set_numb_damage_fraction(name, f),
+    setNumbEnabled:                (name, en)       => Deno.core.ops.bsengine_set_numb_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -35681,6 +37115,588 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearMuffle { name } if name == "Rogue")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMuffleSoundRadiusFraction { name, fraction } if name == "Rogue" && (*fraction - 0.125).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMuffleEnabled { name, enabled } if name == "Rogue" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_network_id_read_ops() {
+        // (id_str, authority_kind, peer_id_str)
+        super::NETWORK_ID_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Server1".to_string(), ("42".to_string(), 0, String::new()));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNetworkId("Server1")"#).unwrap(),
+            "42"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNetworkAuthority("Server1")"#)
+                .unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNetworkPeerId("Server1")"#).unwrap(),
+            ""
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNetworkReplicated("Server1")"#)
+                .unwrap(),
+            "true"
+        );
+        super::NETWORK_ID_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nimble_read_ops() {
+        // (duration, timer, dodge_chance, speed_bonus_fraction, just_quickened, just_faded, enabled)
+        super::NIMBLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Acrobat".to_string(),
+                (2.0, 1.0, 0.25, 0.5, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNimbleDuration("Acrobat")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNimbleTimer("Acrobat")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNimbleDodgeChance("Acrobat")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNimbleSpeedBonusFraction("Acrobat")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNimbleActive("Acrobat")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustNimbleQuickened("Acrobat")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustNimbleFaded("Acrobat")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNimbleEnabled("Acrobat")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNimbleRemainingFraction("Acrobat")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::NIMBLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nimble_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyNimble("Acrobat", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearNimble("Acrobat");"#).unwrap();
+        rt.eval(r#"Bsengine.setNimbleDodgeChance("Acrobat", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNimbleSpeedBonusFraction("Acrobat", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNimbleEnabled("Acrobat", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyNimble { name, duration } if name == "Acrobat" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearNimble { name } if name == "Acrobat")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNimbleDodgeChance { name, chance } if name == "Acrobat" && (*chance - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNimbleSpeedBonusFraction { name, fraction } if name == "Acrobat" && (*fraction - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNimbleEnabled { name, enabled } if name == "Acrobat" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_notice_read_ops() {
+        // (state_u32, suspicion, decay_rate, alert_threshold, alarm_threshold, last_x, last_y, last_z, investigate_timer, max_investigate_time, has_last_known, enabled)
+        super::NOTICE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guard".to_string(),
+                (
+                    2, 0.75, 0.25, 0.25, 0.5, 1.0, 2.0, 4.0, 3.0, 4.0, true, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getNoticeState("Guard")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeSuspicion("Guard")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeSuspicionDecayRate("Guard")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeAlertThreshold("Guard")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeAlarmThreshold("Guard")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeLastKnownX("Guard")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeLastKnownY("Guard")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeLastKnownZ("Guard")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeInvestigateTimer("Guard")"#)
+                .unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeMaxInvestigateTime("Guard")"#)
+                .unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.hasNoticeLastKnown("Guard")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNoticeAlarmed("Guard")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNoticeSearching("Guard")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNoticeEnabled("Guard")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNoticeSuspicionFraction("Guard")"#)
+                .unwrap(),
+            "0.75"
+        );
+        super::NOTICE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_notice_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.raiseNotice("Guard", 0.5, 1.0, 0.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.noticeLoseSight("Guard");"#).unwrap();
+        rt.eval(r#"Bsengine.resetNotice("Guard");"#).unwrap();
+        rt.eval(r#"Bsengine.setNoticeSuspicionDecayRate("Guard", 0.125);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNoticeEnabled("Guard", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RaiseNotice { name, amount, .. } if name == "Guard" && (*amount - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LoseSight { name } if name == "Guard")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetNotice { name } if name == "Guard")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNoticeSuspicionDecayRate { name, rate } if name == "Guard" && (*rate - 0.125).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNoticeEnabled { name, enabled } if name == "Guard" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nourish_read_ops() {
+        // (satiety, decay_rate, regen_scale, just_starved, enabled)
+        super::NOURISH_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Survivor".to_string(), (0.5, 0.125, 0.5, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNourishSatiety("Survivor")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNourishDecayRate("Survivor")"#)
+                .unwrap(),
+            "0.125"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNourishRegenScale("Survivor")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNourishStarving("Survivor")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNourishJustStarved("Survivor")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNourishEnabled("Survivor")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNourishRegenBonus("Survivor")"#)
+                .unwrap(),
+            "0.25"
+        );
+        super::NOURISH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nourish_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.feedNourish("Survivor", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNourishDecayRate("Survivor", 0.0625);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNourishRegenScale("Survivor", 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNourishEnabled("Survivor", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FeedNourish { name, amount } if name == "Survivor" && (*amount - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNourishDecayRate { name, rate } if name == "Survivor" && (*rate - 0.0625).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNourishRegenScale { name, scale } if name == "Survivor" && (*scale - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNourishEnabled { name, enabled } if name == "Survivor" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nova_read_ops() {
+        // (charge_time, charge_timer, radius, damage, just_primed, just_discharged, enabled)
+        super::NOVA_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Mage".to_string(), (2.0, 1.0, 8.0, 64.0, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNovaChargeTime("Mage")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNovaChargeTimer("Mage")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getNovaRadius("Mage")"#).unwrap(), "8");
+        assert_eq!(rt.eval(r#"Bsengine.getNovaDamage("Mage")"#).unwrap(), "64");
+        assert_eq!(rt.eval(r#"Bsengine.isNovaPrimed("Mage")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNovaJustPrimed("Mage")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNovaJustDischarged("Mage")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNovaEnabled("Mage")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNovaChargeFraction("Mage")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::NOVA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nova_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.primeNova("Mage");"#).unwrap();
+        rt.eval(r#"Bsengine.cancelNova("Mage");"#).unwrap();
+        rt.eval(r#"Bsengine.setNovaChargeTime("Mage", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNovaRadius("Mage", 16.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setNovaDamage("Mage", 128.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNovaEnabled("Mage", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PrimeNova { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CancelNova { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNovaChargeTime { name, time } if name == "Mage" && (*time - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNovaRadius { name, radius } if name == "Mage" && (*radius - 16.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNovaDamage { name, damage } if name == "Mage" && (*damage - 128.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNovaEnabled { name, enabled } if name == "Mage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_npc_read_ops() {
+        // (role_u32, state_u32, display_name, template_id, faction_id, alert, alert_decay, enabled)
+        super::NPC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guard1".to_string(),
+                (
+                    1,
+                    3,
+                    "Guard Captain".to_string(),
+                    "guard_01".to_string(),
+                    2,
+                    0.75,
+                    0.25,
+                    true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getNpcRole("Guard1")"#).unwrap(), "1");
+        assert_eq!(rt.eval(r#"Bsengine.getNpcState("Guard1")"#).unwrap(), "3");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNpcDisplayName("Guard1")"#).unwrap(),
+            "Guard Captain"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNpcTemplateId("Guard1")"#).unwrap(),
+            "guard_01"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNpcFactionId("Guard1")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNpcAlert("Guard1")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNpcAlertDecay("Guard1")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNpcFullyAlerted("Guard1")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNpcHostileState("Guard1")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.isNpcAlive("Guard1")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNpcEnabled("Guard1")"#).unwrap(),
+            "true"
+        );
+        super::NPC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_npc_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setNpcRole("Guard1", 2);"#).unwrap();
+        rt.eval(r#"Bsengine.setNpcState("Guard1", 5);"#).unwrap();
+        rt.eval(r#"Bsengine.setNpcDisplayName("Guard1", "Veteran Guard");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNpcFactionId("Guard1", 3);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.raiseNpcAlert("Guard1", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNpcAlertDecay("Guard1", 0.125);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNpcEnabled("Guard1", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNpcRole { name, role } if name == "Guard1" && *role == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNpcState { name, state } if name == "Guard1" && *state == 5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNpcDisplayName { name, display_name } if name == "Guard1" && display_name == "Veteran Guard")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNpcFactionId { name, faction_id } if name == "Guard1" && *faction_id == 3)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RaiseNpcAlert { name, amount } if name == "Guard1" && (*amount - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNpcAlertDecay { name, rate } if name == "Guard1" && (*rate - 0.125).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNpcEnabled { name, enabled } if name == "Guard1" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nullify_read_ops() {
+        // (duration, timer, blocks_buffs, blocks_debuffs, just_activated, just_expired, enabled)
+        super::NULLIFY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shield".to_string(),
+                (4.0, 2.0, true, false, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNullifyDuration("Shield")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNullifyTimer("Shield")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesNullifyBlockBuffs("Shield")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesNullifyBlockDebuffs("Shield")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNullifyActive("Shield")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNullifyJustActivated("Shield")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNullifyJustExpired("Shield")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNullifyEnabled("Shield")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNullifyRemainingFraction("Shield")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::NULLIFY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_nullify_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyNullify("Shield", 6.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearNullify("Shield");"#).unwrap();
+        rt.eval(r#"Bsengine.setNullifyBlocksBuffs("Shield", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNullifyBlocksDebuffs("Shield", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNullifyEnabled("Shield", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyNullify { name, duration } if name == "Shield" && (*duration - 6.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearNullify { name } if name == "Shield")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNullifyBlocksBuffs { name, blocks } if name == "Shield" && !blocks)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNullifyBlocksDebuffs { name, blocks } if name == "Shield" && *blocks)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNullifyEnabled { name, enabled } if name == "Shield" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_numb_read_ops() {
+        // (duration, timer, damage_fraction, just_numbed, just_worn_off, enabled)
+        super::NUMB_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Berserker".to_string(), (4.0, 2.0, 0.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNumbDuration("Berserker")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNumbTimer("Berserker")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNumbDamageFraction("Berserker")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNumbActive("Berserker")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNumbJustNumbed("Berserker")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNumbJustWornOff("Berserker")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isNumbEnabled("Berserker")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getNumbRemainingFraction("Berserker")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::NUMB_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_numb_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyNumb("Berserker", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearNumb("Berserker");"#).unwrap();
+        rt.eval(r#"Bsengine.setNumbDamageFraction("Berserker", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setNumbEnabled("Berserker", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyNumb { name, duration } if name == "Berserker" && (*duration - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearNumb { name } if name == "Berserker")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNumbDamageFraction { name, fraction } if name == "Berserker" && (*fraction - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNumbEnabled { name, enabled } if name == "Berserker" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

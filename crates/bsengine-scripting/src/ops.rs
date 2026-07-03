@@ -1670,6 +1670,106 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AddExhaustion {
+        name: String,
+        amount: f32,
+    },
+    ClearExhaustion {
+        name: String,
+    },
+    SetExhaustionRecoveryRate {
+        name: String,
+        rate: f32,
+    },
+    SetExhaustionThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetExhaustionPenaltySpeed {
+        name: String,
+        penalty: f32,
+    },
+    SetExhaustionPenaltyRegen {
+        name: String,
+        penalty: f32,
+    },
+    SetExhaustionEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyFear {
+        name: String,
+        source_name: String,
+        duration: f32,
+    },
+    ClearFear {
+        name: String,
+    },
+    SetFearFleeSpeedMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetFearEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyFracture {
+        name: String,
+        duration: f32,
+    },
+    ClearFracture {
+        name: String,
+    },
+    SetFractureDamageAmplification {
+        name: String,
+        amplification: f32,
+    },
+    SetFractureMoveSpeedPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetFractureEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyFrostbite {
+        name: String,
+        duration: f32,
+    },
+    ClearFrostbite {
+        name: String,
+    },
+    SetFrostbiteColdDamagePerSecond {
+        name: String,
+        damage: f32,
+    },
+    SetFrostbiteActionSpeedFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetFrostbiteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetFuryEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyGalvanize {
+        name: String,
+        duration: f32,
+    },
+    ClearGalvanize {
+        name: String,
+    },
+    SetGalvanizeSpeedMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetGalvanizeEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2502,6 +2602,31 @@ thread_local! {
     > = RefCell::new(HashMap::new());
     // entity name → (duration, timer, damage_multiplier, just_exposed, just_recovered, enabled)
     pub(crate) static EXPOSE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (level, recovery_rate, threshold, penalty_speed, penalty_regen, just_exhausted, just_recovered, enabled)
+    pub(crate) static EXHAUSTION_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state_u32, duration, timer, flee_speed_multiplier, just_feared, just_calmed, enabled)
+    // FearState: Calm=0, Frightened=1, Fleeing=2
+    pub(crate) static FEAR_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage_amplification, move_speed_penalty, just_fractured, just_healed, enabled)
+    pub(crate) static FRACTURE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, cold_damage_per_second, action_speed_fraction, just_frostbitten, just_thawed, enabled)
+    pub(crate) static FROSTBITE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (fury_factor, max_speed_bonus, just_peaked, enabled)
+    pub(crate) static FURY_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, speed_multiplier, just_galvanized, just_worn_off, enabled)
+    pub(crate) static GALVANIZE_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
@@ -11856,6 +11981,667 @@ pub fn bsengine_set_expose_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Exhaustion ──────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_exhaustion_active(#[string] name: String) -> bool {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(level, _, threshold, _, _, _, _, _)| level >= threshold)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_exhaustion_level(#[string] name: String) -> f32 {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(level, _, _, _, _, _, _, _)| *level)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_exhaustion_recovery_rate(#[string] name: String) -> f32 {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, rate, _, _, _, _, _, _)| *rate)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_exhaustion_threshold(#[string] name: String) -> f32 {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, threshold, _, _, _, _, _)| *threshold)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_exhaustion_penalty_speed(#[string] name: String) -> f32 {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ps, _, _, _, _)| *ps)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_exhaustion_penalty_regen(#[string] name: String) -> f32 {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, pr, _, _, _)| *pr)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_exhaustion_just_exhausted(#[string] name: String) -> bool {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_exhaustion_just_recovered(#[string] name: String) -> bool {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_exhaustion_enabled(#[string] name: String) -> bool {
+    EXHAUSTION_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_exhaustion(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddExhaustion { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_exhaustion(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearExhaustion { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_exhaustion_recovery_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExhaustionRecoveryRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_exhaustion_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExhaustionThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_exhaustion_penalty_speed(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExhaustionPenaltySpeed { name, penalty })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_exhaustion_penalty_regen(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExhaustionPenaltyRegen { name, penalty })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_exhaustion_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExhaustionEnabled { name, enabled })
+    });
+}
+
+// ── Fear ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_fear_active(#[string] name: String) -> bool {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(state, _, _, _, _, _, _)| *state != 0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fear_state(#[string] name: String) -> u32 {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(state, _, _, _, _, _, _)| *state)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fear_duration(#[string] name: String) -> f32 {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fear_timer(#[string] name: String) -> f32 {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fear_flee_speed_multiplier(#[string] name: String) -> f32 {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, fsm, _, _, _)| *fsm)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fear_just_feared(#[string] name: String) -> bool {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jf, _, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fear_just_calmed(#[string] name: String) -> bool {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jc, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fear_enabled(#[string] name: String) -> bool {
+    FEAR_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_fear(#[string] name: String, #[string] source_name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyFear {
+            name,
+            source_name,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_fear(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearFear { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fear_flee_speed_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFearFleeSpeedMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fear_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFearEnabled { name, enabled })
+    });
+}
+
+// ── Fracture ─────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_fracture_active(#[string] name: String) -> bool {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fracture_duration(#[string] name: String) -> f32 {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fracture_timer(#[string] name: String) -> f32 {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fracture_damage_amplification(#[string] name: String) -> f32 {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, da, _, _, _, _)| *da)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fracture_move_speed_penalty(#[string] name: String) -> f32 {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, msp, _, _, _)| *msp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fracture_just_fractured(#[string] name: String) -> bool {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jf, _, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fracture_just_healed(#[string] name: String) -> bool {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jh, _)| *jh)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fracture_enabled(#[string] name: String) -> bool {
+    FRACTURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_fracture(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyFracture { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_fracture(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearFracture { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fracture_damage_amplification(#[string] name: String, amplification: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFractureDamageAmplification {
+                name,
+                amplification,
+            })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fracture_move_speed_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFractureMoveSpeedPenalty { name, penalty })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fracture_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFractureEnabled { name, enabled })
+    });
+}
+
+// ── Frostbite ────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_frostbite_active(#[string] name: String) -> bool {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_frostbite_duration(#[string] name: String) -> f32 {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_frostbite_timer(#[string] name: String) -> f32 {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_frostbite_cold_damage_per_second(#[string] name: String) -> f32 {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, cdps, _, _, _, _)| *cdps)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_frostbite_action_speed_fraction(#[string] name: String) -> f32 {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, asf, _, _, _)| *asf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_frostbite_just_frostbitten(#[string] name: String) -> bool {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jf, _, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_frostbite_just_thawed(#[string] name: String) -> bool {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jt, _)| *jt)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_frostbite_enabled(#[string] name: String) -> bool {
+    FROSTBITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_frostbite(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyFrostbite { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_frostbite(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearFrostbite { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_frostbite_cold_damage_per_second(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFrostbiteColdDamagePerSecond { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_frostbite_action_speed_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFrostbiteActionSpeedFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_frostbite_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFrostbiteEnabled { name, enabled })
+    });
+}
+
+// ── Fury ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_furious(#[string] name: String) -> bool {
+    FURY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ff, _, _, en)| *ff > 0.0 && *en)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fury_factor(#[string] name: String) -> f32 {
+    FURY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ff, _, _, _)| *ff)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fury_max_speed_bonus(#[string] name: String) -> f32 {
+    FURY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, msb, _, _)| *msb)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fury_just_peaked(#[string] name: String) -> bool {
+    FURY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, jp, _)| *jp)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fury_enabled(#[string] name: String) -> bool {
+    FURY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fury_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFuryEnabled { name, enabled })
+    });
+}
+
+// ── Galvanize ────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_galvanize_active(#[string] name: String) -> bool {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_galvanize_duration(#[string] name: String) -> f32 {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_galvanize_timer(#[string] name: String) -> f32 {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_galvanize_speed_multiplier(#[string] name: String) -> f32 {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, sm, _, _, _)| *sm)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_galvanize_just_galvanized(#[string] name: String) -> bool {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jg, _, _)| *jg)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_galvanize_just_worn_off(#[string] name: String) -> bool {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jwo, _)| *jwo)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_galvanize_enabled(#[string] name: String) -> bool {
+    GALVANIZE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_galvanize(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyGalvanize { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_galvanize(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearGalvanize { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_galvanize_speed_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGalvanizeSpeedMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_galvanize_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGalvanizeEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -13270,6 +14056,77 @@ deno_core::extension!(
         bsengine_clear_expose,
         bsengine_set_expose_damage_multiplier,
         bsengine_set_expose_enabled,
+        bsengine_is_exhaustion_active,
+        bsengine_get_exhaustion_level,
+        bsengine_get_exhaustion_recovery_rate,
+        bsengine_get_exhaustion_threshold,
+        bsengine_get_exhaustion_penalty_speed,
+        bsengine_get_exhaustion_penalty_regen,
+        bsengine_is_exhaustion_just_exhausted,
+        bsengine_is_exhaustion_just_recovered,
+        bsengine_is_exhaustion_enabled,
+        bsengine_add_exhaustion,
+        bsengine_clear_exhaustion,
+        bsengine_set_exhaustion_recovery_rate,
+        bsengine_set_exhaustion_threshold,
+        bsengine_set_exhaustion_penalty_speed,
+        bsengine_set_exhaustion_penalty_regen,
+        bsengine_set_exhaustion_enabled,
+        bsengine_is_fear_active,
+        bsengine_get_fear_state,
+        bsengine_get_fear_duration,
+        bsengine_get_fear_timer,
+        bsengine_get_fear_flee_speed_multiplier,
+        bsengine_is_fear_just_feared,
+        bsengine_is_fear_just_calmed,
+        bsengine_is_fear_enabled,
+        bsengine_apply_fear,
+        bsengine_clear_fear,
+        bsengine_set_fear_flee_speed_multiplier,
+        bsengine_set_fear_enabled,
+        bsengine_is_fracture_active,
+        bsengine_get_fracture_duration,
+        bsengine_get_fracture_timer,
+        bsengine_get_fracture_damage_amplification,
+        bsengine_get_fracture_move_speed_penalty,
+        bsengine_is_fracture_just_fractured,
+        bsengine_is_fracture_just_healed,
+        bsengine_is_fracture_enabled,
+        bsengine_apply_fracture,
+        bsengine_clear_fracture,
+        bsengine_set_fracture_damage_amplification,
+        bsengine_set_fracture_move_speed_penalty,
+        bsengine_set_fracture_enabled,
+        bsengine_is_frostbite_active,
+        bsengine_get_frostbite_duration,
+        bsengine_get_frostbite_timer,
+        bsengine_get_frostbite_cold_damage_per_second,
+        bsengine_get_frostbite_action_speed_fraction,
+        bsengine_is_frostbite_just_frostbitten,
+        bsengine_is_frostbite_just_thawed,
+        bsengine_is_frostbite_enabled,
+        bsengine_apply_frostbite,
+        bsengine_clear_frostbite,
+        bsengine_set_frostbite_cold_damage_per_second,
+        bsengine_set_frostbite_action_speed_fraction,
+        bsengine_set_frostbite_enabled,
+        bsengine_is_furious,
+        bsengine_get_fury_factor,
+        bsengine_get_fury_max_speed_bonus,
+        bsengine_is_fury_just_peaked,
+        bsengine_is_fury_enabled,
+        bsengine_set_fury_enabled,
+        bsengine_is_galvanize_active,
+        bsengine_get_galvanize_duration,
+        bsengine_get_galvanize_timer,
+        bsengine_get_galvanize_speed_multiplier,
+        bsengine_is_galvanize_just_galvanized,
+        bsengine_is_galvanize_just_worn_off,
+        bsengine_is_galvanize_enabled,
+        bsengine_apply_galvanize,
+        bsengine_clear_galvanize,
+        bsengine_set_galvanize_speed_multiplier,
+        bsengine_set_galvanize_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -14777,6 +15634,77 @@ const Bsengine = {
     clearExpose:            (name)           => Deno.core.ops.bsengine_clear_expose(name),
     setExposeDamageMultiplier:(name, m)      => Deno.core.ops.bsengine_set_expose_damage_multiplier(name, m),
     setExposeEnabled:       (name, en)       => Deno.core.ops.bsengine_set_expose_enabled(name, en),
+    isExhaustionActive:            (name)           => Deno.core.ops.bsengine_is_exhaustion_active(name),
+    getExhaustionLevel:            (name)           => Deno.core.ops.bsengine_get_exhaustion_level(name),
+    getExhaustionRecoveryRate:     (name)           => Deno.core.ops.bsengine_get_exhaustion_recovery_rate(name),
+    getExhaustionThreshold:        (name)           => Deno.core.ops.bsengine_get_exhaustion_threshold(name),
+    getExhaustionPenaltySpeed:     (name)           => Deno.core.ops.bsengine_get_exhaustion_penalty_speed(name),
+    getExhaustionPenaltyRegen:     (name)           => Deno.core.ops.bsengine_get_exhaustion_penalty_regen(name),
+    isExhaustionJustExhausted:     (name)           => Deno.core.ops.bsengine_is_exhaustion_just_exhausted(name),
+    isExhaustionJustRecovered:     (name)           => Deno.core.ops.bsengine_is_exhaustion_just_recovered(name),
+    isExhaustionEnabled:           (name)           => Deno.core.ops.bsengine_is_exhaustion_enabled(name),
+    addExhaustion:                 (name, amount)   => Deno.core.ops.bsengine_add_exhaustion(name, amount),
+    clearExhaustion:               (name)           => Deno.core.ops.bsengine_clear_exhaustion(name),
+    setExhaustionRecoveryRate:     (name, rate)     => Deno.core.ops.bsengine_set_exhaustion_recovery_rate(name, rate),
+    setExhaustionThreshold:        (name, t)        => Deno.core.ops.bsengine_set_exhaustion_threshold(name, t),
+    setExhaustionPenaltySpeed:     (name, p)        => Deno.core.ops.bsengine_set_exhaustion_penalty_speed(name, p),
+    setExhaustionPenaltyRegen:     (name, p)        => Deno.core.ops.bsengine_set_exhaustion_penalty_regen(name, p),
+    setExhaustionEnabled:          (name, en)       => Deno.core.ops.bsengine_set_exhaustion_enabled(name, en),
+    isFearActive:                  (name)           => Deno.core.ops.bsengine_is_fear_active(name),
+    getFearState:                  (name)           => Deno.core.ops.bsengine_get_fear_state(name),
+    getFearDuration:               (name)           => Deno.core.ops.bsengine_get_fear_duration(name),
+    getFearTimer:                  (name)           => Deno.core.ops.bsengine_get_fear_timer(name),
+    getFearFleeSpeedMultiplier:    (name)           => Deno.core.ops.bsengine_get_fear_flee_speed_multiplier(name),
+    isFearJustFeared:              (name)           => Deno.core.ops.bsengine_is_fear_just_feared(name),
+    isFearJustCalmed:              (name)           => Deno.core.ops.bsengine_is_fear_just_calmed(name),
+    isFearEnabled:                 (name)           => Deno.core.ops.bsengine_is_fear_enabled(name),
+    applyFear:                     (name, src, dur) => Deno.core.ops.bsengine_apply_fear(name, src, dur),
+    clearFear:                     (name)           => Deno.core.ops.bsengine_clear_fear(name),
+    setFearFleeSpeedMultiplier:    (name, m)        => Deno.core.ops.bsengine_set_fear_flee_speed_multiplier(name, m),
+    setFearEnabled:                (name, en)       => Deno.core.ops.bsengine_set_fear_enabled(name, en),
+    isFractureActive:              (name)           => Deno.core.ops.bsengine_is_fracture_active(name),
+    getFractureDuration:           (name)           => Deno.core.ops.bsengine_get_fracture_duration(name),
+    getFractureTimer:              (name)           => Deno.core.ops.bsengine_get_fracture_timer(name),
+    getFractureDamageAmplification:(name)           => Deno.core.ops.bsengine_get_fracture_damage_amplification(name),
+    getFractureMoveSpeedPenalty:   (name)           => Deno.core.ops.bsengine_get_fracture_move_speed_penalty(name),
+    isFractureJustFractured:       (name)           => Deno.core.ops.bsengine_is_fracture_just_fractured(name),
+    isFractureJustHealed:          (name)           => Deno.core.ops.bsengine_is_fracture_just_healed(name),
+    isFractureEnabled:             (name)           => Deno.core.ops.bsengine_is_fracture_enabled(name),
+    applyFracture:                 (name, dur)      => Deno.core.ops.bsengine_apply_fracture(name, dur),
+    clearFracture:                 (name)           => Deno.core.ops.bsengine_clear_fracture(name),
+    setFractureDamageAmplification:(name, a)        => Deno.core.ops.bsengine_set_fracture_damage_amplification(name, a),
+    setFractureMoveSpeedPenalty:   (name, p)        => Deno.core.ops.bsengine_set_fracture_move_speed_penalty(name, p),
+    setFractureEnabled:            (name, en)       => Deno.core.ops.bsengine_set_fracture_enabled(name, en),
+    isFrostbiteActive:             (name)           => Deno.core.ops.bsengine_is_frostbite_active(name),
+    getFrostbiteDuration:          (name)           => Deno.core.ops.bsengine_get_frostbite_duration(name),
+    getFrostbiteTimer:             (name)           => Deno.core.ops.bsengine_get_frostbite_timer(name),
+    getFrostbiteColdDamagePerSecond:(name)          => Deno.core.ops.bsengine_get_frostbite_cold_damage_per_second(name),
+    getFrostbiteActionSpeedFraction:(name)          => Deno.core.ops.bsengine_get_frostbite_action_speed_fraction(name),
+    isFrostbiteJustFrostbitten:    (name)           => Deno.core.ops.bsengine_is_frostbite_just_frostbitten(name),
+    isFrostbiteJustThawed:         (name)           => Deno.core.ops.bsengine_is_frostbite_just_thawed(name),
+    isFrostbiteEnabled:            (name)           => Deno.core.ops.bsengine_is_frostbite_enabled(name),
+    applyFrostbite:                (name, dur)      => Deno.core.ops.bsengine_apply_frostbite(name, dur),
+    clearFrostbite:                (name)           => Deno.core.ops.bsengine_clear_frostbite(name),
+    setFrostbiteColdDamagePerSecond:(name, d)       => Deno.core.ops.bsengine_set_frostbite_cold_damage_per_second(name, d),
+    setFrostbiteActionSpeedFraction:(name, f)       => Deno.core.ops.bsengine_set_frostbite_action_speed_fraction(name, f),
+    setFrostbiteEnabled:           (name, en)       => Deno.core.ops.bsengine_set_frostbite_enabled(name, en),
+    isFurious:                     (name)           => Deno.core.ops.bsengine_is_furious(name),
+    getFuryFactor:                 (name)           => Deno.core.ops.bsengine_get_fury_factor(name),
+    getFuryMaxSpeedBonus:          (name)           => Deno.core.ops.bsengine_get_fury_max_speed_bonus(name),
+    isFuryJustPeaked:              (name)           => Deno.core.ops.bsengine_is_fury_just_peaked(name),
+    isFuryEnabled:                 (name)           => Deno.core.ops.bsengine_is_fury_enabled(name),
+    setFuryEnabled:                (name, en)       => Deno.core.ops.bsengine_set_fury_enabled(name, en),
+    isGalvanizeActive:             (name)           => Deno.core.ops.bsengine_is_galvanize_active(name),
+    getGalvanizeDuration:          (name)           => Deno.core.ops.bsengine_get_galvanize_duration(name),
+    getGalvanizeTimer:             (name)           => Deno.core.ops.bsengine_get_galvanize_timer(name),
+    getGalvanizeSpeedMultiplier:   (name)           => Deno.core.ops.bsengine_get_galvanize_speed_multiplier(name),
+    isGalvanizeJustGalvanized:     (name)           => Deno.core.ops.bsengine_is_galvanize_just_galvanized(name),
+    isGalvanizeJustWornOff:        (name)           => Deno.core.ops.bsengine_is_galvanize_just_worn_off(name),
+    isGalvanizeEnabled:            (name)           => Deno.core.ops.bsengine_is_galvanize_enabled(name),
+    applyGalvanize:                (name, dur)      => Deno.core.ops.bsengine_apply_galvanize(name, dur),
+    clearGalvanize:                (name)           => Deno.core.ops.bsengine_clear_galvanize(name),
+    setGalvanizeSpeedMultiplier:   (name, m)        => Deno.core.ops.bsengine_set_galvanize_speed_multiplier(name, m),
+    setGalvanizeEnabled:           (name, en)       => Deno.core.ops.bsengine_set_galvanize_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -24532,6 +25460,291 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearExpose { name } if name == "Boss")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetExposeDamageMultiplier { name, multiplier } if name == "Boss" && (*multiplier - 2.0).abs() < 0.001)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetExposeEnabled { name, enabled } if name == "Boss" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_exhaustion_read_ops() {
+        // (level, recovery_rate, threshold, penalty_speed, penalty_regen, just_exhausted, just_recovered, enabled)
+        super::EXHAUSTION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.9f32, 0.1f32, 0.8f32, 0.6f32, 0.3f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isExhaustionActive("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let level = rt
+            .eval(r#"Bsengine.getExhaustionLevel("Hero")"#)
+            .unwrap()
+            .to_string();
+        assert!((level.parse::<f64>().unwrap() - 0.9).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isExhaustionJustExhausted("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::EXHAUSTION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_exhaustion_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addExhaustion("Hero", 0.5);"#).unwrap();
+        rt.eval(r#"Bsengine.clearExhaustion("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setExhaustionEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddExhaustion { name, amount } if name == "Hero" && (*amount - 0.5).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearExhaustion { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetExhaustionEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fear_read_ops() {
+        // (state_u32, duration, timer, flee_speed_multiplier, just_feared, just_calmed, enabled)
+        // FearState: Calm=0, Frightened=1, Fleeing=2
+        super::FEAR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Enemy".to_string(),
+                (2u32, 5.0f32, 1.0f32, 1.3f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isFearActive("Enemy")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let state = rt
+            .eval(r#"Bsengine.getFearState("Enemy")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(state.trim(), "2");
+        assert!(rt
+            .eval(r#"Bsengine.isFearJustFeared("Enemy")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::FEAR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fear_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyFear("Enemy", "Player", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearFear("Enemy");"#).unwrap();
+        rt.eval(r#"Bsengine.setFearEnabled("Enemy", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyFear { name, source_name, duration } if name == "Enemy" && source_name == "Player" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearFear { name } if name == "Enemy")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFearEnabled { name, enabled } if name == "Enemy" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fracture_read_ops() {
+        // (duration, timer, damage_amplification, move_speed_penalty, just_fractured, just_healed, enabled)
+        super::FRACTURE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Boss".to_string(),
+                (3.0f32, 2.5f32, 1.5f32, 0.3f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isFractureActive("Boss")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let da = rt
+            .eval(r#"Bsengine.getFractureDamageAmplification("Boss")"#)
+            .unwrap()
+            .to_string();
+        assert!((da.parse::<f64>().unwrap() - 1.5).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isFractureJustFractured("Boss")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::FRACTURE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fracture_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyFracture("Boss", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearFracture("Boss");"#).unwrap();
+        rt.eval(r#"Bsengine.setFractureDamageAmplification("Boss", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFractureEnabled("Boss", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyFracture { name, duration } if name == "Boss" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearFracture { name } if name == "Boss")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFractureDamageAmplification { name, amplification } if name == "Boss" && (*amplification - 1.5).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFractureEnabled { name, enabled } if name == "Boss" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_frostbite_read_ops() {
+        // (duration, timer, cold_damage_per_second, action_speed_fraction, just_frostbitten, just_thawed, enabled)
+        super::FROSTBITE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mage".to_string(),
+                (4.0f32, 3.0f32, 5.0f32, 0.6f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isFrostbiteActive("Mage")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let cdps = rt
+            .eval(r#"Bsengine.getFrostbiteColdDamagePerSecond("Mage")"#)
+            .unwrap()
+            .to_string();
+        assert!((cdps.parse::<f64>().unwrap() - 5.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isFrostbiteJustFrostbitten("Mage")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::FROSTBITE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_frostbite_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyFrostbite("Mage", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearFrostbite("Mage");"#).unwrap();
+        rt.eval(r#"Bsengine.setFrostbiteEnabled("Mage", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyFrostbite { name, duration } if name == "Mage" && (*duration - 4.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearFrostbite { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFrostbiteEnabled { name, enabled } if name == "Mage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fury_read_ops() {
+        // (fury_factor, max_speed_bonus, just_peaked, enabled)
+        super::FURY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Berserker".to_string(), (0.8f32, 1.0f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isFurious("Berserker")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let ff = rt
+            .eval(r#"Bsengine.getFuryFactor("Berserker")"#)
+            .unwrap()
+            .to_string();
+        assert!((ff.parse::<f64>().unwrap() - 0.8).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isFuryJustPeaked("Berserker")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::FURY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_fury_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFuryEnabled("Berserker", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetFuryEnabled { name, enabled } if name == "Berserker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_galvanize_read_ops() {
+        // (duration, timer, speed_multiplier, just_galvanized, just_worn_off, enabled)
+        super::GALVANIZE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Warrior".to_string(),
+                (5.0f32, 3.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isGalvanizeActive("Warrior")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let sm = rt
+            .eval(r#"Bsengine.getGalvanizeSpeedMultiplier("Warrior")"#)
+            .unwrap()
+            .to_string();
+        assert!((sm.parse::<f64>().unwrap() - 2.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isGalvanizeJustGalvanized("Warrior")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::GALVANIZE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_galvanize_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyGalvanize("Warrior", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearGalvanize("Warrior");"#).unwrap();
+        rt.eval(r#"Bsengine.setGalvanizeSpeedMultiplier("Warrior", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setGalvanizeEnabled("Warrior", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyGalvanize { name, duration } if name == "Warrior" && (*duration - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearGalvanize { name } if name == "Warrior")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetGalvanizeSpeedMultiplier { name, multiplier } if name == "Warrior" && (*multiplier - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetGalvanizeEnabled { name, enabled } if name == "Warrior" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

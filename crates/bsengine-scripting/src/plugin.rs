@@ -16,15 +16,16 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
-    CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
-    COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT,
-    DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
-    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
+    COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT,
+    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT,
+    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
+    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
@@ -1252,6 +1253,15 @@ fn run_scripts(world: &mut World) {
             );
         }
         TINT_SNAPSHOT.with(|s| *s.borrow_mut() = tint_map);
+    }
+    {
+        use bsengine_core::ChromaticAberration;
+        let mut ca_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ChromaticAberration)>();
+        for (_, name, ca) in q.iter(world) {
+            ca_map.insert(name.0.clone(), (ca.intensity, ca.enabled));
+        }
+        CHROM_AB_SNAPSHOT.with(|s| *s.borrow_mut() = ca_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3488,6 +3498,30 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut t) = world.get_mut::<Tint>(e) {
                         t.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetChromAbIntensity { name, intensity } => {
+                use bsengine_core::ChromaticAberration;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ca) = world.get_mut::<ChromaticAberration>(e) {
+                        ca.intensity = intensity.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetChromAbEnabled { name, enabled } => {
+                use bsengine_core::ChromaticAberration;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ca) = world.get_mut::<ChromaticAberration>(e) {
+                        ca.enabled = enabled;
                     }
                 }
             }

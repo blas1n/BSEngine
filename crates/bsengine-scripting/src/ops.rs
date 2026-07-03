@@ -962,6 +962,30 @@ pub enum ScriptCommand {
         name: String,
         y: f32,
     },
+    SetFollowTarget {
+        name: String,
+        target: String,
+    },
+    SetFollowOffset {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    SetFollowSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetLookAtTarget {
+        name: String,
+        target: String,
+    },
+    SetLookAtUp {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1644,6 +1668,12 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (fluid_density, volume, linear_drag, angular_drag, surface_y)
     pub(crate) static BUOYANCY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (target_name, offset_x, offset_y, offset_z, speed)
+    pub(crate) static FOLLOW_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (target_name, up_x, up_y, up_z)
+    pub(crate) static LOOK_AT_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6703,6 +6733,123 @@ pub fn bsengine_get_buoyancy_max_force(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_follow_target(#[string] name: String, #[string] target: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetFollowTarget { name, target });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_follow_offset(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetFollowOffset { name, x, y, z });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_follow_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetFollowSpeed { name, speed });
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_follow_target(#[string] name: String) -> String {
+    FOLLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(t, _, _, _, _)| format!("\"{t}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_follow_offset_x(#[string] name: String) -> f32 {
+    FOLLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, x, _, _, _)| *x)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_follow_offset_y(#[string] name: String) -> f32 {
+    FOLLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, y, _, _)| *y)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_follow_offset_z(#[string] name: String) -> f32 {
+    FOLLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, z, _)| *z)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_follow_speed(#[string] name: String) -> f32 {
+    FOLLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, sp)| *sp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_look_at_target(#[string] name: String, #[string] target: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetLookAtTarget { name, target });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_look_at_up(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetLookAtUp { name, x, y, z });
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_look_at_target(#[string] name: String) -> String {
+    LOOK_AT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(t, _, _, _)| format!("\"{t}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_look_at_up_x(#[string] name: String) -> f32 {
+    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, x, _, _)| *x).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_look_at_up_y(#[string] name: String) -> f32 {
+    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, y, _)| *y).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_look_at_up_z(#[string] name: String) -> f32 {
+    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, _, z)| *z).unwrap_or(0.0))
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7648,6 +7795,20 @@ deno_core::extension!(
         bsengine_get_buoyancy_angular_drag,
         bsengine_get_buoyancy_surface_y,
         bsengine_get_buoyancy_max_force,
+        bsengine_set_follow_target,
+        bsengine_set_follow_offset,
+        bsengine_set_follow_speed,
+        bsengine_get_follow_target,
+        bsengine_get_follow_offset_x,
+        bsengine_get_follow_offset_y,
+        bsengine_get_follow_offset_z,
+        bsengine_get_follow_speed,
+        bsengine_set_look_at_target,
+        bsengine_set_look_at_up,
+        bsengine_get_look_at_target,
+        bsengine_get_look_at_up_x,
+        bsengine_get_look_at_up_y,
+        bsengine_get_look_at_up_z,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -8680,6 +8841,20 @@ const Bsengine = {
     getBuoyancyAngularDrag:(name)          => Deno.core.ops.bsengine_get_buoyancy_angular_drag(name),
     getBuoyancySurfaceY:(name)             => Deno.core.ops.bsengine_get_buoyancy_surface_y(name),
     getBuoyancyMaxForce:(name)             => Deno.core.ops.bsengine_get_buoyancy_max_force(name),
+    setFollowTarget:(name, target)         => Deno.core.ops.bsengine_set_follow_target(name, target),
+    setFollowOffset:(name, x, y, z)        => Deno.core.ops.bsengine_set_follow_offset(name, x, y, z),
+    setFollowSpeed: (name, speed)          => Deno.core.ops.bsengine_set_follow_speed(name, speed),
+    getFollowTarget:(name)                 => JSON.parse(Deno.core.ops.bsengine_get_follow_target(name)),
+    getFollowOffsetX:(name)               => Deno.core.ops.bsengine_get_follow_offset_x(name),
+    getFollowOffsetY:(name)               => Deno.core.ops.bsengine_get_follow_offset_y(name),
+    getFollowOffsetZ:(name)               => Deno.core.ops.bsengine_get_follow_offset_z(name),
+    getFollowSpeed: (name)                 => Deno.core.ops.bsengine_get_follow_speed(name),
+    setLookAtTarget:(name, target)         => Deno.core.ops.bsengine_set_look_at_target(name, target),
+    setLookAtUp:    (name, x, y, z)        => Deno.core.ops.bsengine_set_look_at_up(name, x, y, z),
+    getLookAtTarget:(name)                 => JSON.parse(Deno.core.ops.bsengine_get_look_at_target(name)),
+    getLookAtUpX:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_x(name),
+    getLookAtUpY:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_y(name),
+    getLookAtUpZ:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_z(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -15869,6 +16044,105 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetBuoyancySurfaceY { name, y }
                 if name == "Boat" && (*y - 2.5).abs() < 0.001
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_follow_read_ops() {
+        super::FOLLOW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                ("Camera".to_string(), 0.0, 2.0, -5.0, 10.0),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let target = rt.eval(r#"Bsengine.getFollowTarget("Player");"#).unwrap();
+        assert_eq!(target.trim(), "Camera");
+        let ox = rt.eval(r#"Bsengine.getFollowOffsetX("Player");"#).unwrap();
+        assert!((ox.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let oy = rt.eval(r#"Bsengine.getFollowOffsetY("Player");"#).unwrap();
+        assert!((oy.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let oz = rt.eval(r#"Bsengine.getFollowOffsetZ("Player");"#).unwrap();
+        assert!((oz.trim().parse::<f32>().unwrap() - (-5.0)).abs() < 0.001);
+        let sp = rt.eval(r#"Bsengine.getFollowSpeed("Player");"#).unwrap();
+        assert!((sp.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        super::FOLLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_follow_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFollowTarget("Player", "Camera");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFollowOffset("Player", 0.0, 2.0, -5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFollowSpeed("Player", 10.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFollowTarget { name, target }
+                if name == "Player" && target == "Camera"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFollowOffset { name, x, y, z }
+                if name == "Player" && x.abs() < 0.001 && (*y - 2.0).abs() < 0.001 && (*z - (-5.0)).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFollowSpeed { name, speed }
+                if name == "Player" && (*speed - 10.0).abs() < 0.001
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_look_at_component_read_ops() {
+        super::LOOK_AT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Camera".to_string(), ("Enemy".to_string(), 0.0, 1.0, 0.0));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let target = rt.eval(r#"Bsengine.getLookAtTarget("Camera");"#).unwrap();
+        assert_eq!(target.trim(), "Enemy");
+        let ux = rt.eval(r#"Bsengine.getLookAtUpX("Camera");"#).unwrap();
+        assert!((ux.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let uy = rt.eval(r#"Bsengine.getLookAtUpY("Camera");"#).unwrap();
+        assert!((uy.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let uz = rt.eval(r#"Bsengine.getLookAtUpZ("Camera");"#).unwrap();
+        assert!((uz.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        super::LOOK_AT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_look_at_component_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setLookAtTarget("Camera", "Enemy");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLookAtUp("Camera", 0.0, 1.0, 0.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetLookAtTarget { name, target }
+                if name == "Camera" && target == "Enemy"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetLookAtUp { name, x, y, z }
+                if name == "Camera" && x.abs() < 0.001 && (*y - 1.0).abs() < 0.001 && z.abs() < 0.001
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

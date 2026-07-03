@@ -17,10 +17,10 @@ use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
     CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
-    COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT,
-    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT,
-    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
+    CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
+    FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
     HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
@@ -1262,6 +1262,26 @@ fn run_scripts(world: &mut World) {
             ca_map.insert(name.0.clone(), (ca.intensity, ca.enabled));
         }
         CHROM_AB_SNAPSHOT.with(|s| *s.borrow_mut() = ca_map);
+    }
+    {
+        use bsengine_core::ColorGrading;
+        let mut cg_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ColorGrading)>();
+        for (_, name, cg) in q.iter(world) {
+            cg_map.insert(
+                name.0.clone(),
+                (
+                    cg.lut_path.clone().unwrap_or_default(),
+                    cg.exposure,
+                    cg.contrast,
+                    cg.saturation,
+                    cg.hue_shift,
+                    cg.brightness,
+                    cg.enabled,
+                ),
+            );
+        }
+        COLOR_GRADING_SNAPSHOT.with(|s| *s.borrow_mut() = cg_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3522,6 +3542,90 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut ca) = world.get_mut::<ChromaticAberration>(e) {
                         ca.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingLutPath { name, path } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.lut_path = if path.is_empty() { None } else { Some(path) };
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingExposure { name, exposure } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.exposure = exposure;
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingContrast { name, contrast } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.contrast = contrast.clamp(-1.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingSaturation { name, saturation } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.saturation = saturation.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingHueShift { name, hue_shift } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.hue_shift = hue_shift.clamp(-180.0, 180.0);
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingBrightness { name, brightness } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.brightness = brightness;
+                    }
+                }
+            }
+            ScriptCommand::SetColorGradingEnabled { name, enabled } => {
+                use bsengine_core::ColorGrading;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut cg) = world.get_mut::<ColorGrading>(e) {
+                        cg.enabled = enabled;
                     }
                 }
             }

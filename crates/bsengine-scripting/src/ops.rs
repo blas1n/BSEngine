@@ -749,6 +749,34 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetColorGradingLutPath {
+        name: String,
+        path: String,
+    },
+    SetColorGradingExposure {
+        name: String,
+        exposure: f32,
+    },
+    SetColorGradingContrast {
+        name: String,
+        contrast: f32,
+    },
+    SetColorGradingSaturation {
+        name: String,
+        saturation: f32,
+    },
+    SetColorGradingHueShift {
+        name: String,
+        hue_shift: f32,
+    },
+    SetColorGradingBrightness {
+        name: String,
+        brightness: f32,
+    },
+    SetColorGradingEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1385,6 +1413,10 @@ thread_local! {
 
     // entity name → (intensity, enabled)
     pub(crate) static CHROM_AB_SNAPSHOT: RefCell<HashMap<String, (f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (lut_path, exposure, contrast, saturation, hue_shift, brightness, enabled)
+    pub(crate) static COLOR_GRADING_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5403,6 +5435,133 @@ pub fn bsengine_is_chrom_ab_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_color_grading_lut_path(#[string] name: String, #[string] path: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingLutPath { name, path })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color_grading_exposure(#[string] name: String, exposure: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingExposure { name, exposure })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color_grading_contrast(#[string] name: String, contrast: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingContrast { name, contrast })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color_grading_saturation(#[string] name: String, saturation: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingSaturation { name, saturation })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color_grading_hue_shift(#[string] name: String, hue_shift: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingHueShift { name, hue_shift })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color_grading_brightness(#[string] name: String, brightness: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingBrightness { name, brightness })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_color_grading_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetColorGradingEnabled { name, enabled })
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_color_grading_lut_path(#[string] name: String) -> String {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(lut, _, _, _, _, _, _)| lut.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_color_grading_exposure(#[string] name: String) -> f32 {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, exposure, _, _, _, _, _)| *exposure)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_color_grading_contrast(#[string] name: String) -> f32 {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, contrast, _, _, _, _)| *contrast)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_color_grading_saturation(#[string] name: String) -> f32 {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, saturation, _, _, _)| *saturation)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_color_grading_hue_shift(#[string] name: String) -> f32 {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, hue_shift, _, _)| *hue_shift)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_color_grading_brightness(#[string] name: String) -> f32 {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, brightness, _)| *brightness)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_color_grading_enabled(#[string] name: String) -> bool {
+    COLOR_GRADING_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -6677,6 +6836,20 @@ deno_core::extension!(
         bsengine_set_chrom_ab_enabled,
         bsengine_get_chrom_ab_intensity,
         bsengine_is_chrom_ab_enabled,
+        bsengine_set_color_grading_lut_path,
+        bsengine_set_color_grading_exposure,
+        bsengine_set_color_grading_contrast,
+        bsengine_set_color_grading_saturation,
+        bsengine_set_color_grading_hue_shift,
+        bsengine_set_color_grading_brightness,
+        bsengine_set_color_grading_enabled,
+        bsengine_get_color_grading_lut_path,
+        bsengine_get_color_grading_exposure,
+        bsengine_get_color_grading_contrast,
+        bsengine_get_color_grading_saturation,
+        bsengine_get_color_grading_hue_shift,
+        bsengine_get_color_grading_brightness,
+        bsengine_is_color_grading_enabled,
     ],
 );
 
@@ -7146,6 +7319,20 @@ const Bsengine = {
     setChromAbEnabled:  (name, v)          => Deno.core.ops.bsengine_set_chrom_ab_enabled(name, v),
     getChromAbIntensity:(name)             => Deno.core.ops.bsengine_get_chrom_ab_intensity(name),
     isChromAbEnabled:   (name)             => Deno.core.ops.bsengine_is_chrom_ab_enabled(name),
+    setColorGradingLutPath: (name, path)   => Deno.core.ops.bsengine_set_color_grading_lut_path(name, path),
+    setColorGradingExposure:(name, v)      => Deno.core.ops.bsengine_set_color_grading_exposure(name, v),
+    setColorGradingContrast:(name, v)      => Deno.core.ops.bsengine_set_color_grading_contrast(name, v),
+    setColorGradingSaturation:(name, v)    => Deno.core.ops.bsengine_set_color_grading_saturation(name, v),
+    setColorGradingHueShift:(name, v)      => Deno.core.ops.bsengine_set_color_grading_hue_shift(name, v),
+    setColorGradingBrightness:(name, v)    => Deno.core.ops.bsengine_set_color_grading_brightness(name, v),
+    setColorGradingEnabled:(name, v)       => Deno.core.ops.bsengine_set_color_grading_enabled(name, v),
+    getColorGradingLutPath:(name)          => Deno.core.ops.bsengine_get_color_grading_lut_path(name),
+    getColorGradingExposure:(name)         => Deno.core.ops.bsengine_get_color_grading_exposure(name),
+    getColorGradingContrast:(name)         => Deno.core.ops.bsengine_get_color_grading_contrast(name),
+    getColorGradingSaturation:(name)       => Deno.core.ops.bsengine_get_color_grading_saturation(name),
+    getColorGradingHueShift:(name)         => Deno.core.ops.bsengine_get_color_grading_hue_shift(name),
+    getColorGradingBrightness:(name)       => Deno.core.ops.bsengine_get_color_grading_brightness(name),
+    isColorGradingEnabled:(name)           => Deno.core.ops.bsengine_is_color_grading_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -13554,6 +13741,95 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(
                 cmd,
                 super::ScriptCommand::SetChromAbEnabled { name, enabled }
+                if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn color_grading_snapshot_read_ops() {
+        super::COLOR_GRADING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cam".to_string(),
+                (
+                    "grades/film.png".to_string(),
+                    0.5,
+                    0.2,
+                    1.2,
+                    10.0,
+                    0.1,
+                    true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let lut = rt
+            .eval(r#"Bsengine.getColorGradingLutPath("Cam");"#)
+            .unwrap();
+        assert_eq!(lut.trim(), "grades/film.png");
+        let exposure = rt
+            .eval(r#"Bsengine.getColorGradingExposure("Cam");"#)
+            .unwrap();
+        assert!((exposure.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let contrast = rt
+            .eval(r#"Bsengine.getColorGradingContrast("Cam");"#)
+            .unwrap();
+        assert!((contrast.trim().parse::<f32>().unwrap() - 0.2).abs() < 0.001);
+        let saturation = rt
+            .eval(r#"Bsengine.getColorGradingSaturation("Cam");"#)
+            .unwrap();
+        assert!((saturation.trim().parse::<f32>().unwrap() - 1.2).abs() < 0.001);
+        let hue = rt
+            .eval(r#"Bsengine.getColorGradingHueShift("Cam");"#)
+            .unwrap();
+        assert!((hue.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        let brightness = rt
+            .eval(r#"Bsengine.getColorGradingBrightness("Cam");"#)
+            .unwrap();
+        assert!((brightness.trim().parse::<f32>().unwrap() - 0.1).abs() < 0.001);
+        let en = rt
+            .eval(r#"Bsengine.isColorGradingEnabled("Cam");"#)
+            .unwrap();
+        assert_eq!(en.trim(), "true");
+        super::COLOR_GRADING_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn color_grading_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setColorGradingLutPath("Cam", "grades/film.png");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setColorGradingExposure("Cam", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setColorGradingContrast("Cam", 0.2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setColorGradingSaturation("Cam", 1.2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setColorGradingHueShift("Cam", 10.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setColorGradingBrightness("Cam", 0.1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setColorGradingEnabled("Cam", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetColorGradingLutPath { name, path }
+                if name == "Cam" && path == "grades/film.png"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetColorGradingExposure { name, exposure }
+                if name == "Cam" && (*exposure - 0.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetColorGradingEnabled { name, enabled }
                 if name == "Cam" && !*enabled
             )));
         });

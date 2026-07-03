@@ -2237,6 +2237,158 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ConnectLash {
+        name: String,
+        duration: f32,
+    },
+    ReleaseLash {
+        name: String,
+    },
+    SetLashPullForce {
+        name: String,
+        force: f32,
+    },
+    SetLashDamage {
+        name: String,
+        damage: f32,
+    },
+    SetLashEnabled {
+        name: String,
+        enabled: bool,
+    },
+    LatchEntity {
+        name: String,
+        duration: f32,
+    },
+    ReleaseLatch {
+        name: String,
+    },
+    SetLatchDamagePerSecond {
+        name: String,
+        dps: f32,
+    },
+    SetLatchEnabled {
+        name: String,
+        enabled: bool,
+    },
+    GrabLedge {
+        name: String,
+        hang_x: f32,
+        hang_y: f32,
+        hang_z: f32,
+        normal_x: f32,
+        normal_y: f32,
+        normal_z: f32,
+    },
+    ClimbLedge {
+        name: String,
+    },
+    DropLedge {
+        name: String,
+    },
+    ReleaseLedge {
+        name: String,
+    },
+    SetLedgeClimbDuration {
+        name: String,
+        duration: f32,
+    },
+    SetLedgeDetectionRange {
+        name: String,
+        range: f32,
+    },
+    SetLedgeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    NotifyLeechHit {
+        name: String,
+        damage: f32,
+    },
+    SetLeechFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetLeechFlat {
+        name: String,
+        flat: f32,
+    },
+    SetLeechEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeginLunge {
+        name: String,
+        target_x: f32,
+        target_y: f32,
+        target_z: f32,
+    },
+    SetLungeSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetLungeRange {
+        name: String,
+        range: f32,
+    },
+    SetLungeRecoveryTime {
+        name: String,
+        time: f32,
+    },
+    SetLungeCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetLungeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DeployLure {
+        name: String,
+        pos_x: f32,
+        pos_y: f32,
+        pos_z: f32,
+    },
+    DeactivateLure {
+        name: String,
+    },
+    ResetLure {
+        name: String,
+    },
+    SetLureRadius {
+        name: String,
+        radius: f32,
+    },
+    SetLureStrength {
+        name: String,
+        strength: f32,
+    },
+    SetLureDuration {
+        name: String,
+        duration: f32,
+    },
+    SetLureEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnterLurk {
+        name: String,
+    },
+    ExitLurk {
+        name: String,
+    },
+    SetLurkDetectionRangeFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetLurkAmbushMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetLurkEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -3200,6 +3352,37 @@ thread_local! {
     // entity name → (lapsing, interval_timer, duration_timer, interval, lapse_duration, just_lapsed, just_focused, enabled)
     pub(crate) static LAPSE_SNAPSHOT: RefCell<
         HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (pull_force, damage, duration, timer, just_connected, just_released, enabled)
+    pub(crate) static LASH_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (active, timer, damage_per_second, just_latched, just_released, enabled)
+    pub(crate) static LATCH_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (phase_u32, hang_x, hang_y, hang_z, climb_duration, climb_timer, detection_range, can_grab, enabled)
+    // LedgePhase: None=0, Hanging=1, ClimbingUp=2, Dropping=3
+    pub(crate) static LEDGE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (fraction, flat, last_leeched, total_leeched, just_leeched, enabled)
+    pub(crate) static LEECH_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (phase_u32, dir_x, dir_y, dir_z, target_x, target_y, target_z, speed, range, traveled, recovery_time, recovery_timer, cooldown, cooldown_timer, ground_only, just_lunged, hit_registered, enabled)
+    // LungePhase: Idle=0, Thrusting=1, Recovery=2, Cooldown=3
+    pub(crate) static LUNGE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state_u32, pos_x, pos_y, pos_z, radius, strength, duration, timer, just_activated, just_expired, enabled)
+    // LureState: Inactive=0, Active=1, Expired=2
+    pub(crate) static LURE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (detection_range_fraction, ambush_multiplier, lurking, just_lurked, just_struck, enabled)
+    pub(crate) static LURK_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -15647,6 +15830,729 @@ pub fn bsengine_set_lapse_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Lash ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_lash_connected(#[string] name: String) -> bool {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lash_pull_force(#[string] name: String) -> f32 {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lash_damage(#[string] name: String) -> f32 {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lash_duration(#[string] name: String) -> f32 {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lash_timer(#[string] name: String) -> f32 {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lash_connected(#[string] name: String) -> bool {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lash_released(#[string] name: String) -> bool {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lash_enabled(#[string] name: String) -> bool {
+    LASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_connect_lash(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConnectLash { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_release_lash(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseLash { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lash_pull_force(#[string] name: String, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLashPullForce { name, force })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lash_damage(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLashDamage { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lash_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLashEnabled { name, enabled })
+    });
+}
+
+// ── Latch ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_latched(#[string] name: String) -> bool {
+    LATCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_latch_timer(#[string] name: String) -> f32 {
+    LATCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_latch_damage_per_second(#[string] name: String) -> f32 {
+    LATCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_latched(#[string] name: String) -> bool {
+    LATCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_latch_released(#[string] name: String) -> bool {
+    LATCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_latch_enabled(#[string] name: String) -> bool {
+    LATCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_latch_entity(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LatchEntity { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_release_latch(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseLatch { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_latch_damage_per_second(#[string] name: String, dps: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLatchDamagePerSecond { name, dps })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_latch_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLatchEnabled { name, enabled })
+    });
+}
+
+// ── Ledge ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_phase(#[string] name: String) -> u32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ledge_hanging(#[string] name: String) -> bool {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 1).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ledge_climbing(#[string] name: String) -> bool {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_hang_x(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_hang_y(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_hang_z(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_climb_duration(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_climb_timer(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_detection_range(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_can_ledge_grab(#[string] name: String) -> bool {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ledge_enabled(#[string] name: String) -> bool {
+    LEDGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ledge_climb_fraction(#[string] name: String) -> f32 {
+    LEDGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.4 > 0.0 {
+                    (v.5 / v.4).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_grab_ledge(
+    #[string] name: String,
+    hang_x: f32,
+    hang_y: f32,
+    hang_z: f32,
+    normal_x: f32,
+    normal_y: f32,
+    normal_z: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::GrabLedge {
+            name,
+            hang_x,
+            hang_y,
+            hang_z,
+            normal_x,
+            normal_y,
+            normal_z,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_climb_ledge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClimbLedge { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_drop_ledge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DropLedge { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_release_ledge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseLedge { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ledge_climb_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLedgeClimbDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ledge_detection_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLedgeDetectionRange { name, range })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ledge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLedgeEnabled { name, enabled })
+    });
+}
+
+// ── Leech ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_leech_fraction(#[string] name: String) -> f32 {
+    LEECH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_leech_flat(#[string] name: String) -> f32 {
+    LEECH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_leech_last_leeched(#[string] name: String) -> f32 {
+    LEECH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_leech_total_leeched(#[string] name: String) -> f32 {
+    LEECH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_leeched(#[string] name: String) -> bool {
+    LEECH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_leech_enabled(#[string] name: String) -> bool {
+    LEECH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_notify_leech_hit(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NotifyLeechHit { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_leech_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLeechFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_leech_flat(#[string] name: String, flat: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLeechFlat { name, flat })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_leech_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLeechEnabled { name, enabled })
+    });
+}
+
+// ── Lunge ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_phase(#[string] name: String) -> u32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lunge_thrusting(#[string] name: String) -> bool {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 1).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lunge_available(#[string] name: String) -> bool {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_dir_x(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_dir_y(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_dir_z(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_target_x(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_target_y(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_target_z(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_speed(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_range(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_traveled(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_recovery_time(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_recovery_timer(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_cooldown(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.12).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_cooldown_timer(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.13).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lunge_ground_only(#[string] name: String) -> bool {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.14).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lunged(#[string] name: String) -> bool {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.15).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lunge_hit_registered(#[string] name: String) -> bool {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.16).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lunge_enabled(#[string] name: String) -> bool {
+    LUNGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.17).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_progress(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.8 > 0.0 {
+                    (v.9 / v.8).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lunge_cooldown_fraction(#[string] name: String) -> f32 {
+    LUNGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.12 > 0.0 {
+                    1.0 - (v.13 / v.12).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                }
+            })
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_begin_lunge(#[string] name: String, target_x: f32, target_y: f32, target_z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::BeginLunge {
+            name,
+            target_x,
+            target_y,
+            target_z,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lunge_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLungeSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lunge_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLungeRange { name, range })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lunge_recovery_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLungeRecoveryTime { name, time })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lunge_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLungeCooldown { name, cooldown })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lunge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLungeEnabled { name, enabled })
+    });
+}
+
+// ── Lure ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_lure_state(#[string] name: String) -> u32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lure_active(#[string] name: String) -> bool {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 1).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_pos_x(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_pos_y(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_pos_z(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_radius(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_strength(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_duration(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_timer(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lure_activated(#[string] name: String) -> bool {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lure_expired(#[string] name: String) -> bool {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lure_enabled(#[string] name: String) -> bool {
+    LURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lure_remaining_fraction(#[string] name: String) -> f32 {
+    LURE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.6 > 0.0 {
+                    (v.7 / v.6).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_deploy_lure(#[string] name: String, pos_x: f32, pos_y: f32, pos_z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::DeployLure {
+            name,
+            pos_x,
+            pos_y,
+            pos_z,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_deactivate_lure(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeactivateLure { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_lure(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetLure { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lure_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLureRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lure_strength(#[string] name: String, strength: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLureStrength { name, strength })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lure_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLureDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lure_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLureEnabled { name, enabled })
+    });
+}
+
+// ── Lurk ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_lurk_detection_range_fraction(#[string] name: String) -> f32 {
+    LURK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_lurk_ambush_multiplier(#[string] name: String) -> f32 {
+    LURK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lurking(#[string] name: String) -> bool {
+    LURK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lurked(#[string] name: String) -> bool {
+    LURK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lurk_struck(#[string] name: String) -> bool {
+    LURK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_lurk_enabled(#[string] name: String) -> bool {
+    LURK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_enter_lurk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnterLurk { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_exit_lurk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExitLurk { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lurk_detection_range_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLurkDetectionRangeFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lurk_ambush_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLurkAmbushMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_lurk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetLurkEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -17450,6 +18356,117 @@ deno_core::extension!(
         bsengine_set_lapse_interval,
         bsengine_set_lapse_duration,
         bsengine_set_lapse_enabled,
+        bsengine_is_lash_connected,
+        bsengine_get_lash_pull_force,
+        bsengine_get_lash_damage,
+        bsengine_get_lash_duration,
+        bsengine_get_lash_timer,
+        bsengine_is_just_lash_connected,
+        bsengine_is_just_lash_released,
+        bsengine_is_lash_enabled,
+        bsengine_connect_lash,
+        bsengine_release_lash,
+        bsengine_set_lash_pull_force,
+        bsengine_set_lash_damage,
+        bsengine_set_lash_enabled,
+        bsengine_is_latched,
+        bsengine_get_latch_timer,
+        bsengine_get_latch_damage_per_second,
+        bsengine_is_just_latched,
+        bsengine_is_just_latch_released,
+        bsengine_is_latch_enabled,
+        bsengine_latch_entity,
+        bsengine_release_latch,
+        bsengine_set_latch_damage_per_second,
+        bsengine_set_latch_enabled,
+        bsengine_get_ledge_phase,
+        bsengine_is_ledge_hanging,
+        bsengine_is_ledge_climbing,
+        bsengine_get_ledge_hang_x,
+        bsengine_get_ledge_hang_y,
+        bsengine_get_ledge_hang_z,
+        bsengine_get_ledge_climb_duration,
+        bsengine_get_ledge_climb_timer,
+        bsengine_get_ledge_detection_range,
+        bsengine_can_ledge_grab,
+        bsengine_is_ledge_enabled,
+        bsengine_get_ledge_climb_fraction,
+        bsengine_grab_ledge,
+        bsengine_climb_ledge,
+        bsengine_drop_ledge,
+        bsengine_release_ledge,
+        bsengine_set_ledge_climb_duration,
+        bsengine_set_ledge_detection_range,
+        bsengine_set_ledge_enabled,
+        bsengine_get_leech_fraction,
+        bsengine_get_leech_flat,
+        bsengine_get_leech_last_leeched,
+        bsengine_get_leech_total_leeched,
+        bsengine_is_just_leeched,
+        bsengine_is_leech_enabled,
+        bsengine_notify_leech_hit,
+        bsengine_set_leech_fraction,
+        bsengine_set_leech_flat,
+        bsengine_set_leech_enabled,
+        bsengine_get_lunge_phase,
+        bsengine_is_lunge_thrusting,
+        bsengine_is_lunge_available,
+        bsengine_get_lunge_dir_x,
+        bsengine_get_lunge_dir_y,
+        bsengine_get_lunge_dir_z,
+        bsengine_get_lunge_target_x,
+        bsengine_get_lunge_target_y,
+        bsengine_get_lunge_target_z,
+        bsengine_get_lunge_speed,
+        bsengine_get_lunge_range,
+        bsengine_get_lunge_traveled,
+        bsengine_get_lunge_recovery_time,
+        bsengine_get_lunge_recovery_timer,
+        bsengine_get_lunge_cooldown,
+        bsengine_get_lunge_cooldown_timer,
+        bsengine_is_lunge_ground_only,
+        bsengine_is_just_lunged,
+        bsengine_is_lunge_hit_registered,
+        bsengine_is_lunge_enabled,
+        bsengine_get_lunge_progress,
+        bsengine_get_lunge_cooldown_fraction,
+        bsengine_begin_lunge,
+        bsengine_set_lunge_speed,
+        bsengine_set_lunge_range,
+        bsengine_set_lunge_recovery_time,
+        bsengine_set_lunge_cooldown,
+        bsengine_set_lunge_enabled,
+        bsengine_get_lure_state,
+        bsengine_is_lure_active,
+        bsengine_get_lure_pos_x,
+        bsengine_get_lure_pos_y,
+        bsengine_get_lure_pos_z,
+        bsengine_get_lure_radius,
+        bsengine_get_lure_strength,
+        bsengine_get_lure_duration,
+        bsengine_get_lure_timer,
+        bsengine_is_just_lure_activated,
+        bsengine_is_just_lure_expired,
+        bsengine_is_lure_enabled,
+        bsengine_get_lure_remaining_fraction,
+        bsengine_deploy_lure,
+        bsengine_deactivate_lure,
+        bsengine_reset_lure,
+        bsengine_set_lure_radius,
+        bsengine_set_lure_strength,
+        bsengine_set_lure_duration,
+        bsengine_set_lure_enabled,
+        bsengine_get_lurk_detection_range_fraction,
+        bsengine_get_lurk_ambush_multiplier,
+        bsengine_is_lurking,
+        bsengine_is_just_lurked,
+        bsengine_is_just_lurk_struck,
+        bsengine_is_lurk_enabled,
+        bsengine_enter_lurk,
+        bsengine_exit_lurk,
+        bsengine_set_lurk_detection_range_fraction,
+        bsengine_set_lurk_ambush_multiplier,
+        bsengine_set_lurk_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -19367,6 +20384,124 @@ const Bsengine = {
     setLapseInterval:              (name, i)        => Deno.core.ops.bsengine_set_lapse_interval(name, i),
     setLapseDuration:              (name, d)        => Deno.core.ops.bsengine_set_lapse_duration(name, d),
     setLapseEnabled:               (name, en)       => Deno.core.ops.bsengine_set_lapse_enabled(name, en),
+
+    isLashConnected:               (name)           => Deno.core.ops.bsengine_is_lash_connected(name),
+    getLashPullForce:              (name)           => Deno.core.ops.bsengine_get_lash_pull_force(name),
+    getLashDamage:                 (name)           => Deno.core.ops.bsengine_get_lash_damage(name),
+    getLashDuration:               (name)           => Deno.core.ops.bsengine_get_lash_duration(name),
+    getLashTimer:                  (name)           => Deno.core.ops.bsengine_get_lash_timer(name),
+    isJustLashConnected:           (name)           => Deno.core.ops.bsengine_is_just_lash_connected(name),
+    isJustLashReleased:            (name)           => Deno.core.ops.bsengine_is_just_lash_released(name),
+    isLashEnabled:                 (name)           => Deno.core.ops.bsengine_is_lash_enabled(name),
+    connectLash:                   (name, d)        => Deno.core.ops.bsengine_connect_lash(name, d),
+    releaseLash:                   (name)           => Deno.core.ops.bsengine_release_lash(name),
+    setLashPullForce:              (name, f)        => Deno.core.ops.bsengine_set_lash_pull_force(name, f),
+    setLashDamage:                 (name, dmg)      => Deno.core.ops.bsengine_set_lash_damage(name, dmg),
+    setLashEnabled:                (name, en)       => Deno.core.ops.bsengine_set_lash_enabled(name, en),
+
+    isLatched:                     (name)           => Deno.core.ops.bsengine_is_latched(name),
+    getLatchTimer:                 (name)           => Deno.core.ops.bsengine_get_latch_timer(name),
+    getLatchDamagePerSecond:       (name)           => Deno.core.ops.bsengine_get_latch_damage_per_second(name),
+    isJustLatched:                 (name)           => Deno.core.ops.bsengine_is_just_latched(name),
+    isJustLatchReleased:           (name)           => Deno.core.ops.bsengine_is_just_latch_released(name),
+    isLatchEnabled:                (name)           => Deno.core.ops.bsengine_is_latch_enabled(name),
+    latchEntity:                   (name, d)        => Deno.core.ops.bsengine_latch_entity(name, d),
+    releaseLatch:                  (name)           => Deno.core.ops.bsengine_release_latch(name),
+    setLatchDamagePerSecond:       (name, dps)      => Deno.core.ops.bsengine_set_latch_damage_per_second(name, dps),
+    setLatchEnabled:               (name, en)       => Deno.core.ops.bsengine_set_latch_enabled(name, en),
+
+    getLedgePhase:                 (name)           => Deno.core.ops.bsengine_get_ledge_phase(name),
+    isLedgeHanging:                (name)           => Deno.core.ops.bsengine_is_ledge_hanging(name),
+    isLedgeClimbing:               (name)           => Deno.core.ops.bsengine_is_ledge_climbing(name),
+    getLedgeHangX:                 (name)           => Deno.core.ops.bsengine_get_ledge_hang_x(name),
+    getLedgeHangY:                 (name)           => Deno.core.ops.bsengine_get_ledge_hang_y(name),
+    getLedgeHangZ:                 (name)           => Deno.core.ops.bsengine_get_ledge_hang_z(name),
+    getLedgeClimbDuration:         (name)           => Deno.core.ops.bsengine_get_ledge_climb_duration(name),
+    getLedgeClimbTimer:            (name)           => Deno.core.ops.bsengine_get_ledge_climb_timer(name),
+    getLedgeDetectionRange:        (name)           => Deno.core.ops.bsengine_get_ledge_detection_range(name),
+    canLedgeGrab:                  (name)           => Deno.core.ops.bsengine_can_ledge_grab(name),
+    isLedgeEnabled:                (name)           => Deno.core.ops.bsengine_is_ledge_enabled(name),
+    getLedgeClimbFraction:         (name)           => Deno.core.ops.bsengine_get_ledge_climb_fraction(name),
+    grabLedge:           (name, hx, hy, hz, nx, ny, nz) => Deno.core.ops.bsengine_grab_ledge(name, hx, hy, hz, nx, ny, nz),
+    climbLedge:                    (name)           => Deno.core.ops.bsengine_climb_ledge(name),
+    dropLedge:                     (name)           => Deno.core.ops.bsengine_drop_ledge(name),
+    releaseLedge:                  (name)           => Deno.core.ops.bsengine_release_ledge(name),
+    setLedgeClimbDuration:         (name, d)        => Deno.core.ops.bsengine_set_ledge_climb_duration(name, d),
+    setLedgeDetectionRange:        (name, r)        => Deno.core.ops.bsengine_set_ledge_detection_range(name, r),
+    setLedgeEnabled:               (name, en)       => Deno.core.ops.bsengine_set_ledge_enabled(name, en),
+
+    getLeechFraction:              (name)           => Deno.core.ops.bsengine_get_leech_fraction(name),
+    getLeechFlat:                  (name)           => Deno.core.ops.bsengine_get_leech_flat(name),
+    getLeechLastLeeched:           (name)           => Deno.core.ops.bsengine_get_leech_last_leeched(name),
+    getLeechTotalLeeched:          (name)           => Deno.core.ops.bsengine_get_leech_total_leeched(name),
+    isJustLeeched:                 (name)           => Deno.core.ops.bsengine_is_just_leeched(name),
+    isLeechEnabled:                (name)           => Deno.core.ops.bsengine_is_leech_enabled(name),
+    notifyLeechHit:                (name, dmg)      => Deno.core.ops.bsengine_notify_leech_hit(name, dmg),
+    setLeechFraction:              (name, f)        => Deno.core.ops.bsengine_set_leech_fraction(name, f),
+    setLeechFlat:                  (name, f)        => Deno.core.ops.bsengine_set_leech_flat(name, f),
+    setLeechEnabled:               (name, en)       => Deno.core.ops.bsengine_set_leech_enabled(name, en),
+
+    getLungePhase:                 (name)           => Deno.core.ops.bsengine_get_lunge_phase(name),
+    isLungeThrusting:              (name)           => Deno.core.ops.bsengine_is_lunge_thrusting(name),
+    isLungeAvailable:              (name)           => Deno.core.ops.bsengine_is_lunge_available(name),
+    getLungeDirX:                  (name)           => Deno.core.ops.bsengine_get_lunge_dir_x(name),
+    getLungeDirY:                  (name)           => Deno.core.ops.bsengine_get_lunge_dir_y(name),
+    getLungeDirZ:                  (name)           => Deno.core.ops.bsengine_get_lunge_dir_z(name),
+    getLungeTargetX:               (name)           => Deno.core.ops.bsengine_get_lunge_target_x(name),
+    getLungeTargetY:               (name)           => Deno.core.ops.bsengine_get_lunge_target_y(name),
+    getLungeTargetZ:               (name)           => Deno.core.ops.bsengine_get_lunge_target_z(name),
+    getLungeSpeed:                 (name)           => Deno.core.ops.bsengine_get_lunge_speed(name),
+    getLungeRange:                 (name)           => Deno.core.ops.bsengine_get_lunge_range(name),
+    getLungeTraveled:              (name)           => Deno.core.ops.bsengine_get_lunge_traveled(name),
+    getLungeRecoveryTime:          (name)           => Deno.core.ops.bsengine_get_lunge_recovery_time(name),
+    getLungeRecoveryTimer:         (name)           => Deno.core.ops.bsengine_get_lunge_recovery_timer(name),
+    getLungeCooldown:              (name)           => Deno.core.ops.bsengine_get_lunge_cooldown(name),
+    getLungeCooldownTimer:         (name)           => Deno.core.ops.bsengine_get_lunge_cooldown_timer(name),
+    isLungeGroundOnly:             (name)           => Deno.core.ops.bsengine_is_lunge_ground_only(name),
+    isJustLunged:                  (name)           => Deno.core.ops.bsengine_is_just_lunged(name),
+    isLungeHitRegistered:          (name)           => Deno.core.ops.bsengine_is_lunge_hit_registered(name),
+    isLungeEnabled:                (name)           => Deno.core.ops.bsengine_is_lunge_enabled(name),
+    getLungeProgress:              (name)           => Deno.core.ops.bsengine_get_lunge_progress(name),
+    getLungeCooldownFraction:      (name)           => Deno.core.ops.bsengine_get_lunge_cooldown_fraction(name),
+    beginLunge:          (name, tx, ty, tz)         => Deno.core.ops.bsengine_begin_lunge(name, tx, ty, tz),
+    setLungeSpeed:                 (name, s)        => Deno.core.ops.bsengine_set_lunge_speed(name, s),
+    setLungeRange:                 (name, r)        => Deno.core.ops.bsengine_set_lunge_range(name, r),
+    setLungeRecoveryTime:          (name, t)        => Deno.core.ops.bsengine_set_lunge_recovery_time(name, t),
+    setLungeCooldown:              (name, c)        => Deno.core.ops.bsengine_set_lunge_cooldown(name, c),
+    setLungeEnabled:               (name, en)       => Deno.core.ops.bsengine_set_lunge_enabled(name, en),
+
+    getLureState:                  (name)           => Deno.core.ops.bsengine_get_lure_state(name),
+    isLureActive:                  (name)           => Deno.core.ops.bsengine_is_lure_active(name),
+    getLurePosX:                   (name)           => Deno.core.ops.bsengine_get_lure_pos_x(name),
+    getLurePosY:                   (name)           => Deno.core.ops.bsengine_get_lure_pos_y(name),
+    getLurePosZ:                   (name)           => Deno.core.ops.bsengine_get_lure_pos_z(name),
+    getLureRadius:                 (name)           => Deno.core.ops.bsengine_get_lure_radius(name),
+    getLureStrength:               (name)           => Deno.core.ops.bsengine_get_lure_strength(name),
+    getLureDuration:               (name)           => Deno.core.ops.bsengine_get_lure_duration(name),
+    getLureTimer:                  (name)           => Deno.core.ops.bsengine_get_lure_timer(name),
+    isJustLureActivated:           (name)           => Deno.core.ops.bsengine_is_just_lure_activated(name),
+    isJustLureExpired:             (name)           => Deno.core.ops.bsengine_is_just_lure_expired(name),
+    isLureEnabled:                 (name)           => Deno.core.ops.bsengine_is_lure_enabled(name),
+    getLureRemainingFraction:      (name)           => Deno.core.ops.bsengine_get_lure_remaining_fraction(name),
+    deployLure:          (name, px, py, pz)         => Deno.core.ops.bsengine_deploy_lure(name, px, py, pz),
+    deactivateLure:                (name)           => Deno.core.ops.bsengine_deactivate_lure(name),
+    resetLure:                     (name)           => Deno.core.ops.bsengine_reset_lure(name),
+    setLureRadius:                 (name, r)        => Deno.core.ops.bsengine_set_lure_radius(name, r),
+    setLureStrength:               (name, s)        => Deno.core.ops.bsengine_set_lure_strength(name, s),
+    setLureDuration:               (name, d)        => Deno.core.ops.bsengine_set_lure_duration(name, d),
+    setLureEnabled:                (name, en)       => Deno.core.ops.bsengine_set_lure_enabled(name, en),
+
+    getLurkDetectionRangeFraction: (name)           => Deno.core.ops.bsengine_get_lurk_detection_range_fraction(name),
+    getLurkAmbushMultiplier:       (name)           => Deno.core.ops.bsengine_get_lurk_ambush_multiplier(name),
+    isLurking:                     (name)           => Deno.core.ops.bsengine_is_lurking(name),
+    isJustLurked:                  (name)           => Deno.core.ops.bsengine_is_just_lurked(name),
+    isJustLurkStruck:              (name)           => Deno.core.ops.bsengine_is_just_lurk_struck(name),
+    isLurkEnabled:                 (name)           => Deno.core.ops.bsengine_is_lurk_enabled(name),
+    enterLurk:                     (name)           => Deno.core.ops.bsengine_enter_lurk(name),
+    exitLurk:                      (name)           => Deno.core.ops.bsengine_exit_lurk(name),
+    setLurkDetectionRangeFraction: (name, f)        => Deno.core.ops.bsengine_set_lurk_detection_range_fraction(name, f),
+    setLurkAmbushMultiplier:       (name, m)        => Deno.core.ops.bsengine_set_lurk_ambush_multiplier(name, m),
+    setLurkEnabled:                (name, en)       => Deno.core.ops.bsengine_set_lurk_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -30892,6 +32027,529 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLapseInterval { name, interval } if name == "Drifter" && (*interval - 6.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLapseDuration { name, duration } if name == "Drifter" && (*duration - 3.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLapseEnabled { name, enabled } if name == "Drifter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lash_read_ops() {
+        // (pull_force, damage, duration, timer, just_connected, just_released, enabled)
+        super::LASH_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hook".to_string(), (20.0, 5.0, 2.0, 1.0, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLashConnected("Hook")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLashPullForce("Hook")"#).unwrap(),
+            "20"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getLashDamage("Hook")"#).unwrap(), "5");
+        assert_eq!(rt.eval(r#"Bsengine.getLashDuration("Hook")"#).unwrap(), "2");
+        assert_eq!(rt.eval(r#"Bsengine.getLashTimer("Hook")"#).unwrap(), "1");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLashConnected("Hook")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLashReleased("Hook")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLashEnabled("Hook")"#).unwrap(),
+            "true"
+        );
+        super::LASH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lash_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.connectLash("Hook", 2.0);"#).unwrap();
+        rt.eval(r#"Bsengine.releaseLash("Hook");"#).unwrap();
+        rt.eval(r#"Bsengine.setLashPullForce("Hook", 25.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLashDamage("Hook", 8.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setLashEnabled("Hook", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConnectLash { name, duration } if name == "Hook" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseLash { name } if name == "Hook")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLashPullForce { name, force } if name == "Hook" && (*force - 25.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLashDamage { name, damage } if name == "Hook" && (*damage - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLashEnabled { name, enabled } if name == "Hook" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_latch_read_ops() {
+        // (active, timer, damage_per_second, just_latched, just_released, enabled)
+        super::LATCH_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Rider".to_string(), (true, 1.5, 10.0, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isLatched("Rider")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLatchTimer("Rider")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLatchDamagePerSecond("Rider")"#)
+                .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLatched("Rider")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLatchReleased("Rider")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLatchEnabled("Rider")"#).unwrap(),
+            "true"
+        );
+        super::LATCH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_latch_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.latchEntity("Rider", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.releaseLatch("Rider");"#).unwrap();
+        rt.eval(r#"Bsengine.setLatchDamagePerSecond("Rider", 20.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLatchEnabled("Rider", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LatchEntity { name, duration } if name == "Rider" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseLatch { name } if name == "Rider")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLatchDamagePerSecond { name, dps } if name == "Rider" && (*dps - 20.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLatchEnabled { name, enabled } if name == "Rider" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ledge_read_ops() {
+        // (phase_u32, hang_x, hang_y, hang_z, climb_duration, climb_timer, detection_range, can_grab, enabled)
+        // phase=1 => Hanging
+        super::LEDGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Climber".to_string(),
+                (1u32, 1.0, 2.0, 0.0, 0.5, 0.25, 0.75, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgePhase("Climber")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLedgeHanging("Climber")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLedgeClimbing("Climber")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeHangX("Climber")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeHangY("Climber")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeHangZ("Climber")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeClimbDuration("Climber")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeClimbTimer("Climber")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeDetectionRange("Climber")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.canLedgeGrab("Climber")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLedgeEnabled("Climber")"#).unwrap(),
+            "true"
+        );
+        super::LEDGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ledge_climb_fraction() {
+        // phase=2 => ClimbingUp, climb_timer=0.25, climb_duration=0.5 => 0.5
+        super::LEDGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Climber".to_string(),
+                (2u32, 0.0, 2.0, 0.0, 0.5, 0.25, 0.75, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLedgeClimbing("Climber")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLedgeClimbFraction("Climber")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::LEDGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ledge_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.grabLedge("Climber", 1.0, 2.0, 0.0, 0.0, 0.0, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.climbLedge("Climber");"#).unwrap();
+        rt.eval(r#"Bsengine.dropLedge("Climber");"#).unwrap();
+        rt.eval(r#"Bsengine.releaseLedge("Climber");"#).unwrap();
+        rt.eval(r#"Bsengine.setLedgeClimbDuration("Climber", 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLedgeDetectionRange("Climber", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLedgeEnabled("Climber", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GrabLedge { name, hang_x, .. } if name == "Climber" && (*hang_x - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClimbLedge { name } if name == "Climber")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DropLedge { name } if name == "Climber")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseLedge { name } if name == "Climber")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLedgeClimbDuration { name, duration } if name == "Climber" && (*duration - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLedgeDetectionRange { name, range } if name == "Climber" && (*range - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLedgeEnabled { name, enabled } if name == "Climber" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_leech_read_ops() {
+        // (fraction, flat, last_leeched, total_leeched, just_leeched, enabled)
+        super::LEECH_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Vampire".to_string(), (0.25, 5.0, 10.0, 50.0, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLeechFraction("Vampire")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getLeechFlat("Vampire")"#).unwrap(), "5");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLeechLastLeeched("Vampire")"#)
+                .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLeechTotalLeeched("Vampire")"#)
+                .unwrap(),
+            "50"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLeeched("Vampire")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLeechEnabled("Vampire")"#).unwrap(),
+            "true"
+        );
+        super::LEECH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_leech_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.notifyLeechHit("Vampire", 100.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLeechFraction("Vampire", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLeechFlat("Vampire", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLeechEnabled("Vampire", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NotifyLeechHit { name, damage } if name == "Vampire" && (*damage - 100.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLeechFraction { name, fraction } if name == "Vampire" && (*fraction - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLeechFlat { name, flat } if name == "Vampire" && (*flat - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLeechEnabled { name, enabled } if name == "Vampire" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lunge_read_ops() {
+        // (phase_u32, dir_x, dir_y, dir_z, target_x, target_y, target_z, speed, range, traveled,
+        //  recovery_time, recovery_timer, cooldown, cooldown_timer, ground_only, just_lunged, hit_registered, enabled)
+        // phase=1 => Thrusting
+        super::LUNGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dasher".to_string(),
+                (
+                    1u32, 1.0_f32, 0.0_f32, 0.0_f32, 5.0_f32, 0.0_f32, 0.0_f32, 10.0_f32, 5.0_f32,
+                    2.5_f32, 0.25_f32, 0.0_f32, 0.5_f32, 0.0_f32, false, true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getLungePhase("Dasher")"#).unwrap(), "1");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLungeThrusting("Dasher")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLungeAvailable("Dasher")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getLungeDirX("Dasher")"#).unwrap(), "1");
+        assert_eq!(rt.eval(r#"Bsengine.getLungeDirY("Dasher")"#).unwrap(), "0");
+        assert_eq!(rt.eval(r#"Bsengine.getLungeDirZ("Dasher")"#).unwrap(), "0");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLungeTargetX("Dasher")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLungeSpeed("Dasher")"#).unwrap(),
+            "10"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getLungeRange("Dasher")"#).unwrap(), "5");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLungeTraveled("Dasher")"#).unwrap(),
+            "2.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLungeRecoveryTime("Dasher")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLungeCooldown("Dasher")"#).unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLungeGroundOnly("Dasher")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLunged("Dasher")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLungeHitRegistered("Dasher")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLungeEnabled("Dasher")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLungeProgress("Dasher")"#).unwrap(),
+            "0.5"
+        );
+        super::LUNGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lunge_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginLunge("Dasher", 5.0, 0.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLungeSpeed("Dasher", 12.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLungeRange("Dasher", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLungeRecoveryTime("Dasher", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLungeCooldown("Dasher", 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLungeEnabled("Dasher", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginLunge { name, target_x, .. } if name == "Dasher" && (*target_x - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLungeSpeed { name, speed } if name == "Dasher" && (*speed - 12.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLungeRange { name, range } if name == "Dasher" && (*range - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLungeRecoveryTime { name, time } if name == "Dasher" && (*time - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLungeCooldown { name, cooldown } if name == "Dasher" && (*cooldown - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLungeEnabled { name, enabled } if name == "Dasher" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lure_read_ops() {
+        // (state_u32, pos_x, pos_y, pos_z, radius, strength, duration, timer, just_activated, just_expired, enabled)
+        // state=1 => Active
+        super::LURE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Bait".to_string(),
+                (
+                    1u32, 1.0_f32, 0.0_f32, 2.0_f32, 10.0_f32, 0.75_f32, 4.0_f32, 2.0_f32, false,
+                    false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getLureState("Bait")"#).unwrap(), "1");
+        assert_eq!(rt.eval(r#"Bsengine.isLureActive("Bait")"#).unwrap(), "true");
+        assert_eq!(rt.eval(r#"Bsengine.getLurePosX("Bait")"#).unwrap(), "1");
+        assert_eq!(rt.eval(r#"Bsengine.getLurePosY("Bait")"#).unwrap(), "0");
+        assert_eq!(rt.eval(r#"Bsengine.getLurePosZ("Bait")"#).unwrap(), "2");
+        assert_eq!(rt.eval(r#"Bsengine.getLureRadius("Bait")"#).unwrap(), "10");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLureStrength("Bait")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getLureDuration("Bait")"#).unwrap(), "4");
+        assert_eq!(rt.eval(r#"Bsengine.getLureTimer("Bait")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLureActivated("Bait")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLureExpired("Bait")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLureEnabled("Bait")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLureRemainingFraction("Bait")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::LURE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lure_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.deployLure("Bait", 1.0, 0.0, 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.deactivateLure("Bait");"#).unwrap();
+        rt.eval(r#"Bsengine.resetLure("Bait");"#).unwrap();
+        rt.eval(r#"Bsengine.setLureRadius("Bait", 15.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setLureStrength("Bait", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLureDuration("Bait", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLureEnabled("Bait", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeployLure { name, pos_x, .. } if name == "Bait" && (*pos_x - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateLure { name } if name == "Bait")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetLure { name } if name == "Bait")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLureRadius { name, radius } if name == "Bait" && (*radius - 15.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLureStrength { name, strength } if name == "Bait" && (*strength - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLureDuration { name, duration } if name == "Bait" && (*duration - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLureEnabled { name, enabled } if name == "Bait" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lurk_read_ops() {
+        // (detection_range_fraction, ambush_multiplier, lurking, just_lurked, just_struck, enabled)
+        super::LURK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Shadow".to_string(), (0.75, 2.0, true, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLurkDetectionRangeFraction("Shadow")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getLurkAmbushMultiplier("Shadow")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.isLurking("Shadow")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLurked("Shadow")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustLurkStruck("Shadow")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isLurkEnabled("Shadow")"#).unwrap(),
+            "true"
+        );
+        super::LURK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_lurk_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.enterLurk("Shadow");"#).unwrap();
+        rt.eval(r#"Bsengine.exitLurk("Shadow");"#).unwrap();
+        rt.eval(r#"Bsengine.setLurkDetectionRangeFraction("Shadow", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLurkAmbushMultiplier("Shadow", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setLurkEnabled("Shadow", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterLurk { name } if name == "Shadow")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExitLurk { name } if name == "Shadow")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLurkDetectionRangeFraction { name, fraction } if name == "Shadow" && (*fraction - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLurkAmbushMultiplier { name, multiplier } if name == "Shadow" && (*multiplier - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetLurkEnabled { name, enabled } if name == "Shadow" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -21,18 +21,19 @@ use crate::ops::{
     ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
     FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT,
-    INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT,
-    KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
-    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
-    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
+    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
+    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
+    RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT,
+    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1160,6 +1161,26 @@ fn run_scripts(world: &mut World) {
             );
         }
         EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = em_map);
+    }
+    {
+        use bsengine_core::GridSnap;
+        let mut gs_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &GridSnap)>();
+        for (name, g) in q.iter(world) {
+            gs_map.insert(
+                name.0.clone(),
+                (
+                    g.cell_size.x,
+                    g.cell_size.y,
+                    g.cell_size.z,
+                    g.offset.x,
+                    g.offset.y,
+                    g.offset.z,
+                    g.enabled,
+                ),
+            );
+        }
+        GRID_SNAP_SNAPSHOT.with(|s| *s.borrow_mut() = gs_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3055,6 +3076,44 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut em) = world.get_mut::<Emissive>(e) {
                         em.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetGridSnapCellSize { name, vx, vy, vz } => {
+                use bsengine_core::GridSnap;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<GridSnap>(e) {
+                        g.cell_size = Vec3::new(vx, vy, vz).max(Vec3::ZERO);
+                    }
+                }
+            }
+            ScriptCommand::SetGridSnapOffset { name, x, y, z } => {
+                use bsengine_core::GridSnap;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<GridSnap>(e) {
+                        g.offset = Vec3::new(x, y, z);
+                    }
+                }
+            }
+            ScriptCommand::SetGridSnapEnabled { name, enabled } => {
+                use bsengine_core::GridSnap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut g) = world.get_mut::<GridSnap>(e) {
+                        g.enabled = enabled;
                     }
                 }
             }

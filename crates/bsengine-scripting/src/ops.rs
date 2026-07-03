@@ -2835,6 +2835,214 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetObstacleCircle {
+        name: String,
+        radius: f32,
+    },
+    SetObstacleBox {
+        name: String,
+        half_x: f32,
+        half_z: f32,
+    },
+    SetObstacleCapsule {
+        name: String,
+        radius: f32,
+        height: f32,
+    },
+    SetObstacleDynamic {
+        name: String,
+        dynamic: bool,
+    },
+    SetObstacleCarveDepth {
+        name: String,
+        depth: f32,
+    },
+    SetObstacleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddOmenStack {
+        name: String,
+    },
+    ConsumeOmen {
+        name: String,
+    },
+    SetOmenMaxStacks {
+        name: String,
+        max_stacks: u32,
+    },
+    SetOmenDamageMultiplierPerStack {
+        name: String,
+        multiplier: f32,
+    },
+    SetOmenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetOrbitRadius {
+        name: String,
+        radius: f32,
+    },
+    SetOrbitSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetOrbitAngle {
+        name: String,
+        angle: f32,
+    },
+    SetOrbitAxis {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    SetOrbitAltitude {
+        name: String,
+        altitude: f32,
+    },
+    SetOrbitEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeginOrdeal {
+        name: String,
+        duration: f32,
+    },
+    FailOrdeal {
+        name: String,
+    },
+    ResetOrdeal {
+        name: String,
+    },
+    SetOrdealEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetOscillateAmplitude {
+        name: String,
+        amplitude: f32,
+    },
+    SetOscillateFrequency {
+        name: String,
+        frequency: f32,
+    },
+    SetOscillatePhaseOffset {
+        name: String,
+        offset: f32,
+    },
+    SetOscillateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnterOutlastCombat {
+        name: String,
+    },
+    ExitOutlastCombat {
+        name: String,
+    },
+    SetOutlastMaxBonusTime {
+        name: String,
+        time: f32,
+    },
+    SetOutlastDefenseBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetOutlastEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddOverflow {
+        name: String,
+        amount: f32,
+    },
+    SetOverflowMaxPool {
+        name: String,
+        max_pool: f32,
+    },
+    SetOverflowDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetOverflowEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddOverheat {
+        name: String,
+        amount: f32,
+    },
+    SetOverheatMaxHeat {
+        name: String,
+        max_heat: f32,
+    },
+    SetOverheatCoolRate {
+        name: String,
+        rate: f32,
+    },
+    SetOverheatForcedCoolRate {
+        name: String,
+        rate: f32,
+    },
+    SetOverheatWarnThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetOverheatCoolThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetOverheatEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyOverload {
+        name: String,
+        duration: f32,
+    },
+    ClearOverload {
+        name: String,
+    },
+    SetOverloadCostMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetOverloadEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyOverpower {
+        name: String,
+        duration: f32,
+    },
+    ClearOverpower {
+        name: String,
+    },
+    SetOverpowerArmorPenetration {
+        name: String,
+        penetration: f32,
+    },
+    SetOverpowerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    GrantOvershield {
+        name: String,
+        amount: f32,
+    },
+    SetOvershieldMax {
+        name: String,
+        max_overshield: f32,
+    },
+    SetOvershieldDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetOvershieldEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -3922,6 +4130,49 @@ thread_local! {
     // entity name → (duration, timer, damage_fraction, just_numbed, just_worn_off, enabled)
     pub(crate) static NUMB_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
+    // entity name → (shape_kind[0=Circle,1=Box,2=Capsule], p1, p2, p3, dynamic, carve_depth, bounding_radius, enabled)
+    pub(crate) static OBSTACLE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, bool, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, dmg_mult_per_stack, just_stacked, just_consumed, enabled)
+    pub(crate) static OMEN_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (radius, speed, angle, ax, ay, az, altitude, enabled)
+    pub(crate) static ORBIT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, just_began, just_endured, just_failed, enabled)
+    pub(crate) static ORDEAL_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (axis_kind[0=Translation,1=Rotation], dx, dy, dz, amplitude, frequency, phase, phase_offset, scalar_offset, enabled)
+    pub(crate) static OSCILLATE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (combat_time, max_bonus_time, defense_bonus, in_combat, just_peaked, enabled)
+    pub(crate) static OUTLAST_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (current, max_pool, decay_rate, just_gained, just_depleted, enabled)
+    pub(crate) static OVERFLOW_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state[0=Normal,1=Warning,2=Overheated,3=Cooling], heat, max_heat, warn_threshold, cool_threshold, cool_rate, forced_cool_rate, just_overheated, just_cooled, enabled)
+    pub(crate) static OVERHEAT_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, cost_multiplier, just_overloaded, just_recovered, enabled)
+    pub(crate) static OVERLOAD_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, armor_penetration, just_overpowered, just_faded, enabled)
+    pub(crate) static OVERPOWER_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (current, max_overshield, decay_rate, just_granted, just_depleted, enabled)
+    pub(crate) static OVERSHIELD_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -19430,6 +19681,879 @@ pub fn bsengine_set_numb_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Obstacle ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_obstacle_shape_kind(#[string] name: String) -> u32 {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_obstacle_shape_p1(#[string] name: String) -> f32 {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_obstacle_shape_p2(#[string] name: String) -> f32 {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_obstacle_shape_p3(#[string] name: String) -> f32 {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_obstacle_dynamic(#[string] name: String) -> bool {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_obstacle_carve_depth(#[string] name: String) -> f32 {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_obstacle_bounding_radius(#[string] name: String) -> f32 {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_obstacle_enabled(#[string] name: String) -> bool {
+    OBSTACLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_obstacle_circle(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetObstacleCircle { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_obstacle_box(#[string] name: String, half_x: f32, half_z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetObstacleBox {
+            name,
+            half_x,
+            half_z,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_obstacle_capsule(#[string] name: String, radius: f32, height: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetObstacleCapsule {
+            name,
+            radius,
+            height,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_obstacle_dynamic(#[string] name: String, dynamic: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetObstacleDynamic { name, dynamic })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_obstacle_carve_depth(#[string] name: String, depth: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetObstacleCarveDepth { name, depth })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_obstacle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetObstacleEnabled { name, enabled })
+    });
+}
+
+// ── Omen ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_omen_stacks(#[string] name: String) -> u32 {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_omen_max_stacks(#[string] name: String) -> u32 {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_omen_damage_multiplier_per_stack(#[string] name: String) -> f32 {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_omen_ominous(#[string] name: String) -> bool {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 > 0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_omen_just_stacked(#[string] name: String) -> bool {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_omen_just_consumed(#[string] name: String) -> bool {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_omen_total_multiplier(#[string] name: String) -> f32 {
+    OMEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| 1.0 + v.0 as f32 * v.2)
+            .unwrap_or(1.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_get_omen_stack_fraction(#[string] name: String) -> f32 {
+    OMEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 == 0 {
+                    0.0
+                } else {
+                    (v.0 as f32 / v.1 as f32).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_omen_enabled(#[string] name: String) -> bool {
+    OMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_omen_stack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AddOmenStack { name }));
+}
+#[op2(fast)]
+pub fn bsengine_consume_omen(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConsumeOmen { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_omen_max_stacks(#[string] name: String, max_stacks: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOmenMaxStacks { name, max_stacks })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_omen_damage_multiplier_per_stack(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOmenDamageMultiplierPerStack { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_omen_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOmenEnabled { name, enabled })
+    });
+}
+
+// ── Orbit ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_orbit_radius(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_orbit_speed(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_orbit_angle(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_orbit_axis_x(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_orbit_axis_y(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(1.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_orbit_axis_z(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_orbit_altitude(#[string] name: String) -> f32 {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_orbit_enabled(#[string] name: String) -> bool {
+    ORBIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_orbit_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrbitRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_orbit_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrbitSpeed { name, speed })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_orbit_angle(#[string] name: String, angle: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrbitAngle { name, angle })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_orbit_axis(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrbitAxis { name, x, y, z })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_orbit_altitude(#[string] name: String, altitude: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrbitAltitude { name, altitude })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_orbit_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrbitEnabled { name, enabled })
+    });
+}
+
+// ── Ordeal ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_ordeal_duration(#[string] name: String) -> f32 {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ordeal_timer(#[string] name: String) -> f32 {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ordeal_enduring(#[string] name: String) -> bool {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ordeal_just_began(#[string] name: String) -> bool {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ordeal_just_endured(#[string] name: String) -> bool {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ordeal_just_failed(#[string] name: String) -> bool {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_ordeal_elapsed_fraction(#[string] name: String) -> f32 {
+    ORDEAL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.0 <= 0.0 {
+                    0.0
+                } else {
+                    ((v.0 - v.1) / v.0).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_ordeal_enabled(#[string] name: String) -> bool {
+    ORDEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_ordeal(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeginOrdeal { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_fail_ordeal(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FailOrdeal { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_ordeal(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetOrdeal { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_ordeal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOrdealEnabled { name, enabled })
+    });
+}
+
+// ── Oscillate ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_oscillate_axis_kind(#[string] name: String) -> u32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_dir_x(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_dir_y(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_dir_z(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_amplitude(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_frequency(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_phase(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_phase_offset(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_oscillate_scalar_offset(#[string] name: String) -> f32 {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_oscillate_enabled(#[string] name: String) -> bool {
+    OSCILLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_oscillate_amplitude(#[string] name: String, amplitude: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOscillateAmplitude { name, amplitude })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_oscillate_frequency(#[string] name: String, frequency: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOscillateFrequency { name, frequency })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_oscillate_phase_offset(#[string] name: String, offset: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOscillatePhaseOffset { name, offset })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_oscillate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOscillateEnabled { name, enabled })
+    });
+}
+
+// ── Outlast ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_outlast_combat_time(#[string] name: String) -> f32 {
+    OUTLAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_outlast_max_bonus_time(#[string] name: String) -> f32 {
+    OUTLAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_outlast_defense_bonus(#[string] name: String) -> f32 {
+    OUTLAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_outlast_in_combat(#[string] name: String) -> bool {
+    OUTLAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_outlast_just_peaked(#[string] name: String) -> bool {
+    OUTLAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_outlast_peaking(#[string] name: String) -> bool {
+    OUTLAST_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| v.0 >= v.1 && v.3 && v.5)
+            .unwrap_or(false)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_get_outlast_resilience_fraction(#[string] name: String) -> f32 {
+    OUTLAST_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 <= 0.0 {
+                    0.0
+                } else {
+                    (v.0 / v.1).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_outlast_enabled(#[string] name: String) -> bool {
+    OUTLAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enter_outlast_combat(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EnterOutlastCombat { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_exit_outlast_combat(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExitOutlastCombat { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_outlast_max_bonus_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOutlastMaxBonusTime { name, time })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_outlast_defense_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOutlastDefenseBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_outlast_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOutlastEnabled { name, enabled })
+    });
+}
+
+// ── Overflow ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_overflow_current(#[string] name: String) -> f32 {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overflow_max_pool(#[string] name: String) -> f32 {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overflow_decay_rate(#[string] name: String) -> f32 {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_overflow_active(#[string] name: String) -> bool {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overflow_just_gained(#[string] name: String) -> bool {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overflow_just_depleted(#[string] name: String) -> bool {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_overflow_fraction(#[string] name: String) -> f32 {
+    OVERFLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 <= 0.0 {
+                    0.0
+                } else {
+                    (v.0 / v.1).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_overflow_enabled(#[string] name: String) -> bool {
+    OVERFLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_overflow(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddOverflow { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overflow_max_pool(#[string] name: String, max_pool: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverflowMaxPool { name, max_pool })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overflow_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverflowDecayRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overflow_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverflowEnabled { name, enabled })
+    });
+}
+
+// ── Overheat ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_overheat_state(#[string] name: String) -> u32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_heat(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_max_heat(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_warn_threshold(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_cool_threshold(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_cool_rate(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_forced_cool_rate(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_overheat_jammed(#[string] name: String) -> bool {
+    OVERHEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| v.0 == 2 || v.0 == 3)
+            .unwrap_or(false)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_overheat_in_warning(#[string] name: String) -> bool {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 1).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overheat_just_overheated(#[string] name: String) -> bool {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overheat_just_cooled(#[string] name: String) -> bool {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_overheat_heat_fraction(#[string] name: String) -> f32 {
+    OVERHEAT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| if v.2 > 0.0 { v.1 / v.2 } else { 0.0 })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_overheat_enabled(#[string] name: String) -> bool {
+    OVERHEAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_overheat(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddOverheat { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overheat_max_heat(#[string] name: String, max_heat: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverheatMaxHeat { name, max_heat })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overheat_cool_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverheatCoolRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overheat_forced_cool_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverheatForcedCoolRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overheat_warn_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverheatWarnThreshold { name, threshold })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overheat_cool_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverheatCoolThreshold { name, threshold })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overheat_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverheatEnabled { name, enabled })
+    });
+}
+
+// ── Overload ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_overload_duration(#[string] name: String) -> f32 {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overload_timer(#[string] name: String) -> f32 {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overload_cost_multiplier(#[string] name: String) -> f32 {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_overload_active(#[string] name: String) -> bool {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overload_just_overloaded(#[string] name: String) -> bool {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overload_just_recovered(#[string] name: String) -> bool {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_overload_effective_cost_multiplier(#[string] name: String) -> f32 {
+    OVERLOAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| if v.1 > 0.0 { v.2 } else { 1.0 })
+            .unwrap_or(1.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_get_overload_remaining_fraction(#[string] name: String) -> f32 {
+    OVERLOAD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.0 <= 0.0 {
+                    0.0
+                } else {
+                    (v.1 / v.0).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_overload_enabled(#[string] name: String) -> bool {
+    OVERLOAD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_overload(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyOverload { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_overload(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearOverload { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_overload_cost_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverloadCostMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overload_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverloadEnabled { name, enabled })
+    });
+}
+
+// ── Overpower ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_overpower_duration(#[string] name: String) -> f32 {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overpower_timer(#[string] name: String) -> f32 {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overpower_armor_penetration(#[string] name: String) -> f32 {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_overpower_active(#[string] name: String) -> bool {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overpower_just_overpowered(#[string] name: String) -> bool {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overpower_just_faded(#[string] name: String) -> bool {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_overpower_remaining_fraction(#[string] name: String) -> f32 {
+    OVERPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.0 <= 0.0 {
+                    0.0
+                } else {
+                    (v.1 / v.0).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_overpower_enabled(#[string] name: String) -> bool {
+    OVERPOWER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_overpower(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyOverpower { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_overpower(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearOverpower { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_overpower_armor_penetration(#[string] name: String, penetration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverpowerArmorPenetration { name, penetration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overpower_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOverpowerEnabled { name, enabled })
+    });
+}
+
+// ── Overshield ────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_overshield_current(#[string] name: String) -> f32 {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overshield_max(#[string] name: String) -> f32 {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_overshield_decay_rate(#[string] name: String) -> f32 {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_overshield_active(#[string] name: String) -> bool {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overshield_just_granted(#[string] name: String) -> bool {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_overshield_just_depleted(#[string] name: String) -> bool {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_overshield_fraction(#[string] name: String) -> f32 {
+    OVERSHIELD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 <= 0.0 {
+                    0.0
+                } else {
+                    (v.0 / v.1).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+#[op2(fast)]
+pub fn bsengine_is_overshield_enabled(#[string] name: String) -> bool {
+    OVERSHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_grant_overshield(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::GrantOvershield { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overshield_max(#[string] name: String, max_overshield: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetOvershieldMax {
+            name,
+            max_overshield,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overshield_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOvershieldDecayRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_overshield_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetOvershieldEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -21650,6 +22774,156 @@ deno_core::extension!(
         bsengine_clear_numb,
         bsengine_set_numb_damage_fraction,
         bsengine_set_numb_enabled,
+        bsengine_get_obstacle_shape_kind,
+        bsengine_get_obstacle_shape_p1,
+        bsengine_get_obstacle_shape_p2,
+        bsengine_get_obstacle_shape_p3,
+        bsengine_is_obstacle_dynamic,
+        bsengine_get_obstacle_carve_depth,
+        bsengine_get_obstacle_bounding_radius,
+        bsengine_is_obstacle_enabled,
+        bsengine_set_obstacle_circle,
+        bsengine_set_obstacle_box,
+        bsengine_set_obstacle_capsule,
+        bsengine_set_obstacle_dynamic,
+        bsengine_set_obstacle_carve_depth,
+        bsengine_set_obstacle_enabled,
+        bsengine_get_omen_stacks,
+        bsengine_get_omen_max_stacks,
+        bsengine_get_omen_damage_multiplier_per_stack,
+        bsengine_is_omen_ominous,
+        bsengine_is_omen_just_stacked,
+        bsengine_is_omen_just_consumed,
+        bsengine_get_omen_total_multiplier,
+        bsengine_get_omen_stack_fraction,
+        bsengine_is_omen_enabled,
+        bsengine_add_omen_stack,
+        bsengine_consume_omen,
+        bsengine_set_omen_max_stacks,
+        bsengine_set_omen_damage_multiplier_per_stack,
+        bsengine_set_omen_enabled,
+        bsengine_get_orbit_radius,
+        bsengine_get_orbit_speed,
+        bsengine_get_orbit_angle,
+        bsengine_get_orbit_axis_x,
+        bsengine_get_orbit_axis_y,
+        bsengine_get_orbit_axis_z,
+        bsengine_get_orbit_altitude,
+        bsengine_is_orbit_enabled,
+        bsengine_set_orbit_radius,
+        bsengine_set_orbit_speed,
+        bsengine_set_orbit_angle,
+        bsengine_set_orbit_axis,
+        bsengine_set_orbit_altitude,
+        bsengine_set_orbit_enabled,
+        bsengine_get_ordeal_duration,
+        bsengine_get_ordeal_timer,
+        bsengine_is_ordeal_enduring,
+        bsengine_is_ordeal_just_began,
+        bsengine_is_ordeal_just_endured,
+        bsengine_is_ordeal_just_failed,
+        bsengine_get_ordeal_elapsed_fraction,
+        bsengine_is_ordeal_enabled,
+        bsengine_begin_ordeal,
+        bsengine_fail_ordeal,
+        bsengine_reset_ordeal,
+        bsengine_set_ordeal_enabled,
+        bsengine_get_oscillate_axis_kind,
+        bsengine_get_oscillate_dir_x,
+        bsengine_get_oscillate_dir_y,
+        bsengine_get_oscillate_dir_z,
+        bsengine_get_oscillate_amplitude,
+        bsengine_get_oscillate_frequency,
+        bsengine_get_oscillate_phase,
+        bsengine_get_oscillate_phase_offset,
+        bsengine_get_oscillate_scalar_offset,
+        bsengine_is_oscillate_enabled,
+        bsengine_set_oscillate_amplitude,
+        bsengine_set_oscillate_frequency,
+        bsengine_set_oscillate_phase_offset,
+        bsengine_set_oscillate_enabled,
+        bsengine_get_outlast_combat_time,
+        bsengine_get_outlast_max_bonus_time,
+        bsengine_get_outlast_defense_bonus,
+        bsengine_is_outlast_in_combat,
+        bsengine_is_outlast_just_peaked,
+        bsengine_is_outlast_peaking,
+        bsengine_get_outlast_resilience_fraction,
+        bsengine_is_outlast_enabled,
+        bsengine_enter_outlast_combat,
+        bsengine_exit_outlast_combat,
+        bsengine_set_outlast_max_bonus_time,
+        bsengine_set_outlast_defense_bonus,
+        bsengine_set_outlast_enabled,
+        bsengine_get_overflow_current,
+        bsengine_get_overflow_max_pool,
+        bsengine_get_overflow_decay_rate,
+        bsengine_is_overflow_active,
+        bsengine_is_overflow_just_gained,
+        bsengine_is_overflow_just_depleted,
+        bsengine_get_overflow_fraction,
+        bsengine_is_overflow_enabled,
+        bsengine_add_overflow,
+        bsengine_set_overflow_max_pool,
+        bsengine_set_overflow_decay_rate,
+        bsengine_set_overflow_enabled,
+        bsengine_get_overheat_state,
+        bsengine_get_overheat_heat,
+        bsengine_get_overheat_max_heat,
+        bsengine_get_overheat_warn_threshold,
+        bsengine_get_overheat_cool_threshold,
+        bsengine_get_overheat_cool_rate,
+        bsengine_get_overheat_forced_cool_rate,
+        bsengine_is_overheat_jammed,
+        bsengine_is_overheat_in_warning,
+        bsengine_is_overheat_just_overheated,
+        bsengine_is_overheat_just_cooled,
+        bsengine_get_overheat_heat_fraction,
+        bsengine_is_overheat_enabled,
+        bsengine_add_overheat,
+        bsengine_set_overheat_max_heat,
+        bsengine_set_overheat_cool_rate,
+        bsengine_set_overheat_forced_cool_rate,
+        bsengine_set_overheat_warn_threshold,
+        bsengine_set_overheat_cool_threshold,
+        bsengine_set_overheat_enabled,
+        bsengine_get_overload_duration,
+        bsengine_get_overload_timer,
+        bsengine_get_overload_cost_multiplier,
+        bsengine_is_overload_active,
+        bsengine_is_overload_just_overloaded,
+        bsengine_is_overload_just_recovered,
+        bsengine_get_overload_effective_cost_multiplier,
+        bsengine_get_overload_remaining_fraction,
+        bsengine_is_overload_enabled,
+        bsengine_apply_overload,
+        bsengine_clear_overload,
+        bsengine_set_overload_cost_multiplier,
+        bsengine_set_overload_enabled,
+        bsengine_get_overpower_duration,
+        bsengine_get_overpower_timer,
+        bsengine_get_overpower_armor_penetration,
+        bsengine_is_overpower_active,
+        bsengine_is_overpower_just_overpowered,
+        bsengine_is_overpower_just_faded,
+        bsengine_get_overpower_remaining_fraction,
+        bsengine_is_overpower_enabled,
+        bsengine_apply_overpower,
+        bsengine_clear_overpower,
+        bsengine_set_overpower_armor_penetration,
+        bsengine_set_overpower_enabled,
+        bsengine_get_overshield_current,
+        bsengine_get_overshield_max,
+        bsengine_get_overshield_decay_rate,
+        bsengine_is_overshield_active,
+        bsengine_is_overshield_just_granted,
+        bsengine_is_overshield_just_depleted,
+        bsengine_get_overshield_fraction,
+        bsengine_is_overshield_enabled,
+        bsengine_grant_overshield,
+        bsengine_set_overshield_max,
+        bsengine_set_overshield_decay_rate,
+        bsengine_set_overshield_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -24022,6 +25296,167 @@ const Bsengine = {
     clearNumb:                     (name)           => Deno.core.ops.bsengine_clear_numb(name),
     setNumbDamageFraction:         (name, f)        => Deno.core.ops.bsengine_set_numb_damage_fraction(name, f),
     setNumbEnabled:                (name, en)       => Deno.core.ops.bsengine_set_numb_enabled(name, en),
+
+    getObstacleShapeKind:          (name)           => Deno.core.ops.bsengine_get_obstacle_shape_kind(name),
+    getObstacleShapeP1:            (name)           => Deno.core.ops.bsengine_get_obstacle_shape_p1(name),
+    getObstacleShapeP2:            (name)           => Deno.core.ops.bsengine_get_obstacle_shape_p2(name),
+    getObstacleShapeP3:            (name)           => Deno.core.ops.bsengine_get_obstacle_shape_p3(name),
+    isObstacleDynamic:             (name)           => Deno.core.ops.bsengine_is_obstacle_dynamic(name),
+    getObstacleCarveDepth:         (name)           => Deno.core.ops.bsengine_get_obstacle_carve_depth(name),
+    getObstacleBoundingRadius:     (name)           => Deno.core.ops.bsengine_get_obstacle_bounding_radius(name),
+    isObstacleEnabled:             (name)           => Deno.core.ops.bsengine_is_obstacle_enabled(name),
+    setObstacleCircle:             (name, r)        => Deno.core.ops.bsengine_set_obstacle_circle(name, r),
+    setObstacleBox:                (name, hx, hz)   => Deno.core.ops.bsengine_set_obstacle_box(name, hx, hz),
+    setObstacleCapsule:            (name, r, h)     => Deno.core.ops.bsengine_set_obstacle_capsule(name, r, h),
+    setObstacleDynamic:            (name, d)        => Deno.core.ops.bsengine_set_obstacle_dynamic(name, d),
+    setObstacleCarveDepth:         (name, d)        => Deno.core.ops.bsengine_set_obstacle_carve_depth(name, d),
+    setObstacleEnabled:            (name, en)       => Deno.core.ops.bsengine_set_obstacle_enabled(name, en),
+
+    getOmenStacks:                 (name)           => Deno.core.ops.bsengine_get_omen_stacks(name),
+    getOmenMaxStacks:              (name)           => Deno.core.ops.bsengine_get_omen_max_stacks(name),
+    getOmenDamageMultiplierPerStack: (name)         => Deno.core.ops.bsengine_get_omen_damage_multiplier_per_stack(name),
+    isOmenOminous:                 (name)           => Deno.core.ops.bsengine_is_omen_ominous(name),
+    isOmenJustStacked:             (name)           => Deno.core.ops.bsengine_is_omen_just_stacked(name),
+    isOmenJustConsumed:            (name)           => Deno.core.ops.bsengine_is_omen_just_consumed(name),
+    getOmenTotalMultiplier:        (name)           => Deno.core.ops.bsengine_get_omen_total_multiplier(name),
+    getOmenStackFraction:          (name)           => Deno.core.ops.bsengine_get_omen_stack_fraction(name),
+    isOmenEnabled:                 (name)           => Deno.core.ops.bsengine_is_omen_enabled(name),
+    addOmenStack:                  (name)           => Deno.core.ops.bsengine_add_omen_stack(name),
+    consumeOmen:                   (name)           => Deno.core.ops.bsengine_consume_omen(name),
+    setOmenMaxStacks:              (name, n)        => Deno.core.ops.bsengine_set_omen_max_stacks(name, n),
+    setOmenDamageMultiplierPerStack: (name, m)      => Deno.core.ops.bsengine_set_omen_damage_multiplier_per_stack(name, m),
+    setOmenEnabled:                (name, en)       => Deno.core.ops.bsengine_set_omen_enabled(name, en),
+
+    getOrbitRadius:                (name)           => Deno.core.ops.bsengine_get_orbit_radius(name),
+    getOrbitSpeed:                 (name)           => Deno.core.ops.bsengine_get_orbit_speed(name),
+    getOrbitAngle:                 (name)           => Deno.core.ops.bsengine_get_orbit_angle(name),
+    getOrbitAxisX:                 (name)           => Deno.core.ops.bsengine_get_orbit_axis_x(name),
+    getOrbitAxisY:                 (name)           => Deno.core.ops.bsengine_get_orbit_axis_y(name),
+    getOrbitAxisZ:                 (name)           => Deno.core.ops.bsengine_get_orbit_axis_z(name),
+    getOrbitAltitude:              (name)           => Deno.core.ops.bsengine_get_orbit_altitude(name),
+    isOrbitEnabled:                (name)           => Deno.core.ops.bsengine_is_orbit_enabled(name),
+    setOrbitRadius:                (name, r)        => Deno.core.ops.bsengine_set_orbit_radius(name, r),
+    setOrbitSpeed:                 (name, s)        => Deno.core.ops.bsengine_set_orbit_speed(name, s),
+    setOrbitAngle:                 (name, a)        => Deno.core.ops.bsengine_set_orbit_angle(name, a),
+    setOrbitAxis:                  (name, x, y, z) => Deno.core.ops.bsengine_set_orbit_axis(name, x, y, z),
+    setOrbitAltitude:              (name, a)        => Deno.core.ops.bsengine_set_orbit_altitude(name, a),
+    setOrbitEnabled:               (name, en)       => Deno.core.ops.bsengine_set_orbit_enabled(name, en),
+
+    getOrdealDuration:             (name)           => Deno.core.ops.bsengine_get_ordeal_duration(name),
+    getOrdealTimer:                (name)           => Deno.core.ops.bsengine_get_ordeal_timer(name),
+    isOrdealEnduring:              (name)           => Deno.core.ops.bsengine_is_ordeal_enduring(name),
+    isOrdealJustBegan:             (name)           => Deno.core.ops.bsengine_is_ordeal_just_began(name),
+    isOrdealJustEndured:           (name)           => Deno.core.ops.bsengine_is_ordeal_just_endured(name),
+    isOrdealJustFailed:            (name)           => Deno.core.ops.bsengine_is_ordeal_just_failed(name),
+    getOrdealElapsedFraction:      (name)           => Deno.core.ops.bsengine_get_ordeal_elapsed_fraction(name),
+    isOrdealEnabled:               (name)           => Deno.core.ops.bsengine_is_ordeal_enabled(name),
+    beginOrdeal:                   (name, d)        => Deno.core.ops.bsengine_begin_ordeal(name, d),
+    failOrdeal:                    (name)           => Deno.core.ops.bsengine_fail_ordeal(name),
+    resetOrdeal:                   (name)           => Deno.core.ops.bsengine_reset_ordeal(name),
+    setOrdealEnabled:              (name, en)       => Deno.core.ops.bsengine_set_ordeal_enabled(name, en),
+
+    getOscillateAxisKind:          (name)           => Deno.core.ops.bsengine_get_oscillate_axis_kind(name),
+    getOscillateDirX:              (name)           => Deno.core.ops.bsengine_get_oscillate_dir_x(name),
+    getOscillateDirY:              (name)           => Deno.core.ops.bsengine_get_oscillate_dir_y(name),
+    getOscillateDirZ:              (name)           => Deno.core.ops.bsengine_get_oscillate_dir_z(name),
+    getOscillateAmplitude:         (name)           => Deno.core.ops.bsengine_get_oscillate_amplitude(name),
+    getOscillateFrequency:         (name)           => Deno.core.ops.bsengine_get_oscillate_frequency(name),
+    getOscillatePhase:             (name)           => Deno.core.ops.bsengine_get_oscillate_phase(name),
+    getOscillatePhaseOffset:       (name)           => Deno.core.ops.bsengine_get_oscillate_phase_offset(name),
+    getOscillateScalarOffset:      (name)           => Deno.core.ops.bsengine_get_oscillate_scalar_offset(name),
+    isOscillateEnabled:            (name)           => Deno.core.ops.bsengine_is_oscillate_enabled(name),
+    setOscillateAmplitude:         (name, a)        => Deno.core.ops.bsengine_set_oscillate_amplitude(name, a),
+    setOscillateFrequency:         (name, f)        => Deno.core.ops.bsengine_set_oscillate_frequency(name, f),
+    setOscillatePhaseOffset:       (name, o)        => Deno.core.ops.bsengine_set_oscillate_phase_offset(name, o),
+    setOscillateEnabled:           (name, en)       => Deno.core.ops.bsengine_set_oscillate_enabled(name, en),
+
+    getOutlastCombatTime:          (name)           => Deno.core.ops.bsengine_get_outlast_combat_time(name),
+    getOutlastMaxBonusTime:        (name)           => Deno.core.ops.bsengine_get_outlast_max_bonus_time(name),
+    getOutlastDefenseBonus:        (name)           => Deno.core.ops.bsengine_get_outlast_defense_bonus(name),
+    isOutlastInCombat:             (name)           => Deno.core.ops.bsengine_is_outlast_in_combat(name),
+    isOutlastJustPeaked:           (name)           => Deno.core.ops.bsengine_is_outlast_just_peaked(name),
+    isOutlastPeaking:              (name)           => Deno.core.ops.bsengine_is_outlast_peaking(name),
+    getOutlastResilienceFraction:  (name)           => Deno.core.ops.bsengine_get_outlast_resilience_fraction(name),
+    isOutlastEnabled:              (name)           => Deno.core.ops.bsengine_is_outlast_enabled(name),
+    enterOutlastCombat:            (name)           => Deno.core.ops.bsengine_enter_outlast_combat(name),
+    exitOutlastCombat:             (name)           => Deno.core.ops.bsengine_exit_outlast_combat(name),
+    setOutlastMaxBonusTime:        (name, t)        => Deno.core.ops.bsengine_set_outlast_max_bonus_time(name, t),
+    setOutlastDefenseBonus:        (name, b)        => Deno.core.ops.bsengine_set_outlast_defense_bonus(name, b),
+    setOutlastEnabled:             (name, en)       => Deno.core.ops.bsengine_set_outlast_enabled(name, en),
+
+    getOverflowCurrent:            (name)           => Deno.core.ops.bsengine_get_overflow_current(name),
+    getOverflowMaxPool:            (name)           => Deno.core.ops.bsengine_get_overflow_max_pool(name),
+    getOverflowDecayRate:          (name)           => Deno.core.ops.bsengine_get_overflow_decay_rate(name),
+    isOverflowActive:              (name)           => Deno.core.ops.bsengine_is_overflow_active(name),
+    isOverflowJustGained:          (name)           => Deno.core.ops.bsengine_is_overflow_just_gained(name),
+    isOverflowJustDepleted:        (name)           => Deno.core.ops.bsengine_is_overflow_just_depleted(name),
+    getOverflowFraction:           (name)           => Deno.core.ops.bsengine_get_overflow_fraction(name),
+    isOverflowEnabled:             (name)           => Deno.core.ops.bsengine_is_overflow_enabled(name),
+    addOverflow:                   (name, a)        => Deno.core.ops.bsengine_add_overflow(name, a),
+    setOverflowMaxPool:            (name, m)        => Deno.core.ops.bsengine_set_overflow_max_pool(name, m),
+    setOverflowDecayRate:          (name, r)        => Deno.core.ops.bsengine_set_overflow_decay_rate(name, r),
+    setOverflowEnabled:            (name, en)       => Deno.core.ops.bsengine_set_overflow_enabled(name, en),
+
+    getOverheatState:              (name)           => Deno.core.ops.bsengine_get_overheat_state(name),
+    getOverheatHeat:               (name)           => Deno.core.ops.bsengine_get_overheat_heat(name),
+    getOverheatMaxHeat:            (name)           => Deno.core.ops.bsengine_get_overheat_max_heat(name),
+    getOverheatWarnThreshold:      (name)           => Deno.core.ops.bsengine_get_overheat_warn_threshold(name),
+    getOverheatCoolThreshold:      (name)           => Deno.core.ops.bsengine_get_overheat_cool_threshold(name),
+    getOverheatCoolRate:           (name)           => Deno.core.ops.bsengine_get_overheat_cool_rate(name),
+    getOverheatForcedCoolRate:     (name)           => Deno.core.ops.bsengine_get_overheat_forced_cool_rate(name),
+    isOverheatJammed:              (name)           => Deno.core.ops.bsengine_is_overheat_jammed(name),
+    isOverheatInWarning:           (name)           => Deno.core.ops.bsengine_is_overheat_in_warning(name),
+    isOverheatJustOverheated:      (name)           => Deno.core.ops.bsengine_is_overheat_just_overheated(name),
+    isOverheatJustCooled:          (name)           => Deno.core.ops.bsengine_is_overheat_just_cooled(name),
+    getOverheatHeatFraction:       (name)           => Deno.core.ops.bsengine_get_overheat_heat_fraction(name),
+    isOverheatEnabled:             (name)           => Deno.core.ops.bsengine_is_overheat_enabled(name),
+    addOverheat:                   (name, a)        => Deno.core.ops.bsengine_add_overheat(name, a),
+    setOverheatMaxHeat:            (name, m)        => Deno.core.ops.bsengine_set_overheat_max_heat(name, m),
+    setOverheatCoolRate:           (name, r)        => Deno.core.ops.bsengine_set_overheat_cool_rate(name, r),
+    setOverheatForcedCoolRate:     (name, r)        => Deno.core.ops.bsengine_set_overheat_forced_cool_rate(name, r),
+    setOverheatWarnThreshold:      (name, t)        => Deno.core.ops.bsengine_set_overheat_warn_threshold(name, t),
+    setOverheatCoolThreshold:      (name, t)        => Deno.core.ops.bsengine_set_overheat_cool_threshold(name, t),
+    setOverheatEnabled:            (name, en)       => Deno.core.ops.bsengine_set_overheat_enabled(name, en),
+
+    getOverloadDuration:           (name)           => Deno.core.ops.bsengine_get_overload_duration(name),
+    getOverloadTimer:              (name)           => Deno.core.ops.bsengine_get_overload_timer(name),
+    getOverloadCostMultiplier:     (name)           => Deno.core.ops.bsengine_get_overload_cost_multiplier(name),
+    isOverloadActive:              (name)           => Deno.core.ops.bsengine_is_overload_active(name),
+    isOverloadJustOverloaded:      (name)           => Deno.core.ops.bsengine_is_overload_just_overloaded(name),
+    isOverloadJustRecovered:       (name)           => Deno.core.ops.bsengine_is_overload_just_recovered(name),
+    getOverloadEffectiveCostMultiplier: (name)      => Deno.core.ops.bsengine_get_overload_effective_cost_multiplier(name),
+    getOverloadRemainingFraction:  (name)           => Deno.core.ops.bsengine_get_overload_remaining_fraction(name),
+    isOverloadEnabled:             (name)           => Deno.core.ops.bsengine_is_overload_enabled(name),
+    applyOverload:                 (name, d)        => Deno.core.ops.bsengine_apply_overload(name, d),
+    clearOverload:                 (name)           => Deno.core.ops.bsengine_clear_overload(name),
+    setOverloadCostMultiplier:     (name, m)        => Deno.core.ops.bsengine_set_overload_cost_multiplier(name, m),
+    setOverloadEnabled:            (name, en)       => Deno.core.ops.bsengine_set_overload_enabled(name, en),
+
+    getOverpowerDuration:          (name)           => Deno.core.ops.bsengine_get_overpower_duration(name),
+    getOverpowerTimer:             (name)           => Deno.core.ops.bsengine_get_overpower_timer(name),
+    getOverpowerArmorPenetration:  (name)           => Deno.core.ops.bsengine_get_overpower_armor_penetration(name),
+    isOverpowerActive:             (name)           => Deno.core.ops.bsengine_is_overpower_active(name),
+    isOverpowerJustOverpowered:    (name)           => Deno.core.ops.bsengine_is_overpower_just_overpowered(name),
+    isOverpowerJustFaded:          (name)           => Deno.core.ops.bsengine_is_overpower_just_faded(name),
+    getOverpowerRemainingFraction: (name)           => Deno.core.ops.bsengine_get_overpower_remaining_fraction(name),
+    isOverpowerEnabled:            (name)           => Deno.core.ops.bsengine_is_overpower_enabled(name),
+    applyOverpower:                (name, d)        => Deno.core.ops.bsengine_apply_overpower(name, d),
+    clearOverpower:                (name)           => Deno.core.ops.bsengine_clear_overpower(name),
+    setOverpowerArmorPenetration:  (name, p)        => Deno.core.ops.bsengine_set_overpower_armor_penetration(name, p),
+    setOverpowerEnabled:           (name, en)       => Deno.core.ops.bsengine_set_overpower_enabled(name, en),
+
+    getOvershieldCurrent:          (name)           => Deno.core.ops.bsengine_get_overshield_current(name),
+    getOvershieldMax:              (name)           => Deno.core.ops.bsengine_get_overshield_max(name),
+    getOvershieldDecayRate:        (name)           => Deno.core.ops.bsengine_get_overshield_decay_rate(name),
+    isOvershieldActive:            (name)           => Deno.core.ops.bsengine_is_overshield_active(name),
+    isOvershieldJustGranted:       (name)           => Deno.core.ops.bsengine_is_overshield_just_granted(name),
+    isOvershieldJustDepleted:      (name)           => Deno.core.ops.bsengine_is_overshield_just_depleted(name),
+    getOvershieldFraction:         (name)           => Deno.core.ops.bsengine_get_overshield_fraction(name),
+    isOvershieldEnabled:           (name)           => Deno.core.ops.bsengine_is_overshield_enabled(name),
+    grantOvershield:               (name, a)        => Deno.core.ops.bsengine_grant_overshield(name, a),
+    setOvershieldMax:              (name, m)        => Deno.core.ops.bsengine_set_overshield_max(name, m),
+    setOvershieldDecayRate:        (name, r)        => Deno.core.ops.bsengine_set_overshield_decay_rate(name, r),
+    setOvershieldEnabled:          (name, en)       => Deno.core.ops.bsengine_set_overshield_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -37697,6 +39132,846 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearNumb { name } if name == "Berserker")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNumbDamageFraction { name, fraction } if name == "Berserker" && (*fraction - 0.75).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetNumbEnabled { name, enabled } if name == "Berserker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_obstacle_read_ops() {
+        super::OBSTACLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wall".to_string(),
+                (0u32, 2.0f32, 0.0f32, 0.0f32, true, 0.5f32, 2.0f32, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getObstacleShapeKind("Wall")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getObstacleShapeP1("Wall")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getObstacleShapeP2("Wall")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getObstacleShapeP3("Wall")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isObstacleDynamic("Wall")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getObstacleCarveDepth("Wall")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getObstacleBoundingRadius("Wall")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isObstacleEnabled("Wall")"#).unwrap(),
+            "true"
+        );
+        super::OBSTACLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_obstacle_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setObstacleCircle("Wall", 1.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setObstacleBox("Wall", 2.0, 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setObstacleCapsule("Wall", 0.5, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setObstacleDynamic("Wall", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setObstacleCarveDepth("Wall", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setObstacleEnabled("Wall", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetObstacleCircle { name, radius } if name == "Wall" && (*radius - 1.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetObstacleBox { name, half_x, half_z } if name == "Wall" && (*half_x - 2.0).abs() < 1e-5 && (*half_z - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetObstacleCapsule { name, radius, height } if name == "Wall" && (*radius - 0.5).abs() < 1e-5 && (*height - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetObstacleDynamic { name, dynamic } if name == "Wall" && *dynamic)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetObstacleCarveDepth { name, depth } if name == "Wall" && (*depth - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetObstacleEnabled { name, enabled } if name == "Wall" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_omen_read_ops() {
+        super::OMEN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Prophet".to_string(),
+                (2u32, 4u32, 0.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOmenStacks("Prophet")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOmenMaxStacks("Prophet")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOmenDamageMultiplierPerStack("Prophet")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOmenOminous("Prophet")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOmenJustStacked("Prophet")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOmenJustConsumed("Prophet")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOmenTotalMultiplier("Prophet")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOmenStackFraction("Prophet")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOmenEnabled("Prophet")"#).unwrap(),
+            "true"
+        );
+        super::OMEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_omen_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addOmenStack("Prophet");"#).unwrap();
+        rt.eval(r#"Bsengine.consumeOmen("Prophet");"#).unwrap();
+        rt.eval(r#"Bsengine.setOmenMaxStacks("Prophet", 6);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOmenDamageMultiplierPerStack("Prophet", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOmenEnabled("Prophet", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddOmenStack { name } if name == "Prophet")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeOmen { name } if name == "Prophet")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOmenMaxStacks { name, max_stacks } if name == "Prophet" && *max_stacks == 6)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOmenDamageMultiplierPerStack { name, multiplier } if name == "Prophet" && (*multiplier - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOmenEnabled { name, enabled } if name == "Prophet" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_orbit_read_ops() {
+        super::ORBIT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Moon".to_string(),
+                (
+                    4.0f32, 0.5f32, 0.25f32, 0.0f32, 1.0f32, 0.0f32, 0.5f32, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getOrbitRadius("Moon")"#).unwrap(), "4");
+        assert_eq!(rt.eval(r#"Bsengine.getOrbitSpeed("Moon")"#).unwrap(), "0.5");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOrbitAngle("Moon")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getOrbitAxisX("Moon")"#).unwrap(), "0");
+        assert_eq!(rt.eval(r#"Bsengine.getOrbitAxisY("Moon")"#).unwrap(), "1");
+        assert_eq!(rt.eval(r#"Bsengine.getOrbitAxisZ("Moon")"#).unwrap(), "0");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOrbitAltitude("Moon")"#).unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOrbitEnabled("Moon")"#).unwrap(),
+            "true"
+        );
+        super::ORBIT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_orbit_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setOrbitRadius("Moon", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setOrbitSpeed("Moon", 0.5);"#).unwrap();
+        rt.eval(r#"Bsengine.setOrbitAngle("Moon", 0.25);"#).unwrap();
+        rt.eval(r#"Bsengine.setOrbitAxis("Moon", 0.0, 1.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOrbitAltitude("Moon", 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOrbitEnabled("Moon", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrbitRadius { name, radius } if name == "Moon" && (*radius - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrbitSpeed { name, speed } if name == "Moon" && (*speed - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrbitAngle { name, angle } if name == "Moon" && (*angle - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrbitAxis { name, x, y, z } if name == "Moon" && x.abs() < 1e-5 && (*y - 1.0).abs() < 1e-5 && z.abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrbitAltitude { name, altitude } if name == "Moon" && (*altitude - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrbitEnabled { name, enabled } if name == "Moon" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ordeal_read_ops() {
+        super::ORDEAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Trial".to_string(),
+                (4.0f32, 1.0f32, true, false, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOrdealDuration("Trial")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getOrdealTimer("Trial")"#).unwrap(), "1");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOrdealEnduring("Trial")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOrdealJustBegan("Trial")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOrdealJustEndured("Trial")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOrdealJustFailed("Trial")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOrdealElapsedFraction("Trial")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOrdealEnabled("Trial")"#).unwrap(),
+            "true"
+        );
+        super::ORDEAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ordeal_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginOrdeal("Trial", 8.0);"#).unwrap();
+        rt.eval(r#"Bsengine.failOrdeal("Trial");"#).unwrap();
+        rt.eval(r#"Bsengine.resetOrdeal("Trial");"#).unwrap();
+        rt.eval(r#"Bsengine.setOrdealEnabled("Trial", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginOrdeal { name, duration } if name == "Trial" && (*duration - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FailOrdeal { name } if name == "Trial")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetOrdeal { name } if name == "Trial")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOrdealEnabled { name, enabled } if name == "Trial" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_oscillate_read_ops() {
+        super::OSCILLATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pendulum".to_string(),
+                (
+                    0u32, 1.0f32, 0.0f32, 0.0f32, 2.0f32, 0.5f32, 0.25f32, 0.125f32, 0.5f32, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateAxisKind("Pendulum")"#)
+                .unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateDirX("Pendulum")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateDirY("Pendulum")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateDirZ("Pendulum")"#).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateAmplitude("Pendulum")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateFrequency("Pendulum")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillatePhase("Pendulum")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillatePhaseOffset("Pendulum")"#)
+                .unwrap(),
+            "0.125"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOscillateScalarOffset("Pendulum")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOscillateEnabled("Pendulum")"#)
+                .unwrap(),
+            "true"
+        );
+        super::OSCILLATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_oscillate_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setOscillateAmplitude("Pendulum", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOscillateFrequency("Pendulum", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOscillatePhaseOffset("Pendulum", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOscillateEnabled("Pendulum", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOscillateAmplitude { name, amplitude } if name == "Pendulum" && (*amplitude - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOscillateFrequency { name, frequency } if name == "Pendulum" && (*frequency - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOscillatePhaseOffset { name, offset } if name == "Pendulum" && (*offset - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOscillateEnabled { name, enabled } if name == "Pendulum" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_outlast_read_ops() {
+        super::OUTLAST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Veteran".to_string(),
+                (2.0f32, 4.0f32, 0.25f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOutlastCombatTime("Veteran")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOutlastMaxBonusTime("Veteran")"#)
+                .unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOutlastDefenseBonus("Veteran")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOutlastInCombat("Veteran")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOutlastJustPeaked("Veteran")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOutlastPeaking("Veteran")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOutlastResilienceFraction("Veteran")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOutlastEnabled("Veteran")"#).unwrap(),
+            "true"
+        );
+        super::OUTLAST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_outlast_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.enterOutlastCombat("Veteran");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.exitOutlastCombat("Veteran");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOutlastMaxBonusTime("Veteran", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOutlastDefenseBonus("Veteran", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOutlastEnabled("Veteran", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterOutlastCombat { name } if name == "Veteran")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExitOutlastCombat { name } if name == "Veteran")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOutlastMaxBonusTime { name, time } if name == "Veteran" && (*time - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOutlastDefenseBonus { name, bonus } if name == "Veteran" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOutlastEnabled { name, enabled } if name == "Veteran" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overflow_read_ops() {
+        super::OVERFLOW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Geyser".to_string(),
+                (2.0f32, 4.0f32, 0.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverflowCurrent("Geyser")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverflowMaxPool("Geyser")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverflowDecayRate("Geyser")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverflowActive("Geyser")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverflowJustGained("Geyser")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverflowJustDepleted("Geyser")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverflowFraction("Geyser")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverflowEnabled("Geyser")"#).unwrap(),
+            "true"
+        );
+        super::OVERFLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overflow_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addOverflow("Geyser", 0.5);"#).unwrap();
+        rt.eval(r#"Bsengine.setOverflowMaxPool("Geyser", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverflowDecayRate("Geyser", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverflowEnabled("Geyser", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddOverflow { name, amount } if name == "Geyser" && (*amount - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverflowMaxPool { name, max_pool } if name == "Geyser" && (*max_pool - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverflowDecayRate { name, rate } if name == "Geyser" && (*rate - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverflowEnabled { name, enabled } if name == "Geyser" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overheat_read_ops() {
+        super::OVERHEAT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Furnace".to_string(),
+                (
+                    1u32, 3.0f32, 4.0f32, 0.5f32, 0.25f32, 0.5f32, 0.25f32, false, false, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatState("Furnace")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatHeat("Furnace")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatMaxHeat("Furnace")"#)
+                .unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatWarnThreshold("Furnace")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatCoolThreshold("Furnace")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatCoolRate("Furnace")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatForcedCoolRate("Furnace")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverheatJammed("Furnace")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverheatInWarning("Furnace")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverheatJustOverheated("Furnace")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverheatJustCooled("Furnace")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverheatHeatFraction("Furnace")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverheatEnabled("Furnace")"#).unwrap(),
+            "true"
+        );
+        super::OVERHEAT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overheat_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addOverheat("Furnace", 1.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setOverheatMaxHeat("Furnace", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverheatCoolRate("Furnace", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverheatForcedCoolRate("Furnace", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverheatWarnThreshold("Furnace", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverheatCoolThreshold("Furnace", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverheatEnabled("Furnace", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddOverheat { name, amount } if name == "Furnace" && (*amount - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverheatMaxHeat { name, max_heat } if name == "Furnace" && (*max_heat - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverheatCoolRate { name, rate } if name == "Furnace" && (*rate - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverheatForcedCoolRate { name, rate } if name == "Furnace" && (*rate - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverheatWarnThreshold { name, threshold } if name == "Furnace" && (*threshold - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverheatCoolThreshold { name, threshold } if name == "Furnace" && (*threshold - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverheatEnabled { name, enabled } if name == "Furnace" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overload_read_ops() {
+        super::OVERLOAD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Capacitor".to_string(),
+                (4.0f32, 2.0f32, 1.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverloadDuration("Capacitor")"#)
+                .unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverloadTimer("Capacitor")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverloadCostMultiplier("Capacitor")"#)
+                .unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverloadActive("Capacitor")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverloadJustOverloaded("Capacitor")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverloadJustRecovered("Capacitor")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverloadEffectiveCostMultiplier("Capacitor")"#)
+                .unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverloadRemainingFraction("Capacitor")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverloadEnabled("Capacitor")"#)
+                .unwrap(),
+            "true"
+        );
+        super::OVERLOAD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overload_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyOverload("Capacitor", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearOverload("Capacitor");"#).unwrap();
+        rt.eval(r#"Bsengine.setOverloadCostMultiplier("Capacitor", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverloadEnabled("Capacitor", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyOverload { name, duration } if name == "Capacitor" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearOverload { name } if name == "Capacitor")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverloadCostMultiplier { name, multiplier } if name == "Capacitor" && (*multiplier - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverloadEnabled { name, enabled } if name == "Capacitor" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overpower_read_ops() {
+        super::OVERPOWER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Titan".to_string(),
+                (4.0f32, 2.0f32, 0.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverpowerDuration("Titan")"#)
+                .unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverpowerTimer("Titan")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverpowerArmorPenetration("Titan")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverpowerActive("Titan")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverpowerJustOverpowered("Titan")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverpowerJustFaded("Titan")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOverpowerRemainingFraction("Titan")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOverpowerEnabled("Titan")"#).unwrap(),
+            "true"
+        );
+        super::OVERPOWER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overpower_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyOverpower("Titan", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearOverpower("Titan");"#).unwrap();
+        rt.eval(r#"Bsengine.setOverpowerArmorPenetration("Titan", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOverpowerEnabled("Titan", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyOverpower { name, duration } if name == "Titan" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearOverpower { name } if name == "Titan")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverpowerArmorPenetration { name, penetration } if name == "Titan" && (*penetration - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOverpowerEnabled { name, enabled } if name == "Titan" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overshield_read_ops() {
+        super::OVERSHIELD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guardian".to_string(),
+                (2.0f32, 4.0f32, 0.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOvershieldCurrent("Guardian")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOvershieldMax("Guardian")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOvershieldDecayRate("Guardian")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOvershieldActive("Guardian")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOvershieldJustGranted("Guardian")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOvershieldJustDepleted("Guardian")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getOvershieldFraction("Guardian")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isOvershieldEnabled("Guardian")"#)
+                .unwrap(),
+            "true"
+        );
+        super::OVERSHIELD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_overshield_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.grantOvershield("Guardian", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOvershieldMax("Guardian", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOvershieldDecayRate("Guardian", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setOvershieldEnabled("Guardian", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GrantOvershield { name, amount } if name == "Guardian" && (*amount - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOvershieldMax { name, max_overshield } if name == "Guardian" && (*max_overshield - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOvershieldDecayRate { name, rate } if name == "Guardian" && (*rate - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOvershieldEnabled { name, enabled } if name == "Guardian" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

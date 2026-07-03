@@ -49,14 +49,17 @@ use crate::ops::{
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
     MUFFLE_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT, NIMBLE_SNAPSHOT, NOTICE_SNAPSHOT,
     NOURISH_SNAPSHOT, NOVA_SNAPSHOT, NPC_SNAPSHOT, NULLIFY_SNAPSHOT, NUMB_SNAPSHOT,
-    OUTLINE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, POISON_SNAPSHOT, PROJECTILE_SNAPSHOT,
-    REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SLOW_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT,
-    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT,
-    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    OBSTACLE_SNAPSHOT, OMEN_SNAPSHOT, ORBIT_SNAPSHOT, ORDEAL_SNAPSHOT, OSCILLATE_SNAPSHOT,
+    OUTLAST_SNAPSHOT, OUTLINE_SNAPSHOT, OVERFLOW_SNAPSHOT, OVERHEAT_SNAPSHOT, OVERLOAD_SNAPSHOT,
+    OVERPOWER_SNAPSHOT, OVERSHIELD_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, POISON_SNAPSHOT,
+    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT,
+    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT,
+    STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT,
+    TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -3586,6 +3589,248 @@ fn run_scripts(world: &mut World) {
             );
         }
         NUMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Obstacle, ObstacleShape};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Obstacle)>();
+        for (_, name, ob) in q.iter(world) {
+            let (kind, p1, p2, p3) = match &ob.shape {
+                ObstacleShape::Circle { radius } => (0u32, *radius, 0.0f32, 0.0f32),
+                ObstacleShape::Box { half_x, half_z } => (1u32, *half_x, *half_z, 0.0f32),
+                ObstacleShape::Capsule { radius, height } => (2u32, *radius, *height, 0.0f32),
+            };
+            let bounding = ob.bounding_radius();
+            map.insert(
+                name.0.clone(),
+                (
+                    kind,
+                    p1,
+                    p2,
+                    p3,
+                    ob.dynamic,
+                    ob.carve_depth,
+                    bounding,
+                    ob.enabled,
+                ),
+            );
+        }
+        OBSTACLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Omen;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Omen)>();
+        for (_, name, om) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    om.stacks,
+                    om.max_stacks,
+                    om.damage_multiplier_per_stack,
+                    om.just_stacked,
+                    om.just_consumed,
+                    om.enabled,
+                ),
+            );
+        }
+        OMEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Orbit;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Orbit)>();
+        for (_, name, or) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    or.radius,
+                    or.speed,
+                    or.angle,
+                    or.axis.x,
+                    or.axis.y,
+                    or.axis.z,
+                    or.altitude,
+                    or.enabled,
+                ),
+            );
+        }
+        ORBIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ordeal;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ordeal)>();
+        for (_, name, od) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    od.duration,
+                    od.timer,
+                    od.just_began,
+                    od.just_endured,
+                    od.just_failed,
+                    od.enabled,
+                ),
+            );
+        }
+        ORDEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Oscillate, OscillateAxis};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Oscillate)>();
+        for (_, name, os) in q.iter(world) {
+            let axis_kind = match os.axis {
+                OscillateAxis::Translation => 0u32,
+                OscillateAxis::Rotation => 1u32,
+            };
+            let scalar_offset = if os.enabled {
+                (os.phase + os.phase_offset).sin() * os.amplitude
+            } else {
+                0.0
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    axis_kind,
+                    os.direction.x,
+                    os.direction.y,
+                    os.direction.z,
+                    os.amplitude,
+                    os.frequency,
+                    os.phase,
+                    os.phase_offset,
+                    scalar_offset,
+                    os.enabled,
+                ),
+            );
+        }
+        OSCILLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Outlast;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Outlast)>();
+        for (_, name, ol) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ol.combat_time,
+                    ol.max_bonus_time,
+                    ol.defense_bonus,
+                    ol.in_combat,
+                    ol.just_peaked,
+                    ol.enabled,
+                ),
+            );
+        }
+        OUTLAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overflow;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overflow)>();
+        for (_, name, of) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    of.current,
+                    of.max_pool,
+                    of.decay_rate,
+                    of.just_gained,
+                    of.just_depleted,
+                    of.enabled,
+                ),
+            );
+        }
+        OVERFLOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Overheat, OverheatState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overheat)>();
+        for (_, name, oh) in q.iter(world) {
+            let state_u32 = match oh.state {
+                OverheatState::Normal => 0u32,
+                OverheatState::Warning => 1u32,
+                OverheatState::Overheated => 2u32,
+                OverheatState::Cooling => 3u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    oh.heat,
+                    oh.max_heat,
+                    oh.warn_threshold,
+                    oh.cool_threshold,
+                    oh.cool_rate,
+                    oh.forced_cool_rate,
+                    oh.just_overheated,
+                    oh.just_cooled,
+                    oh.enabled,
+                ),
+            );
+        }
+        OVERHEAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overload;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overload)>();
+        for (_, name, ol) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ol.duration,
+                    ol.timer,
+                    ol.cost_multiplier,
+                    ol.just_overloaded,
+                    ol.just_recovered,
+                    ol.enabled,
+                ),
+            );
+        }
+        OVERLOAD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overpower;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overpower)>();
+        for (_, name, op) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    op.duration,
+                    op.timer,
+                    op.armor_penetration,
+                    op.just_overpowered,
+                    op.just_faded,
+                    op.enabled,
+                ),
+            );
+        }
+        OVERPOWER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overshield;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overshield)>();
+        for (_, name, os) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    os.current,
+                    os.max_overshield,
+                    os.decay_rate,
+                    os.just_granted,
+                    os.just_depleted,
+                    os.enabled,
+                ),
+            );
+        }
+        OVERSHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -12435,6 +12680,662 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut nu) = world.get_mut::<Numb>(e) {
                         nu.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetObstacleCircle { name, radius } => {
+                use bsengine_core::{Obstacle, ObstacleShape};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ob) = world.get_mut::<Obstacle>(e) {
+                        ob.shape = ObstacleShape::Circle {
+                            radius: radius.max(0.0),
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetObstacleBox {
+                name,
+                half_x,
+                half_z,
+            } => {
+                use bsengine_core::{Obstacle, ObstacleShape};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ob) = world.get_mut::<Obstacle>(e) {
+                        ob.shape = ObstacleShape::Box {
+                            half_x: half_x.max(0.0),
+                            half_z: half_z.max(0.0),
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetObstacleCapsule {
+                name,
+                radius,
+                height,
+            } => {
+                use bsengine_core::{Obstacle, ObstacleShape};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ob) = world.get_mut::<Obstacle>(e) {
+                        ob.shape = ObstacleShape::Capsule {
+                            radius: radius.max(0.0),
+                            height: height.max(0.0),
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetObstacleDynamic { name, dynamic } => {
+                use bsengine_core::Obstacle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ob) = world.get_mut::<Obstacle>(e) {
+                        ob.dynamic = dynamic;
+                    }
+                }
+            }
+            ScriptCommand::SetObstacleCarveDepth { name, depth } => {
+                use bsengine_core::Obstacle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ob) = world.get_mut::<Obstacle>(e) {
+                        ob.carve_depth = depth.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetObstacleEnabled { name, enabled } => {
+                use bsengine_core::Obstacle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ob) = world.get_mut::<Obstacle>(e) {
+                        ob.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddOmenStack { name } => {
+                use bsengine_core::Omen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut om) = world.get_mut::<Omen>(e) {
+                        om.add_stack();
+                    }
+                }
+            }
+            ScriptCommand::ConsumeOmen { name } => {
+                use bsengine_core::Omen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut om) = world.get_mut::<Omen>(e) {
+                        om.consume();
+                    }
+                }
+            }
+            ScriptCommand::SetOmenMaxStacks { name, max_stacks } => {
+                use bsengine_core::Omen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut om) = world.get_mut::<Omen>(e) {
+                        om.max_stacks = max_stacks.max(1);
+                    }
+                }
+            }
+            ScriptCommand::SetOmenDamageMultiplierPerStack { name, multiplier } => {
+                use bsengine_core::Omen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut om) = world.get_mut::<Omen>(e) {
+                        om.damage_multiplier_per_stack = multiplier.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOmenEnabled { name, enabled } => {
+                use bsengine_core::Omen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut om) = world.get_mut::<Omen>(e) {
+                        om.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetOrbitRadius { name, radius } => {
+                use bsengine_core::Orbit;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut or) = world.get_mut::<Orbit>(e) {
+                        or.radius = radius.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOrbitSpeed { name, speed } => {
+                use bsengine_core::Orbit;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut or) = world.get_mut::<Orbit>(e) {
+                        or.speed = speed;
+                    }
+                }
+            }
+            ScriptCommand::SetOrbitAngle { name, angle } => {
+                use bsengine_core::Orbit;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut or) = world.get_mut::<Orbit>(e) {
+                        or.angle = angle;
+                    }
+                }
+            }
+            ScriptCommand::SetOrbitAxis { name, x, y, z } => {
+                use bsengine_core::Orbit;
+                use glam::Vec3;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut or) = world.get_mut::<Orbit>(e) {
+                        or.axis = Vec3::new(x, y, z).normalize_or_zero();
+                    }
+                }
+            }
+            ScriptCommand::SetOrbitAltitude { name, altitude } => {
+                use bsengine_core::Orbit;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut or) = world.get_mut::<Orbit>(e) {
+                        or.altitude = altitude;
+                    }
+                }
+            }
+            ScriptCommand::SetOrbitEnabled { name, enabled } => {
+                use bsengine_core::Orbit;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut or) = world.get_mut::<Orbit>(e) {
+                        or.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BeginOrdeal { name, duration } => {
+                use bsengine_core::Ordeal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut od) = world.get_mut::<Ordeal>(e) {
+                        od.begin(duration);
+                    }
+                }
+            }
+            ScriptCommand::FailOrdeal { name } => {
+                use bsengine_core::Ordeal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut od) = world.get_mut::<Ordeal>(e) {
+                        od.fail();
+                    }
+                }
+            }
+            ScriptCommand::ResetOrdeal { name } => {
+                use bsengine_core::Ordeal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut od) = world.get_mut::<Ordeal>(e) {
+                        od.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetOrdealEnabled { name, enabled } => {
+                use bsengine_core::Ordeal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut od) = world.get_mut::<Ordeal>(e) {
+                        od.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetOscillateAmplitude { name, amplitude } => {
+                use bsengine_core::Oscillate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Oscillate>(e) {
+                        os.amplitude = amplitude.abs();
+                    }
+                }
+            }
+            ScriptCommand::SetOscillateFrequency { name, frequency } => {
+                use bsengine_core::Oscillate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Oscillate>(e) {
+                        os.frequency = frequency.abs();
+                    }
+                }
+            }
+            ScriptCommand::SetOscillatePhaseOffset { name, offset } => {
+                use bsengine_core::Oscillate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Oscillate>(e) {
+                        os.phase_offset = offset;
+                    }
+                }
+            }
+            ScriptCommand::SetOscillateEnabled { name, enabled } => {
+                use bsengine_core::Oscillate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Oscillate>(e) {
+                        os.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::EnterOutlastCombat { name } => {
+                use bsengine_core::Outlast;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outlast>(e) {
+                        ol.enter_combat();
+                    }
+                }
+            }
+            ScriptCommand::ExitOutlastCombat { name } => {
+                use bsengine_core::Outlast;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outlast>(e) {
+                        ol.exit_combat();
+                    }
+                }
+            }
+            ScriptCommand::SetOutlastMaxBonusTime { name, time } => {
+                use bsengine_core::Outlast;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outlast>(e) {
+                        ol.max_bonus_time = time.max(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOutlastDefenseBonus { name, bonus } => {
+                use bsengine_core::Outlast;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outlast>(e) {
+                        ol.defense_bonus = bonus.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOutlastEnabled { name, enabled } => {
+                use bsengine_core::Outlast;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Outlast>(e) {
+                        ol.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddOverflow { name, amount } => {
+                use bsengine_core::Overflow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut of) = world.get_mut::<Overflow>(e) {
+                        of.add(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetOverflowMaxPool { name, max_pool } => {
+                use bsengine_core::Overflow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut of) = world.get_mut::<Overflow>(e) {
+                        of.max_pool = max_pool.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverflowDecayRate { name, rate } => {
+                use bsengine_core::Overflow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut of) = world.get_mut::<Overflow>(e) {
+                        of.decay_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverflowEnabled { name, enabled } => {
+                use bsengine_core::Overflow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut of) = world.get_mut::<Overflow>(e) {
+                        of.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddOverheat { name, amount } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.add_heat(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetOverheatMaxHeat { name, max_heat } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.max_heat = max_heat.max(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverheatCoolRate { name, rate } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.cool_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverheatForcedCoolRate { name, rate } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.forced_cool_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverheatWarnThreshold { name, threshold } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.warn_threshold = threshold.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverheatCoolThreshold { name, threshold } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.cool_threshold = threshold.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverheatEnabled { name, enabled } => {
+                use bsengine_core::Overheat;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut oh) = world.get_mut::<Overheat>(e) {
+                        oh.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyOverload { name, duration } => {
+                use bsengine_core::Overload;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Overload>(e) {
+                        ol.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearOverload { name } => {
+                use bsengine_core::Overload;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Overload>(e) {
+                        ol.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetOverloadCostMultiplier { name, multiplier } => {
+                use bsengine_core::Overload;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Overload>(e) {
+                        ol.cost_multiplier = multiplier.max(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverloadEnabled { name, enabled } => {
+                use bsengine_core::Overload;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ol) = world.get_mut::<Overload>(e) {
+                        ol.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyOverpower { name, duration } => {
+                use bsengine_core::Overpower;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut op) = world.get_mut::<Overpower>(e) {
+                        op.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearOverpower { name } => {
+                use bsengine_core::Overpower;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut op) = world.get_mut::<Overpower>(e) {
+                        op.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetOverpowerArmorPenetration { name, penetration } => {
+                use bsengine_core::Overpower;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut op) = world.get_mut::<Overpower>(e) {
+                        op.armor_penetration = penetration.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOverpowerEnabled { name, enabled } => {
+                use bsengine_core::Overpower;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut op) = world.get_mut::<Overpower>(e) {
+                        op.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::GrantOvershield { name, amount } => {
+                use bsengine_core::Overshield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Overshield>(e) {
+                        os.grant(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetOvershieldMax {
+                name,
+                max_overshield,
+            } => {
+                use bsengine_core::Overshield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Overshield>(e) {
+                        os.max_overshield = max_overshield.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOvershieldDecayRate { name, rate } => {
+                use bsengine_core::Overshield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Overshield>(e) {
+                        os.decay_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetOvershieldEnabled { name, enabled } => {
+                use bsengine_core::Overshield;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut os) = world.get_mut::<Overshield>(e) {
+                        os.enabled = enabled;
                     }
                 }
             }

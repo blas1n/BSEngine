@@ -926,6 +926,22 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetTweenDuration {
+        name: String,
+        duration: f32,
+    },
+    SetTweenEasing {
+        name: String,
+        easing: u32,
+    },
+    SetTweenRepeat {
+        name: String,
+        repeat: u32,
+    },
+    SetTweenElapsed {
+        name: String,
+        elapsed: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1599,6 +1615,12 @@ thread_local! {
     // entity name → (target_name, rest_length, stiffness, damping, break_ext, enabled)
     // break_ext = -1.0 means no break limit (Option::None)
     pub(crate) static SPRING_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (target_type, duration, easing_u32, repeat_u32, elapsed, finished, reversed)
+    // TweenTarget: Translation=0, Rotation=1, Scale=2
+    // EasingFn: Linear=0, EaseInQuad=1, EaseOutQuad=2, EaseInOutQuad=3
+    // RepeatMode: Once=0, Loop=1, PingPong=2
+    pub(crate) static TWEEN_SNAPSHOT: RefCell<HashMap<String, (u32, f32, u32, u32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6440,6 +6462,124 @@ pub fn bsengine_is_spring_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_tween_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTweenDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tween_easing(#[string] name: String, easing: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTweenEasing { name, easing })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tween_repeat(#[string] name: String, repeat: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTweenRepeat { name, repeat })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_tween_elapsed(#[string] name: String, elapsed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTweenElapsed { name, elapsed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tween_target_type(#[string] name: String) -> u32 {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(tt, _, _, _, _, _, _)| *tt)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tween_duration(#[string] name: String) -> f32 {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tween_easing(#[string] name: String) -> u32 {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, e, _, _, _, _)| *e)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tween_repeat(#[string] name: String) -> u32 {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, r, _, _, _)| *r)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tween_elapsed(#[string] name: String) -> f32 {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, el, _, _)| *el)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_tween_progress(#[string] name: String) -> f32 {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, d, _, _, el, _, _)| {
+                if *d > 0.0 {
+                    (el / d).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_tween_finished(#[string] name: String) -> bool {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, fin, _)| *fin)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_tween_reversed(#[string] name: String) -> bool {
+    TWEEN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, rev)| *rev)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7362,6 +7502,18 @@ deno_core::extension!(
         bsengine_get_spring_break_extension,
         bsengine_is_spring_breakable,
         bsengine_is_spring_enabled,
+        bsengine_set_tween_duration,
+        bsengine_set_tween_easing,
+        bsengine_set_tween_repeat,
+        bsengine_set_tween_elapsed,
+        bsengine_get_tween_target_type,
+        bsengine_get_tween_duration,
+        bsengine_get_tween_easing,
+        bsengine_get_tween_repeat,
+        bsengine_get_tween_elapsed,
+        bsengine_get_tween_progress,
+        bsengine_is_tween_finished,
+        bsengine_is_tween_reversed,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -8371,6 +8523,18 @@ const Bsengine = {
     getSpringBreakExtension:(name)         => Deno.core.ops.bsengine_get_spring_break_extension(name),
     isSpringBreakable:(name)               => Deno.core.ops.bsengine_is_spring_breakable(name),
     isSpringEnabled:(name)                 => Deno.core.ops.bsengine_is_spring_enabled(name),
+    setTweenDuration:(name, duration)      => Deno.core.ops.bsengine_set_tween_duration(name, duration),
+    setTweenEasing: (name, easing)         => Deno.core.ops.bsengine_set_tween_easing(name, easing),
+    setTweenRepeat: (name, repeat)         => Deno.core.ops.bsengine_set_tween_repeat(name, repeat),
+    setTweenElapsed:(name, elapsed)        => Deno.core.ops.bsengine_set_tween_elapsed(name, elapsed),
+    getTweenTargetType:(name)              => Deno.core.ops.bsengine_get_tween_target_type(name),
+    getTweenDuration:(name)                => Deno.core.ops.bsengine_get_tween_duration(name),
+    getTweenEasing: (name)                 => Deno.core.ops.bsengine_get_tween_easing(name),
+    getTweenRepeat: (name)                 => Deno.core.ops.bsengine_get_tween_repeat(name),
+    getTweenElapsed:(name)                 => Deno.core.ops.bsengine_get_tween_elapsed(name),
+    getTweenProgress:(name)                => Deno.core.ops.bsengine_get_tween_progress(name),
+    isTweenFinished:(name)                 => Deno.core.ops.bsengine_is_tween_finished(name),
+    isTweenReversed:(name)                 => Deno.core.ops.bsengine_is_tween_reversed(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -15414,6 +15578,72 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetSpringEnabled { name, enabled }
                 if name == "Rope" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_tween_read_ops() {
+        // (target_type=2/Scale, duration=3.0, easing=2/EaseOutQuad, repeat=1/Loop, elapsed=1.5, finished=false, reversed=true)
+        super::TWEEN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Box".to_string(), (2u32, 3.0, 2u32, 1u32, 1.5, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let tt = rt.eval(r#"Bsengine.getTweenTargetType("Box");"#).unwrap();
+        assert_eq!(tt.trim().parse::<u32>().unwrap(), 2u32);
+        let dur = rt.eval(r#"Bsengine.getTweenDuration("Box");"#).unwrap();
+        assert!((dur.trim().parse::<f32>().unwrap() - 3.0).abs() < 0.001);
+        let eas = rt.eval(r#"Bsengine.getTweenEasing("Box");"#).unwrap();
+        assert_eq!(eas.trim().parse::<u32>().unwrap(), 2u32);
+        let rep = rt.eval(r#"Bsengine.getTweenRepeat("Box");"#).unwrap();
+        assert_eq!(rep.trim().parse::<u32>().unwrap(), 1u32);
+        let el = rt.eval(r#"Bsengine.getTweenElapsed("Box");"#).unwrap();
+        assert!((el.trim().parse::<f32>().unwrap() - 1.5).abs() < 0.001);
+        let prog = rt.eval(r#"Bsengine.getTweenProgress("Box");"#).unwrap();
+        assert!((prog.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let fin = rt.eval(r#"Bsengine.isTweenFinished("Box");"#).unwrap();
+        assert_eq!(fin.trim(), "false");
+        let rev = rt.eval(r#"Bsengine.isTweenReversed("Box");"#).unwrap();
+        assert_eq!(rev.trim(), "true");
+        let fin_unk = rt.eval(r#"Bsengine.isTweenFinished("Unknown");"#).unwrap();
+        assert_eq!(fin_unk.trim(), "false");
+        super::TWEEN_SNAPSHOT.with(|s| s.borrow_mut().remove("Box"));
+    }
+
+    #[test]
+    fn test_tween_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setTweenDuration("Box", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setTweenEasing("Box", 3);"#).unwrap();
+        rt.eval(r#"Bsengine.setTweenRepeat("Box", 2);"#).unwrap();
+        rt.eval(r#"Bsengine.setTweenElapsed("Box", 0.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTweenDuration { name, duration }
+                if name == "Box" && (*duration - 2.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTweenEasing { name, easing }
+                if name == "Box" && *easing == 3
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTweenRepeat { name, repeat }
+                if name == "Box" && *repeat == 2
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetTweenElapsed { name, elapsed }
+                if name == "Box" && (*elapsed - 0.5).abs() < 0.001
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

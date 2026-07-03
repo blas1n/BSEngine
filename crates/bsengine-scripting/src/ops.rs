@@ -1212,6 +1212,80 @@ pub enum ScriptCommand {
     ExtinguishBeacon {
         name: String,
     },
+    ApplyShieldBreak {
+        name: String,
+        duration: f32,
+    },
+    ClearShieldBreak {
+        name: String,
+    },
+    SetShieldBreakDuration {
+        name: String,
+        duration: f32,
+    },
+    SetShieldBreakReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetShieldBreakEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyRoot {
+        name: String,
+        duration: f32,
+    },
+    ClearRoot {
+        name: String,
+    },
+    SetRootDuration {
+        name: String,
+        duration: f32,
+    },
+    SetRootAllowsRotation {
+        name: String,
+        allows: bool,
+    },
+    SetRootAllowsAttack {
+        name: String,
+        allows: bool,
+    },
+    SetRootEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplySlow {
+        name: String,
+        reduction: f32,
+        duration: f32,
+    },
+    ClearSlow {
+        name: String,
+    },
+    SetSlowReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetSlowDuration {
+        name: String,
+        duration: f32,
+    },
+    SetSlowEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyStun {
+        name: String,
+        duration: f32,
+        severity: u32,
+    },
+    ClearStun {
+        name: String,
+    },
+    SetStunEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1947,6 +2021,19 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (priority, broadcast_radius, duration, timer, lit, just_lit, just_extinguished, enabled)
     pub(crate) static BEACON_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, reduction_fraction, just_broken, just_recovered, enabled)
+    pub(crate) static SHIELD_BREAK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, allows_rotation, allows_attack, just_rooted, just_freed, enabled)
+    pub(crate) static ROOT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (reduction, duration, timer, just_slowed, just_recovered, enabled)
+    pub(crate) static SLOW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (severity_u32, timer, just_stunned, just_recovered, enabled)
+    // StunSeverity: Light=0, Heavy=1, Knockdown=2
+    pub(crate) static STUN_SNAPSHOT: RefCell<HashMap<String, (u32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -8352,6 +8439,493 @@ pub fn bsengine_extinguish_beacon(#[string] name: String) {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_shield_break_duration(#[string] name: String) -> f32 {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_shield_break_timer(#[string] name: String) -> f32 {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_shield_break_reduction(#[string] name: String) -> f32 {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, red, _, _, _)| *red)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_shield_break_active(#[string] name: String) -> bool {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_shield_break_just_broken(#[string] name: String) -> bool {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jb, _, _)| *jb)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_shield_break_just_recovered(#[string] name: String) -> bool {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_shield_break_enabled(#[string] name: String) -> bool {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_shield_break_remaining_fraction(#[string] name: String) -> f32 {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, timer, _, _, _, _)| {
+                if *dur <= 0.0 {
+                    0.0
+                } else {
+                    (*timer / *dur).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_shield_multiplier(#[string] name: String) -> f32 {
+    SHIELD_BREAK_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, red, _, _, _)| if *timer > 0.0 { 1.0 - *red } else { 1.0 })
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_shield_break_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShieldBreakDuration { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_shield_break_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShieldBreakReduction { name, reduction });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_shield_break_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShieldBreakEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_shield_break(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyShieldBreak { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_shield_break(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClearShieldBreak { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_root_duration(#[string] name: String) -> f32 {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_root_timer(#[string] name: String) -> f32 {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_root_active(#[string] name: String) -> bool {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_root_allows_rotation(#[string] name: String) -> bool {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, ar, _, _, _, _)| *ar)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_root_allows_attack(#[string] name: String) -> bool {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, aa, _, _, _)| *aa)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_root_just_rooted(#[string] name: String) -> bool {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jr, _, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_root_just_freed(#[string] name: String) -> bool {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jf, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_root_enabled(#[string] name: String) -> bool {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_root_elapsed_fraction(#[string] name: String) -> f32 {
+    ROOT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, timer, _, _, _, _, _)| {
+                if *dur <= 0.0 {
+                    0.0
+                } else {
+                    (1.0 - (*timer / *dur)).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_root_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRootDuration { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_root_allows_rotation(#[string] name: String, allows: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRootAllowsRotation { name, allows });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_root_allows_attack(#[string] name: String, allows: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRootAllowsAttack { name, allows });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_root_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRootEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_root(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyRoot { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_root(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ClearRoot { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_slow_reduction(#[string] name: String) -> f32 {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(red, _, _, _, _, _)| *red)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_slow_duration(#[string] name: String) -> f32 {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, dur, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_slow_timer(#[string] name: String) -> f32 {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, timer, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_slow_active(#[string] name: String) -> bool {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, timer, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_slow_just_slowed(#[string] name: String) -> bool {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, js, _, _)| *js)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_slow_just_recovered(#[string] name: String) -> bool {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_slow_enabled(#[string] name: String) -> bool {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_slow_effective_multiplier(#[string] name: String) -> f32 {
+    SLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(red, _, timer, _, _, _)| if *timer > 0.0 { 1.0 - *red } else { 1.0 })
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_slow_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlowReduction { name, reduction });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_slow_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlowDuration { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_slow_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlowEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_slow(#[string] name: String, reduction: f32, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplySlow {
+            name,
+            reduction,
+            duration,
+        });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_slow(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ClearSlow { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_stun_severity(#[string] name: String) -> u32 {
+    STUN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(sev, _, _, _, _)| *sev)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_stun_timer(#[string] name: String) -> f32 {
+    STUN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_stun_active(#[string] name: String) -> bool {
+    STUN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_stun_just_stunned(#[string] name: String) -> bool {
+    STUN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, js, _, _)| *js)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_stun_just_recovered(#[string] name: String) -> bool {
+    STUN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_stun_enabled(#[string] name: String) -> bool {
+    STUN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_stun_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStunEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_stun(#[string] name: String, duration: f32, severity: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyStun {
+            name,
+            duration,
+            severity,
+        });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_stun(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ClearStun { name });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -9447,6 +10021,57 @@ deno_core::extension!(
         bsengine_set_beacon_enabled,
         bsengine_light_beacon,
         bsengine_extinguish_beacon,
+        bsengine_get_shield_break_duration,
+        bsengine_get_shield_break_timer,
+        bsengine_get_shield_break_reduction,
+        bsengine_is_shield_break_active,
+        bsengine_is_shield_break_just_broken,
+        bsengine_is_shield_break_just_recovered,
+        bsengine_is_shield_break_enabled,
+        bsengine_get_shield_break_remaining_fraction,
+        bsengine_get_shield_multiplier,
+        bsengine_set_shield_break_duration,
+        bsengine_set_shield_break_reduction,
+        bsengine_set_shield_break_enabled,
+        bsengine_apply_shield_break,
+        bsengine_clear_shield_break,
+        bsengine_get_root_duration,
+        bsengine_get_root_timer,
+        bsengine_is_root_active,
+        bsengine_is_root_allows_rotation,
+        bsengine_is_root_allows_attack,
+        bsengine_is_root_just_rooted,
+        bsengine_is_root_just_freed,
+        bsengine_is_root_enabled,
+        bsengine_get_root_elapsed_fraction,
+        bsengine_set_root_duration,
+        bsengine_set_root_allows_rotation,
+        bsengine_set_root_allows_attack,
+        bsengine_set_root_enabled,
+        bsengine_apply_root,
+        bsengine_clear_root,
+        bsengine_get_slow_reduction,
+        bsengine_get_slow_duration,
+        bsengine_get_slow_timer,
+        bsengine_is_slow_active,
+        bsengine_is_slow_just_slowed,
+        bsengine_is_slow_just_recovered,
+        bsengine_is_slow_enabled,
+        bsengine_get_slow_effective_multiplier,
+        bsengine_set_slow_reduction,
+        bsengine_set_slow_duration,
+        bsengine_set_slow_enabled,
+        bsengine_apply_slow,
+        bsengine_clear_slow,
+        bsengine_get_stun_severity,
+        bsengine_get_stun_timer,
+        bsengine_is_stun_active,
+        bsengine_is_stun_just_stunned,
+        bsengine_is_stun_just_recovered,
+        bsengine_is_stun_enabled,
+        bsengine_set_stun_enabled,
+        bsengine_apply_stun,
+        bsengine_clear_stun,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -10632,6 +11257,61 @@ const Bsengine = {
     setBeaconEnabled:            (name, en)    => Deno.core.ops.bsengine_set_beacon_enabled(name, en),
     lightBeacon:                 (name, dur)   => Deno.core.ops.bsengine_light_beacon(name, dur),
     extinguishBeacon:            (name)        => Deno.core.ops.bsengine_extinguish_beacon(name),
+    // ShieldBreak
+    getShieldBreakDuration:         (name)        => Deno.core.ops.bsengine_get_shield_break_duration(name),
+    getShieldBreakTimer:            (name)        => Deno.core.ops.bsengine_get_shield_break_timer(name),
+    getShieldBreakReduction:        (name)        => Deno.core.ops.bsengine_get_shield_break_reduction(name),
+    isShieldBreakActive:            (name)        => Deno.core.ops.bsengine_is_shield_break_active(name),
+    isShieldBreakJustBroken:        (name)        => Deno.core.ops.bsengine_is_shield_break_just_broken(name),
+    isShieldBreakJustRecovered:     (name)        => Deno.core.ops.bsengine_is_shield_break_just_recovered(name),
+    isShieldBreakEnabled:           (name)        => Deno.core.ops.bsengine_is_shield_break_enabled(name),
+    getShieldBreakRemainingFraction:(name)        => Deno.core.ops.bsengine_get_shield_break_remaining_fraction(name),
+    getShieldMultiplier:            (name)        => Deno.core.ops.bsengine_get_shield_multiplier(name),
+    setShieldBreakDuration:         (name, dur)   => Deno.core.ops.bsengine_set_shield_break_duration(name, dur),
+    setShieldBreakReduction:        (name, red)   => Deno.core.ops.bsengine_set_shield_break_reduction(name, red),
+    setShieldBreakEnabled:          (name, en)    => Deno.core.ops.bsengine_set_shield_break_enabled(name, en),
+    applyShieldBreak:               (name, dur)   => Deno.core.ops.bsengine_apply_shield_break(name, dur),
+    clearShieldBreak:               (name)        => Deno.core.ops.bsengine_clear_shield_break(name),
+    // Root
+    getRootDuration:        (name)        => Deno.core.ops.bsengine_get_root_duration(name),
+    getRootTimer:           (name)        => Deno.core.ops.bsengine_get_root_timer(name),
+    isRootActive:           (name)        => Deno.core.ops.bsengine_is_root_active(name),
+    isRootAllowsRotation:   (name)        => Deno.core.ops.bsengine_is_root_allows_rotation(name),
+    isRootAllowsAttack:     (name)        => Deno.core.ops.bsengine_is_root_allows_attack(name),
+    isRootJustRooted:       (name)        => Deno.core.ops.bsengine_is_root_just_rooted(name),
+    isRootJustFreed:        (name)        => Deno.core.ops.bsengine_is_root_just_freed(name),
+    isRootEnabled:          (name)        => Deno.core.ops.bsengine_is_root_enabled(name),
+    getRootElapsedFraction: (name)        => Deno.core.ops.bsengine_get_root_elapsed_fraction(name),
+    setRootDuration:        (name, dur)   => Deno.core.ops.bsengine_set_root_duration(name, dur),
+    setRootAllowsRotation:  (name, al)    => Deno.core.ops.bsengine_set_root_allows_rotation(name, al),
+    setRootAllowsAttack:    (name, al)    => Deno.core.ops.bsengine_set_root_allows_attack(name, al),
+    setRootEnabled:         (name, en)    => Deno.core.ops.bsengine_set_root_enabled(name, en),
+    applyRoot:              (name, dur)   => Deno.core.ops.bsengine_apply_root(name, dur),
+    clearRoot:              (name)        => Deno.core.ops.bsengine_clear_root(name),
+    // Slow
+    getSlowReduction:           (name)           => Deno.core.ops.bsengine_get_slow_reduction(name),
+    getSlowDuration:            (name)           => Deno.core.ops.bsengine_get_slow_duration(name),
+    getSlowTimer:               (name)           => Deno.core.ops.bsengine_get_slow_timer(name),
+    isSlowActive:               (name)           => Deno.core.ops.bsengine_is_slow_active(name),
+    isSlowJustSlowed:           (name)           => Deno.core.ops.bsengine_is_slow_just_slowed(name),
+    isSlowJustRecovered:        (name)           => Deno.core.ops.bsengine_is_slow_just_recovered(name),
+    isSlowEnabled:              (name)           => Deno.core.ops.bsengine_is_slow_enabled(name),
+    getSlowEffectiveMultiplier: (name)           => Deno.core.ops.bsengine_get_slow_effective_multiplier(name),
+    setSlowReduction:           (name, red)      => Deno.core.ops.bsengine_set_slow_reduction(name, red),
+    setSlowDuration:            (name, dur)      => Deno.core.ops.bsengine_set_slow_duration(name, dur),
+    setSlowEnabled:             (name, en)       => Deno.core.ops.bsengine_set_slow_enabled(name, en),
+    applySlow:                  (name, red, dur) => Deno.core.ops.bsengine_apply_slow(name, red, dur),
+    clearSlow:                  (name)           => Deno.core.ops.bsengine_clear_slow(name),
+    // Stun (severity: 0=Light, 1=Heavy, 2=Knockdown)
+    getStunSeverity:        (name)           => Deno.core.ops.bsengine_get_stun_severity(name),
+    getStunTimer:           (name)           => Deno.core.ops.bsengine_get_stun_timer(name),
+    isStunActive:           (name)           => Deno.core.ops.bsengine_is_stun_active(name),
+    isStunJustStunned:      (name)           => Deno.core.ops.bsengine_is_stun_just_stunned(name),
+    isStunJustRecovered:    (name)           => Deno.core.ops.bsengine_is_stun_just_recovered(name),
+    isStunEnabled:          (name)           => Deno.core.ops.bsengine_is_stun_enabled(name),
+    setStunEnabled:         (name, en)       => Deno.core.ops.bsengine_set_stun_enabled(name, en),
+    applyStun:              (name, dur, sev) => Deno.core.ops.bsengine_apply_stun(name, dur, sev),
+    clearStun:              (name)           => Deno.core.ops.bsengine_clear_stun(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -18919,6 +19599,321 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetBeaconEnabled { name, enabled }
                 if name == "Waypoint" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_shield_break_read_ops() {
+        super::SHIELD_BREAK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Enemy".to_string(), (4.0, 2.0, 0.6, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(
+            (rt.eval(r#"Bsengine.getShieldBreakDuration("Enemy")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 4.0)
+                .abs()
+                < 0.001
+        );
+        assert!(
+            (rt.eval(r#"Bsengine.getShieldBreakReduction("Enemy")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 0.6)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isShieldBreakActive("Enemy")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isShieldBreakJustBroken("Enemy")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        // shield_multiplier = 1.0 - 0.6 = 0.4
+        let mul = rt
+            .eval(r#"Bsengine.getShieldMultiplier("Enemy")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((mul - 0.4).abs() < 0.01);
+        // remaining fraction = 2.0/4.0 = 0.5
+        let frac = rt
+            .eval(r#"Bsengine.getShieldBreakRemainingFraction("Enemy")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((frac - 0.5).abs() < 0.01);
+        super::SHIELD_BREAK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_shield_break_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyShieldBreak("Enemy", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearShieldBreak("Enemy");"#).unwrap();
+        rt.eval(r#"Bsengine.setShieldBreakEnabled("Enemy", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplyShieldBreak { name, duration }
+                if name == "Enemy" && (*duration - 3.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ClearShieldBreak { name }
+                if name == "Enemy"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetShieldBreakEnabled { name, enabled }
+                if name == "Enemy" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_root_read_ops() {
+        super::ROOT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (5.0, 3.0, true, false, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(
+            (rt.eval(r#"Bsengine.getRootDuration("Player")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 5.0)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isRootActive("Player")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isRootAllowsRotation("Player")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isRootAllowsAttack("Player")"#)
+                .unwrap()
+                .trim(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isRootJustRooted("Player")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        // elapsed fraction = 1 - 3/5 = 0.4
+        let ef = rt
+            .eval(r#"Bsengine.getRootElapsedFraction("Player")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((ef - 0.4).abs() < 0.01);
+        super::ROOT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_root_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyRoot("Player", 2.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearRoot("Player");"#).unwrap();
+        rt.eval(r#"Bsengine.setRootAllowsAttack("Player", true);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplyRoot { name, duration }
+                if name == "Player" && (*duration - 2.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ClearRoot { name }
+                if name == "Player"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetRootAllowsAttack { name, allows }
+                if name == "Player" && *allows
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_slow_read_ops() {
+        super::SLOW_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Mob".to_string(), (0.5, 3.0, 1.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(
+            (rt.eval(r#"Bsengine.getSlowReduction("Mob")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 0.5)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isSlowActive("Mob")"#).unwrap().trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isSlowJustSlowed("Mob")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        // effective_multiplier = 1.0 - 0.5 = 0.5
+        let mul = rt
+            .eval(r#"Bsengine.getSlowEffectiveMultiplier("Mob")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((mul - 0.5).abs() < 0.01);
+        super::SLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_slow_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applySlow("Mob", 0.4, 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearSlow("Mob");"#).unwrap();
+        rt.eval(r#"Bsengine.setSlowEnabled("Mob", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplySlow { name, reduction, duration }
+                if name == "Mob" && (*reduction - 0.4).abs() < 0.001 && (*duration - 5.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ClearSlow { name }
+                if name == "Mob"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetSlowEnabled { name, enabled }
+                if name == "Mob" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_stun_read_ops() {
+        super::STUN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Boss".to_string(), (1u32, 2.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getStunSeverity("Boss")"#)
+                .unwrap()
+                .trim(),
+            "1"
+        );
+        assert!(
+            (rt.eval(r#"Bsengine.getStunTimer("Boss")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 2.5)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isStunActive("Boss")"#).unwrap().trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isStunJustStunned("Boss")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isStunEnabled("Boss")"#).unwrap().trim(),
+            "true"
+        );
+        super::STUN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_stun_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyStun("Boss", 3.0, 2);"#).unwrap();
+        rt.eval(r#"Bsengine.clearStun("Boss");"#).unwrap();
+        rt.eval(r#"Bsengine.setStunEnabled("Boss", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplyStun { name, duration, severity }
+                if name == "Boss" && (*duration - 3.0).abs() < 0.001 && *severity == 2
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ClearStun { name }
+                if name == "Boss"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetStunEnabled { name, enabled }
+                if name == "Boss" && !enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

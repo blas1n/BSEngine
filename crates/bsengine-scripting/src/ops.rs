@@ -1148,6 +1148,70 @@ pub enum ScriptCommand {
     CalmAlarm {
         name: String,
     },
+    ApplyAmplify {
+        name: String,
+        duration: f32,
+    },
+    ClearAmplify {
+        name: String,
+    },
+    SetAmplifyDuration {
+        name: String,
+        duration: f32,
+    },
+    SetAmplifyPowerMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetAmplifyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetBarrierCapacity {
+        name: String,
+        capacity: f32,
+    },
+    SetBarrierCurrent {
+        name: String,
+        current: f32,
+    },
+    SetBarrierRegenRate {
+        name: String,
+        rate: f32,
+    },
+    SetBarrierRegenDelay {
+        name: String,
+        delay: f32,
+    },
+    SetBarrierEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RestoreBarrier {
+        name: String,
+    },
+    DrainBarrier {
+        name: String,
+    },
+    SetBeaconPriority {
+        name: String,
+        priority: u32,
+    },
+    SetBeaconBroadcastRadius {
+        name: String,
+        radius: f32,
+    },
+    SetBeaconEnabled {
+        name: String,
+        enabled: bool,
+    },
+    LightBeacon {
+        name: String,
+        duration: f32,
+    },
+    ExtinguishBeacon {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1874,6 +1938,15 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (alert_duration, timer, detection_radius, just_triggered, just_calmed, enabled)
     pub(crate) static ALARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, power_multiplier, just_amplified, just_faded, enabled)
+    pub(crate) static AMPLIFY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (capacity, current, regen_rate, regen_delay, regen_timer, just_broken, just_restored, enabled)
+    pub(crate) static BARRIER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (priority, broadcast_radius, duration, timer, lit, just_lit, just_extinguished, enabled)
+    pub(crate) static BEACON_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, bool, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -7836,6 +7909,449 @@ pub fn bsengine_get_alarm_remaining_fraction(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_get_amplify_duration(#[string] name: String) -> f32 {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_amplify_timer(#[string] name: String) -> f32 {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_amplify_power_multiplier(#[string] name: String) -> f32 {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, mul, _, _, _)| *mul)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_amplify_active(#[string] name: String) -> bool {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_amplify_just_amplified(#[string] name: String) -> bool {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ja, _, _)| *ja)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_amplify_just_faded(#[string] name: String) -> bool {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jf, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_amplify_enabled(#[string] name: String) -> bool {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_amplify_remaining_fraction(#[string] name: String) -> f32 {
+    AMPLIFY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, timer, _, _, _, _)| {
+                if *dur <= 0.0 {
+                    0.0
+                } else {
+                    (*timer / *dur).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_amplify_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAmplifyDuration { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_amplify_power_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAmplifyPowerMultiplier { name, multiplier });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_amplify_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetAmplifyEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_amplify(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyAmplify { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_amplify(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ClearAmplify { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_barrier_capacity(#[string] name: String) -> f32 {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cap, _, _, _, _, _, _, _)| *cap)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_barrier_current(#[string] name: String) -> f32 {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, cur, _, _, _, _, _, _)| *cur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_barrier_regen_rate(#[string] name: String) -> f32 {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, rate, _, _, _, _, _)| *rate)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_barrier_regen_delay(#[string] name: String) -> f32 {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, delay, _, _, _, _)| *delay)
+            .unwrap_or(3.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_barrier_regen_timer(#[string] name: String) -> f32 {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, rt, _, _, _)| *rt)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_barrier_active(#[string] name: String) -> bool {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, cur, _, _, _, _, _, _)| *cur > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_barrier_full(#[string] name: String) -> bool {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cap, cur, _, _, _, _, _, _)| *cur >= *cap)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_barrier_just_broken(#[string] name: String) -> bool {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jb, _, _)| *jb)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_barrier_just_restored(#[string] name: String) -> bool {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_barrier_enabled(#[string] name: String) -> bool {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_barrier_fraction(#[string] name: String) -> f32 {
+    BARRIER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cap, cur, _, _, _, _, _, _)| {
+                if *cap <= 0.0 {
+                    0.0
+                } else {
+                    (*cur / *cap).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_barrier_capacity(#[string] name: String, capacity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBarrierCapacity { name, capacity });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_barrier_current(#[string] name: String, current: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBarrierCurrent { name, current });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_barrier_regen_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBarrierRegenRate { name, rate });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_barrier_regen_delay(#[string] name: String, delay: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBarrierRegenDelay { name, delay });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_barrier_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBarrierEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_restore_barrier(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::RestoreBarrier { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_drain_barrier(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::DrainBarrier { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_beacon_priority(#[string] name: String) -> u32 {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(pri, _, _, _, _, _, _, _)| *pri)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_beacon_broadcast_radius(#[string] name: String) -> f32 {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, rad, _, _, _, _, _, _)| *rad)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_beacon_duration(#[string] name: String) -> f32 {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_beacon_timer(#[string] name: String) -> f32 {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, timer, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_beacon_lit(#[string] name: String) -> bool {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, lit, _, _, _)| *lit)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_beacon_permanent(#[string] name: String) -> bool {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, _, lit, _, _, _)| *lit && *dur == 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_beacon_just_lit(#[string] name: String) -> bool {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jl, _, _)| *jl)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_beacon_just_extinguished(#[string] name: String) -> bool {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, je, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_beacon_enabled(#[string] name: String) -> bool {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_beacon_remaining_fraction(#[string] name: String) -> f32 {
+    BEACON_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dur, timer, lit, _, _, _)| {
+                if !*lit {
+                    0.0
+                } else if *dur <= 0.0 {
+                    1.0
+                } else {
+                    (*timer / *dur).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_beacon_priority(#[string] name: String, priority: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBeaconPriority { name, priority });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_beacon_broadcast_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBeaconBroadcastRadius { name, radius });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_beacon_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBeaconEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_light_beacon(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LightBeacon { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_extinguish_beacon(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExtinguishBeacon { name });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -8885,6 +9401,52 @@ deno_core::extension!(
         bsengine_trigger_alarm,
         bsengine_calm_alarm,
         bsengine_get_alarm_remaining_fraction,
+        bsengine_get_amplify_duration,
+        bsengine_get_amplify_timer,
+        bsengine_get_amplify_power_multiplier,
+        bsengine_is_amplify_active,
+        bsengine_is_amplify_just_amplified,
+        bsengine_is_amplify_just_faded,
+        bsengine_is_amplify_enabled,
+        bsengine_get_amplify_remaining_fraction,
+        bsengine_set_amplify_duration,
+        bsengine_set_amplify_power_multiplier,
+        bsengine_set_amplify_enabled,
+        bsengine_apply_amplify,
+        bsengine_clear_amplify,
+        bsengine_get_barrier_capacity,
+        bsengine_get_barrier_current,
+        bsengine_get_barrier_regen_rate,
+        bsengine_get_barrier_regen_delay,
+        bsengine_get_barrier_regen_timer,
+        bsengine_is_barrier_active,
+        bsengine_is_barrier_full,
+        bsengine_is_barrier_just_broken,
+        bsengine_is_barrier_just_restored,
+        bsengine_is_barrier_enabled,
+        bsengine_get_barrier_fraction,
+        bsengine_set_barrier_capacity,
+        bsengine_set_barrier_current,
+        bsengine_set_barrier_regen_rate,
+        bsengine_set_barrier_regen_delay,
+        bsengine_set_barrier_enabled,
+        bsengine_restore_barrier,
+        bsengine_drain_barrier,
+        bsengine_get_beacon_priority,
+        bsengine_get_beacon_broadcast_radius,
+        bsengine_get_beacon_duration,
+        bsengine_get_beacon_timer,
+        bsengine_is_beacon_lit,
+        bsengine_is_beacon_permanent,
+        bsengine_is_beacon_just_lit,
+        bsengine_is_beacon_just_extinguished,
+        bsengine_is_beacon_enabled,
+        bsengine_get_beacon_remaining_fraction,
+        bsengine_set_beacon_priority,
+        bsengine_set_beacon_broadcast_radius,
+        bsengine_set_beacon_enabled,
+        bsengine_light_beacon,
+        bsengine_extinguish_beacon,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -10021,6 +10583,55 @@ const Bsengine = {
     triggerAlarm:   (name)                 => Deno.core.ops.bsengine_trigger_alarm(name),
     calmAlarm:      (name)                 => Deno.core.ops.bsengine_calm_alarm(name),
     getAlarmRemainingFraction:(name)       => Deno.core.ops.bsengine_get_alarm_remaining_fraction(name),
+    // Amplify
+    getAmplifyDuration:          (name)        => Deno.core.ops.bsengine_get_amplify_duration(name),
+    getAmplifyTimer:             (name)        => Deno.core.ops.bsengine_get_amplify_timer(name),
+    getAmplifyPowerMultiplier:   (name)        => Deno.core.ops.bsengine_get_amplify_power_multiplier(name),
+    isAmplifyActive:             (name)        => Deno.core.ops.bsengine_is_amplify_active(name),
+    isAmplifyJustAmplified:      (name)        => Deno.core.ops.bsengine_is_amplify_just_amplified(name),
+    isAmplifyJustFaded:          (name)        => Deno.core.ops.bsengine_is_amplify_just_faded(name),
+    isAmplifyEnabled:            (name)        => Deno.core.ops.bsengine_is_amplify_enabled(name),
+    getAmplifyRemainingFraction: (name)        => Deno.core.ops.bsengine_get_amplify_remaining_fraction(name),
+    setAmplifyDuration:          (name, dur)   => Deno.core.ops.bsengine_set_amplify_duration(name, dur),
+    setAmplifyPowerMultiplier:   (name, mul)   => Deno.core.ops.bsengine_set_amplify_power_multiplier(name, mul),
+    setAmplifyEnabled:           (name, en)    => Deno.core.ops.bsengine_set_amplify_enabled(name, en),
+    applyAmplify:                (name, dur)   => Deno.core.ops.bsengine_apply_amplify(name, dur),
+    clearAmplify:                (name)        => Deno.core.ops.bsengine_clear_amplify(name),
+    // Barrier
+    getBarrierCapacity:          (name)        => Deno.core.ops.bsengine_get_barrier_capacity(name),
+    getBarrierCurrent:           (name)        => Deno.core.ops.bsengine_get_barrier_current(name),
+    getBarrierRegenRate:         (name)        => Deno.core.ops.bsengine_get_barrier_regen_rate(name),
+    getBarrierRegenDelay:        (name)        => Deno.core.ops.bsengine_get_barrier_regen_delay(name),
+    getBarrierRegenTimer:        (name)        => Deno.core.ops.bsengine_get_barrier_regen_timer(name),
+    isBarrierActive:             (name)        => Deno.core.ops.bsengine_is_barrier_active(name),
+    isBarrierFull:               (name)        => Deno.core.ops.bsengine_is_barrier_full(name),
+    isBarrierJustBroken:         (name)        => Deno.core.ops.bsengine_is_barrier_just_broken(name),
+    isBarrierJustRestored:       (name)        => Deno.core.ops.bsengine_is_barrier_just_restored(name),
+    isBarrierEnabled:            (name)        => Deno.core.ops.bsengine_is_barrier_enabled(name),
+    getBarrierFraction:          (name)        => Deno.core.ops.bsengine_get_barrier_fraction(name),
+    setBarrierCapacity:          (name, cap)   => Deno.core.ops.bsengine_set_barrier_capacity(name, cap),
+    setBarrierCurrent:           (name, cur)   => Deno.core.ops.bsengine_set_barrier_current(name, cur),
+    setBarrierRegenRate:         (name, rate)  => Deno.core.ops.bsengine_set_barrier_regen_rate(name, rate),
+    setBarrierRegenDelay:        (name, delay) => Deno.core.ops.bsengine_set_barrier_regen_delay(name, delay),
+    setBarrierEnabled:           (name, en)    => Deno.core.ops.bsengine_set_barrier_enabled(name, en),
+    restoreBarrier:              (name)        => Deno.core.ops.bsengine_restore_barrier(name),
+    drainBarrier:                (name)        => Deno.core.ops.bsengine_drain_barrier(name),
+    // Beacon
+    getBeaconPriority:           (name)        => Deno.core.ops.bsengine_get_beacon_priority(name),
+    getBeaconBroadcastRadius:    (name)        => Deno.core.ops.bsengine_get_beacon_broadcast_radius(name),
+    getBeaconDuration:           (name)        => Deno.core.ops.bsengine_get_beacon_duration(name),
+    getBeaconTimer:              (name)        => Deno.core.ops.bsengine_get_beacon_timer(name),
+    isBeaconLit:                 (name)        => Deno.core.ops.bsengine_is_beacon_lit(name),
+    isBeaconPermanent:           (name)        => Deno.core.ops.bsengine_is_beacon_permanent(name),
+    isBeaconJustLit:             (name)        => Deno.core.ops.bsengine_is_beacon_just_lit(name),
+    isBeaconJustExtinguished:    (name)        => Deno.core.ops.bsengine_is_beacon_just_extinguished(name),
+    isBeaconEnabled:             (name)        => Deno.core.ops.bsengine_is_beacon_enabled(name),
+    getBeaconRemainingFraction:  (name)        => Deno.core.ops.bsengine_get_beacon_remaining_fraction(name),
+    setBeaconPriority:           (name, pri)   => Deno.core.ops.bsengine_set_beacon_priority(name, pri),
+    setBeaconBroadcastRadius:    (name, rad)   => Deno.core.ops.bsengine_set_beacon_broadcast_radius(name, rad),
+    setBeaconEnabled:            (name, en)    => Deno.core.ops.bsengine_set_beacon_enabled(name, en),
+    lightBeacon:                 (name, dur)   => Deno.core.ops.bsengine_light_beacon(name, dur),
+    extinguishBeacon:            (name)        => Deno.core.ops.bsengine_extinguish_beacon(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -18027,6 +18638,287 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::CalmAlarm { name }
                 if name == "Tower"
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_amplify_read_ops() {
+        super::AMPLIFY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Caster".to_string(), (3.0, 2.0, 1.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(
+            (rt.eval(r#"Bsengine.getAmplifyDuration("Caster")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 3.0)
+                .abs()
+                < 0.001
+        );
+        assert!(
+            (rt.eval(r#"Bsengine.getAmplifyPowerMultiplier("Caster")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 1.5)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isAmplifyActive("Caster")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isAmplifyJustAmplified("Caster")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isAmplifyEnabled("Caster")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        let frac = rt
+            .eval(r#"Bsengine.getAmplifyRemainingFraction("Caster")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((frac - 2.0 / 3.0).abs() < 0.01);
+        super::AMPLIFY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_amplify_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyAmplify("Caster", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearAmplify("Caster");"#).unwrap();
+        rt.eval(r#"Bsengine.setAmplifyPowerMultiplier("Caster", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAmplifyEnabled("Caster", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ApplyAmplify { name, duration }
+                if name == "Caster" && (*duration - 5.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ClearAmplify { name }
+                if name == "Caster"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAmplifyPowerMultiplier { name, multiplier }
+                if name == "Caster" && (*multiplier - 2.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAmplifyEnabled { name, enabled }
+                if name == "Caster" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_barrier_read_ops() {
+        super::BARRIER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shield".to_string(),
+                (100.0, 75.0, 10.0, 2.0, 0.5, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(
+            (rt.eval(r#"Bsengine.getBarrierCapacity("Shield")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 100.0)
+                .abs()
+                < 0.001
+        );
+        assert!(
+            (rt.eval(r#"Bsengine.getBarrierCurrent("Shield")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 75.0)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBarrierActive("Shield")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBarrierFull("Shield")"#)
+                .unwrap()
+                .trim(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBarrierEnabled("Shield")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        let frac = rt
+            .eval(r#"Bsengine.getBarrierFraction("Shield")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((frac - 0.75).abs() < 0.01);
+        super::BARRIER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_barrier_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setBarrierCapacity("Shield", 200.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.restoreBarrier("Shield");"#).unwrap();
+        rt.eval(r#"Bsengine.drainBarrier("Shield");"#).unwrap();
+        rt.eval(r#"Bsengine.setBarrierEnabled("Shield", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBarrierCapacity { name, capacity }
+                if name == "Shield" && (*capacity - 200.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::RestoreBarrier { name }
+                if name == "Shield"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::DrainBarrier { name }
+                if name == "Shield"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBarrierEnabled { name, enabled }
+                if name == "Shield" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_beacon_read_ops() {
+        super::BEACON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Waypoint".to_string(),
+                (3u32, 25.0, 4.0, 2.0, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getBeaconPriority("Waypoint")"#)
+                .unwrap()
+                .trim(),
+            "3"
+        );
+        assert!(
+            (rt.eval(r#"Bsengine.getBeaconBroadcastRadius("Waypoint")"#)
+                .unwrap()
+                .trim()
+                .parse::<f32>()
+                .unwrap()
+                - 25.0)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBeaconLit("Waypoint")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBeaconPermanent("Waypoint")"#)
+                .unwrap()
+                .trim(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isBeaconEnabled("Waypoint")"#)
+                .unwrap()
+                .trim(),
+            "true"
+        );
+        let frac = rt
+            .eval(r#"Bsengine.getBeaconRemainingFraction("Waypoint")"#)
+            .unwrap()
+            .trim()
+            .parse::<f32>()
+            .unwrap();
+        assert!((frac - 0.5).abs() < 0.01);
+        super::BEACON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_beacon_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.lightBeacon("Waypoint", 10.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.extinguishBeacon("Waypoint");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBeaconPriority("Waypoint", 5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBeaconEnabled("Waypoint", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::LightBeacon { name, duration }
+                if name == "Waypoint" && (*duration - 10.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::ExtinguishBeacon { name }
+                if name == "Waypoint"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBeaconPriority { name, priority }
+                if name == "Waypoint" && *priority == 5
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBeaconEnabled { name, enabled }
+                if name == "Waypoint" && !enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

@@ -290,6 +290,23 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    BeginCharge {
+        name: String,
+    },
+    ReleaseCharge {
+        name: String,
+    },
+    CancelCharge {
+        name: String,
+    },
+    SetChargeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetChargeRate {
+        name: String,
+        rate: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -838,6 +855,10 @@ thread_local! {
 
     // entity name → (fuel, max_fuel, low_threshold, just_emptied, is_low, enabled)
     pub(crate) static FUEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (current, max_charge, is_charging, is_fully_charged, enabled)
+    pub(crate) static CHARGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2469,6 +2490,97 @@ pub fn bsengine_is_fuel_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_begin_charge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginCharge { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_release_charge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseCharge { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_cancel_charge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CancelCharge { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_charge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetChargeEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_charge_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetChargeRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_charge(#[string] name: String) -> f32 {
+    CHARGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, _, _, _, _)| *cur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_charge(#[string] name: String) -> f32 {
+    CHARGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, max, _, _, _)| *max)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_charge_fraction(#[string] name: String) -> f32 {
+    CHARGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(cur, max, _, _, _)| if *max > 0.0 { *cur / *max } else { 0.0 })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_charging(#[string] name: String) -> bool {
+    CHARGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, charging, _, _)| *charging)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fully_charged(#[string] name: String) -> bool {
+    CHARGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, full, _)| *full)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_charge_enabled(#[string] name: String) -> bool {
+    CHARGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3479,6 +3591,17 @@ deno_core::extension!(
         bsengine_is_fuel_low,
         bsengine_fuel_just_emptied,
         bsengine_is_fuel_enabled,
+        bsengine_begin_charge,
+        bsengine_release_charge,
+        bsengine_cancel_charge,
+        bsengine_set_charge_enabled,
+        bsengine_set_charge_rate,
+        bsengine_get_charge,
+        bsengine_get_max_charge,
+        bsengine_get_charge_fraction,
+        bsengine_is_charging,
+        bsengine_is_fully_charged,
+        bsengine_is_charge_enabled,
     ],
 );
 
@@ -3684,6 +3807,17 @@ const Bsengine = {
     isFuelLow:          (name)              => Deno.core.ops.bsengine_is_fuel_low(name),
     fuelJustEmptied:    (name)              => Deno.core.ops.bsengine_fuel_just_emptied(name),
     isFuelEnabled:      (name)              => Deno.core.ops.bsengine_is_fuel_enabled(name),
+    beginCharge:        (name)              => Deno.core.ops.bsengine_begin_charge(name),
+    releaseCharge:      (name)              => Deno.core.ops.bsengine_release_charge(name),
+    cancelCharge:       (name)              => Deno.core.ops.bsengine_cancel_charge(name),
+    setChargeEnabled:   (name, enabled)     => Deno.core.ops.bsengine_set_charge_enabled(name, enabled),
+    setChargeRate:      (name, rate)        => Deno.core.ops.bsengine_set_charge_rate(name, rate),
+    getCharge:          (name)              => Deno.core.ops.bsengine_get_charge(name),
+    getMaxCharge:       (name)              => Deno.core.ops.bsengine_get_max_charge(name),
+    getChargeFraction:  (name)              => Deno.core.ops.bsengine_get_charge_fraction(name),
+    isCharging:         (name)              => Deno.core.ops.bsengine_is_charging(name),
+    isFullyCharged:     (name)              => Deno.core.ops.bsengine_is_fully_charged(name),
+    isChargeEnabled:    (name)              => Deno.core.ops.bsengine_is_charge_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -8243,6 +8377,93 @@ JSON.stringify(received)
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isFuelEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn begin_charge_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginCharge("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::BeginCharge { name } if name == "Hero"),
+            );
+            assert!(found, "BeginCharge not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn release_charge_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.releaseCharge("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::ReleaseCharge { name } if name == "Hero"),
+            );
+            assert!(found, "ReleaseCharge not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn cancel_charge_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.cancelCharge("Hero");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::CancelCharge { name } if name == "Hero"),
+            );
+            assert!(found, "CancelCharge not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_charge_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getCharge("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_charge_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getChargeFraction("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_charging_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isCharging("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_fully_charged_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isFullyCharged("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_charge_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isChargeEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
     }
 }

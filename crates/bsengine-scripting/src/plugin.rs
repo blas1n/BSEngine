@@ -15,7 +15,7 @@ use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
-    ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
+    ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT,
     COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
     ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
     FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
@@ -824,6 +824,24 @@ fn run_scripts(world: &mut World) {
             );
         }
         FUEL_SNAPSHOT.with(|s| *s.borrow_mut() = fuel_map);
+    }
+    {
+        use bsengine_core::Charge;
+        let mut charge_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Charge)>();
+        for (name, c) in q.iter(world) {
+            charge_map.insert(
+                name.0.clone(),
+                (
+                    c.current,
+                    c.max_charge,
+                    c.is_charging(),
+                    c.is_fully_charged(),
+                    c.enabled,
+                ),
+            );
+        }
+        CHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = charge_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -1702,6 +1720,66 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut f) = world.get_mut::<Fuel>(e) {
                         f.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BeginCharge { name } => {
+                use bsengine_core::Charge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut c) = world.get_mut::<Charge>(e) {
+                        c.begin();
+                    }
+                }
+            }
+            ScriptCommand::ReleaseCharge { name } => {
+                use bsengine_core::Charge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut c) = world.get_mut::<Charge>(e) {
+                        c.release();
+                    }
+                }
+            }
+            ScriptCommand::CancelCharge { name } => {
+                use bsengine_core::Charge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut c) = world.get_mut::<Charge>(e) {
+                        c.cancel();
+                    }
+                }
+            }
+            ScriptCommand::SetChargeEnabled { name, enabled } => {
+                use bsengine_core::Charge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut c) = world.get_mut::<Charge>(e) {
+                        c.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetChargeRate { name, rate } => {
+                use bsengine_core::Charge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut c) = world.get_mut::<Charge>(e) {
+                        c.charge_rate = rate.max(0.0);
                     }
                 }
             }

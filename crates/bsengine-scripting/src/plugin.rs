@@ -20,7 +20,7 @@ use crate::ops::{
     CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT,
     COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
     DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOOTSTEP_SNAPSHOT,
     FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
@@ -1386,6 +1386,33 @@ fn run_scripts(world: &mut World) {
             );
         }
         VIGNETTE_SNAPSHOT.with(|s| *s.borrow_mut() = vg_map);
+    }
+    {
+        use bsengine_core::{Fog, FogMode};
+        let mut fog_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Fog)>();
+        for (_, name, fog) in q.iter(world) {
+            let mode_u32 = match fog.mode {
+                FogMode::Linear => 0u32,
+                FogMode::Exponential => 1u32,
+                FogMode::ExponentialSquared => 2u32,
+            };
+            fog_map.insert(
+                name.0.clone(),
+                (
+                    fog.color.r,
+                    fog.color.g,
+                    fog.color.b,
+                    fog.color.a,
+                    fog.density,
+                    fog.start_distance,
+                    fog.end_distance,
+                    mode_u32,
+                    fog.enabled,
+                ),
+            );
+        }
+        FOG_SNAPSHOT.with(|s| *s.borrow_mut() = fog_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4025,6 +4052,87 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut vg) = world.get_mut::<Vignette>(e) {
                         vg.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetFogColor { name, r, g, b, a } => {
+                use bsengine_core::{Color, Fog};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut fog) = world.get_mut::<Fog>(e) {
+                        fog.color = Color::rgba(
+                            r.clamp(0.0, 1.0),
+                            g.clamp(0.0, 1.0),
+                            b.clamp(0.0, 1.0),
+                            a.clamp(0.0, 1.0),
+                        );
+                    }
+                }
+            }
+            ScriptCommand::SetFogDensity { name, density } => {
+                use bsengine_core::Fog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut fog) = world.get_mut::<Fog>(e) {
+                        fog.density = density.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFogStartDistance { name, start } => {
+                use bsengine_core::Fog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut fog) = world.get_mut::<Fog>(e) {
+                        fog.start_distance = start.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFogEndDistance { name, end } => {
+                use bsengine_core::Fog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut fog) = world.get_mut::<Fog>(e) {
+                        fog.end_distance = end.max(fog.start_distance);
+                    }
+                }
+            }
+            ScriptCommand::SetFogMode { name, mode } => {
+                use bsengine_core::{Fog, FogMode};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut fog) = world.get_mut::<Fog>(e) {
+                        fog.mode = match mode {
+                            0 => FogMode::Linear,
+                            2 => FogMode::ExponentialSquared,
+                            _ => FogMode::Exponential,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetFogEnabled { name, enabled } => {
+                use bsengine_core::Fog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut fog) = world.get_mut::<Fog>(e) {
+                        fog.enabled = enabled;
                     }
                 }
             }

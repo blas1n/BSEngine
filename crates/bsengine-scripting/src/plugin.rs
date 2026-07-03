@@ -14,29 +14,29 @@ use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPat
 use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
-    ScriptCommand, SpawnParams, ABSORPTION_SNAPSHOT, AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT,
-    ANCHOR_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT,
-    ARMOR_SNAPSHOT, BILLBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
-    BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT,
-    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DAMAGE_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
-    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT,
-    FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
-    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LAYER_SNAPSHOT, LEVEL_SNAPSHOT,
-    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
-    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT,
-    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
+    ScriptCommand, SpawnParams, ABILITY_SNAPSHOT, ABSORPTION_SNAPSHOT, ALARM_SNAPSHOT,
+    AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT, ANCHOR_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT,
+    ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BILLBOARD_SNAPSHOT,
+    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT, CHARGE_SNAPSHOT,
+    CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
+    COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DAMAGE_SNAPSHOT,
+    DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT,
+    EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
+    EXPERIENCE_SNAPSHOT, FOG_SNAPSHOT, FOLLOW_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT,
+    FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
+    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
+    LAYER_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT,
+    MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
+    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT,
+    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
+    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT,
+    OUTLINE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
+    RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPAWN_POINT_SNAPSHOT,
+    SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, STATUS_EFFECT_SNAPSHOT, TAG_SNAPSHOT,
+    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
     TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT,
     VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
@@ -1668,6 +1668,46 @@ fn run_scripts(world: &mut World) {
             );
         }
         STATUS_EFFECT_SNAPSHOT.with(|s| *s.borrow_mut() = se_map);
+    }
+    {
+        use bsengine_core::Ability;
+        let mut ab_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ability)>();
+        for (_, name, ab) in q.iter(world) {
+            ab_map.insert(
+                name.0.clone(),
+                (
+                    ab.name.clone(),
+                    ab.cooldown,
+                    ab.cooldown_remaining,
+                    ab.max_charges,
+                    ab.charges,
+                    ab.charge_regen_time,
+                    ab.charge_regen_accumulated,
+                    ab.enabled,
+                ),
+            );
+        }
+        ABILITY_SNAPSHOT.with(|s| *s.borrow_mut() = ab_map);
+    }
+    {
+        use bsengine_core::Alarm;
+        let mut al_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Alarm)>();
+        for (_, name, al) in q.iter(world) {
+            al_map.insert(
+                name.0.clone(),
+                (
+                    al.alert_duration,
+                    al.timer,
+                    al.detection_radius,
+                    al.just_triggered,
+                    al.just_calmed,
+                    al.enabled,
+                ),
+            );
+        }
+        ALARM_SNAPSHOT.with(|s| *s.borrow_mut() = al_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -5022,6 +5062,150 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut se) = world.get_mut::<StatusEffect>(e) {
                         se.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityName { name, ability_name } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.name = ability_name;
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityCooldown { name, cooldown } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.cooldown = cooldown.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityCooldownRemaining { name, remaining } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.cooldown_remaining = remaining.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityMaxCharges { name, max_charges } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.max_charges = max_charges;
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityCharges { name, charges } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.charges = charges;
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityChargeRegenTime { name, regen_time } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.charge_regen_time = regen_time.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAbilityEnabled { name, enabled } => {
+                use bsengine_core::Ability;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ab) = world.get_mut::<Ability>(e) {
+                        ab.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetAlarmAlertDuration { name, duration } => {
+                use bsengine_core::Alarm;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut al) = world.get_mut::<Alarm>(e) {
+                        al.alert_duration = duration.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAlarmDetectionRadius { name, radius } => {
+                use bsengine_core::Alarm;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut al) = world.get_mut::<Alarm>(e) {
+                        al.detection_radius = radius.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetAlarmEnabled { name, enabled } => {
+                use bsengine_core::Alarm;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut al) = world.get_mut::<Alarm>(e) {
+                        al.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TriggerAlarm { name } => {
+                use bsengine_core::Alarm;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut al) = world.get_mut::<Alarm>(e) {
+                        al.trigger();
+                    }
+                }
+            }
+            ScriptCommand::CalmAlarm { name } => {
+                use bsengine_core::Alarm;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut al) = world.get_mut::<Alarm>(e) {
+                        al.calm();
                     }
                 }
             }

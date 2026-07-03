@@ -544,6 +544,24 @@ pub enum ScriptCommand {
     ResetFootstep {
         name: String,
     },
+    AdvanceDialogue {
+        name: String,
+    },
+    ResetDialogue {
+        name: String,
+    },
+    SetDialogueEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetDialogueLooping {
+        name: String,
+        looping: bool,
+    },
+    SetDialogueCurrentIndex {
+        name: String,
+        index: u32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1144,6 +1162,11 @@ thread_local! {
     // entity name → (step_interval, distance_accumulated, volume, audio_prefix, surface_u8, min_speed, enabled)
     pub(crate) static FOOTSTEP_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, String, u8, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+
+    // entity name → (current_index, line_count, looping, enabled, is_finished, current_speaker, current_text)
+    pub(crate) static DIALOGUE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, bool, bool, bool, String, String)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -4113,6 +4136,112 @@ pub fn bsengine_is_footstep_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_advance_dialogue(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AdvanceDialogue { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_dialogue(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetDialogue { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dialogue_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDialogueEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dialogue_looping(#[string] name: String, looping: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDialogueLooping { name, looping })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dialogue_current_index(#[string] name: String, index: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDialogueCurrentIndex { name, index })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dialogue_current_index(#[string] name: String) -> u32 {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ci, _, _, _, _, _, _)| *ci)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dialogue_line_count(#[string] name: String) -> u32 {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, lc, _, _, _, _, _)| *lc)
+            .unwrap_or(0)
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_dialogue_current_speaker(#[string] name: String) -> String {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, sp, _)| sp.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_dialogue_current_text(#[string] name: String) -> String {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, tx)| tx.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dialogue_finished(#[string] name: String) -> bool {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, fin, _, _)| *fin)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dialogue_enabled(#[string] name: String) -> bool {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, en, _, _, _)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dialogue_looping(#[string] name: String) -> bool {
+    DIALOGUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, lp, _, _, _, _)| *lp)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5272,6 +5401,18 @@ deno_core::extension!(
         bsengine_get_footstep_surface,
         bsengine_get_footstep_min_speed,
         bsengine_is_footstep_enabled,
+        bsengine_advance_dialogue,
+        bsengine_reset_dialogue,
+        bsengine_set_dialogue_enabled,
+        bsengine_set_dialogue_looping,
+        bsengine_set_dialogue_current_index,
+        bsengine_get_dialogue_current_index,
+        bsengine_get_dialogue_line_count,
+        bsengine_get_dialogue_current_speaker,
+        bsengine_get_dialogue_current_text,
+        bsengine_is_dialogue_finished,
+        bsengine_is_dialogue_enabled,
+        bsengine_is_dialogue_looping,
     ],
 );
 
@@ -5626,6 +5767,18 @@ const Bsengine = {
     getFootstepSurface:     (name)          => Deno.core.ops.bsengine_get_footstep_surface(name),
     getFootstepMinSpeed:    (name)          => Deno.core.ops.bsengine_get_footstep_min_speed(name),
     isFootstepEnabled:      (name)          => Deno.core.ops.bsengine_is_footstep_enabled(name),
+    advanceDialogue:        (name)          => Deno.core.ops.bsengine_advance_dialogue(name),
+    resetDialogue:          (name)          => Deno.core.ops.bsengine_reset_dialogue(name),
+    setDialogueEnabled:     (name, enabled) => Deno.core.ops.bsengine_set_dialogue_enabled(name, enabled),
+    setDialogueLooping:     (name, looping) => Deno.core.ops.bsengine_set_dialogue_looping(name, looping),
+    setDialogueCurrentIndex:(name, idx)     => Deno.core.ops.bsengine_set_dialogue_current_index(name, idx),
+    getDialogueCurrentIndex:(name)          => Deno.core.ops.bsengine_get_dialogue_current_index(name),
+    getDialogueLineCount:   (name)          => Deno.core.ops.bsengine_get_dialogue_line_count(name),
+    getDialogueCurrentSpeaker:(name)        => Deno.core.ops.bsengine_get_dialogue_current_speaker(name),
+    getDialogueCurrentText: (name)          => Deno.core.ops.bsengine_get_dialogue_current_text(name),
+    isDialogueFinished:     (name)          => Deno.core.ops.bsengine_is_dialogue_finished(name),
+    isDialogueEnabled:      (name)          => Deno.core.ops.bsengine_is_dialogue_enabled(name),
+    isDialogueLooping:      (name)          => Deno.core.ops.bsengine_is_dialogue_looping(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -11433,5 +11586,65 @@ JSON.stringify(received)
         let en = rt.eval(r#"Bsengine.isFootstepEnabled("Player");"#).unwrap();
         assert_eq!(en.trim(), "true");
         super::FOOTSTEP_SNAPSHOT.with(|s| s.borrow_mut().remove("Player"));
+    }
+
+    #[test]
+    fn dialogue_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.advanceDialogue("NPC");"#).unwrap();
+        rt.eval(r#"Bsengine.resetDialogue("NPC");"#).unwrap();
+        rt.eval(r#"Bsengine.setDialogueEnabled("NPC", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDialogueLooping("NPC", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDialogueCurrentIndex("NPC", 2);"#)
+            .unwrap();
+        let cmds = super::COMMAND_BUFFER.with(|c| c.borrow().len());
+        assert_eq!(cmds, 5);
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn dialogue_snapshot_read_ops() {
+        // current_index=1, line_count=3, looping=true, enabled=true, is_finished=false,
+        // current_speaker="npc", current_text="Hello!"
+        super::DIALOGUE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "NPC".to_string(),
+                (
+                    1u32,
+                    3u32,
+                    true,
+                    true,
+                    false,
+                    "npc".to_string(),
+                    "Hello!".to_string(),
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let ci = rt
+            .eval(r#"Bsengine.getDialogueCurrentIndex("NPC");"#)
+            .unwrap();
+        assert_eq!(ci.trim().parse::<u32>().unwrap(), 1);
+        let lc = rt.eval(r#"Bsengine.getDialogueLineCount("NPC");"#).unwrap();
+        assert_eq!(lc.trim().parse::<u32>().unwrap(), 3);
+        let sp = rt
+            .eval(r#"Bsengine.getDialogueCurrentSpeaker("NPC");"#)
+            .unwrap();
+        assert_eq!(sp.trim(), "npc");
+        let tx = rt
+            .eval(r#"Bsengine.getDialogueCurrentText("NPC");"#)
+            .unwrap();
+        assert_eq!(tx.trim(), "Hello!");
+        let fin = rt.eval(r#"Bsengine.isDialogueFinished("NPC");"#).unwrap();
+        assert_eq!(fin.trim(), "false");
+        let en = rt.eval(r#"Bsengine.isDialogueEnabled("NPC");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        let lp = rt.eval(r#"Bsengine.isDialogueLooping("NPC");"#).unwrap();
+        assert_eq!(lp.trim(), "true");
+        super::DIALOGUE_SNAPSHOT.with(|s| s.borrow_mut().remove("NPC"));
     }
 }

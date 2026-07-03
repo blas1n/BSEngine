@@ -603,6 +603,25 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetEmissiveColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetEmissiveIntensity {
+        name: String,
+        intensity: f32,
+    },
+    SetEmissiveContributesToBloom {
+        name: String,
+        value: bool,
+    },
+    SetEmissiveEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1215,6 +1234,10 @@ thread_local! {
 
     // entity name → (progress, edge_width, edge_r, edge_g, edge_b, edge_a, noise_scale, enabled)
     pub(crate) static DISSOLVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (color_r, color_g, color_b, color_a, intensity, contributes_to_bloom, enabled)
+    pub(crate) static EMISSIVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -4532,6 +4555,108 @@ pub fn bsengine_is_dissolved(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_emissive_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmissiveColor { name, r, g, b, a })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_emissive_intensity(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmissiveIntensity { name, intensity })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_emissive_contributes_to_bloom(#[string] name: String, value: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmissiveContributesToBloom { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_emissive_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmissiveEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_emissive_color_r(#[string] name: String) -> f32 {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_emissive_color_g(#[string] name: String) -> f32 {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, g, _, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_emissive_color_b(#[string] name: String) -> f32 {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, b, _, _, _, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_emissive_color_a(#[string] name: String) -> f32 {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, a, _, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_emissive_intensity(#[string] name: String) -> f32 {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, i, _, _)| *i)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_emissive_contributes_to_bloom(#[string] name: String) -> bool {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, b, _)| *b)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_emissive_enabled(#[string] name: String) -> bool {
+    EMISSIVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5729,6 +5854,17 @@ deno_core::extension!(
         bsengine_get_dissolve_noise_scale,
         bsengine_is_dissolve_enabled,
         bsengine_is_dissolved,
+        bsengine_set_emissive_color,
+        bsengine_set_emissive_intensity,
+        bsengine_set_emissive_contributes_to_bloom,
+        bsengine_set_emissive_enabled,
+        bsengine_get_emissive_color_r,
+        bsengine_get_emissive_color_g,
+        bsengine_get_emissive_color_b,
+        bsengine_get_emissive_color_a,
+        bsengine_get_emissive_intensity,
+        bsengine_is_emissive_contributes_to_bloom,
+        bsengine_is_emissive_enabled,
     ],
 );
 
@@ -6121,6 +6257,17 @@ const Bsengine = {
     getDissolveNoiseScale:  (name)          => Deno.core.ops.bsengine_get_dissolve_noise_scale(name),
     isDissolveEnabled:      (name)          => Deno.core.ops.bsengine_is_dissolve_enabled(name),
     isDissolved:            (name)          => Deno.core.ops.bsengine_is_dissolved(name),
+    setEmissiveColor:       (name, r, g, b, a) => Deno.core.ops.bsengine_set_emissive_color(name, r, g, b, a),
+    setEmissiveIntensity:   (name, i)       => Deno.core.ops.bsengine_set_emissive_intensity(name, i),
+    setEmissiveContributesToBloom:(name, v) => Deno.core.ops.bsengine_set_emissive_contributes_to_bloom(name, v),
+    setEmissiveEnabled:     (name, v)       => Deno.core.ops.bsengine_set_emissive_enabled(name, v),
+    getEmissiveColorR:      (name)          => Deno.core.ops.bsengine_get_emissive_color_r(name),
+    getEmissiveColorG:      (name)          => Deno.core.ops.bsengine_get_emissive_color_g(name),
+    getEmissiveColorB:      (name)          => Deno.core.ops.bsengine_get_emissive_color_b(name),
+    getEmissiveColorA:      (name)          => Deno.core.ops.bsengine_get_emissive_color_a(name),
+    getEmissiveIntensity:   (name)          => Deno.core.ops.bsengine_get_emissive_intensity(name),
+    isEmissiveContributesToBloom:(name)     => Deno.core.ops.bsengine_is_emissive_contributes_to_bloom(name),
+    isEmissiveEnabled:      (name)          => Deno.core.ops.bsengine_is_emissive_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -12136,5 +12283,72 @@ JSON.stringify(received)
         let dis = rt.eval(r#"Bsengine.isDissolved("Obj");"#).unwrap();
         assert_eq!(dis.trim(), "false");
         super::DISSOLVE_SNAPSHOT.with(|s| s.borrow_mut().remove("Obj"));
+    }
+
+    #[test]
+    fn emissive_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setEmissiveColor("Light", 1.0, 0.5, 0.0, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setEmissiveIntensity("Light", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setEmissiveContributesToBloom("Light", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setEmissiveEnabled("Light", false);"#)
+            .unwrap();
+        let cmds: Vec<_> = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        assert_eq!(cmds.len(), 4);
+        assert!(matches!(
+            &cmds[0],
+            super::ScriptCommand::SetEmissiveColor { name, r, .. }
+                if name == "Light" && (*r - 1.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[1],
+            super::ScriptCommand::SetEmissiveIntensity { name, intensity }
+                if name == "Light" && (*intensity - 2.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[2],
+            super::ScriptCommand::SetEmissiveContributesToBloom { name, value: false }
+                if name == "Light"
+        ));
+        assert!(matches!(
+            &cmds[3],
+            super::ScriptCommand::SetEmissiveEnabled { name, enabled: false }
+                if name == "Light"
+        ));
+    }
+
+    #[test]
+    fn emissive_snapshot_read_ops() {
+        // color=[1,0.5,0,1], intensity=2.0, contributes_to_bloom=true, enabled=true
+        super::EMISSIVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Light".to_string(),
+                (1.0_f32, 0.5_f32, 0.0_f32, 1.0_f32, 2.0_f32, true, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getEmissiveColorR("Light");"#).unwrap();
+        assert!((r.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let g = rt.eval(r#"Bsengine.getEmissiveColorG("Light");"#).unwrap();
+        assert!((g.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let b = rt.eval(r#"Bsengine.getEmissiveColorB("Light");"#).unwrap();
+        assert!((b.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let i = rt
+            .eval(r#"Bsengine.getEmissiveIntensity("Light");"#)
+            .unwrap();
+        assert!((i.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let bloom = rt
+            .eval(r#"Bsengine.isEmissiveContributesToBloom("Light");"#)
+            .unwrap();
+        assert_eq!(bloom.trim(), "true");
+        let en = rt.eval(r#"Bsengine.isEmissiveEnabled("Light");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        super::EMISSIVE_SNAPSHOT.with(|s| s.borrow_mut().remove("Light"));
     }
 }

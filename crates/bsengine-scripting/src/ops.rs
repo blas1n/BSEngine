@@ -1564,6 +1564,112 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    TriggerDodge {
+        name: String,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+    },
+    SetDodgeSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetDodgeDuration {
+        name: String,
+        duration: f32,
+    },
+    SetDodgeCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetDodgeAllowAirborne {
+        name: String,
+        allow: bool,
+    },
+    SetDodgeMaxChain {
+        name: String,
+        max_chain: u32,
+    },
+    SetDodgeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyDrain {
+        name: String,
+        rate: f32,
+        duration: f32,
+    },
+    ClearDrain {
+        name: String,
+    },
+    SetDrainRate {
+        name: String,
+        rate: f32,
+    },
+    SetDrainEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyEmpower {
+        name: String,
+        duration: f32,
+    },
+    ClearEmpower {
+        name: String,
+    },
+    SetEmpowerPotencyMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetEmpowerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyEnervate {
+        name: String,
+        duration: f32,
+    },
+    ClearEnervate {
+        name: String,
+    },
+    SetEnervateRegenFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetEnervateMaxPoolFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetEnervateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyEntangle {
+        name: String,
+        duration: f32,
+    },
+    ClearEntangle {
+        name: String,
+    },
+    SetEntangleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyExpose {
+        name: String,
+        duration: f32,
+    },
+    ClearExpose {
+        name: String,
+    },
+    SetExposeDamageMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetExposeEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2372,6 +2478,31 @@ thread_local! {
     // entity name → (duration, timer, damage_fraction, flee_chance, just_demoralized, just_recovered, enabled)
     pub(crate) static DEMORALIZE_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (phase_u32, dx, dy, dz, speed, duration, timer, invincible, cooldown, wants_dodge, allow_airborne, chain_count, max_chain, enabled)
+    // DodgePhase: Idle=0, Rolling=1, Cooldown=2
+    pub(crate) static DODGE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, bool, f32, bool, bool, u32, u32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (rate, duration, timer, just_drained, just_expired, enabled)
+    pub(crate) static DRAIN_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, potency_multiplier, just_empowered, just_faded, enabled)
+    pub(crate) static EMPOWER_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, regen_fraction, max_pool_fraction, just_enervated, just_restored, enabled)
+    pub(crate) static ENERVATE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, just_entangled, just_unentangled, enabled)
+    pub(crate) static ENTANGLE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage_multiplier, just_exposed, just_recovered, enabled)
+    pub(crate) static EXPOSE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -11049,6 +11180,682 @@ pub fn bsengine_set_demoralize_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// --- Dodge ---
+
+#[op2(fast)]
+pub fn bsengine_is_dodge_rolling(#[string] name: String) -> bool {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ph, _, _, _, _, _, _, _, _, _, _, _, _, _)| *ph == 1)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_phase(#[string] name: String) -> u32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ph, _, _, _, _, _, _, _, _, _, _, _, _, _)| *ph)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_direction_x(#[string] name: String) -> f32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, dx, _, _, _, _, _, _, _, _, _, _, _, _)| *dx)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_direction_y(#[string] name: String) -> f32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dy, _, _, _, _, _, _, _, _, _, _, _)| *dy)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_direction_z(#[string] name: String) -> f32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, dz, _, _, _, _, _, _, _, _, _, _)| *dz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_speed(#[string] name: String) -> f32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, sp, _, _, _, _, _, _, _, _, _)| *sp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_timer(#[string] name: String) -> f32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, t, _, _, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dodge_invincible(#[string] name: String) -> bool {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, inv, _, _, _, _, _, _)| *inv)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_cooldown(#[string] name: String) -> f32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, cd, _, _, _, _, _)| *cd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dodge_chain_count(#[string] name: String) -> u32 {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, _, cc, _, _)| *cc)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dodge_enabled(#[string] name: String) -> bool {
+    DODGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_trigger_dodge(#[string] name: String, dx: f32, dy: f32, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TriggerDodge { name, dx, dy, dz })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dodge_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDodgeSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dodge_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDodgeDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dodge_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDodgeCooldown { name, cooldown })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dodge_allow_airborne(#[string] name: String, allow: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDodgeAllowAirborne { name, allow })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dodge_max_chain(#[string] name: String, max_chain: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDodgeMaxChain { name, max_chain })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dodge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDodgeEnabled { name, enabled })
+    });
+}
+
+// --- Drain ---
+
+#[op2(fast)]
+pub fn bsengine_is_drain_active(#[string] name: String) -> bool {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, t, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_drain_rate(#[string] name: String) -> f32 {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(r, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_drain_duration(#[string] name: String) -> f32 {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_drain_timer(#[string] name: String) -> f32 {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, t, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_drain_just_drained(#[string] name: String) -> bool {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jd, _, _)| *jd)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_drain_just_expired(#[string] name: String) -> bool {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, je, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_drain_enabled(#[string] name: String) -> bool {
+    DRAIN_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_drain(#[string] name: String, rate: f32, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ApplyDrain {
+            name,
+            rate,
+            duration,
+        })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_drain(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearDrain { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_drain_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDrainRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_drain_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDrainEnabled { name, enabled })
+    });
+}
+
+// --- Empower ---
+
+#[op2(fast)]
+pub fn bsengine_is_empower_active(#[string] name: String) -> bool {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_empower_duration(#[string] name: String) -> f32 {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_empower_timer(#[string] name: String) -> f32 {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_empower_potency_multiplier(#[string] name: String) -> f32 {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, pm, _, _, _)| *pm)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_empower_just_empowered(#[string] name: String) -> bool {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_empower_just_faded(#[string] name: String) -> bool {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jf, _)| *jf)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_empower_enabled(#[string] name: String) -> bool {
+    EMPOWER_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_empower(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyEmpower { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_empower(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearEmpower { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_empower_potency_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmpowerPotencyMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_empower_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEmpowerEnabled { name, enabled })
+    });
+}
+
+// --- Enervate ---
+
+#[op2(fast)]
+pub fn bsengine_is_enervate_active(#[string] name: String) -> bool {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_enervate_duration(#[string] name: String) -> f32 {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_enervate_timer(#[string] name: String) -> f32 {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_enervate_regen_fraction(#[string] name: String) -> f32 {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, rf, _, _, _, _)| *rf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_enervate_max_pool_fraction(#[string] name: String) -> f32 {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, mpf, _, _, _)| *mpf)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_enervate_just_enervated(#[string] name: String) -> bool {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_enervate_just_restored(#[string] name: String) -> bool {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_enervate_enabled(#[string] name: String) -> bool {
+    ENERVATE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_enervate(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyEnervate { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_enervate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearEnervate { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_enervate_regen_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEnervateRegenFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_enervate_max_pool_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEnervateMaxPoolFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_enervate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEnervateEnabled { name, enabled })
+    });
+}
+
+// --- Entangle ---
+
+#[op2(fast)]
+pub fn bsengine_is_entangle_active(#[string] name: String) -> bool {
+    ENTANGLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_entangle_duration(#[string] name: String) -> f32 {
+    ENTANGLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_entangle_timer(#[string] name: String) -> f32 {
+    ENTANGLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_entangle_just_entangled(#[string] name: String) -> bool {
+    ENTANGLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_entangle_just_unentangled(#[string] name: String) -> bool {
+    ENTANGLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ju, _)| *ju)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_entangle_enabled(#[string] name: String) -> bool {
+    ENTANGLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_entangle(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyEntangle { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_entangle(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearEntangle { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_entangle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetEntangleEnabled { name, enabled })
+    });
+}
+
+// --- Expose ---
+
+#[op2(fast)]
+pub fn bsengine_is_expose_active(#[string] name: String) -> bool {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_expose_duration(#[string] name: String) -> f32 {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_expose_timer(#[string] name: String) -> f32 {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_expose_damage_multiplier(#[string] name: String) -> f32 {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, dm, _, _, _)| *dm)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_expose_just_exposed(#[string] name: String) -> bool {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_expose_just_recovered(#[string] name: String) -> bool {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jr, _)| *jr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_expose_enabled(#[string] name: String) -> bool {
+    EXPOSE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_expose(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyExpose { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_expose(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearExpose { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_expose_damage_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExposeDamageMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_expose_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetExposeEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -12390,6 +13197,79 @@ deno_core::extension!(
         bsengine_set_demoralize_damage_fraction,
         bsengine_set_demoralize_flee_chance,
         bsengine_set_demoralize_enabled,
+        bsengine_is_dodge_rolling,
+        bsengine_get_dodge_phase,
+        bsengine_get_dodge_direction_x,
+        bsengine_get_dodge_direction_y,
+        bsengine_get_dodge_direction_z,
+        bsengine_get_dodge_speed,
+        bsengine_get_dodge_timer,
+        bsengine_is_dodge_invincible,
+        bsengine_get_dodge_cooldown,
+        bsengine_get_dodge_chain_count,
+        bsengine_is_dodge_enabled,
+        bsengine_trigger_dodge,
+        bsengine_set_dodge_speed,
+        bsengine_set_dodge_duration,
+        bsengine_set_dodge_cooldown,
+        bsengine_set_dodge_allow_airborne,
+        bsengine_set_dodge_max_chain,
+        bsengine_set_dodge_enabled,
+        bsengine_is_drain_active,
+        bsengine_get_drain_rate,
+        bsengine_get_drain_duration,
+        bsengine_get_drain_timer,
+        bsengine_is_drain_just_drained,
+        bsengine_is_drain_just_expired,
+        bsengine_is_drain_enabled,
+        bsengine_apply_drain,
+        bsengine_clear_drain,
+        bsengine_set_drain_rate,
+        bsengine_set_drain_enabled,
+        bsengine_is_empower_active,
+        bsengine_get_empower_duration,
+        bsengine_get_empower_timer,
+        bsengine_get_empower_potency_multiplier,
+        bsengine_is_empower_just_empowered,
+        bsengine_is_empower_just_faded,
+        bsengine_is_empower_enabled,
+        bsengine_apply_empower,
+        bsengine_clear_empower,
+        bsengine_set_empower_potency_multiplier,
+        bsengine_set_empower_enabled,
+        bsengine_is_enervate_active,
+        bsengine_get_enervate_duration,
+        bsengine_get_enervate_timer,
+        bsengine_get_enervate_regen_fraction,
+        bsengine_get_enervate_max_pool_fraction,
+        bsengine_is_enervate_just_enervated,
+        bsengine_is_enervate_just_restored,
+        bsengine_is_enervate_enabled,
+        bsengine_apply_enervate,
+        bsengine_clear_enervate,
+        bsengine_set_enervate_regen_fraction,
+        bsengine_set_enervate_max_pool_fraction,
+        bsengine_set_enervate_enabled,
+        bsengine_is_entangle_active,
+        bsengine_get_entangle_duration,
+        bsengine_get_entangle_timer,
+        bsengine_is_entangle_just_entangled,
+        bsengine_is_entangle_just_unentangled,
+        bsengine_is_entangle_enabled,
+        bsengine_apply_entangle,
+        bsengine_clear_entangle,
+        bsengine_set_entangle_enabled,
+        bsengine_is_expose_active,
+        bsengine_get_expose_duration,
+        bsengine_get_expose_timer,
+        bsengine_get_expose_damage_multiplier,
+        bsengine_is_expose_just_exposed,
+        bsengine_is_expose_just_recovered,
+        bsengine_is_expose_enabled,
+        bsengine_apply_expose,
+        bsengine_clear_expose,
+        bsengine_set_expose_damage_multiplier,
+        bsengine_set_expose_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -13824,6 +14704,79 @@ const Bsengine = {
     setDemoralizeDamageFraction:(name, frac) => Deno.core.ops.bsengine_set_demoralize_damage_fraction(name, frac),
     setDemoralizeFleeChance:(name, ch)       => Deno.core.ops.bsengine_set_demoralize_flee_chance(name, ch),
     setDemoralizeEnabled:   (name, en)       => Deno.core.ops.bsengine_set_demoralize_enabled(name, en),
+    isDodgeRolling:         (name)           => Deno.core.ops.bsengine_is_dodge_rolling(name),
+    getDodgePhase:          (name)           => Deno.core.ops.bsengine_get_dodge_phase(name),
+    getDodgeDirectionX:     (name)           => Deno.core.ops.bsengine_get_dodge_direction_x(name),
+    getDodgeDirectionY:     (name)           => Deno.core.ops.bsengine_get_dodge_direction_y(name),
+    getDodgeDirectionZ:     (name)           => Deno.core.ops.bsengine_get_dodge_direction_z(name),
+    getDodgeSpeed:          (name)           => Deno.core.ops.bsengine_get_dodge_speed(name),
+    getDodgeTimer:          (name)           => Deno.core.ops.bsengine_get_dodge_timer(name),
+    isDodgeInvincible:      (name)           => Deno.core.ops.bsengine_is_dodge_invincible(name),
+    getDodgeCooldown:       (name)           => Deno.core.ops.bsengine_get_dodge_cooldown(name),
+    getDodgeChainCount:     (name)           => Deno.core.ops.bsengine_get_dodge_chain_count(name),
+    isDodgeEnabled:         (name)           => Deno.core.ops.bsengine_is_dodge_enabled(name),
+    triggerDodge:           (name, dx, dy, dz) => Deno.core.ops.bsengine_trigger_dodge(name, dx, dy, dz),
+    setDodgeSpeed:          (name, sp)       => Deno.core.ops.bsengine_set_dodge_speed(name, sp),
+    setDodgeDuration:       (name, dur)      => Deno.core.ops.bsengine_set_dodge_duration(name, dur),
+    setDodgeCooldown:       (name, cd)       => Deno.core.ops.bsengine_set_dodge_cooldown(name, cd),
+    setDodgeAllowAirborne:  (name, allow)    => Deno.core.ops.bsengine_set_dodge_allow_airborne(name, allow),
+    setDodgeMaxChain:       (name, mc)       => Deno.core.ops.bsengine_set_dodge_max_chain(name, mc),
+    setDodgeEnabled:        (name, en)       => Deno.core.ops.bsengine_set_dodge_enabled(name, en),
+    isDrainActive:          (name)           => Deno.core.ops.bsengine_is_drain_active(name),
+    getDrainRate:           (name)           => Deno.core.ops.bsengine_get_drain_rate(name),
+    getDrainDuration:       (name)           => Deno.core.ops.bsengine_get_drain_duration(name),
+    getDrainTimer:          (name)           => Deno.core.ops.bsengine_get_drain_timer(name),
+    isDrainJustDrained:     (name)           => Deno.core.ops.bsengine_is_drain_just_drained(name),
+    isDrainJustExpired:     (name)           => Deno.core.ops.bsengine_is_drain_just_expired(name),
+    isDrainEnabled:         (name)           => Deno.core.ops.bsengine_is_drain_enabled(name),
+    applyDrain:             (name, rate, dur) => Deno.core.ops.bsengine_apply_drain(name, rate, dur),
+    clearDrain:             (name)           => Deno.core.ops.bsengine_clear_drain(name),
+    setDrainRate:           (name, rate)     => Deno.core.ops.bsengine_set_drain_rate(name, rate),
+    setDrainEnabled:        (name, en)       => Deno.core.ops.bsengine_set_drain_enabled(name, en),
+    isEmpowerActive:        (name)           => Deno.core.ops.bsengine_is_empower_active(name),
+    getEmpowerDuration:     (name)           => Deno.core.ops.bsengine_get_empower_duration(name),
+    getEmpowerTimer:        (name)           => Deno.core.ops.bsengine_get_empower_timer(name),
+    getEmpowerPotencyMultiplier:(name)       => Deno.core.ops.bsengine_get_empower_potency_multiplier(name),
+    isEmpowerJustEmpowered: (name)           => Deno.core.ops.bsengine_is_empower_just_empowered(name),
+    isEmpowerJustFaded:     (name)           => Deno.core.ops.bsengine_is_empower_just_faded(name),
+    isEmpowerEnabled:       (name)           => Deno.core.ops.bsengine_is_empower_enabled(name),
+    applyEmpower:           (name, dur)      => Deno.core.ops.bsengine_apply_empower(name, dur),
+    clearEmpower:           (name)           => Deno.core.ops.bsengine_clear_empower(name),
+    setEmpowerPotencyMultiplier:(name, m)    => Deno.core.ops.bsengine_set_empower_potency_multiplier(name, m),
+    setEmpowerEnabled:      (name, en)       => Deno.core.ops.bsengine_set_empower_enabled(name, en),
+    isEnervateActive:       (name)           => Deno.core.ops.bsengine_is_enervate_active(name),
+    getEnervateDuration:    (name)           => Deno.core.ops.bsengine_get_enervate_duration(name),
+    getEnervateTimer:       (name)           => Deno.core.ops.bsengine_get_enervate_timer(name),
+    getEnervateRegenFraction:(name)          => Deno.core.ops.bsengine_get_enervate_regen_fraction(name),
+    getEnervateMaxPoolFraction:(name)        => Deno.core.ops.bsengine_get_enervate_max_pool_fraction(name),
+    isEnervateJustEnervated:(name)           => Deno.core.ops.bsengine_is_enervate_just_enervated(name),
+    isEnervateJustRestored: (name)           => Deno.core.ops.bsengine_is_enervate_just_restored(name),
+    isEnervateEnabled:      (name)           => Deno.core.ops.bsengine_is_enervate_enabled(name),
+    applyEnervate:          (name, dur)      => Deno.core.ops.bsengine_apply_enervate(name, dur),
+    clearEnervate:          (name)           => Deno.core.ops.bsengine_clear_enervate(name),
+    setEnervateRegenFraction:(name, f)       => Deno.core.ops.bsengine_set_enervate_regen_fraction(name, f),
+    setEnervateMaxPoolFraction:(name, f)     => Deno.core.ops.bsengine_set_enervate_max_pool_fraction(name, f),
+    setEnervateEnabled:     (name, en)       => Deno.core.ops.bsengine_set_enervate_enabled(name, en),
+    isEntangleActive:       (name)           => Deno.core.ops.bsengine_is_entangle_active(name),
+    getEntangleDuration:    (name)           => Deno.core.ops.bsengine_get_entangle_duration(name),
+    getEntangleTimer:       (name)           => Deno.core.ops.bsengine_get_entangle_timer(name),
+    isEntangleJustEntangled:(name)           => Deno.core.ops.bsengine_is_entangle_just_entangled(name),
+    isEntangleJustUnentangled:(name)         => Deno.core.ops.bsengine_is_entangle_just_unentangled(name),
+    isEntangleEnabled:      (name)           => Deno.core.ops.bsengine_is_entangle_enabled(name),
+    applyEntangle:          (name, dur)      => Deno.core.ops.bsengine_apply_entangle(name, dur),
+    clearEntangle:          (name)           => Deno.core.ops.bsengine_clear_entangle(name),
+    setEntangleEnabled:     (name, en)       => Deno.core.ops.bsengine_set_entangle_enabled(name, en),
+    isExposeActive:         (name)           => Deno.core.ops.bsengine_is_expose_active(name),
+    getExposeDuration:      (name)           => Deno.core.ops.bsengine_get_expose_duration(name),
+    getExposeTimer:         (name)           => Deno.core.ops.bsengine_get_expose_timer(name),
+    getExposeDamageMultiplier:(name)         => Deno.core.ops.bsengine_get_expose_damage_multiplier(name),
+    isExposeJustExposed:    (name)           => Deno.core.ops.bsengine_is_expose_just_exposed(name),
+    isExposeJustRecovered:  (name)           => Deno.core.ops.bsengine_is_expose_just_recovered(name),
+    isExposeEnabled:        (name)           => Deno.core.ops.bsengine_is_expose_enabled(name),
+    applyExpose:            (name, dur)      => Deno.core.ops.bsengine_apply_expose(name, dur),
+    clearExpose:            (name)           => Deno.core.ops.bsengine_clear_expose(name),
+    setExposeDamageMultiplier:(name, m)      => Deno.core.ops.bsengine_set_expose_damage_multiplier(name, m),
+    setExposeEnabled:       (name, en)       => Deno.core.ops.bsengine_set_expose_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -23285,6 +24238,300 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDemoralizeDamageFraction { name, fraction } if name == "Guard" && (*fraction - 0.5).abs() < 0.001)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDemoralizeFleeChance { name, chance } if name == "Guard" && (*chance - 0.2).abs() < 0.001)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDemoralizeEnabled { name, enabled } if name == "Guard" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_dodge_read_ops() {
+        // (phase_u32, dx, dy, dz, speed, duration, timer, invincible, cooldown, wants_dodge, allow_airborne, chain_count, max_chain, enabled)
+        // phase: Rolling=1
+        super::DODGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rogue".to_string(),
+                (
+                    1u32, 1.0f32, 0.0f32, 0.0f32, 8.0f32, 0.3f32, 0.2f32, true, 1.0f32, false,
+                    false, 1u32, 3u32, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isDodgeRolling("Rogue")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let phase = rt
+            .eval(r#"Bsengine.getDodgePhase("Rogue")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(phase.trim(), "1");
+        assert!(rt
+            .eval(r#"Bsengine.isDodgeInvincible("Rogue")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let cc = rt
+            .eval(r#"Bsengine.getDodgeChainCount("Rogue")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(cc.trim(), "1");
+        assert!(rt
+            .eval(r#"Bsengine.isDodgeEnabled("Rogue")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::DODGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_dodge_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.triggerDodge("Rogue", 1.0, 0.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDodgeSpeed("Rogue", 10.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDodgeMaxChain("Rogue", 2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDodgeEnabled("Rogue", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerDodge { name, dx, .. } if name == "Rogue" && (*dx - 1.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDodgeSpeed { name, speed } if name == "Rogue" && (*speed - 10.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDodgeMaxChain { name, max_chain } if name == "Rogue" && *max_chain == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDodgeEnabled { name, enabled } if name == "Rogue" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_drain_read_ops() {
+        // (rate, duration, timer, just_drained, just_expired, enabled)
+        super::DRAIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Vampire".to_string(),
+                (5.0f32, 4.0f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isDrainActive("Vampire")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let rate = rt
+            .eval(r#"Bsengine.getDrainRate("Vampire")"#)
+            .unwrap()
+            .to_string();
+        assert!((rate.parse::<f64>().unwrap() - 5.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isDrainJustDrained("Vampire")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::DRAIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_drain_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyDrain("Vampire", 3.0, 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearDrain("Vampire");"#).unwrap();
+        rt.eval(r#"Bsengine.setDrainEnabled("Vampire", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyDrain { name, rate, duration } if name == "Vampire" && (*rate - 3.0).abs() < 0.001 && (*duration - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearDrain { name } if name == "Vampire")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetDrainEnabled { name, enabled } if name == "Vampire" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_empower_read_ops() {
+        // (duration, timer, potency_multiplier, just_empowered, just_faded, enabled)
+        super::EMPOWER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mage".to_string(),
+                (3.0f32, 2.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isEmpowerActive("Mage")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let pm = rt
+            .eval(r#"Bsengine.getEmpowerPotencyMultiplier("Mage")"#)
+            .unwrap()
+            .to_string();
+        assert!((pm.parse::<f64>().unwrap() - 1.5).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isEmpowerJustEmpowered("Mage")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::EMPOWER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_empower_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyEmpower("Mage", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearEmpower("Mage");"#).unwrap();
+        rt.eval(r#"Bsengine.setEmpowerPotencyMultiplier("Mage", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setEmpowerEnabled("Mage", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyEmpower { name, duration } if name == "Mage" && (*duration - 4.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearEmpower { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetEmpowerPotencyMultiplier { name, multiplier } if name == "Mage" && (*multiplier - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetEmpowerEnabled { name, enabled } if name == "Mage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_enervate_read_ops() {
+        // (duration, timer, regen_fraction, max_pool_fraction, just_enervated, just_restored, enabled)
+        super::ENERVATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shade".to_string(),
+                (5.0f32, 3.0f32, 0.2f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isEnervateActive("Shade")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let rf = rt
+            .eval(r#"Bsengine.getEnervateRegenFraction("Shade")"#)
+            .unwrap()
+            .to_string();
+        assert!((rf.parse::<f64>().unwrap() - 0.2).abs() < 0.001);
+        let mpf = rt
+            .eval(r#"Bsengine.getEnervateMaxPoolFraction("Shade")"#)
+            .unwrap()
+            .to_string();
+        assert!((mpf.parse::<f64>().unwrap() - 0.5).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isEnervateJustEnervated("Shade")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::ENERVATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_entangle_read_ops() {
+        // (duration, timer, just_entangled, just_unentangled, enabled)
+        super::ENTANGLE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Spider".to_string(), (2.0f32, 1.5f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isEntangleActive("Spider")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let dur = rt
+            .eval(r#"Bsengine.getEntangleDuration("Spider")"#)
+            .unwrap()
+            .to_string();
+        assert!((dur.parse::<f64>().unwrap() - 2.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isEntangleJustEntangled("Spider")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::ENTANGLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_entangle_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyEntangle("Spider", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearEntangle("Spider");"#).unwrap();
+        rt.eval(r#"Bsengine.setEntangleEnabled("Spider", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyEntangle { name, duration } if name == "Spider" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearEntangle { name } if name == "Spider")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetEntangleEnabled { name, enabled } if name == "Spider" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_expose_read_ops() {
+        // (duration, timer, damage_multiplier, just_exposed, just_recovered, enabled)
+        super::EXPOSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Boss".to_string(),
+                (4.0f32, 2.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isExposeActive("Boss")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let dm = rt
+            .eval(r#"Bsengine.getExposeDamageMultiplier("Boss")"#)
+            .unwrap()
+            .to_string();
+        assert!((dm.parse::<f64>().unwrap() - 1.5).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isExposeJustExposed("Boss")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::EXPOSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_expose_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyExpose("Boss", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearExpose("Boss");"#).unwrap();
+        rt.eval(r#"Bsengine.setExposeDamageMultiplier("Boss", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setExposeEnabled("Boss", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyExpose { name, duration } if name == "Boss" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearExpose { name } if name == "Boss")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetExposeDamageMultiplier { name, multiplier } if name == "Boss" && (*multiplier - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetExposeEnabled { name, enabled } if name == "Boss" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -857,6 +857,24 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetVignetteIntensity {
+        name: String,
+        intensity: f32,
+    },
+    SetVignetteSmoothness {
+        name: String,
+        smoothness: f32,
+    },
+    SetVignetteColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    SetVignetteEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1518,6 +1536,10 @@ thread_local! {
 
     // entity name → (fraction, pool, max_pool, absorbed_total, just_depleted, enabled)
     pub(crate) static ABSORPTION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (intensity, smoothness, r, g, b, enabled)
+    pub(crate) static VIGNETTE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6010,6 +6032,98 @@ pub fn bsengine_is_absorption_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_vignette_intensity(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVignetteIntensity { name, intensity })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_vignette_smoothness(#[string] name: String, smoothness: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVignetteSmoothness { name, smoothness })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_vignette_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVignetteColor { name, r, g, b })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_vignette_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVignetteEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_vignette_intensity(#[string] name: String) -> f32 {
+    VIGNETTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(i, _, _, _, _, _)| *i)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_vignette_smoothness(#[string] name: String) -> f32 {
+    VIGNETTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, s, _, _, _, _)| *s)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_vignette_color_r(#[string] name: String) -> f32 {
+    VIGNETTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, r, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_vignette_color_g(#[string] name: String) -> f32 {
+    VIGNETTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, g, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_vignette_color_b(#[string] name: String) -> f32 {
+    VIGNETTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, b, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_vignette_enabled(#[string] name: String) -> bool {
+    VIGNETTE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7340,6 +7454,16 @@ deno_core::extension!(
         bsengine_get_absorption_absorbed_total,
         bsengine_is_absorption_just_depleted,
         bsengine_is_absorption_enabled,
+        bsengine_set_vignette_intensity,
+        bsengine_set_vignette_smoothness,
+        bsengine_set_vignette_color,
+        bsengine_set_vignette_enabled,
+        bsengine_get_vignette_intensity,
+        bsengine_get_vignette_smoothness,
+        bsengine_get_vignette_color_r,
+        bsengine_get_vignette_color_g,
+        bsengine_get_vignette_color_b,
+        bsengine_is_vignette_enabled,
     ],
 );
 
@@ -7865,6 +7989,16 @@ const Bsengine = {
     getAbsorptionAbsorbedTotal:(name)      => Deno.core.ops.bsengine_get_absorption_absorbed_total(name),
     isAbsorptionJustDepleted:(name)        => Deno.core.ops.bsengine_is_absorption_just_depleted(name),
     isAbsorptionEnabled:(name)             => Deno.core.ops.bsengine_is_absorption_enabled(name),
+    setVignetteIntensity:(name, v)         => Deno.core.ops.bsengine_set_vignette_intensity(name, v),
+    setVignetteSmoothness:(name, v)        => Deno.core.ops.bsengine_set_vignette_smoothness(name, v),
+    setVignetteColor:(name, r, g, b)       => Deno.core.ops.bsengine_set_vignette_color(name, r, g, b),
+    setVignetteEnabled:(name, v)           => Deno.core.ops.bsengine_set_vignette_enabled(name, v),
+    getVignetteIntensity:(name)            => Deno.core.ops.bsengine_get_vignette_intensity(name),
+    getVignetteSmoothness:(name)           => Deno.core.ops.bsengine_get_vignette_smoothness(name),
+    getVignetteColorR:(name)               => Deno.core.ops.bsengine_get_vignette_color_r(name),
+    getVignetteColorG:(name)               => Deno.core.ops.bsengine_get_vignette_color_g(name),
+    getVignetteColorB:(name)               => Deno.core.ops.bsengine_get_vignette_color_b(name),
+    isVignetteEnabled:(name)               => Deno.core.ops.bsengine_is_vignette_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -14662,6 +14796,71 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetAbsorptionEnabled { name, enabled }
                 if name == "Hero" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_vignette_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+
+        super::VIGNETTE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Cam".to_string(), (0.5, 0.5, 0.0, 0.0, 0.0, true));
+        });
+
+        let intensity = rt.eval(r#"Bsengine.getVignetteIntensity("Cam");"#).unwrap();
+        assert!((intensity.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let smoothness = rt
+            .eval(r#"Bsengine.getVignetteSmoothness("Cam");"#)
+            .unwrap();
+        assert!((smoothness.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let cr = rt.eval(r#"Bsengine.getVignetteColorR("Cam");"#).unwrap();
+        assert!((cr.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isVignetteEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+
+        super::VIGNETTE_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn test_vignette_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setVignetteIntensity("Cam", 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setVignetteSmoothness("Cam", 0.3);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setVignetteColor("Cam", 0.1, 0.2, 0.3);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setVignetteEnabled("Cam", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetVignetteIntensity { name, intensity }
+                if name == "Cam" && (*intensity - 0.8).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetVignetteSmoothness { name, smoothness }
+                if name == "Cam" && (*smoothness - 0.3).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetVignetteColor { name, r, g, b }
+                if name == "Cam" && (*r - 0.1).abs() < 0.001
+                    && (*g - 0.2).abs() < 0.001
+                    && (*b - 0.3).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetVignetteEnabled { name, enabled }
+                if name == "Cam" && !*enabled
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

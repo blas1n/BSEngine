@@ -1870,6 +1870,111 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AddIgniteStacks {
+        name: String,
+        amount: f32,
+    },
+    RemoveIgniteStacks {
+        name: String,
+        amount: f32,
+    },
+    ExtinguishIgnite {
+        name: String,
+    },
+    SetIgniteThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetIgniteDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetIgniteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyImbue {
+        name: String,
+        bonus_damage: f32,
+    },
+    ConsumeImbue {
+        name: String,
+    },
+    SetImbueEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddDamageImmunity {
+        name: String,
+        bit: u32,
+    },
+    RemoveDamageImmunity {
+        name: String,
+        bit: u32,
+    },
+    AddEffectImmunity {
+        name: String,
+        bit: u32,
+    },
+    RemoveEffectImmunity {
+        name: String,
+        bit: u32,
+    },
+    ClearAllImmunities {
+        name: String,
+    },
+    SetImmuneEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetImpactEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetImpactMinForce {
+        name: String,
+        min_force: f32,
+    },
+    ResetImpactCount {
+        name: String,
+    },
+    ActivateIntercept {
+        name: String,
+        duration: f32,
+    },
+    DeactivateIntercept {
+        name: String,
+    },
+    SetInterceptRadius {
+        name: String,
+        radius: f32,
+    },
+    SetInterceptDamageReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetInterceptEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ForceInterrupt {
+        name: String,
+    },
+    ResetInterrupt {
+        name: String,
+    },
+    SetInterruptThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetInterruptResistance {
+        name: String,
+        resistance: f32,
+    },
+    SetInterruptEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2752,6 +2857,30 @@ thread_local! {
     // entity name → (duration, timer, speed_fraction, prevents_dash, just_hobbled, just_recovered, enabled)
     pub(crate) static HOBBLE_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, threshold, decay_rate, just_ignited, just_extinguished, enabled)
+    pub(crate) static IGNITE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (charged, bonus_damage, just_charged, just_consumed, enabled)
+    pub(crate) static IMBUE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (damage_type_mask, effect_type_mask, enabled)
+    pub(crate) static IMMUNE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (force, just_impacted, impact_count, normal_x, normal_y, normal_z, enabled)
+    pub(crate) static IMPACT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, bool, u32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, radius, damage_reduction, just_activated, just_deactivated, enabled)
+    pub(crate) static INTERCEPT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (threshold, resistance, just_interrupted, interrupt_count, enabled)
+    pub(crate) static INTERRUPT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, u32, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -13414,6 +13543,615 @@ pub fn bsengine_set_hobble_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Ignite ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_ignite_stacks(#[string] name: String) -> f32 {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(stacks, _, _, _, _, _)| *stacks)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ignite_threshold(#[string] name: String) -> f32 {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, threshold, _, _, _, _)| *threshold)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ignite_decay_rate(#[string] name: String) -> f32 {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, decay_rate, _, _, _)| *decay_rate)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ignited(#[string] name: String) -> bool {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(stacks, threshold, _, _, _, enabled)| {
+                *enabled && *threshold > 0.0 && stacks >= threshold
+            })
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ignite_just_ignited(#[string] name: String) -> bool {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, just_ignited, _, _)| *just_ignited)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ignite_just_extinguished(#[string] name: String) -> bool {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, just_extinguished, _)| *just_extinguished)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ignite_enabled(#[string] name: String) -> bool {
+    IGNITE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, enabled)| *enabled)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_ignite_stacks(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddIgniteStacks { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_remove_ignite_stacks(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RemoveIgniteStacks { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_extinguish_ignite(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExtinguishIgnite { name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ignite_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetIgniteThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ignite_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetIgniteDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ignite_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetIgniteEnabled { name, enabled })
+    });
+}
+
+// ── Imbue ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_imbue_charged(#[string] name: String) -> bool {
+    IMBUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(charged, _, _, _, enabled)| *charged && *enabled)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_imbue_bonus_damage(#[string] name: String) -> f32 {
+    IMBUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, bonus_damage, _, _, _)| *bonus_damage)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_imbue_just_charged(#[string] name: String) -> bool {
+    IMBUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, just_charged, _, _)| *just_charged)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_imbue_just_consumed(#[string] name: String) -> bool {
+    IMBUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, just_consumed, _)| *just_consumed)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_imbue_enabled(#[string] name: String) -> bool {
+    IMBUE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, enabled)| *enabled)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_imbue(#[string] name: String, bonus_damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyImbue { name, bonus_damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_consume_imbue(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConsumeImbue { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_imbue_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetImbueEnabled { name, enabled })
+    });
+}
+
+// ── Immune ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_immune_damage_type_mask(#[string] name: String) -> u32 {
+    IMMUNE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dmask, _, _)| *dmask)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_immune_effect_type_mask(#[string] name: String) -> u32 {
+    IMMUNE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, emask, _)| *emask)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_has_damage_immunity(#[string] name: String, mask: u32) -> bool {
+    IMMUNE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dmask, _, enabled)| *enabled && (dmask & mask) == mask)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_has_effect_immunity(#[string] name: String, mask: u32) -> bool {
+    IMMUNE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, emask, enabled)| *enabled && (emask & mask) == mask)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_any_immune(#[string] name: String) -> bool {
+    IMMUNE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dmask, emask, enabled)| *enabled && (*dmask != 0 || *emask != 0))
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_immune_enabled(#[string] name: String) -> bool {
+    IMMUNE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, enabled)| *enabled)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_add_damage_immunity(#[string] name: String, bit: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddDamageImmunity { name, bit })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_remove_damage_immunity(#[string] name: String, bit: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RemoveDamageImmunity { name, bit })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_add_effect_immunity(#[string] name: String, bit: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddEffectImmunity { name, bit })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_remove_effect_immunity(#[string] name: String, bit: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RemoveEffectImmunity { name, bit })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_all_immunities(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClearAllImmunities { name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_immune_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetImmuneEnabled { name, enabled })
+    });
+}
+
+// ── Impact ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_impact_force(#[string] name: String) -> f32 {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(force, _, _, _, _, _, _)| *force)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_impacted(#[string] name: String) -> bool {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, just_impacted, _, _, _, _, _)| *just_impacted)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_impact_count(#[string] name: String) -> u32 {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, impact_count, _, _, _, _)| *impact_count)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_impact_normal_x(#[string] name: String) -> f32 {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, nx, _, _, _)| *nx)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_impact_normal_y(#[string] name: String) -> f32 {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, ny, _, _)| *ny)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_impact_normal_z(#[string] name: String) -> f32 {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, nz, _)| *nz)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_impact_enabled(#[string] name: String) -> bool {
+    IMPACT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, enabled)| *enabled)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_impact_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetImpactEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_impact_min_force(#[string] name: String, min_force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetImpactMinForce { name, min_force })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_impact_count(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ResetImpactCount { name })
+    });
+}
+
+// ── Intercept ─────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_is_intercept_active(#[string] name: String) -> bool {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_intercept_duration(#[string] name: String) -> f32 {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(duration, _, _, _, _, _, _)| *duration)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_intercept_timer(#[string] name: String) -> f32 {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, timer, _, _, _, _, _)| *timer)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_intercept_radius(#[string] name: String) -> f32 {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, radius, _, _, _, _)| *radius)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_intercept_damage_reduction(#[string] name: String) -> f32 {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, damage_reduction, _, _, _)| *damage_reduction)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_intercept_just_activated(#[string] name: String) -> bool {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, just_activated, _, _)| *just_activated)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_intercept_just_deactivated(#[string] name: String) -> bool {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, just_deactivated, _)| *just_deactivated)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_intercept_enabled(#[string] name: String) -> bool {
+    INTERCEPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, enabled)| *enabled)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_activate_intercept(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ActivateIntercept { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_deactivate_intercept(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeactivateIntercept { name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_intercept_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInterceptRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_intercept_damage_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInterceptDamageReduction { name, reduction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_intercept_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInterceptEnabled { name, enabled })
+    });
+}
+
+// ── Interrupt ─────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_interrupt_threshold(#[string] name: String) -> f32 {
+    INTERRUPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(threshold, _, _, _, _)| *threshold)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_interrupt_resistance(#[string] name: String) -> f32 {
+    INTERRUPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, resistance, _, _, _)| *resistance)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_interrupted(#[string] name: String) -> bool {
+    INTERRUPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, just_interrupted, _, _)| *just_interrupted)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_interrupt_count(#[string] name: String) -> u32 {
+    INTERRUPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, interrupt_count, _)| *interrupt_count)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_interrupt_enabled(#[string] name: String) -> bool {
+    INTERRUPT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, enabled)| *enabled)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_force_interrupt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ForceInterrupt { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_reset_interrupt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetInterrupt { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interrupt_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInterruptThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interrupt_resistance(#[string] name: String, resistance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInterruptResistance { name, resistance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_interrupt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInterruptEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -14970,6 +15708,72 @@ deno_core::extension!(
         bsengine_set_hobble_speed_fraction,
         bsengine_set_hobble_prevents_dash,
         bsengine_set_hobble_enabled,
+        bsengine_get_ignite_stacks,
+        bsengine_get_ignite_threshold,
+        bsengine_get_ignite_decay_rate,
+        bsengine_is_ignited,
+        bsengine_is_ignite_just_ignited,
+        bsengine_is_ignite_just_extinguished,
+        bsengine_is_ignite_enabled,
+        bsengine_add_ignite_stacks,
+        bsengine_remove_ignite_stacks,
+        bsengine_extinguish_ignite,
+        bsengine_set_ignite_threshold,
+        bsengine_set_ignite_decay_rate,
+        bsengine_set_ignite_enabled,
+        bsengine_is_imbue_charged,
+        bsengine_get_imbue_bonus_damage,
+        bsengine_is_imbue_just_charged,
+        bsengine_is_imbue_just_consumed,
+        bsengine_is_imbue_enabled,
+        bsengine_apply_imbue,
+        bsengine_consume_imbue,
+        bsengine_set_imbue_enabled,
+        bsengine_get_immune_damage_type_mask,
+        bsengine_get_immune_effect_type_mask,
+        bsengine_has_damage_immunity,
+        bsengine_has_effect_immunity,
+        bsengine_is_any_immune,
+        bsengine_is_immune_enabled,
+        bsengine_add_damage_immunity,
+        bsengine_remove_damage_immunity,
+        bsengine_add_effect_immunity,
+        bsengine_remove_effect_immunity,
+        bsengine_clear_all_immunities,
+        bsengine_set_immune_enabled,
+        bsengine_get_impact_force,
+        bsengine_is_just_impacted,
+        bsengine_get_impact_count,
+        bsengine_get_impact_normal_x,
+        bsengine_get_impact_normal_y,
+        bsengine_get_impact_normal_z,
+        bsengine_is_impact_enabled,
+        bsengine_set_impact_enabled,
+        bsengine_set_impact_min_force,
+        bsengine_reset_impact_count,
+        bsengine_is_intercept_active,
+        bsengine_get_intercept_duration,
+        bsengine_get_intercept_timer,
+        bsengine_get_intercept_radius,
+        bsengine_get_intercept_damage_reduction,
+        bsengine_is_intercept_just_activated,
+        bsengine_is_intercept_just_deactivated,
+        bsengine_is_intercept_enabled,
+        bsengine_activate_intercept,
+        bsengine_deactivate_intercept,
+        bsengine_set_intercept_radius,
+        bsengine_set_intercept_damage_reduction,
+        bsengine_set_intercept_enabled,
+        bsengine_get_interrupt_threshold,
+        bsengine_get_interrupt_resistance,
+        bsengine_is_just_interrupted,
+        bsengine_get_interrupt_count,
+        bsengine_is_interrupt_enabled,
+        bsengine_force_interrupt,
+        bsengine_reset_interrupt,
+        bsengine_set_interrupt_threshold,
+        bsengine_set_interrupt_resistance,
+        bsengine_set_interrupt_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -16619,6 +17423,72 @@ const Bsengine = {
     setHobbleSpeedFraction:        (name, f)        => Deno.core.ops.bsengine_set_hobble_speed_fraction(name, f),
     setHobblePreventsDash:         (name, p)        => Deno.core.ops.bsengine_set_hobble_prevents_dash(name, p),
     setHobbleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_hobble_enabled(name, en),
+    getIgniteStacks:               (name)           => Deno.core.ops.bsengine_get_ignite_stacks(name),
+    getIgniteThreshold:            (name)           => Deno.core.ops.bsengine_get_ignite_threshold(name),
+    getIgniteDecayRate:            (name)           => Deno.core.ops.bsengine_get_ignite_decay_rate(name),
+    isIgnited:                     (name)           => Deno.core.ops.bsengine_is_ignited(name),
+    isIgniteJustIgnited:           (name)           => Deno.core.ops.bsengine_is_ignite_just_ignited(name),
+    isIgniteJustExtinguished:      (name)           => Deno.core.ops.bsengine_is_ignite_just_extinguished(name),
+    isIgniteEnabled:               (name)           => Deno.core.ops.bsengine_is_ignite_enabled(name),
+    addIgniteStacks:               (name, amt)      => Deno.core.ops.bsengine_add_ignite_stacks(name, amt),
+    removeIgniteStacks:            (name, amt)      => Deno.core.ops.bsengine_remove_ignite_stacks(name, amt),
+    extinguishIgnite:              (name)           => Deno.core.ops.bsengine_extinguish_ignite(name),
+    setIgniteThreshold:            (name, t)        => Deno.core.ops.bsengine_set_ignite_threshold(name, t),
+    setIgniteDecayRate:            (name, r)        => Deno.core.ops.bsengine_set_ignite_decay_rate(name, r),
+    setIgniteEnabled:              (name, en)       => Deno.core.ops.bsengine_set_ignite_enabled(name, en),
+    isImbueCharged:                (name)           => Deno.core.ops.bsengine_is_imbue_charged(name),
+    getImbueBonusDamage:           (name)           => Deno.core.ops.bsengine_get_imbue_bonus_damage(name),
+    isImbueJustCharged:            (name)           => Deno.core.ops.bsengine_is_imbue_just_charged(name),
+    isImbueJustConsumed:           (name)           => Deno.core.ops.bsengine_is_imbue_just_consumed(name),
+    isImbueEnabled:                (name)           => Deno.core.ops.bsengine_is_imbue_enabled(name),
+    applyImbue:                    (name, dmg)      => Deno.core.ops.bsengine_apply_imbue(name, dmg),
+    consumeImbue:                  (name)           => Deno.core.ops.bsengine_consume_imbue(name),
+    setImbueEnabled:               (name, en)       => Deno.core.ops.bsengine_set_imbue_enabled(name, en),
+    getImmuneDamageTypeMask:       (name)           => Deno.core.ops.bsengine_get_immune_damage_type_mask(name),
+    getImmuneEffectTypeMask:       (name)           => Deno.core.ops.bsengine_get_immune_effect_type_mask(name),
+    hasDamageImmunity:             (name, mask)     => Deno.core.ops.bsengine_has_damage_immunity(name, mask),
+    hasEffectImmunity:             (name, mask)     => Deno.core.ops.bsengine_has_effect_immunity(name, mask),
+    isAnyImmune:                   (name)           => Deno.core.ops.bsengine_is_any_immune(name),
+    isImmuneEnabled:               (name)           => Deno.core.ops.bsengine_is_immune_enabled(name),
+    addDamageImmunity:             (name, bit)      => Deno.core.ops.bsengine_add_damage_immunity(name, bit),
+    removeDamageImmunity:          (name, bit)      => Deno.core.ops.bsengine_remove_damage_immunity(name, bit),
+    addEffectImmunity:             (name, bit)      => Deno.core.ops.bsengine_add_effect_immunity(name, bit),
+    removeEffectImmunity:          (name, bit)      => Deno.core.ops.bsengine_remove_effect_immunity(name, bit),
+    clearAllImmunities:            (name)           => Deno.core.ops.bsengine_clear_all_immunities(name),
+    setImmuneEnabled:              (name, en)       => Deno.core.ops.bsengine_set_immune_enabled(name, en),
+    getImpactForce:                (name)           => Deno.core.ops.bsengine_get_impact_force(name),
+    isJustImpacted:                (name)           => Deno.core.ops.bsengine_is_just_impacted(name),
+    getImpactCount:                (name)           => Deno.core.ops.bsengine_get_impact_count(name),
+    getImpactNormalX:              (name)           => Deno.core.ops.bsengine_get_impact_normal_x(name),
+    getImpactNormalY:              (name)           => Deno.core.ops.bsengine_get_impact_normal_y(name),
+    getImpactNormalZ:              (name)           => Deno.core.ops.bsengine_get_impact_normal_z(name),
+    isImpactEnabled:               (name)           => Deno.core.ops.bsengine_is_impact_enabled(name),
+    setImpactEnabled:              (name, en)       => Deno.core.ops.bsengine_set_impact_enabled(name, en),
+    setImpactMinForce:             (name, f)        => Deno.core.ops.bsengine_set_impact_min_force(name, f),
+    resetImpactCount:              (name)           => Deno.core.ops.bsengine_reset_impact_count(name),
+    isInterceptActive:             (name)           => Deno.core.ops.bsengine_is_intercept_active(name),
+    getInterceptDuration:          (name)           => Deno.core.ops.bsengine_get_intercept_duration(name),
+    getInterceptTimer:             (name)           => Deno.core.ops.bsengine_get_intercept_timer(name),
+    getInterceptRadius:            (name)           => Deno.core.ops.bsengine_get_intercept_radius(name),
+    getInterceptDamageReduction:   (name)           => Deno.core.ops.bsengine_get_intercept_damage_reduction(name),
+    isInterceptJustActivated:      (name)           => Deno.core.ops.bsengine_is_intercept_just_activated(name),
+    isInterceptJustDeactivated:    (name)           => Deno.core.ops.bsengine_is_intercept_just_deactivated(name),
+    isInterceptEnabled:            (name)           => Deno.core.ops.bsengine_is_intercept_enabled(name),
+    activateIntercept:             (name, dur)      => Deno.core.ops.bsengine_activate_intercept(name, dur),
+    deactivateIntercept:           (name)           => Deno.core.ops.bsengine_deactivate_intercept(name),
+    setInterceptRadius:            (name, r)        => Deno.core.ops.bsengine_set_intercept_radius(name, r),
+    setInterceptDamageReduction:   (name, r)        => Deno.core.ops.bsengine_set_intercept_damage_reduction(name, r),
+    setInterceptEnabled:           (name, en)       => Deno.core.ops.bsengine_set_intercept_enabled(name, en),
+    getInterruptThreshold:         (name)           => Deno.core.ops.bsengine_get_interrupt_threshold(name),
+    getInterruptResistance:        (name)           => Deno.core.ops.bsengine_get_interrupt_resistance(name),
+    isJustInterrupted:             (name)           => Deno.core.ops.bsengine_is_just_interrupted(name),
+    getInterruptCount:             (name)           => Deno.core.ops.bsengine_get_interrupt_count(name),
+    isInterruptEnabled:            (name)           => Deno.core.ops.bsengine_is_interrupt_enabled(name),
+    forceInterrupt:                (name)           => Deno.core.ops.bsengine_force_interrupt(name),
+    resetInterrupt:                (name)           => Deno.core.ops.bsengine_reset_interrupt(name),
+    setInterruptThreshold:         (name, t)        => Deno.core.ops.bsengine_set_interrupt_threshold(name, t),
+    setInterruptResistance:        (name, r)        => Deno.core.ops.bsengine_set_interrupt_resistance(name, r),
+    setInterruptEnabled:           (name, en)       => Deno.core.ops.bsengine_set_interrupt_enabled(name, en),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -26947,6 +27817,295 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearHobble { name } if name == "Cripple")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHobblePreventsDash { name, prevents } if name == "Cripple" && *prevents)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetHobbleEnabled { name, enabled } if name == "Cripple" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ignite_read_ops() {
+        // (stacks, threshold, decay_rate, just_ignited, just_extinguished, enabled)
+        super::IGNITE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Torch".to_string(),
+                (120.0f32, 100.0f32, 10.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isIgnited("Torch")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let stacks = rt
+            .eval(r#"Bsengine.getIgniteStacks("Torch")"#)
+            .unwrap()
+            .to_string();
+        assert!((stacks.parse::<f64>().unwrap() - 120.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isIgniteJustIgnited("Torch")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::IGNITE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ignite_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addIgniteStacks("Torch", 50.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.extinguishIgnite("Torch");"#).unwrap();
+        rt.eval(r#"Bsengine.setIgniteEnabled("Torch", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddIgniteStacks { name, amount } if name == "Torch" && (*amount - 50.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExtinguishIgnite { name } if name == "Torch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetIgniteEnabled { name, enabled } if name == "Torch" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_imbue_read_ops() {
+        // (charged, bonus_damage, just_charged, just_consumed, enabled)
+        super::IMBUE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Mage".to_string(), (true, 42.5f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isImbueCharged("Mage")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let dmg = rt
+            .eval(r#"Bsengine.getImbueBonusDamage("Mage")"#)
+            .unwrap()
+            .to_string();
+        assert!((dmg.parse::<f64>().unwrap() - 42.5).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isImbueJustCharged("Mage")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::IMBUE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_imbue_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyImbue("Mage", 30.0);"#).unwrap();
+        rt.eval(r#"Bsengine.consumeImbue("Mage");"#).unwrap();
+        rt.eval(r#"Bsengine.setImbueEnabled("Mage", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyImbue { name, bonus_damage } if name == "Mage" && (*bonus_damage - 30.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeImbue { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetImbueEnabled { name, enabled } if name == "Mage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_immune_read_ops() {
+        // (damage_type_mask, effect_type_mask, enabled)
+        super::IMMUNE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Golem".to_string(), (0b0011u32, 0b0001u32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let dmask = rt
+            .eval(r#"Bsengine.getImmuneDamageTypeMask("Golem")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(dmask.trim(), "3");
+        assert!(rt
+            .eval(r#"Bsengine.isAnyImmune("Golem")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.hasDamageImmunity("Golem", 1)"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.hasDamageImmunity("Golem", 4)"#)
+            .unwrap()
+            .to_string()
+            .contains("false"));
+        super::IMMUNE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_immune_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addDamageImmunity("Golem", 1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.addEffectImmunity("Golem", 2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.clearAllImmunities("Golem");"#).unwrap();
+        rt.eval(r#"Bsengine.setImmuneEnabled("Golem", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddDamageImmunity { name, bit } if name == "Golem" && *bit == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddEffectImmunity { name, bit } if name == "Golem" && *bit == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearAllImmunities { name } if name == "Golem")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetImmuneEnabled { name, enabled } if name == "Golem" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_impact_read_ops() {
+        // (force, just_impacted, impact_count, normal_x, normal_y, normal_z, enabled)
+        super::IMPACT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rock".to_string(),
+                (25.0f32, true, 3u32, 0.0f32, 1.0f32, 0.0f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isJustImpacted("Rock")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let force = rt
+            .eval(r#"Bsengine.getImpactForce("Rock")"#)
+            .unwrap()
+            .to_string();
+        assert!((force.parse::<f64>().unwrap() - 25.0).abs() < 0.001);
+        let count = rt
+            .eval(r#"Bsengine.getImpactCount("Rock")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(count.trim(), "3");
+        super::IMPACT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_impact_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setImpactMinForce("Rock", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.resetImpactCount("Rock");"#).unwrap();
+        rt.eval(r#"Bsengine.setImpactEnabled("Rock", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetImpactMinForce { name, min_force } if name == "Rock" && (*min_force - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetImpactCount { name } if name == "Rock")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetImpactEnabled { name, enabled } if name == "Rock" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_intercept_read_ops() {
+        // (duration, timer, radius, damage_reduction, just_activated, just_deactivated, enabled)
+        super::INTERCEPT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guard".to_string(),
+                (4.0f32, 3.0f32, 3.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isInterceptActive("Guard")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let radius = rt
+            .eval(r#"Bsengine.getInterceptRadius("Guard")"#)
+            .unwrap()
+            .to_string();
+        assert!((radius.parse::<f64>().unwrap() - 3.0).abs() < 0.001);
+        assert!(rt
+            .eval(r#"Bsengine.isInterceptJustActivated("Guard")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::INTERCEPT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_intercept_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.activateIntercept("Guard", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.deactivateIntercept("Guard");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setInterceptEnabled("Guard", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateIntercept { name, duration } if name == "Guard" && (*duration - 4.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateIntercept { name } if name == "Guard")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetInterceptEnabled { name, enabled } if name == "Guard" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_interrupt_read_ops() {
+        // (threshold, resistance, just_interrupted, interrupt_count, enabled)
+        super::INTERRUPT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Caster".to_string(), (10.0f32, 0.25f32, true, 2u32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isJustInterrupted("Caster")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let threshold = rt
+            .eval(r#"Bsengine.getInterruptThreshold("Caster")"#)
+            .unwrap()
+            .to_string();
+        assert!((threshold.parse::<f64>().unwrap() - 10.0).abs() < 0.001);
+        let count = rt
+            .eval(r#"Bsengine.getInterruptCount("Caster")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(count.trim(), "2");
+        super::INTERRUPT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_interrupt_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.forceInterrupt("Caster");"#).unwrap();
+        rt.eval(r#"Bsengine.resetInterrupt("Caster");"#).unwrap();
+        rt.eval(r#"Bsengine.setInterruptEnabled("Caster", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ForceInterrupt { name } if name == "Caster")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetInterrupt { name } if name == "Caster")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetInterruptEnabled { name, enabled } if name == "Caster" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

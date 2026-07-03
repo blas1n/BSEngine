@@ -942,6 +942,26 @@ pub enum ScriptCommand {
         name: String,
         elapsed: f32,
     },
+    SetBuoyancyFluidDensity {
+        name: String,
+        density: f32,
+    },
+    SetBuoyancyVolume {
+        name: String,
+        volume: f32,
+    },
+    SetBuoyancyLinearDrag {
+        name: String,
+        drag: f32,
+    },
+    SetBuoyancyAngularDrag {
+        name: String,
+        drag: f32,
+    },
+    SetBuoyancySurfaceY {
+        name: String,
+        y: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1621,6 +1641,9 @@ thread_local! {
     // EasingFn: Linear=0, EaseInQuad=1, EaseOutQuad=2, EaseInOutQuad=3
     // RepeatMode: Once=0, Loop=1, PingPong=2
     pub(crate) static TWEEN_SNAPSHOT: RefCell<HashMap<String, (u32, f32, u32, u32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (fluid_density, volume, linear_drag, angular_drag, surface_y)
+    pub(crate) static BUOYANCY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -6580,6 +6603,106 @@ pub fn bsengine_is_tween_reversed(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_buoyancy_fluid_density(#[string] name: String, density: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBuoyancyFluidDensity { name, density })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_buoyancy_volume(#[string] name: String, volume: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBuoyancyVolume { name, volume })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_buoyancy_linear_drag(#[string] name: String, drag: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBuoyancyLinearDrag { name, drag })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_buoyancy_angular_drag(#[string] name: String, drag: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBuoyancyAngularDrag { name, drag })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_buoyancy_surface_y(#[string] name: String, y: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBuoyancySurfaceY { name, y })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_buoyancy_fluid_density(#[string] name: String) -> f32 {
+    BUOYANCY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(fd, _, _, _, _)| *fd)
+            .unwrap_or(1000.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_buoyancy_volume(#[string] name: String) -> f32 {
+    BUOYANCY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, v, _, _, _)| *v)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_buoyancy_linear_drag(#[string] name: String) -> f32 {
+    BUOYANCY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, ld, _, _)| *ld)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_buoyancy_angular_drag(#[string] name: String) -> f32 {
+    BUOYANCY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, ad, _)| *ad)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_buoyancy_surface_y(#[string] name: String) -> f32 {
+    BUOYANCY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, sy)| *sy)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_buoyancy_max_force(#[string] name: String) -> f32 {
+    BUOYANCY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(fd, v, _, _, _)| fd * v * 9.81)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7514,6 +7637,17 @@ deno_core::extension!(
         bsengine_get_tween_progress,
         bsengine_is_tween_finished,
         bsengine_is_tween_reversed,
+        bsengine_set_buoyancy_fluid_density,
+        bsengine_set_buoyancy_volume,
+        bsengine_set_buoyancy_linear_drag,
+        bsengine_set_buoyancy_angular_drag,
+        bsengine_set_buoyancy_surface_y,
+        bsengine_get_buoyancy_fluid_density,
+        bsengine_get_buoyancy_volume,
+        bsengine_get_buoyancy_linear_drag,
+        bsengine_get_buoyancy_angular_drag,
+        bsengine_get_buoyancy_surface_y,
+        bsengine_get_buoyancy_max_force,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -8535,6 +8669,17 @@ const Bsengine = {
     getTweenProgress:(name)                => Deno.core.ops.bsengine_get_tween_progress(name),
     isTweenFinished:(name)                 => Deno.core.ops.bsengine_is_tween_finished(name),
     isTweenReversed:(name)                 => Deno.core.ops.bsengine_is_tween_reversed(name),
+    setBuoyancyFluidDensity:(name, density) => Deno.core.ops.bsengine_set_buoyancy_fluid_density(name, density),
+    setBuoyancyVolume:(name, volume)       => Deno.core.ops.bsengine_set_buoyancy_volume(name, volume),
+    setBuoyancyLinearDrag:(name, drag)     => Deno.core.ops.bsengine_set_buoyancy_linear_drag(name, drag),
+    setBuoyancyAngularDrag:(name, drag)    => Deno.core.ops.bsengine_set_buoyancy_angular_drag(name, drag),
+    setBuoyancySurfaceY:(name, y)          => Deno.core.ops.bsengine_set_buoyancy_surface_y(name, y),
+    getBuoyancyFluidDensity:(name)         => Deno.core.ops.bsengine_get_buoyancy_fluid_density(name),
+    getBuoyancyVolume:(name)               => Deno.core.ops.bsengine_get_buoyancy_volume(name),
+    getBuoyancyLinearDrag:(name)           => Deno.core.ops.bsengine_get_buoyancy_linear_drag(name),
+    getBuoyancyAngularDrag:(name)          => Deno.core.ops.bsengine_get_buoyancy_angular_drag(name),
+    getBuoyancySurfaceY:(name)             => Deno.core.ops.bsengine_get_buoyancy_surface_y(name),
+    getBuoyancyMaxForce:(name)             => Deno.core.ops.bsengine_get_buoyancy_max_force(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -15644,6 +15789,86 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetTweenElapsed { name, elapsed }
                 if name == "Box" && (*elapsed - 0.5).abs() < 0.001
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_buoyancy_read_ops() {
+        super::BUOYANCY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Boat".to_string(), (800.0, 2.0, 1.5, 0.3, 1.0));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let fd = rt
+            .eval(r#"Bsengine.getBuoyancyFluidDensity("Boat");"#)
+            .unwrap();
+        assert!((fd.trim().parse::<f32>().unwrap() - 800.0).abs() < 0.1);
+        let vol = rt.eval(r#"Bsengine.getBuoyancyVolume("Boat");"#).unwrap();
+        assert!((vol.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
+        let ld = rt
+            .eval(r#"Bsengine.getBuoyancyLinearDrag("Boat");"#)
+            .unwrap();
+        assert!((ld.trim().parse::<f32>().unwrap() - 1.5).abs() < 0.001);
+        let ad = rt
+            .eval(r#"Bsengine.getBuoyancyAngularDrag("Boat");"#)
+            .unwrap();
+        assert!((ad.trim().parse::<f32>().unwrap() - 0.3).abs() < 0.001);
+        let sy = rt.eval(r#"Bsengine.getBuoyancySurfaceY("Boat");"#).unwrap();
+        assert!((sy.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let mf = rt.eval(r#"Bsengine.getBuoyancyMaxForce("Boat");"#).unwrap();
+        // 800 * 2 * 9.81 = 15696
+        assert!((mf.trim().parse::<f32>().unwrap() - 15696.0).abs() < 1.0);
+        let fd_unk = rt
+            .eval(r#"Bsengine.getBuoyancyFluidDensity("Unknown");"#)
+            .unwrap();
+        assert!((fd_unk.trim().parse::<f32>().unwrap() - 1000.0).abs() < 0.1);
+        super::BUOYANCY_SNAPSHOT.with(|s| s.borrow_mut().remove("Boat"));
+    }
+
+    #[test]
+    fn test_buoyancy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setBuoyancyFluidDensity("Boat", 900.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBuoyancyVolume("Boat", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBuoyancyLinearDrag("Boat", 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBuoyancyAngularDrag("Boat", 0.2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBuoyancySurfaceY("Boat", 2.5);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBuoyancyFluidDensity { name, density }
+                if name == "Boat" && (*density - 900.0).abs() < 0.1
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBuoyancyVolume { name, volume }
+                if name == "Boat" && (*volume - 3.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBuoyancyLinearDrag { name, drag }
+                if name == "Boat" && (*drag - 0.8).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBuoyancyAngularDrag { name, drag }
+                if name == "Boat" && (*drag - 0.2).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBuoyancySurfaceY { name, y }
+                if name == "Boat" && (*y - 2.5).abs() < 0.001
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

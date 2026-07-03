@@ -385,6 +385,31 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetNavDestination {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    ClearNavDestination {
+        name: String,
+    },
+    SetNavSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetNavAngularSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetNavStoppingDistance {
+        name: String,
+        distance: f32,
+    },
+    SetNavEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -953,6 +978,11 @@ thread_local! {
 
     // entity name → (speed, duration, cooldown, cooldown_timer, max_charges, charges, is_active, is_invincible, can_dash, enabled)
     pub(crate) static DASH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, u32, u32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (speed, angular_speed, stopping_distance, state_u8, enabled)
+    // state: 0=Idle, 1=Moving, 2=Arrived, 3=NoPath
+    pub(crate) static NAV_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u8, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -3135,6 +3165,134 @@ pub fn bsengine_is_dash_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_nav_destination(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNavDestination { name, x, y, z })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_nav_destination(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClearNavDestination { name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nav_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNavSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nav_angular_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNavAngularSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nav_stopping_distance(#[string] name: String, distance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNavStoppingDistance { name, distance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_nav_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetNavEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nav_speed(#[string] name: String) -> f32 {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(spd, _, _, _, _)| *spd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nav_angular_speed(#[string] name: String) -> f32 {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, asp, _, _, _)| *asp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_nav_stopping_distance(#[string] name: String) -> f32 {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, sd, _, _)| *sd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nav_moving(#[string] name: String) -> bool {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, st, _)| *st == 1)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_has_nav_arrived(#[string] name: String) -> bool {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, st, _)| *st == 2)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nav_idle(#[string] name: String) -> bool {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, st, _)| *st == 0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_nav_has_no_path(#[string] name: String) -> bool {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, st, _)| *st == 3)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_nav_enabled(#[string] name: String) -> bool {
+    NAV_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -4206,6 +4364,20 @@ deno_core::extension!(
         bsengine_is_dash_invincible,
         bsengine_can_dash,
         bsengine_is_dash_enabled,
+        bsengine_set_nav_destination,
+        bsengine_clear_nav_destination,
+        bsengine_set_nav_speed,
+        bsengine_set_nav_angular_speed,
+        bsengine_set_nav_stopping_distance,
+        bsengine_set_nav_enabled,
+        bsengine_get_nav_speed,
+        bsengine_get_nav_angular_speed,
+        bsengine_get_nav_stopping_distance,
+        bsengine_is_nav_moving,
+        bsengine_has_nav_arrived,
+        bsengine_is_nav_idle,
+        bsengine_nav_has_no_path,
+        bsengine_is_nav_enabled,
     ],
 );
 
@@ -4472,6 +4644,20 @@ const Bsengine = {
     isDashInvincible:       (name)          => Deno.core.ops.bsengine_is_dash_invincible(name),
     canDash:                (name)          => Deno.core.ops.bsengine_can_dash(name),
     isDashEnabled:          (name)          => Deno.core.ops.bsengine_is_dash_enabled(name),
+    setNavDestination:      (name, x, y, z) => Deno.core.ops.bsengine_set_nav_destination(name, x, y, z),
+    clearNavDestination:    (name)          => Deno.core.ops.bsengine_clear_nav_destination(name),
+    setNavSpeed:            (name, speed)   => Deno.core.ops.bsengine_set_nav_speed(name, speed),
+    setNavAngularSpeed:     (name, speed)   => Deno.core.ops.bsengine_set_nav_angular_speed(name, speed),
+    setNavStoppingDistance: (name, dist)    => Deno.core.ops.bsengine_set_nav_stopping_distance(name, dist),
+    setNavEnabled:          (name, enabled) => Deno.core.ops.bsengine_set_nav_enabled(name, enabled),
+    getNavSpeed:            (name)          => Deno.core.ops.bsengine_get_nav_speed(name),
+    getNavAngularSpeed:     (name)          => Deno.core.ops.bsengine_get_nav_angular_speed(name),
+    getNavStoppingDistance: (name)          => Deno.core.ops.bsengine_get_nav_stopping_distance(name),
+    isNavMoving:            (name)          => Deno.core.ops.bsengine_is_nav_moving(name),
+    hasNavArrived:          (name)          => Deno.core.ops.bsengine_has_nav_arrived(name),
+    isNavIdle:              (name)          => Deno.core.ops.bsengine_is_nav_idle(name),
+    navHasNoPath:           (name)          => Deno.core.ops.bsengine_nav_has_no_path(name),
+    isNavEnabled:           (name)          => Deno.core.ops.bsengine_is_nav_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -9453,6 +9639,87 @@ JSON.stringify(received)
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isDashEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn set_nav_destination_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setNavDestination("Enemy", 10.0, 0.0, 5.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetNavDestination { name, x, .. }
+                    if name == "Enemy" && (*x - 10.0).abs() < 1e-5)
+            });
+            assert!(found, "SetNavDestination not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn clear_nav_destination_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.clearNavDestination("Enemy");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::ClearNavDestination { name } if name == "Enemy")
+            });
+            assert!(found, "ClearNavDestination not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_nav_speed_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getNavSpeed("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_nav_moving_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isNavMoving("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn has_nav_arrived_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.hasNavArrived("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_nav_idle_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isNavIdle("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn nav_has_no_path_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.navHasNoPath("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_nav_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isNavEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
     }
 }

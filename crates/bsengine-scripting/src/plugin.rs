@@ -26,11 +26,11 @@ use crate::ops::{
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
-    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
-    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
+    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -921,6 +921,30 @@ fn run_scripts(world: &mut World) {
             );
         }
         DASH_SNAPSHOT.with(|s| *s.borrow_mut() = dash_map);
+    }
+    {
+        use bsengine_core::{NavAgentState, NavMeshAgent};
+        let mut nav_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &NavMeshAgent)>();
+        for (name, a) in q.iter(world) {
+            let state_u8 = match a.state {
+                NavAgentState::Idle => 0u8,
+                NavAgentState::Moving => 1u8,
+                NavAgentState::Arrived => 2u8,
+                NavAgentState::NoPath => 3u8,
+            };
+            nav_map.insert(
+                name.0.clone(),
+                (
+                    a.speed,
+                    a.angular_speed,
+                    a.stopping_distance,
+                    state_u8,
+                    a.enabled,
+                ),
+            );
+        }
+        NAV_SNAPSHOT.with(|s| *s.borrow_mut() = nav_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2099,6 +2123,78 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut d) = world.get_mut::<Dash>(e) {
                         d.invincible_during_dash = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetNavDestination { name, x, y, z } => {
+                use bsengine_core::NavMeshAgent;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
+                        a.destination = Some(glam::Vec3::new(x, y, z));
+                    }
+                }
+            }
+            ScriptCommand::ClearNavDestination { name } => {
+                use bsengine_core::NavMeshAgent;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
+                        a.clear_destination();
+                    }
+                }
+            }
+            ScriptCommand::SetNavSpeed { name, speed } => {
+                use bsengine_core::NavMeshAgent;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
+                        a.speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNavAngularSpeed { name, speed } => {
+                use bsengine_core::NavMeshAgent;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
+                        a.angular_speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNavStoppingDistance { name, distance } => {
+                use bsengine_core::NavMeshAgent;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
+                        a.stopping_distance = distance.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetNavEnabled { name, enabled } => {
+                use bsengine_core::NavMeshAgent;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
+                        a.enabled = enabled;
                     }
                 }
             }

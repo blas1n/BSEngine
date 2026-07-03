@@ -35,8 +35,8 @@ use crate::ops::{
     SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
     SOUND_STATE_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
     TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1439,6 +1439,42 @@ fn run_scripts(world: &mut World) {
             );
         }
         SPRING_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
+    }
+    {
+        use bsengine_core::{EasingFn, RepeatMode, Tween, TweenTarget};
+        let mut tw_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Tween)>();
+        for (_, name, tw) in q.iter(world) {
+            let target_type = match tw.target {
+                TweenTarget::Translation { .. } => 0u32,
+                TweenTarget::Rotation { .. } => 1u32,
+                TweenTarget::Scale { .. } => 2u32,
+            };
+            let easing_u32 = match tw.easing {
+                EasingFn::Linear => 0u32,
+                EasingFn::EaseInQuad => 1u32,
+                EasingFn::EaseOutQuad => 2u32,
+                EasingFn::EaseInOutQuad => 3u32,
+            };
+            let repeat_u32 = match tw.repeat {
+                RepeatMode::Once => 0u32,
+                RepeatMode::Loop => 1u32,
+                RepeatMode::PingPong => 2u32,
+            };
+            tw_map.insert(
+                name.0.clone(),
+                (
+                    target_type,
+                    tw.duration,
+                    easing_u32,
+                    repeat_u32,
+                    tw.elapsed,
+                    tw.finished,
+                    tw.reversed,
+                ),
+            );
+        }
+        TWEEN_SNAPSHOT.with(|s| *s.borrow_mut() = tw_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4235,6 +4271,64 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut sp) = world.get_mut::<Spring>(e) {
                         sp.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetTweenDuration { name, duration } => {
+                use bsengine_core::Tween;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tw) = world.get_mut::<Tween>(e) {
+                        tw.duration = duration.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetTweenEasing { name, easing } => {
+                use bsengine_core::{EasingFn, Tween};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tw) = world.get_mut::<Tween>(e) {
+                        tw.easing = match easing {
+                            1 => EasingFn::EaseInQuad,
+                            2 => EasingFn::EaseOutQuad,
+                            3 => EasingFn::EaseInOutQuad,
+                            _ => EasingFn::Linear,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetTweenRepeat { name, repeat } => {
+                use bsengine_core::{RepeatMode, Tween};
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tw) = world.get_mut::<Tween>(e) {
+                        tw.repeat = match repeat {
+                            1 => RepeatMode::Loop,
+                            2 => RepeatMode::PingPong,
+                            _ => RepeatMode::Once,
+                        };
+                    }
+                }
+            }
+            ScriptCommand::SetTweenElapsed { name, elapsed } => {
+                use bsengine_core::Tween;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tw) = world.get_mut::<Tween>(e) {
+                        tw.elapsed = elapsed.clamp(0.0, tw.duration);
+                        tw.finished = false;
                     }
                 }
             }

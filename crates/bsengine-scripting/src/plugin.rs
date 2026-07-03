@@ -18,14 +18,15 @@ use crate::ops::{
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
     BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT,
     CHROM_AB_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT,
-    COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT,
-    DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
-    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
-    GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DEPTH_OF_FIELD_SNAPSHOT,
+    DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT,
+    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT,
+    HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
@@ -1300,6 +1301,24 @@ fn run_scripts(world: &mut World) {
             );
         }
         AMBIENT_OCCLUSION_SNAPSHOT.with(|s| *s.borrow_mut() = ao_map);
+    }
+    {
+        use bsengine_core::DepthOfField;
+        let mut dof_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &DepthOfField)>();
+        for (_, name, dof) in q.iter(world) {
+            dof_map.insert(
+                name.0.clone(),
+                (
+                    dof.focal_distance,
+                    dof.focal_range,
+                    dof.max_blur,
+                    dof.bokeh_scale,
+                    dof.enabled,
+                ),
+            );
+        }
+        DEPTH_OF_FIELD_SNAPSHOT.with(|s| *s.borrow_mut() = dof_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3704,6 +3723,66 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut ao) = world.get_mut::<AmbientOcclusion>(e) {
                         ao.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetDofFocalDistance { name, distance } => {
+                use bsengine_core::DepthOfField;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut dof) = world.get_mut::<DepthOfField>(e) {
+                        dof.focal_distance = distance.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDofFocalRange { name, range } => {
+                use bsengine_core::DepthOfField;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut dof) = world.get_mut::<DepthOfField>(e) {
+                        dof.focal_range = range.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDofMaxBlur { name, max_blur } => {
+                use bsengine_core::DepthOfField;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut dof) = world.get_mut::<DepthOfField>(e) {
+                        dof.max_blur = max_blur.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDofBokehScale { name, scale } => {
+                use bsengine_core::DepthOfField;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut dof) = world.get_mut::<DepthOfField>(e) {
+                        dof.bokeh_scale = scale.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDofEnabled { name, enabled } => {
+                use bsengine_core::DepthOfField;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut dof) = world.get_mut::<DepthOfField>(e) {
+                        dof.enabled = enabled;
                     }
                 }
             }

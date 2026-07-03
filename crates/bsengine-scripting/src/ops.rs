@@ -1975,6 +1975,135 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    GrantInvincible {
+        name: String,
+        duration: f32,
+    },
+    RevokeInvincible {
+        name: String,
+    },
+    SetInvincibleFlashInterval {
+        name: String,
+        interval: f32,
+    },
+    SetInvincibleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SecludeIsolate {
+        name: String,
+        duration: f32,
+    },
+    RejoinIsolate {
+        name: String,
+    },
+    SetIsolateBuffReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetIsolateDebuffReduction {
+        name: String,
+        reduction: f32,
+    },
+    SetIsolateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyJeer {
+        name: String,
+        duration: f32,
+    },
+    ClearJeer {
+        name: String,
+    },
+    SetJeerAimPenalty {
+        name: String,
+        penalty_rad: f32,
+    },
+    SetJeerDamageFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetJeerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetJetpackWantsThrust {
+        name: String,
+        wants: bool,
+    },
+    RefuelJetpack {
+        name: String,
+    },
+    SetJetpackThrustForce {
+        name: String,
+        force: f32,
+    },
+    SetJetpackFuelDrainRate {
+        name: String,
+        rate: f32,
+    },
+    SetJetpackFuelRegenRate {
+        name: String,
+        rate: f32,
+    },
+    SetJetpackRegenInAir {
+        name: String,
+        regen_in_air: bool,
+    },
+    SetJetpackEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyJolt {
+        name: String,
+        duration: f32,
+    },
+    ClearJolt {
+        name: String,
+    },
+    SetJoltChainChance {
+        name: String,
+        chance: f32,
+    },
+    SetJoltChainFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetJoltEnabled {
+        name: String,
+        enabled: bool,
+    },
+    JostleEntity {
+        name: String,
+        amount: f32,
+    },
+    SetJostleThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetJostleDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetJostleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PrimeJuke {
+        name: String,
+    },
+    ConsumeJuke {
+        name: String,
+    },
+    SetJukeMaxCharges {
+        name: String,
+        max_charges: u32,
+    },
+    SetJukeEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -2881,6 +3010,35 @@ thread_local! {
     // entity name → (threshold, resistance, just_interrupted, interrupt_count, enabled)
     pub(crate) static INTERRUPT_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, bool, u32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, timer, flash_interval, flash_visible, just_became_invincible, just_lost_invincibility, enabled)
+    pub(crate) static INVINCIBLE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, buff_reduction, debuff_reduction, just_began, just_ended, enabled)
+    pub(crate) static ISOLATE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, aim_penalty_rad, damage_fraction, just_jeered, just_rallied, enabled)
+    pub(crate) static JEER_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state_u32, thrust_x, thrust_y, thrust_z, thrust_force, fuel, max_fuel, fuel_drain_rate, fuel_regen_rate, wants_thrust, regen_in_air, enabled)
+    // JetpackState: Idle=0, Thrusting=1, Depleted=2
+    pub(crate) static JETPACK_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, chain_chance, chain_fraction, just_jolted, just_expired, enabled)
+    pub(crate) static JOLT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (accumulated, threshold, decay_rate, just_destabilized, enabled)
+    pub(crate) static JOSTLE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (charges, max_charges, just_juked, enabled)
+    pub(crate) static JUKE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -14152,6 +14310,601 @@ pub fn bsengine_set_interrupt_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Invincible ───────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_invincible_stacks(#[string] name: String) -> u32 {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_invincible_timer(#[string] name: String) -> f32 {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_invincible_flash_interval(#[string] name: String) -> f32 {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.1))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_flash_visible(#[string] name: String) -> bool {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_became_invincible(#[string] name: String) -> bool {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_lost_invincibility(#[string] name: String) -> bool {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_invincible(#[string] name: String) -> bool {
+    INVINCIBLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| v.0 > 0 && v.6)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_invincible_enabled(#[string] name: String) -> bool {
+    INVINCIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_grant_invincible(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::GrantInvincible { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_revoke_invincible(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RevokeInvincible { name })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_invincible_flash_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInvincibleFlashInterval { name, interval })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_invincible_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInvincibleEnabled { name, enabled })
+    });
+}
+
+// ── Isolate ───────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_isolate_duration(#[string] name: String) -> f32 {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_isolate_timer(#[string] name: String) -> f32 {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_isolate_buff_reduction(#[string] name: String) -> f32 {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_isolate_debuff_reduction(#[string] name: String) -> f32 {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_isolated(#[string] name: String) -> bool {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_isolated(#[string] name: String) -> bool {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_rejoined(#[string] name: String) -> bool {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_isolate_enabled(#[string] name: String) -> bool {
+    ISOLATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_seclude_isolate(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SecludeIsolate { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_rejoin_isolate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RejoinIsolate { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_isolate_buff_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetIsolateBuffReduction { name, reduction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_isolate_debuff_reduction(#[string] name: String, reduction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetIsolateDebuffReduction { name, reduction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_isolate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetIsolateEnabled { name, enabled })
+    });
+}
+
+// ── Jeer ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_jeer_duration(#[string] name: String) -> f32 {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jeer_timer(#[string] name: String) -> f32 {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jeer_aim_penalty(#[string] name: String) -> f32 {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jeer_damage_fraction(#[string] name: String) -> f32 {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jeered(#[string] name: String) -> bool {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_jeered(#[string] name: String) -> bool {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_rallied(#[string] name: String) -> bool {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jeer_enabled(#[string] name: String) -> bool {
+    JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_jeer(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyJeer { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_jeer(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearJeer { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jeer_aim_penalty(#[string] name: String, penalty_rad: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJeerAimPenalty { name, penalty_rad })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jeer_damage_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJeerDamageFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jeer_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJeerEnabled { name, enabled })
+    });
+}
+
+// ── Jetpack ───────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_state(#[string] name: String) -> u32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_thrust_x(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_thrust_y(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_thrust_z(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_thrust_force(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_fuel(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_max_fuel(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_fuel_drain_rate(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_fuel_regen_rate(#[string] name: String) -> f32 {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jetpack_wants_thrust(#[string] name: String) -> bool {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jetpack_thrusting(#[string] name: String) -> bool {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 1).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jetpack_depleted(#[string] name: String) -> bool {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 == 2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jetpack_enabled(#[string] name: String) -> bool {
+    JETPACK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jetpack_wants_thrust(#[string] name: String, wants: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJetpackWantsThrust { name, wants })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_refuel_jetpack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RefuelJetpack { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jetpack_thrust_force(#[string] name: String, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJetpackThrustForce { name, force })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jetpack_fuel_drain_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJetpackFuelDrainRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jetpack_fuel_regen_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJetpackFuelRegenRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jetpack_regen_in_air(#[string] name: String, regen_in_air: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJetpackRegenInAir { name, regen_in_air })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jetpack_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJetpackEnabled { name, enabled })
+    });
+}
+
+// ── Jolt ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_jolt_duration(#[string] name: String) -> f32 {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jolt_timer(#[string] name: String) -> f32 {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jolt_chain_chance(#[string] name: String) -> f32 {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jolt_chain_fraction(#[string] name: String) -> f32 {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.5))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jolted(#[string] name: String) -> bool {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_jolted(#[string] name: String) -> bool {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jolt_just_expired(#[string] name: String) -> bool {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jolt_enabled(#[string] name: String) -> bool {
+    JOLT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_jolt(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyJolt { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_jolt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearJolt { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jolt_chain_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJoltChainChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jolt_chain_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJoltChainFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jolt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJoltEnabled { name, enabled })
+    });
+}
+
+// ── Jostle ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_jostle_accumulated(#[string] name: String) -> f32 {
+    JOSTLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jostle_threshold(#[string] name: String) -> f32 {
+    JOSTLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(3.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jostle_decay_rate(#[string] name: String) -> f32 {
+    JOSTLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_destabilized(#[string] name: String) -> bool {
+    JOSTLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| v.4 && v.0 >= v.1)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_destabilized(#[string] name: String) -> bool {
+    JOSTLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jostle_fraction(#[string] name: String) -> f32 {
+    JOSTLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 > 0.0 {
+                    (v.0 / v.1).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jostle_enabled(#[string] name: String) -> bool {
+    JOSTLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_jostle_entity(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::JostleEntity { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jostle_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJostleThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jostle_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJostleDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jostle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJostleEnabled { name, enabled })
+    });
+}
+
+// ── Juke ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_juke_charges(#[string] name: String) -> u32 {
+    JUKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_juke_max_charges(#[string] name: String) -> u32 {
+    JUKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(1))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_juke_ready(#[string] name: String) -> bool {
+    JUKE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| v.0 > 0 && v.3)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_juked(#[string] name: String) -> bool {
+    JUKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_juke_charge_fraction(#[string] name: String) -> f32 {
+    JUKE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.1 > 0 {
+                    (v.0 as f32 / v.1 as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_juke_enabled(#[string] name: String) -> bool {
+    JUKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_prime_juke(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PrimeJuke { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_consume_juke(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConsumeJuke { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_juke_max_charges(#[string] name: String, max_charges: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJukeMaxCharges { name, max_charges })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_juke_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJukeEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -15774,6 +16527,98 @@ deno_core::extension!(
         bsengine_set_interrupt_threshold,
         bsengine_set_interrupt_resistance,
         bsengine_set_interrupt_enabled,
+        bsengine_get_invincible_stacks,
+        bsengine_get_invincible_timer,
+        bsengine_get_invincible_flash_interval,
+        bsengine_is_flash_visible,
+        bsengine_is_just_became_invincible,
+        bsengine_is_just_lost_invincibility,
+        bsengine_is_invincible,
+        bsengine_is_invincible_enabled,
+        bsengine_grant_invincible,
+        bsengine_revoke_invincible,
+        bsengine_set_invincible_flash_interval,
+        bsengine_set_invincible_enabled,
+        bsengine_get_isolate_duration,
+        bsengine_get_isolate_timer,
+        bsengine_get_isolate_buff_reduction,
+        bsengine_get_isolate_debuff_reduction,
+        bsengine_is_isolated,
+        bsengine_is_just_isolated,
+        bsengine_is_just_rejoined,
+        bsengine_is_isolate_enabled,
+        bsengine_seclude_isolate,
+        bsengine_rejoin_isolate,
+        bsengine_set_isolate_buff_reduction,
+        bsengine_set_isolate_debuff_reduction,
+        bsengine_set_isolate_enabled,
+        bsengine_get_jeer_duration,
+        bsengine_get_jeer_timer,
+        bsengine_get_jeer_aim_penalty,
+        bsengine_get_jeer_damage_fraction,
+        bsengine_is_jeered,
+        bsengine_is_just_jeered,
+        bsengine_is_just_rallied,
+        bsengine_is_jeer_enabled,
+        bsengine_apply_jeer,
+        bsengine_clear_jeer,
+        bsengine_set_jeer_aim_penalty,
+        bsengine_set_jeer_damage_fraction,
+        bsengine_set_jeer_enabled,
+        bsengine_get_jetpack_state,
+        bsengine_get_jetpack_thrust_x,
+        bsengine_get_jetpack_thrust_y,
+        bsengine_get_jetpack_thrust_z,
+        bsengine_get_jetpack_thrust_force,
+        bsengine_get_jetpack_fuel,
+        bsengine_get_jetpack_max_fuel,
+        bsengine_get_jetpack_fuel_drain_rate,
+        bsengine_get_jetpack_fuel_regen_rate,
+        bsengine_get_jetpack_wants_thrust,
+        bsengine_is_jetpack_thrusting,
+        bsengine_is_jetpack_depleted,
+        bsengine_is_jetpack_enabled,
+        bsengine_set_jetpack_wants_thrust,
+        bsengine_refuel_jetpack,
+        bsengine_set_jetpack_thrust_force,
+        bsengine_set_jetpack_fuel_drain_rate,
+        bsengine_set_jetpack_fuel_regen_rate,
+        bsengine_set_jetpack_regen_in_air,
+        bsengine_set_jetpack_enabled,
+        bsengine_get_jolt_duration,
+        bsengine_get_jolt_timer,
+        bsengine_get_jolt_chain_chance,
+        bsengine_get_jolt_chain_fraction,
+        bsengine_is_jolted,
+        bsengine_is_just_jolted,
+        bsengine_is_jolt_just_expired,
+        bsengine_is_jolt_enabled,
+        bsengine_apply_jolt,
+        bsengine_clear_jolt,
+        bsengine_set_jolt_chain_chance,
+        bsengine_set_jolt_chain_fraction,
+        bsengine_set_jolt_enabled,
+        bsengine_get_jostle_accumulated,
+        bsengine_get_jostle_threshold,
+        bsengine_get_jostle_decay_rate,
+        bsengine_is_destabilized,
+        bsengine_is_just_destabilized,
+        bsengine_get_jostle_fraction,
+        bsengine_is_jostle_enabled,
+        bsengine_jostle_entity,
+        bsengine_set_jostle_threshold,
+        bsengine_set_jostle_decay_rate,
+        bsengine_set_jostle_enabled,
+        bsengine_get_juke_charges,
+        bsengine_get_juke_max_charges,
+        bsengine_is_juke_ready,
+        bsengine_is_just_juked,
+        bsengine_get_juke_charge_fraction,
+        bsengine_is_juke_enabled,
+        bsengine_prime_juke,
+        bsengine_consume_juke,
+        bsengine_set_juke_max_charges,
+        bsengine_set_juke_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -17489,6 +18334,113 @@ const Bsengine = {
     setInterruptThreshold:         (name, t)        => Deno.core.ops.bsengine_set_interrupt_threshold(name, t),
     setInterruptResistance:        (name, r)        => Deno.core.ops.bsengine_set_interrupt_resistance(name, r),
     setInterruptEnabled:           (name, en)       => Deno.core.ops.bsengine_set_interrupt_enabled(name, en),
+
+    // Invincible
+    getInvincibleStacks:           (name)           => Deno.core.ops.bsengine_get_invincible_stacks(name),
+    getInvincibleTimer:            (name)           => Deno.core.ops.bsengine_get_invincible_timer(name),
+    getInvincibleFlashInterval:    (name)           => Deno.core.ops.bsengine_get_invincible_flash_interval(name),
+    isFlashVisible:                (name)           => Deno.core.ops.bsengine_is_flash_visible(name),
+    isJustBecameInvincible:        (name)           => Deno.core.ops.bsengine_is_just_became_invincible(name),
+    isJustLostInvincibility:       (name)           => Deno.core.ops.bsengine_is_just_lost_invincibility(name),
+    isInvincible:                  (name)           => Deno.core.ops.bsengine_is_invincible(name),
+    isInvincibleEnabled:           (name)           => Deno.core.ops.bsengine_is_invincible_enabled(name),
+    grantInvincible:               (name, dur)      => Deno.core.ops.bsengine_grant_invincible(name, dur),
+    revokeInvincible:              (name)           => Deno.core.ops.bsengine_revoke_invincible(name),
+    setInvincibleFlashInterval:    (name, iv)       => Deno.core.ops.bsengine_set_invincible_flash_interval(name, iv),
+    setInvincibleEnabled:          (name, en)       => Deno.core.ops.bsengine_set_invincible_enabled(name, en),
+
+    // Isolate
+    getIsolateDuration:            (name)           => Deno.core.ops.bsengine_get_isolate_duration(name),
+    getIsolateTimer:               (name)           => Deno.core.ops.bsengine_get_isolate_timer(name),
+    getIsolateBuffReduction:       (name)           => Deno.core.ops.bsengine_get_isolate_buff_reduction(name),
+    getIsolateDebuffReduction:     (name)           => Deno.core.ops.bsengine_get_isolate_debuff_reduction(name),
+    isIsolated:                    (name)           => Deno.core.ops.bsengine_is_isolated(name),
+    isJustIsolated:                (name)           => Deno.core.ops.bsengine_is_just_isolated(name),
+    isJustRejoined:                (name)           => Deno.core.ops.bsengine_is_just_rejoined(name),
+    isIsolateEnabled:              (name)           => Deno.core.ops.bsengine_is_isolate_enabled(name),
+    secludeIsolate:                (name, dur)      => Deno.core.ops.bsengine_seclude_isolate(name, dur),
+    rejoinIsolate:                 (name)           => Deno.core.ops.bsengine_rejoin_isolate(name),
+    setIsolateBuffReduction:       (name, r)        => Deno.core.ops.bsengine_set_isolate_buff_reduction(name, r),
+    setIsolateDebuffReduction:     (name, r)        => Deno.core.ops.bsengine_set_isolate_debuff_reduction(name, r),
+    setIsolateEnabled:             (name, en)       => Deno.core.ops.bsengine_set_isolate_enabled(name, en),
+
+    // Jeer
+    getJeerDuration:               (name)           => Deno.core.ops.bsengine_get_jeer_duration(name),
+    getJeerTimer:                  (name)           => Deno.core.ops.bsengine_get_jeer_timer(name),
+    getJeerAimPenalty:             (name)           => Deno.core.ops.bsengine_get_jeer_aim_penalty(name),
+    getJeerDamageFraction:         (name)           => Deno.core.ops.bsengine_get_jeer_damage_fraction(name),
+    isJeered:                      (name)           => Deno.core.ops.bsengine_is_jeered(name),
+    isJustJeered:                  (name)           => Deno.core.ops.bsengine_is_just_jeered(name),
+    isJustRallied:                 (name)           => Deno.core.ops.bsengine_is_just_rallied(name),
+    isJeerEnabled:                 (name)           => Deno.core.ops.bsengine_is_jeer_enabled(name),
+    applyJeer:                     (name, dur)      => Deno.core.ops.bsengine_apply_jeer(name, dur),
+    clearJeer:                     (name)           => Deno.core.ops.bsengine_clear_jeer(name),
+    setJeerAimPenalty:             (name, p)        => Deno.core.ops.bsengine_set_jeer_aim_penalty(name, p),
+    setJeerDamageFraction:         (name, f)        => Deno.core.ops.bsengine_set_jeer_damage_fraction(name, f),
+    setJeerEnabled:                (name, en)       => Deno.core.ops.bsengine_set_jeer_enabled(name, en),
+
+    // Jetpack
+    getJetpackState:               (name)           => Deno.core.ops.bsengine_get_jetpack_state(name),
+    getJetpackThrustX:             (name)           => Deno.core.ops.bsengine_get_jetpack_thrust_x(name),
+    getJetpackThrustY:             (name)           => Deno.core.ops.bsengine_get_jetpack_thrust_y(name),
+    getJetpackThrustZ:             (name)           => Deno.core.ops.bsengine_get_jetpack_thrust_z(name),
+    getJetpackThrustForce:         (name)           => Deno.core.ops.bsengine_get_jetpack_thrust_force(name),
+    getJetpackFuel:                (name)           => Deno.core.ops.bsengine_get_jetpack_fuel(name),
+    getJetpackMaxFuel:             (name)           => Deno.core.ops.bsengine_get_jetpack_max_fuel(name),
+    getJetpackFuelDrainRate:       (name)           => Deno.core.ops.bsengine_get_jetpack_fuel_drain_rate(name),
+    getJetpackFuelRegenRate:       (name)           => Deno.core.ops.bsengine_get_jetpack_fuel_regen_rate(name),
+    getJetpackWantsThrust:         (name)           => Deno.core.ops.bsengine_get_jetpack_wants_thrust(name),
+    isJetpackThrusting:            (name)           => Deno.core.ops.bsengine_is_jetpack_thrusting(name),
+    isJetpackDepleted:             (name)           => Deno.core.ops.bsengine_is_jetpack_depleted(name),
+    isJetpackEnabled:              (name)           => Deno.core.ops.bsengine_is_jetpack_enabled(name),
+    setJetpackWantsThrust:         (name, w)        => Deno.core.ops.bsengine_set_jetpack_wants_thrust(name, w),
+    refuelJetpack:                 (name)           => Deno.core.ops.bsengine_refuel_jetpack(name),
+    setJetpackThrustForce:         (name, f)        => Deno.core.ops.bsengine_set_jetpack_thrust_force(name, f),
+    setJetpackFuelDrainRate:       (name, r)        => Deno.core.ops.bsengine_set_jetpack_fuel_drain_rate(name, r),
+    setJetpackFuelRegenRate:       (name, r)        => Deno.core.ops.bsengine_set_jetpack_fuel_regen_rate(name, r),
+    setJetpackRegenInAir:          (name, b)        => Deno.core.ops.bsengine_set_jetpack_regen_in_air(name, b),
+    setJetpackEnabled:             (name, en)       => Deno.core.ops.bsengine_set_jetpack_enabled(name, en),
+
+    // Jolt
+    getJoltDuration:               (name)           => Deno.core.ops.bsengine_get_jolt_duration(name),
+    getJoltTimer:                  (name)           => Deno.core.ops.bsengine_get_jolt_timer(name),
+    getJoltChainChance:            (name)           => Deno.core.ops.bsengine_get_jolt_chain_chance(name),
+    getJoltChainFraction:          (name)           => Deno.core.ops.bsengine_get_jolt_chain_fraction(name),
+    isJolted:                      (name)           => Deno.core.ops.bsengine_is_jolted(name),
+    isJustJolted:                  (name)           => Deno.core.ops.bsengine_is_just_jolted(name),
+    isJoltJustExpired:             (name)           => Deno.core.ops.bsengine_is_jolt_just_expired(name),
+    isJoltEnabled:                 (name)           => Deno.core.ops.bsengine_is_jolt_enabled(name),
+    applyJolt:                     (name, dur)      => Deno.core.ops.bsengine_apply_jolt(name, dur),
+    clearJolt:                     (name)           => Deno.core.ops.bsengine_clear_jolt(name),
+    setJoltChainChance:            (name, c)        => Deno.core.ops.bsengine_set_jolt_chain_chance(name, c),
+    setJoltChainFraction:          (name, f)        => Deno.core.ops.bsengine_set_jolt_chain_fraction(name, f),
+    setJoltEnabled:                (name, en)       => Deno.core.ops.bsengine_set_jolt_enabled(name, en),
+
+    // Jostle
+    getJostleAccumulated:          (name)           => Deno.core.ops.bsengine_get_jostle_accumulated(name),
+    getJostleThreshold:            (name)           => Deno.core.ops.bsengine_get_jostle_threshold(name),
+    getJostleDecayRate:            (name)           => Deno.core.ops.bsengine_get_jostle_decay_rate(name),
+    isDestabilized:                (name)           => Deno.core.ops.bsengine_is_destabilized(name),
+    isJustDestabilized:            (name)           => Deno.core.ops.bsengine_is_just_destabilized(name),
+    getJostleFraction:             (name)           => Deno.core.ops.bsengine_get_jostle_fraction(name),
+    isJostleEnabled:               (name)           => Deno.core.ops.bsengine_is_jostle_enabled(name),
+    jostleEntity:                  (name, amt)      => Deno.core.ops.bsengine_jostle_entity(name, amt),
+    setJostleThreshold:            (name, t)        => Deno.core.ops.bsengine_set_jostle_threshold(name, t),
+    setJostleDecayRate:            (name, r)        => Deno.core.ops.bsengine_set_jostle_decay_rate(name, r),
+    setJostleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_jostle_enabled(name, en),
+
+    // Juke
+    getJukeCharges:                (name)           => Deno.core.ops.bsengine_get_juke_charges(name),
+    getJukeMaxCharges:             (name)           => Deno.core.ops.bsengine_get_juke_max_charges(name),
+    isJukeReady:                   (name)           => Deno.core.ops.bsengine_is_juke_ready(name),
+    isJustJuked:                   (name)           => Deno.core.ops.bsengine_is_just_juked(name),
+    getJukeChargeFraction:         (name)           => Deno.core.ops.bsengine_get_juke_charge_fraction(name),
+    isJukeEnabled:                 (name)           => Deno.core.ops.bsengine_is_juke_enabled(name),
+    primeJuke:                     (name)           => Deno.core.ops.bsengine_prime_juke(name),
+    consumeJuke:                   (name)           => Deno.core.ops.bsengine_consume_juke(name),
+    setJukeMaxCharges:             (name, m)        => Deno.core.ops.bsengine_set_juke_max_charges(name, m),
+    setJukeEnabled:                (name, en)       => Deno.core.ops.bsengine_set_juke_enabled(name, en),
+
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -28106,6 +29058,349 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ForceInterrupt { name } if name == "Caster")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetInterrupt { name } if name == "Caster")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetInterruptEnabled { name, enabled } if name == "Caster" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_invincible_read_ops() {
+        // (stacks, timer, flash_interval, flash_visible, just_became_invincible, just_lost_invincibility, enabled)
+        super::INVINCIBLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2u32, 1.5f32, 0.1f32, true, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let stacks = rt
+            .eval(r#"Bsengine.getInvincibleStacks("Hero")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(stacks.trim(), "2");
+        assert!(rt
+            .eval(r#"Bsengine.isInvincible("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isJustBecameInvincible("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isFlashVisible("Hero")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        super::INVINCIBLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_invincible_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.grantInvincible("Hero", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.revokeInvincible("Hero");"#).unwrap();
+        rt.eval(r#"Bsengine.setInvincibleEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GrantInvincible { name, duration } if name == "Hero" && (*duration - 2.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RevokeInvincible { name } if name == "Hero")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetInvincibleEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_isolate_read_ops() {
+        // (duration, timer, buff_reduction, debuff_reduction, just_began, just_ended, enabled)
+        super::ISOLATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ranger".to_string(),
+                (5.0f32, 4.0f32, 0.5f32, 0.3f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isIsolated("Ranger")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isJustIsolated("Ranger")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let buff = rt
+            .eval(r#"Bsengine.getIsolateBuffReduction("Ranger")"#)
+            .unwrap()
+            .to_string();
+        assert!((buff.parse::<f64>().unwrap() - 0.5).abs() < 0.001);
+        super::ISOLATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_isolate_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.secludeIsolate("Ranger", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.rejoinIsolate("Ranger");"#).unwrap();
+        rt.eval(r#"Bsengine.setIsolateEnabled("Ranger", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SecludeIsolate { name, duration } if name == "Ranger" && (*duration - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RejoinIsolate { name } if name == "Ranger")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetIsolateEnabled { name, enabled } if name == "Ranger" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jeer_read_ops() {
+        // (duration, timer, aim_penalty_rad, damage_fraction, just_jeered, just_rallied, enabled)
+        super::JEER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Soldier".to_string(),
+                (3.0f32, 2.5f32, 0.2f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isJeered("Soldier")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isJustJeered("Soldier")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let dmg = rt
+            .eval(r#"Bsengine.getJeerDamageFraction("Soldier")"#)
+            .unwrap()
+            .to_string();
+        assert!((dmg.parse::<f64>().unwrap() - 0.75).abs() < 0.001);
+        super::JEER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jeer_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyJeer("Soldier", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearJeer("Soldier");"#).unwrap();
+        rt.eval(r#"Bsengine.setJeerEnabled("Soldier", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyJeer { name, duration } if name == "Soldier" && (*duration - 3.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearJeer { name } if name == "Soldier")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJeerEnabled { name, enabled } if name == "Soldier" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jetpack_read_ops() {
+        // (state_u32, tx, ty, tz, thrust_force, fuel, max_fuel, drain, regen, wants_thrust, regen_in_air, enabled)
+        // state: Idle=0, Thrusting=1, Depleted=2
+        super::JETPACK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pilot".to_string(),
+                (
+                    1u32, 0.0f32, 1.0f32, 0.0f32, 50.0f32, 80.0f32, 100.0f32, 10.0f32, 5.0f32,
+                    true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let state = rt
+            .eval(r#"Bsengine.getJetpackState("Pilot")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(state.trim(), "1");
+        assert!(rt
+            .eval(r#"Bsengine.isJetpackThrusting("Pilot")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let fuel = rt
+            .eval(r#"Bsengine.getJetpackFuel("Pilot")"#)
+            .unwrap()
+            .to_string();
+        assert!((fuel.parse::<f64>().unwrap() - 80.0).abs() < 0.001);
+        super::JETPACK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jetpack_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setJetpackWantsThrust("Pilot", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.refuelJetpack("Pilot");"#).unwrap();
+        rt.eval(r#"Bsengine.setJetpackEnabled("Pilot", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJetpackWantsThrust { name, wants } if name == "Pilot" && *wants)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RefuelJetpack { name } if name == "Pilot")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJetpackEnabled { name, enabled } if name == "Pilot" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jolt_read_ops() {
+        // (duration, timer, chain_chance, chain_fraction, just_jolted, just_expired, enabled)
+        super::JOLT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Zapper".to_string(),
+                (1.0f32, 0.8f32, 0.5f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isJolted("Zapper")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isJustJolted("Zapper")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let chance = rt
+            .eval(r#"Bsengine.getJoltChainChance("Zapper")"#)
+            .unwrap()
+            .to_string();
+        assert!((chance.parse::<f64>().unwrap() - 0.5).abs() < 0.001);
+        super::JOLT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jolt_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyJolt("Zapper", 1.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearJolt("Zapper");"#).unwrap();
+        rt.eval(r#"Bsengine.setJoltEnabled("Zapper", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyJolt { name, duration } if name == "Zapper" && (*duration - 1.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearJolt { name } if name == "Zapper")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJoltEnabled { name, enabled } if name == "Zapper" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jostle_read_ops() {
+        // (accumulated, threshold, decay_rate, just_destabilized, enabled)
+        super::JOSTLE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Crowd".to_string(), (3.0f32, 3.0f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert!(rt
+            .eval(r#"Bsengine.isJustDestabilized("Crowd")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isDestabilized("Crowd")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let frac = rt
+            .eval(r#"Bsengine.getJostleFraction("Crowd")"#)
+            .unwrap()
+            .to_string();
+        assert!((frac.parse::<f64>().unwrap() - 1.0).abs() < 0.001);
+        super::JOSTLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_jostle_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.jostleEntity("Crowd", 1.5);"#).unwrap();
+        rt.eval(r#"Bsengine.setJostleThreshold("Crowd", 5.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setJostleEnabled("Crowd", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::JostleEntity { name, amount } if name == "Crowd" && (*amount - 1.5).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJostleThreshold { name, threshold } if name == "Crowd" && (*threshold - 5.0).abs() < 0.001)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJostleEnabled { name, enabled } if name == "Crowd" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_juke_read_ops() {
+        // (charges, max_charges, just_juked, enabled)
+        super::JUKE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Trickster".to_string(), (2u32, 3u32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let charges = rt
+            .eval(r#"Bsengine.getJukeCharges("Trickster")"#)
+            .unwrap()
+            .to_string();
+        assert_eq!(charges.trim(), "2");
+        assert!(rt
+            .eval(r#"Bsengine.isJukeReady("Trickster")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        assert!(rt
+            .eval(r#"Bsengine.isJustJuked("Trickster")"#)
+            .unwrap()
+            .to_string()
+            .contains("true"));
+        let frac = rt
+            .eval(r#"Bsengine.getJukeChargeFraction("Trickster")"#)
+            .unwrap()
+            .to_string();
+        assert!((frac.parse::<f64>().unwrap() - 2.0 / 3.0).abs() < 0.001);
+        super::JUKE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_juke_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.primeJuke("Trickster");"#).unwrap();
+        rt.eval(r#"Bsengine.consumeJuke("Trickster");"#).unwrap();
+        rt.eval(r#"Bsengine.setJukeEnabled("Trickster", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PrimeJuke { name } if name == "Trickster")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeJuke { name } if name == "Trickster")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetJukeEnabled { name, enabled } if name == "Trickster" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

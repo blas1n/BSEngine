@@ -25,7 +25,7 @@ use crate::ops::{
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
+    PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
     SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
     STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
     TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
@@ -792,6 +792,18 @@ fn run_scripts(world: &mut World) {
             );
         }
         AMMO_SNAPSHOT.with(|s| *s.borrow_mut() = ammo_map);
+    }
+    {
+        use bsengine_core::Regen;
+        let mut regen_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Regen)>();
+        for (name, r) in q.iter(world) {
+            regen_map.insert(
+                name.0.clone(),
+                (r.rate, r.delay_after_damage, r.delay_timer, r.enabled),
+            );
+        }
+        REGEN_SNAPSHOT.with(|s| *s.borrow_mut() = regen_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -1585,6 +1597,54 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut a) = world.get_mut::<Ammo>(e) {
                         a.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetRegenRate { name, rate } => {
+                use bsengine_core::Regen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut r) = world.get_mut::<Regen>(e) {
+                        r.rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetRegenDelay { name, seconds } => {
+                use bsengine_core::Regen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut r) = world.get_mut::<Regen>(e) {
+                        r.delay_after_damage = seconds.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetRegenEnabled { name, enabled } => {
+                use bsengine_core::Regen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut r) = world.get_mut::<Regen>(e) {
+                        r.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::NotifyRegenDamage { name } => {
+                use bsengine_core::Regen;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut r) = world.get_mut::<Regen>(e) {
+                        r.notify_damage();
                     }
                 }
             }

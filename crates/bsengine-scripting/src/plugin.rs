@@ -17,8 +17,8 @@ use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
     CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
-    EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
+    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
+    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
     GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
@@ -1075,6 +1075,26 @@ fn run_scripts(world: &mut World) {
             );
         }
         FOOTSTEP_SNAPSHOT.with(|s| *s.borrow_mut() = fs_map);
+    }
+    {
+        use bsengine_core::Emissive;
+        let mut em_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Emissive)>();
+        for (name, e) in q.iter(world) {
+            em_map.insert(
+                name.0.clone(),
+                (
+                    e.color[0],
+                    e.color[1],
+                    e.color[2],
+                    e.color[3],
+                    e.intensity,
+                    e.contributes_to_bloom,
+                    e.enabled,
+                ),
+            );
+        }
+        EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = em_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2748,6 +2768,59 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut f) = world.get_mut::<Footstep>(e) {
                         f.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetEmissiveColor { name, r, g, b, a } => {
+                use bsengine_core::Emissive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(ent) = entity {
+                    if let Some(mut em) = world.get_mut::<Emissive>(ent) {
+                        em.color = [
+                            r.clamp(0.0, f32::MAX),
+                            g.clamp(0.0, f32::MAX),
+                            b.clamp(0.0, f32::MAX),
+                            a.clamp(0.0, 1.0),
+                        ];
+                    }
+                }
+            }
+            ScriptCommand::SetEmissiveIntensity { name, intensity } => {
+                use bsengine_core::Emissive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(ent) = entity {
+                    if let Some(mut em) = world.get_mut::<Emissive>(ent) {
+                        em.intensity = intensity.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetEmissiveContributesToBloom { name, value } => {
+                use bsengine_core::Emissive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(ent) = entity {
+                    if let Some(mut em) = world.get_mut::<Emissive>(ent) {
+                        em.contributes_to_bloom = value;
+                    }
+                }
+            }
+            ScriptCommand::SetEmissiveEnabled { name, enabled } => {
+                use bsengine_core::Emissive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(ent) = entity {
+                    if let Some(mut em) = world.get_mut::<Emissive>(ent) {
+                        em.enabled = enabled;
                     }
                 }
             }

@@ -2538,6 +2538,163 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetMeshPath {
+        name: String,
+        path: String,
+    },
+    SetMeshSubmeshIndex {
+        name: String,
+        index: u32,
+    },
+    SetMeshCastShadow {
+        name: String,
+        cast: bool,
+    },
+    SetMeshReceiveShadow {
+        name: String,
+        receive: bool,
+    },
+    SetMinimapIcon {
+        name: String,
+        icon: String,
+    },
+    SetMinimapColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetMinimapSize {
+        name: String,
+        size: f32,
+    },
+    SetMinimapCategory {
+        name: String,
+        category: String,
+    },
+    SetMinimapRotateWithEntity {
+        name: String,
+        rotate: bool,
+    },
+    SetMinimapClampToEdge {
+        name: String,
+        clamp: bool,
+    },
+    SetMinimapEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ProjectMirage {
+        name: String,
+        duration: f32,
+    },
+    DispelMirage {
+        name: String,
+    },
+    SetMirageMisdirectChance {
+        name: String,
+        chance: f32,
+    },
+    SetMirageEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddMomentum {
+        name: String,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    StopMomentum {
+        name: String,
+    },
+    SetMomentumDamping {
+        name: String,
+        damping: f32,
+    },
+    SetMomentumMaxSpeed {
+        name: String,
+        max_speed: f32,
+    },
+    SetMomentumEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BoostMorale {
+        name: String,
+        amount: f32,
+    },
+    DropMorale {
+        name: String,
+        amount: f32,
+    },
+    SetMoraleDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetMoraleDamageBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetMoraleSpeedBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetMoraleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeginMorph {
+        name: String,
+        target: u32,
+    },
+    CancelMorph {
+        name: String,
+    },
+    InstantMorph {
+        name: String,
+        form: u32,
+    },
+    SetMorphTime {
+        name: String,
+        time: f32,
+    },
+    SetMorphEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetMountSpeedScale {
+        name: String,
+        scale: f32,
+    },
+    SetMountMaxRiders {
+        name: String,
+        max_riders: u32,
+    },
+    SetMountForcedDismountDamage {
+        name: String,
+        damage: f32,
+    },
+    SetMountEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyMuffle {
+        name: String,
+        duration: f32,
+    },
+    ClearMuffle {
+        name: String,
+    },
+    SetMuffleSoundRadiusFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetMuffleEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -3562,6 +3719,39 @@ thread_local! {
     // entity name → (can_merge, merge_weight, max_weight, just_merged, enabled)
     pub(crate) static MERGE_SNAPSHOT: RefCell<
         HashMap<String, (bool, f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (path, submesh_index, cast_shadow, receive_shadow)
+    pub(crate) static MESH_SNAPSHOT: RefCell<
+        HashMap<String, (String, u32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (icon, cr, cg, cb, ca, size, category, rotate_with_entity, clamp_to_edge, enabled)
+    pub(crate) static MINIMAP_SNAPSHOT: RefCell<
+        HashMap<String, (String, f32, f32, f32, f32, f32, String, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, misdirect_chance, just_created, just_faded, enabled)
+    pub(crate) static MIRAGE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (cur_x, cur_y, cur_z, damping, max_speed, enabled)
+    pub(crate) static MOMENTUM_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (morale, decay_rate, damage_bonus, speed_bonus, just_peaked, just_broke, enabled)
+    pub(crate) static MORALE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (form, target_form, morph_time, morph_timer, is_morphing, just_started, just_finished, enabled)
+    pub(crate) static MORPH_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (rider_count, max_riders, speed_scale, forced_dismount_damage, enabled)
+    // forced_dismount_damage = -1.0 if None
+    pub(crate) static MOUNT_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, sound_radius_fraction, just_muffled, just_unmuffled, enabled)
+    pub(crate) static MUFFLE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -17361,6 +17551,683 @@ pub fn bsengine_set_merge_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Mesh ──────────────────────────────────────────────────────────────────────
+
+#[op2]
+#[string]
+pub fn bsengine_get_mesh_path(#[string] name: String) -> String {
+    MESH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(path, _, _, _)| path.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mesh_submesh_index(#[string] name: String) -> u32 {
+    MESH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_does_mesh_cast_shadow(#[string] name: String) -> bool {
+    MESH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_does_mesh_receive_shadow(#[string] name: String) -> bool {
+    MESH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mesh_path(#[string] name: String, #[string] path: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeshPath { name, path })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mesh_submesh_index(#[string] name: String, index: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeshSubmeshIndex { name, index })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mesh_cast_shadow(#[string] name: String, cast: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeshCastShadow { name, cast })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mesh_receive_shadow(#[string] name: String, receive: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMeshReceiveShadow { name, receive })
+    });
+}
+
+// ── Minimap ───────────────────────────────────────────────────────────────────
+
+#[op2]
+#[string]
+pub fn bsengine_get_minimap_icon(#[string] name: String) -> String {
+    MINIMAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(icon, _, _, _, _, _, _, _, _, _)| icon.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_minimap_color_r(#[string] name: String) -> f32 {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_minimap_color_g(#[string] name: String) -> f32 {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_minimap_color_b(#[string] name: String) -> f32 {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_minimap_color_a(#[string] name: String) -> f32 {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_minimap_size(#[string] name: String) -> f32 {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(8.0))
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_minimap_category(#[string] name: String) -> String {
+    MINIMAP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, cat, _, _, _)| cat.clone())
+            .unwrap_or_default()
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_does_minimap_rotate_with_entity(#[string] name: String) -> bool {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_does_minimap_clamp_to_edge(#[string] name: String) -> bool {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_minimap_enabled(#[string] name: String) -> bool {
+    MINIMAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_icon(#[string] name: String, #[string] icon: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapIcon { name, icon })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapColor { name, r, g, b, a })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_size(#[string] name: String, size: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapSize { name, size })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_category(#[string] name: String, #[string] category: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapCategory { name, category })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_rotate_with_entity(#[string] name: String, rotate: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapRotateWithEntity { name, rotate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_clamp_to_edge(#[string] name: String, clamp: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapClampToEdge { name, clamp })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_minimap_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMinimapEnabled { name, enabled })
+    });
+}
+
+// ── Mirage ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_mirage_duration(#[string] name: String) -> f32 {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mirage_timer(#[string] name: String) -> f32 {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mirage_misdirect_chance(#[string] name: String) -> f32 {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_mirage_projecting(#[string] name: String) -> bool {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_mirage_created(#[string] name: String) -> bool {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_mirage_faded(#[string] name: String) -> bool {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_mirage_enabled(#[string] name: String) -> bool {
+    MIRAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mirage_remaining_fraction(#[string] name: String) -> f32 {
+    MIRAGE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.0 > 0.0 {
+                    (v.1 / v.0).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_project_mirage(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ProjectMirage { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_dispel_mirage(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DispelMirage { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mirage_misdirect_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMirageMisdirectChance { name, chance })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mirage_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMirageEnabled { name, enabled })
+    });
+}
+
+// ── Momentum ──────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_momentum_x(#[string] name: String) -> f32 {
+    MOMENTUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_momentum_y(#[string] name: String) -> f32 {
+    MOMENTUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_momentum_z(#[string] name: String) -> f32 {
+    MOMENTUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_momentum_damping(#[string] name: String) -> f32 {
+    MOMENTUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_momentum_max_speed(#[string] name: String) -> f32 {
+    MOMENTUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_momentum_speed(#[string] name: String) -> f32 {
+    MOMENTUM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| (v.0 * v.0 + v.1 * v.1 + v.2 * v.2).sqrt())
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_momentum_enabled(#[string] name: String) -> bool {
+    MOMENTUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_add_momentum(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddMomentum { name, x, y, z })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_stop_momentum(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopMomentum { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_momentum_damping(#[string] name: String, damping: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMomentumDamping { name, damping })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_momentum_max_speed(#[string] name: String, max_speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMomentumMaxSpeed { name, max_speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_momentum_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMomentumEnabled { name, enabled })
+    });
+}
+
+// ── Morale ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_morale(#[string] name: String) -> f32 {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morale_decay_rate(#[string] name: String) -> f32 {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morale_damage_bonus(#[string] name: String) -> f32 {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morale_speed_bonus(#[string] name: String) -> f32 {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_morale_peaked(#[string] name: String) -> bool {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 >= 1.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_morale_broken(#[string] name: String) -> bool {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 <= 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_morale_peaked(#[string] name: String) -> bool {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_morale_broke(#[string] name: String) -> bool {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_morale_enabled(#[string] name: String) -> bool {
+    MORALE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_boost_morale(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BoostMorale { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_drop_morale(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DropMorale { name, amount })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_morale_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMoraleDecayRate { name, rate })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_morale_damage_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMoraleDamageBonus { name, bonus })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_morale_speed_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMoraleSpeedBonus { name, bonus })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_morale_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMoraleEnabled { name, enabled })
+    });
+}
+
+// ── Morph ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_morph_form(#[string] name: String) -> u32 {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morph_target_form(#[string] name: String) -> u32 {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morph_time(#[string] name: String) -> f32 {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morph_timer(#[string] name: String) -> f32 {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_morphing(#[string] name: String) -> bool {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_morph_started(#[string] name: String) -> bool {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_morph_finished(#[string] name: String) -> bool {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_morph_enabled(#[string] name: String) -> bool {
+    MORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_morph_fraction(#[string] name: String) -> f32 {
+    MORPH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.4 && v.2 > 0.0 {
+                    (v.3 / v.2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_begin_morph(#[string] name: String, target: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeginMorph { name, target })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_cancel_morph(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CancelMorph { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_instant_morph(#[string] name: String, form: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InstantMorph { name, form })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_morph_time(#[string] name: String, time: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMorphTime { name, time })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_morph_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMorphEnabled { name, enabled })
+    });
+}
+
+// ── Mount ─────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_mount_rider_count(#[string] name: String) -> u32 {
+    MOUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mount_max_riders(#[string] name: String) -> u32 {
+    MOUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_mount_full(#[string] name: String) -> bool {
+    MOUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0 >= v.1).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mount_speed_scale(#[string] name: String) -> f32 {
+    MOUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_mount_forced_dismount_damage(#[string] name: String) -> f32 {
+    MOUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(-1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_mount_enabled(#[string] name: String) -> bool {
+    MOUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mount_speed_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMountSpeedScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mount_max_riders(#[string] name: String, max_riders: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMountMaxRiders { name, max_riders })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mount_forced_dismount_damage(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMountForcedDismountDamage { name, damage })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_mount_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMountEnabled { name, enabled })
+    });
+}
+
+// ── Muffle ────────────────────────────────────────────────────────────────────
+
+#[op2(fast)]
+pub fn bsengine_get_muffle_duration(#[string] name: String) -> f32 {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_muffle_timer(#[string] name: String) -> f32 {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_muffle_sound_radius_fraction(#[string] name: String) -> f32 {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_muffle_active(#[string] name: String) -> bool {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_muffled(#[string] name: String) -> bool {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_just_unmuffled(#[string] name: String) -> bool {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_muffle_enabled(#[string] name: String) -> bool {
+    MUFFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_muffle_remaining_fraction(#[string] name: String) -> f32 {
+    MUFFLE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|v| {
+                if v.0 > 0.0 {
+                    (v.1 / v.0).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_apply_muffle(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyMuffle { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_clear_muffle(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearMuffle { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_muffle_sound_radius_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMuffleSoundRadiusFraction { name, fraction })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_muffle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMuffleEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -19373,6 +20240,106 @@ deno_core::extension!(
         bsengine_set_merge_can_merge,
         bsengine_set_merge_max_weight,
         bsengine_set_merge_enabled,
+        bsengine_get_mesh_path,
+        bsengine_get_mesh_submesh_index,
+        bsengine_does_mesh_cast_shadow,
+        bsengine_does_mesh_receive_shadow,
+        bsengine_set_mesh_path,
+        bsengine_set_mesh_submesh_index,
+        bsengine_set_mesh_cast_shadow,
+        bsengine_set_mesh_receive_shadow,
+        bsengine_get_minimap_icon,
+        bsengine_get_minimap_color_r,
+        bsengine_get_minimap_color_g,
+        bsengine_get_minimap_color_b,
+        bsengine_get_minimap_color_a,
+        bsengine_get_minimap_size,
+        bsengine_get_minimap_category,
+        bsengine_does_minimap_rotate_with_entity,
+        bsengine_does_minimap_clamp_to_edge,
+        bsengine_is_minimap_enabled,
+        bsengine_set_minimap_icon,
+        bsengine_set_minimap_color,
+        bsengine_set_minimap_size,
+        bsengine_set_minimap_category,
+        bsengine_set_minimap_rotate_with_entity,
+        bsengine_set_minimap_clamp_to_edge,
+        bsengine_set_minimap_enabled,
+        bsengine_get_mirage_duration,
+        bsengine_get_mirage_timer,
+        bsengine_get_mirage_misdirect_chance,
+        bsengine_is_mirage_projecting,
+        bsengine_is_just_mirage_created,
+        bsengine_is_just_mirage_faded,
+        bsengine_is_mirage_enabled,
+        bsengine_get_mirage_remaining_fraction,
+        bsengine_project_mirage,
+        bsengine_dispel_mirage,
+        bsengine_set_mirage_misdirect_chance,
+        bsengine_set_mirage_enabled,
+        bsengine_get_momentum_x,
+        bsengine_get_momentum_y,
+        bsengine_get_momentum_z,
+        bsengine_get_momentum_damping,
+        bsengine_get_momentum_max_speed,
+        bsengine_get_momentum_speed,
+        bsengine_is_momentum_enabled,
+        bsengine_add_momentum,
+        bsengine_stop_momentum,
+        bsengine_set_momentum_damping,
+        bsengine_set_momentum_max_speed,
+        bsengine_set_momentum_enabled,
+        bsengine_get_morale,
+        bsengine_get_morale_decay_rate,
+        bsengine_get_morale_damage_bonus,
+        bsengine_get_morale_speed_bonus,
+        bsengine_is_morale_peaked,
+        bsengine_is_morale_broken,
+        bsengine_is_just_morale_peaked,
+        bsengine_is_just_morale_broke,
+        bsengine_is_morale_enabled,
+        bsengine_boost_morale,
+        bsengine_drop_morale,
+        bsengine_set_morale_decay_rate,
+        bsengine_set_morale_damage_bonus,
+        bsengine_set_morale_speed_bonus,
+        bsengine_set_morale_enabled,
+        bsengine_get_morph_form,
+        bsengine_get_morph_target_form,
+        bsengine_get_morph_time,
+        bsengine_get_morph_timer,
+        bsengine_is_morphing,
+        bsengine_is_just_morph_started,
+        bsengine_is_just_morph_finished,
+        bsengine_is_morph_enabled,
+        bsengine_get_morph_fraction,
+        bsengine_begin_morph,
+        bsengine_cancel_morph,
+        bsengine_instant_morph,
+        bsengine_set_morph_time,
+        bsengine_set_morph_enabled,
+        bsengine_get_mount_rider_count,
+        bsengine_get_mount_max_riders,
+        bsengine_is_mount_full,
+        bsengine_get_mount_speed_scale,
+        bsengine_get_mount_forced_dismount_damage,
+        bsengine_is_mount_enabled,
+        bsengine_set_mount_speed_scale,
+        bsengine_set_mount_max_riders,
+        bsengine_set_mount_forced_dismount_damage,
+        bsengine_set_mount_enabled,
+        bsengine_get_muffle_duration,
+        bsengine_get_muffle_timer,
+        bsengine_get_muffle_sound_radius_fraction,
+        bsengine_is_muffle_active,
+        bsengine_is_just_muffled,
+        bsengine_is_just_unmuffled,
+        bsengine_is_muffle_enabled,
+        bsengine_get_muffle_remaining_fraction,
+        bsengine_apply_muffle,
+        bsengine_clear_muffle,
+        bsengine_set_muffle_sound_radius_fraction,
+        bsengine_set_muffle_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -21513,6 +22480,114 @@ const Bsengine = {
     setMergeCanMerge:              (name, v)        => Deno.core.ops.bsengine_set_merge_can_merge(name, v),
     setMergeMaxWeight:             (name, w)        => Deno.core.ops.bsengine_set_merge_max_weight(name, w),
     setMergeEnabled:               (name, en)       => Deno.core.ops.bsengine_set_merge_enabled(name, en),
+
+    getMeshPath:                   (name)           => Deno.core.ops.bsengine_get_mesh_path(name),
+    getMeshSubmeshIndex:           (name)           => Deno.core.ops.bsengine_get_mesh_submesh_index(name),
+    doesMeshCastShadow:            (name)           => Deno.core.ops.bsengine_does_mesh_cast_shadow(name),
+    doesMeshReceiveShadow:         (name)           => Deno.core.ops.bsengine_does_mesh_receive_shadow(name),
+    setMeshPath:                   (name, p)        => Deno.core.ops.bsengine_set_mesh_path(name, p),
+    setMeshSubmeshIndex:           (name, i)        => Deno.core.ops.bsengine_set_mesh_submesh_index(name, i),
+    setMeshCastShadow:             (name, v)        => Deno.core.ops.bsengine_set_mesh_cast_shadow(name, v),
+    setMeshReceiveShadow:          (name, v)        => Deno.core.ops.bsengine_set_mesh_receive_shadow(name, v),
+
+    getMinimapIcon:                (name)           => Deno.core.ops.bsengine_get_minimap_icon(name),
+    getMinimapColorR:              (name)           => Deno.core.ops.bsengine_get_minimap_color_r(name),
+    getMinimapColorG:              (name)           => Deno.core.ops.bsengine_get_minimap_color_g(name),
+    getMinimapColorB:              (name)           => Deno.core.ops.bsengine_get_minimap_color_b(name),
+    getMinimapColorA:              (name)           => Deno.core.ops.bsengine_get_minimap_color_a(name),
+    getMinimapSize:                (name)           => Deno.core.ops.bsengine_get_minimap_size(name),
+    getMinimapCategory:            (name)           => Deno.core.ops.bsengine_get_minimap_category(name),
+    doesMinimapRotateWithEntity:   (name)           => Deno.core.ops.bsengine_does_minimap_rotate_with_entity(name),
+    doesMinimapClampToEdge:        (name)           => Deno.core.ops.bsengine_does_minimap_clamp_to_edge(name),
+    isMinimapEnabled:              (name)           => Deno.core.ops.bsengine_is_minimap_enabled(name),
+    setMinimapIcon:                (name, icon)     => Deno.core.ops.bsengine_set_minimap_icon(name, icon),
+    setMinimapColor:               (name, r, g, b, a) => Deno.core.ops.bsengine_set_minimap_color(name, r, g, b, a),
+    setMinimapSize:                (name, sz)       => Deno.core.ops.bsengine_set_minimap_size(name, sz),
+    setMinimapCategory:            (name, cat)      => Deno.core.ops.bsengine_set_minimap_category(name, cat),
+    setMinimapRotateWithEntity:    (name, v)        => Deno.core.ops.bsengine_set_minimap_rotate_with_entity(name, v),
+    setMinimapClampToEdge:         (name, v)        => Deno.core.ops.bsengine_set_minimap_clamp_to_edge(name, v),
+    setMinimapEnabled:             (name, en)       => Deno.core.ops.bsengine_set_minimap_enabled(name, en),
+
+    getMirageDuration:             (name)           => Deno.core.ops.bsengine_get_mirage_duration(name),
+    getMirageTimer:                (name)           => Deno.core.ops.bsengine_get_mirage_timer(name),
+    getMirageMisdirectChance:      (name)           => Deno.core.ops.bsengine_get_mirage_misdirect_chance(name),
+    isMirageProjecting:            (name)           => Deno.core.ops.bsengine_is_mirage_projecting(name),
+    isJustMirageCreated:           (name)           => Deno.core.ops.bsengine_is_just_mirage_created(name),
+    isJustMirageFaded:             (name)           => Deno.core.ops.bsengine_is_just_mirage_faded(name),
+    isMirageEnabled:               (name)           => Deno.core.ops.bsengine_is_mirage_enabled(name),
+    getMirageRemainingFraction:    (name)           => Deno.core.ops.bsengine_get_mirage_remaining_fraction(name),
+    projectMirage:                 (name, d)        => Deno.core.ops.bsengine_project_mirage(name, d),
+    dispelMirage:                  (name)           => Deno.core.ops.bsengine_dispel_mirage(name),
+    setMirageMisdirectChance:      (name, c)        => Deno.core.ops.bsengine_set_mirage_misdirect_chance(name, c),
+    setMirageEnabled:              (name, en)       => Deno.core.ops.bsengine_set_mirage_enabled(name, en),
+
+    getMomentumX:                  (name)           => Deno.core.ops.bsengine_get_momentum_x(name),
+    getMomentumY:                  (name)           => Deno.core.ops.bsengine_get_momentum_y(name),
+    getMomentumZ:                  (name)           => Deno.core.ops.bsengine_get_momentum_z(name),
+    getMomentumDamping:            (name)           => Deno.core.ops.bsengine_get_momentum_damping(name),
+    getMomentumMaxSpeed:           (name)           => Deno.core.ops.bsengine_get_momentum_max_speed(name),
+    getMomentumSpeed:              (name)           => Deno.core.ops.bsengine_get_momentum_speed(name),
+    isMomentumEnabled:             (name)           => Deno.core.ops.bsengine_is_momentum_enabled(name),
+    addMomentum:                   (name, x, y, z) => Deno.core.ops.bsengine_add_momentum(name, x, y, z),
+    stopMomentum:                  (name)           => Deno.core.ops.bsengine_stop_momentum(name),
+    setMomentumDamping:            (name, d)        => Deno.core.ops.bsengine_set_momentum_damping(name, d),
+    setMomentumMaxSpeed:           (name, s)        => Deno.core.ops.bsengine_set_momentum_max_speed(name, s),
+    setMomentumEnabled:            (name, en)       => Deno.core.ops.bsengine_set_momentum_enabled(name, en),
+
+    getMorale:                     (name)           => Deno.core.ops.bsengine_get_morale(name),
+    getMoraleDecayRate:            (name)           => Deno.core.ops.bsengine_get_morale_decay_rate(name),
+    getMoraleDamageBonus:          (name)           => Deno.core.ops.bsengine_get_morale_damage_bonus(name),
+    getMoraleSpeedBonus:           (name)           => Deno.core.ops.bsengine_get_morale_speed_bonus(name),
+    isMoralePeaked:                (name)           => Deno.core.ops.bsengine_is_morale_peaked(name),
+    isMoraleBroken:                (name)           => Deno.core.ops.bsengine_is_morale_broken(name),
+    isJustMoralePeaked:            (name)           => Deno.core.ops.bsengine_is_just_morale_peaked(name),
+    isJustMoraleBroke:             (name)           => Deno.core.ops.bsengine_is_just_morale_broke(name),
+    isMoraleEnabled:               (name)           => Deno.core.ops.bsengine_is_morale_enabled(name),
+    boostMorale:                   (name, a)        => Deno.core.ops.bsengine_boost_morale(name, a),
+    dropMorale:                    (name, a)        => Deno.core.ops.bsengine_drop_morale(name, a),
+    setMoraleDecayRate:            (name, r)        => Deno.core.ops.bsengine_set_morale_decay_rate(name, r),
+    setMoraleDamageBonus:          (name, b)        => Deno.core.ops.bsengine_set_morale_damage_bonus(name, b),
+    setMoraleSpeedBonus:           (name, b)        => Deno.core.ops.bsengine_set_morale_speed_bonus(name, b),
+    setMoraleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_morale_enabled(name, en),
+
+    getMorphForm:                  (name)           => Deno.core.ops.bsengine_get_morph_form(name),
+    getMorphTargetForm:            (name)           => Deno.core.ops.bsengine_get_morph_target_form(name),
+    getMorphTime:                  (name)           => Deno.core.ops.bsengine_get_morph_time(name),
+    getMorphTimer:                 (name)           => Deno.core.ops.bsengine_get_morph_timer(name),
+    isMorphing:                    (name)           => Deno.core.ops.bsengine_is_morphing(name),
+    isJustMorphStarted:            (name)           => Deno.core.ops.bsengine_is_just_morph_started(name),
+    isJustMorphFinished:           (name)           => Deno.core.ops.bsengine_is_just_morph_finished(name),
+    isMorphEnabled:                (name)           => Deno.core.ops.bsengine_is_morph_enabled(name),
+    getMorphFraction:              (name)           => Deno.core.ops.bsengine_get_morph_fraction(name),
+    beginMorph:                    (name, t)        => Deno.core.ops.bsengine_begin_morph(name, t),
+    cancelMorph:                   (name)           => Deno.core.ops.bsengine_cancel_morph(name),
+    instantMorph:                  (name, f)        => Deno.core.ops.bsengine_instant_morph(name, f),
+    setMorphTime:                  (name, t)        => Deno.core.ops.bsengine_set_morph_time(name, t),
+    setMorphEnabled:               (name, en)       => Deno.core.ops.bsengine_set_morph_enabled(name, en),
+
+    getMountRiderCount:            (name)           => Deno.core.ops.bsengine_get_mount_rider_count(name),
+    getMountMaxRiders:             (name)           => Deno.core.ops.bsengine_get_mount_max_riders(name),
+    isMountFull:                   (name)           => Deno.core.ops.bsengine_is_mount_full(name),
+    getMountSpeedScale:            (name)           => Deno.core.ops.bsengine_get_mount_speed_scale(name),
+    getMountForcedDismountDamage:  (name)           => Deno.core.ops.bsengine_get_mount_forced_dismount_damage(name),
+    isMountEnabled:                (name)           => Deno.core.ops.bsengine_is_mount_enabled(name),
+    setMountSpeedScale:            (name, s)        => Deno.core.ops.bsengine_set_mount_speed_scale(name, s),
+    setMountMaxRiders:             (name, m)        => Deno.core.ops.bsengine_set_mount_max_riders(name, m),
+    setMountForcedDismountDamage:  (name, d)        => Deno.core.ops.bsengine_set_mount_forced_dismount_damage(name, d),
+    setMountEnabled:               (name, en)       => Deno.core.ops.bsengine_set_mount_enabled(name, en),
+
+    getMuffleDuration:             (name)           => Deno.core.ops.bsengine_get_muffle_duration(name),
+    getMuffleTimer:                (name)           => Deno.core.ops.bsengine_get_muffle_timer(name),
+    getMuffleSoundRadiusFraction:  (name)           => Deno.core.ops.bsengine_get_muffle_sound_radius_fraction(name),
+    isMuffleActive:                (name)           => Deno.core.ops.bsengine_is_muffle_active(name),
+    isJustMuffled:                 (name)           => Deno.core.ops.bsengine_is_just_muffled(name),
+    isJustUnmuffled:               (name)           => Deno.core.ops.bsengine_is_just_unmuffled(name),
+    isMuffleEnabled:               (name)           => Deno.core.ops.bsengine_is_muffle_enabled(name),
+    getMuffleRemainingFraction:    (name)           => Deno.core.ops.bsengine_get_muffle_remaining_fraction(name),
+    applyMuffle:                   (name, d)        => Deno.core.ops.bsengine_apply_muffle(name, d),
+    clearMuffle:                   (name)           => Deno.core.ops.bsengine_clear_muffle(name),
+    setMuffleSoundRadiusFraction:  (name, f)        => Deno.core.ops.bsengine_set_muffle_sound_radius_fraction(name, f),
+    setMuffleEnabled:              (name, en)       => Deno.core.ops.bsengine_set_muffle_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -34055,6 +35130,557 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMergeCanMerge { name, can_merge } if name == "Blob" && !can_merge)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMergeMaxWeight { name, max_weight } if name == "Blob" && (*max_weight - 16.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMergeEnabled { name, enabled } if name == "Blob" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mesh_read_ops() {
+        // (path, submesh_index, cast_shadow, receive_shadow)
+        super::MESH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cube".to_string(),
+                ("models/cube.glb".to_string(), 2, true, false),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeshPath("Cube")"#).unwrap(),
+            "models/cube.glb"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMeshSubmeshIndex("Cube")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesMeshCastShadow("Cube")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesMeshReceiveShadow("Cube")"#)
+                .unwrap(),
+            "false"
+        );
+        super::MESH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mesh_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMeshPath("Cube", "models/sphere.glb");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeshSubmeshIndex("Cube", 1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeshCastShadow("Cube", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMeshReceiveShadow("Cube", true);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeshPath { name, path } if name == "Cube" && path == "models/sphere.glb")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeshSubmeshIndex { name, index } if name == "Cube" && *index == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeshCastShadow { name, cast } if name == "Cube" && !cast)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMeshReceiveShadow { name, receive } if name == "Cube" && *receive)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_minimap_read_ops() {
+        // (icon, cr, cg, cb, ca, size, category, rotate_with_entity, clamp_to_edge, enabled)
+        super::MINIMAP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                (
+                    "arrow.png".to_string(),
+                    1.0,
+                    0.5,
+                    0.25,
+                    0.75,
+                    16.0,
+                    "enemy".to_string(),
+                    true,
+                    false,
+                    true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapIcon("Player")"#).unwrap(),
+            "arrow.png"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapColorR("Player")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapColorG("Player")"#).unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapColorB("Player")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapColorA("Player")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapSize("Player")"#).unwrap(),
+            "16"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMinimapCategory("Player")"#).unwrap(),
+            "enemy"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesMinimapRotateWithEntity("Player")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.doesMinimapClampToEdge("Player")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMinimapEnabled("Player")"#).unwrap(),
+            "true"
+        );
+        super::MINIMAP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_minimap_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMinimapIcon("Player", "dot.png");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMinimapColor("Player", 1.0, 0.0, 0.0, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMinimapSize("Player", 12.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMinimapCategory("Player", "ally");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMinimapRotateWithEntity("Player", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMinimapClampToEdge("Player", true);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMinimapEnabled("Player", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapIcon { name, icon } if name == "Player" && icon == "dot.png")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapColor { name, r, .. } if name == "Player" && (*r - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapSize { name, size } if name == "Player" && (*size - 12.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapCategory { name, category } if name == "Player" && category == "ally")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapRotateWithEntity { name, rotate } if name == "Player" && *rotate)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapClampToEdge { name, clamp } if name == "Player" && *clamp)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMinimapEnabled { name, enabled } if name == "Player" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mirage_read_ops() {
+        // (duration, timer, misdirect_chance, just_created, just_faded, enabled)
+        super::MIRAGE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ghost".to_string(), (4.0, 2.0, 0.5, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMirageDuration("Ghost")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getMirageTimer("Ghost")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMirageMisdirectChance("Ghost")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMirageProjecting("Ghost")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMirageCreated("Ghost")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMirageFaded("Ghost")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMirageEnabled("Ghost")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMirageRemainingFraction("Ghost")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::MIRAGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mirage_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.projectMirage("Ghost", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.dispelMirage("Ghost");"#).unwrap();
+        rt.eval(r#"Bsengine.setMirageMisdirectChance("Ghost", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMirageEnabled("Ghost", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ProjectMirage { name, duration } if name == "Ghost" && (*duration - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DispelMirage { name } if name == "Ghost")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMirageMisdirectChance { name, chance } if name == "Ghost" && (*chance - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMirageEnabled { name, enabled } if name == "Ghost" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_momentum_read_ops() {
+        // (cur_x, cur_y, cur_z, damping, max_speed, enabled)
+        super::MOMENTUM_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Skater".to_string(), (3.0, 0.0, 4.0, 0.75, 10.0, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMomentumX("Skater")"#).unwrap(), "3");
+        assert_eq!(rt.eval(r#"Bsengine.getMomentumY("Skater")"#).unwrap(), "0");
+        assert_eq!(rt.eval(r#"Bsengine.getMomentumZ("Skater")"#).unwrap(), "4");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMomentumDamping("Skater")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMomentumMaxSpeed("Skater")"#)
+                .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMomentumSpeed("Skater")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMomentumEnabled("Skater")"#).unwrap(),
+            "true"
+        );
+        super::MOMENTUM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_momentum_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.addMomentum("Skater", 1.0, 0.0, 0.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.stopMomentum("Skater");"#).unwrap();
+        rt.eval(r#"Bsengine.setMomentumDamping("Skater", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMomentumMaxSpeed("Skater", 20.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMomentumEnabled("Skater", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddMomentum { name, x, y, z } if name == "Skater" && (*x - 1.0).abs() < 1e-5 && (*y).abs() < 1e-5 && (*z).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopMomentum { name } if name == "Skater")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMomentumDamping { name, damping } if name == "Skater" && (*damping - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMomentumMaxSpeed { name, max_speed } if name == "Skater" && (*max_speed - 20.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMomentumEnabled { name, enabled } if name == "Skater" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_morale_read_ops() {
+        // (morale, decay_rate, damage_bonus, speed_bonus, just_peaked, just_broke, enabled)
+        super::MORALE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Warrior".to_string(),
+                (0.75, 0.125, 0.25, 0.5, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMorale("Warrior")"#).unwrap(), "0.75");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMoraleDecayRate("Warrior")"#)
+                .unwrap(),
+            "0.125"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMoraleDamageBonus("Warrior")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMoraleSpeedBonus("Warrior")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMoralePeaked("Warrior")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMoraleBroken("Warrior")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMoralePeaked("Warrior")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMoraleBroke("Warrior")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMoraleEnabled("Warrior")"#).unwrap(),
+            "true"
+        );
+        super::MORALE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_morale_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.boostMorale("Warrior", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.dropMorale("Warrior", 0.125);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMoraleDecayRate("Warrior", 0.0625);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMoraleDamageBonus("Warrior", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMoraleSpeedBonus("Warrior", 0.25);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMoraleEnabled("Warrior", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BoostMorale { name, amount } if name == "Warrior" && (*amount - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DropMorale { name, amount } if name == "Warrior" && (*amount - 0.125).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMoraleDecayRate { name, rate } if name == "Warrior" && (*rate - 0.0625).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMoraleDamageBonus { name, bonus } if name == "Warrior" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMoraleSpeedBonus { name, bonus } if name == "Warrior" && (*bonus - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMoraleEnabled { name, enabled } if name == "Warrior" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_morph_read_ops() {
+        // (form, target_form, morph_time, morph_timer, is_morphing, just_started, just_finished, enabled)
+        super::MORPH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shifter".to_string(),
+                (0, 1, 2.0, 0.5, true, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getMorphForm("Shifter")"#).unwrap(), "0");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMorphTargetForm("Shifter")"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getMorphTime("Shifter")"#).unwrap(), "2");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMorphTimer("Shifter")"#).unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMorphing("Shifter")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMorphStarted("Shifter")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMorphFinished("Shifter")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMorphEnabled("Shifter")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMorphFraction("Shifter")"#).unwrap(),
+            "0.25"
+        );
+        super::MORPH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_morph_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginMorph("Shifter", 2);"#).unwrap();
+        rt.eval(r#"Bsengine.cancelMorph("Shifter");"#).unwrap();
+        rt.eval(r#"Bsengine.instantMorph("Shifter", 3);"#).unwrap();
+        rt.eval(r#"Bsengine.setMorphTime("Shifter", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMorphEnabled("Shifter", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginMorph { name, target } if name == "Shifter" && *target == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CancelMorph { name } if name == "Shifter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InstantMorph { name, form } if name == "Shifter" && *form == 3)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMorphTime { name, time } if name == "Shifter" && (*time - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMorphEnabled { name, enabled } if name == "Shifter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mount_read_ops() {
+        // (rider_count, max_riders, speed_scale, forced_dismount_damage, enabled)
+        super::MOUNT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Horse".to_string(), (2, 4, 1.5, 50.0, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMountRiderCount("Horse")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMountMaxRiders("Horse")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMountFull("Horse")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMountSpeedScale("Horse")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMountForcedDismountDamage("Horse")"#)
+                .unwrap(),
+            "50"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMountEnabled("Horse")"#).unwrap(),
+            "true"
+        );
+        super::MOUNT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_mount_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMountSpeedScale("Horse", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMountMaxRiders("Horse", 6);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMountForcedDismountDamage("Horse", 100.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMountEnabled("Horse", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMountSpeedScale { name, scale } if name == "Horse" && (*scale - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMountMaxRiders { name, max_riders } if name == "Horse" && *max_riders == 6)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMountForcedDismountDamage { name, damage } if name == "Horse" && (*damage - 100.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMountEnabled { name, enabled } if name == "Horse" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_muffle_read_ops() {
+        // (duration, timer, sound_radius_fraction, just_muffled, just_unmuffled, enabled)
+        super::MUFFLE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Rogue".to_string(), (3.0, 1.5, 0.25, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMuffleDuration("Rogue")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMuffleTimer("Rogue")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMuffleSoundRadiusFraction("Rogue")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMuffleActive("Rogue")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustMuffled("Rogue")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isJustUnmuffled("Rogue")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isMuffleEnabled("Rogue")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getMuffleRemainingFraction("Rogue")"#)
+                .unwrap(),
+            "0.5"
+        );
+        super::MUFFLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_muffle_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyMuffle("Rogue", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.clearMuffle("Rogue");"#).unwrap();
+        rt.eval(r#"Bsengine.setMuffleSoundRadiusFraction("Rogue", 0.125);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMuffleEnabled("Rogue", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyMuffle { name, duration } if name == "Rogue" && (*duration - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearMuffle { name } if name == "Rogue")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMuffleSoundRadiusFraction { name, fraction } if name == "Rogue" && (*fraction - 0.125).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMuffleEnabled { name, enabled } if name == "Rogue" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

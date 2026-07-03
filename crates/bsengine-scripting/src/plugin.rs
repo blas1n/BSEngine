@@ -43,12 +43,14 @@ use crate::ops::{
     LUNGE_SNAPSHOT, LURE_SNAPSHOT, LURK_SNAPSHOT, MAGNET_SNAPSHOT, MAIM_SNAPSHOT, MALICE_SNAPSHOT,
     MANA_SNAPSHOT, MARK_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
     MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
-    MELEE_SNAPSHOT, MEND_SNAPSHOT, MERGE_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, POISON_SNAPSHOT, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT,
-    ROOT_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT,
-    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    MELEE_SNAPSHOT, MEND_SNAPSHOT, MERGE_SNAPSHOT, MESH_SNAPSHOT, MINIMAP_SNAPSHOT,
+    MIRAGE_SNAPSHOT, MOMENTUM_SNAPSHOT, MORALE_SNAPSHOT, MORPH_SNAPSHOT, MOTION_BLUR_SNAPSHOT,
+    MOUNT_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
+    MUFFLE_SNAPSHOT, NAV_SNAPSHOT, OUTLINE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    POISON_SNAPSHOT, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT,
+    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
     SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT,
     STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
     TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT,
@@ -3246,6 +3248,162 @@ fn run_scripts(world: &mut World) {
             );
         }
         MERGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mesh;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mesh)>();
+        for (_, name, me) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    me.path.clone(),
+                    me.submesh_index as u32,
+                    me.cast_shadow,
+                    me.receive_shadow,
+                ),
+            );
+        }
+        MESH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Minimap;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Minimap)>();
+        for (_, name, mm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mm.icon.clone(),
+                    mm.color[0],
+                    mm.color[1],
+                    mm.color[2],
+                    mm.color[3],
+                    mm.size,
+                    mm.category.clone(),
+                    mm.rotate_with_entity,
+                    mm.clamp_to_edge,
+                    mm.enabled,
+                ),
+            );
+        }
+        MINIMAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mirage;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mirage)>();
+        for (_, name, mi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mi.duration,
+                    mi.timer,
+                    mi.misdirect_chance,
+                    mi.just_created,
+                    mi.just_faded,
+                    mi.enabled,
+                ),
+            );
+        }
+        MIRAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Momentum;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Momentum)>();
+        for (_, name, mo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mo.current.x,
+                    mo.current.y,
+                    mo.current.z,
+                    mo.damping,
+                    mo.max_speed,
+                    mo.enabled,
+                ),
+            );
+        }
+        MOMENTUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Morale;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Morale)>();
+        for (_, name, mo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mo.morale,
+                    mo.decay_rate,
+                    mo.damage_bonus,
+                    mo.speed_bonus,
+                    mo.just_peaked,
+                    mo.just_broke,
+                    mo.enabled,
+                ),
+            );
+        }
+        MORALE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Morph;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Morph)>();
+        for (_, name, mo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mo.form,
+                    mo.target_form,
+                    mo.morph_time,
+                    mo.morph_timer,
+                    mo.is_morphing,
+                    mo.just_started,
+                    mo.just_finished,
+                    mo.enabled,
+                ),
+            );
+        }
+        MORPH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mount;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mount)>();
+        for (_, name, mt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mt.rider_count() as u32,
+                    mt.max_riders as u32,
+                    mt.speed_scale,
+                    mt.forced_dismount_damage.unwrap_or(-1.0),
+                    mt.enabled,
+                ),
+            );
+        }
+        MOUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Muffle;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Muffle)>();
+        for (_, name, mu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mu.duration,
+                    mu.timer,
+                    mu.sound_radius_fraction,
+                    mu.just_muffled,
+                    mu.just_unmuffled,
+                    mu.enabled,
+                ),
+            );
+        }
+        MUFFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -11168,6 +11326,479 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut mg) = world.get_mut::<Merge>(e) {
                         mg.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetMeshPath { name, path } => {
+                use bsengine_core::Mesh;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut me) = world.get_mut::<Mesh>(e) {
+                        me.path = path;
+                    }
+                }
+            }
+            ScriptCommand::SetMeshSubmeshIndex { name, index } => {
+                use bsengine_core::Mesh;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut me) = world.get_mut::<Mesh>(e) {
+                        me.submesh_index = index as usize;
+                    }
+                }
+            }
+            ScriptCommand::SetMeshCastShadow { name, cast } => {
+                use bsengine_core::Mesh;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut me) = world.get_mut::<Mesh>(e) {
+                        me.cast_shadow = cast;
+                    }
+                }
+            }
+            ScriptCommand::SetMeshReceiveShadow { name, receive } => {
+                use bsengine_core::Mesh;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut me) = world.get_mut::<Mesh>(e) {
+                        me.receive_shadow = receive;
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapIcon { name, icon } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.icon = icon;
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapColor { name, r, g, b, a } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.color = [
+                            r.clamp(0.0, 1.0),
+                            g.clamp(0.0, 1.0),
+                            b.clamp(0.0, 1.0),
+                            a.clamp(0.0, 1.0),
+                        ];
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapSize { name, size } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.size = size.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapCategory { name, category } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.category = category;
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapRotateWithEntity { name, rotate } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.rotate_with_entity = rotate;
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapClampToEdge { name, clamp } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.clamp_to_edge = clamp;
+                    }
+                }
+            }
+            ScriptCommand::SetMinimapEnabled { name, enabled } => {
+                use bsengine_core::Minimap;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mm) = world.get_mut::<Minimap>(e) {
+                        mm.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ProjectMirage { name, duration } => {
+                use bsengine_core::Mirage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mi) = world.get_mut::<Mirage>(e) {
+                        mi.project(duration);
+                    }
+                }
+            }
+            ScriptCommand::DispelMirage { name } => {
+                use bsengine_core::Mirage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mi) = world.get_mut::<Mirage>(e) {
+                        mi.dispel();
+                    }
+                }
+            }
+            ScriptCommand::SetMirageMisdirectChance { name, chance } => {
+                use bsengine_core::Mirage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mi) = world.get_mut::<Mirage>(e) {
+                        mi.misdirect_chance = chance.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMirageEnabled { name, enabled } => {
+                use bsengine_core::Mirage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mi) = world.get_mut::<Mirage>(e) {
+                        mi.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddMomentum { name, x, y, z } => {
+                use bsengine_core::Momentum;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Momentum>(e) {
+                        mo.add(Vec3::new(x, y, z));
+                    }
+                }
+            }
+            ScriptCommand::StopMomentum { name } => {
+                use bsengine_core::Momentum;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Momentum>(e) {
+                        mo.stop();
+                    }
+                }
+            }
+            ScriptCommand::SetMomentumDamping { name, damping } => {
+                use bsengine_core::Momentum;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Momentum>(e) {
+                        mo.damping = damping.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMomentumMaxSpeed { name, max_speed } => {
+                use bsengine_core::Momentum;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Momentum>(e) {
+                        mo.max_speed = max_speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMomentumEnabled { name, enabled } => {
+                use bsengine_core::Momentum;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Momentum>(e) {
+                        mo.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BoostMorale { name, amount } => {
+                use bsengine_core::Morale;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morale>(e) {
+                        mo.boost(amount);
+                    }
+                }
+            }
+            ScriptCommand::DropMorale { name, amount } => {
+                use bsengine_core::Morale;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morale>(e) {
+                        mo.drop(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetMoraleDecayRate { name, rate } => {
+                use bsengine_core::Morale;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morale>(e) {
+                        mo.decay_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMoraleDamageBonus { name, bonus } => {
+                use bsengine_core::Morale;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morale>(e) {
+                        mo.damage_bonus = bonus.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMoraleSpeedBonus { name, bonus } => {
+                use bsengine_core::Morale;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morale>(e) {
+                        mo.speed_bonus = bonus.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMoraleEnabled { name, enabled } => {
+                use bsengine_core::Morale;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morale>(e) {
+                        mo.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BeginMorph { name, target } => {
+                use bsengine_core::Morph;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morph>(e) {
+                        mo.begin(target);
+                    }
+                }
+            }
+            ScriptCommand::CancelMorph { name } => {
+                use bsengine_core::Morph;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morph>(e) {
+                        mo.cancel();
+                    }
+                }
+            }
+            ScriptCommand::InstantMorph { name, form } => {
+                use bsengine_core::Morph;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morph>(e) {
+                        mo.instant(form);
+                    }
+                }
+            }
+            ScriptCommand::SetMorphTime { name, time } => {
+                use bsengine_core::Morph;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morph>(e) {
+                        mo.morph_time = time.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMorphEnabled { name, enabled } => {
+                use bsengine_core::Morph;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mo) = world.get_mut::<Morph>(e) {
+                        mo.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetMountSpeedScale { name, scale } => {
+                use bsengine_core::Mount;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mt) = world.get_mut::<Mount>(e) {
+                        mt.speed_scale = scale.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMountMaxRiders { name, max_riders } => {
+                use bsengine_core::Mount;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mt) = world.get_mut::<Mount>(e) {
+                        mt.max_riders = (max_riders.min(255)) as u8;
+                    }
+                }
+            }
+            ScriptCommand::SetMountForcedDismountDamage { name, damage } => {
+                use bsengine_core::Mount;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mt) = world.get_mut::<Mount>(e) {
+                        mt.forced_dismount_damage = if damage < 0.0 { None } else { Some(damage) };
+                    }
+                }
+            }
+            ScriptCommand::SetMountEnabled { name, enabled } => {
+                use bsengine_core::Mount;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mt) = world.get_mut::<Mount>(e) {
+                        mt.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyMuffle { name, duration } => {
+                use bsengine_core::Muffle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mu) = world.get_mut::<Muffle>(e) {
+                        mu.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearMuffle { name } => {
+                use bsengine_core::Muffle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mu) = world.get_mut::<Muffle>(e) {
+                        mu.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetMuffleSoundRadiusFraction { name, fraction } => {
+                use bsengine_core::Muffle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mu) = world.get_mut::<Muffle>(e) {
+                        mu.sound_radius_fraction = fraction.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMuffleEnabled { name, enabled } => {
+                use bsengine_core::Muffle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mu) = world.get_mut::<Muffle>(e) {
+                        mu.enabled = enabled;
                     }
                 }
             }

@@ -323,6 +323,38 @@ pub enum ScriptCommand {
         name: String,
         value: f32,
     },
+    PressJump {
+        name: String,
+    },
+    ReleaseJump {
+        name: String,
+    },
+    SetJumpEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetJumpImpulse {
+        name: String,
+        impulse: f32,
+    },
+    SetMaxJumps {
+        name: String,
+        max: u32,
+    },
+    BeginSprint {
+        name: String,
+    },
+    EndSprint {
+        name: String,
+    },
+    SetSprintEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetSprintMultiplier {
+        name: String,
+        multiplier: f32,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -879,6 +911,14 @@ thread_local! {
 
     // entity name → (flat_reduction, percent_reduction, durability, max_durability, enabled)
     pub(crate) static ARMOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (impulse, max_jumps, jumps_remaining, wants_jump, enabled)
+    pub(crate) static JUMP_SNAPSHOT: RefCell<HashMap<String, (f32, u32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (speed_multiplier, is_sprinting, is_exhausted, just_started, just_stopped, enabled)
+    pub(crate) static SPRINT_SNAPSHOT: RefCell<HashMap<String, (f32, bool, bool, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2709,6 +2749,186 @@ pub fn bsengine_is_armor_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_press_jump(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PressJump { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_release_jump(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseJump { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jump_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJumpEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_jump_impulse(#[string] name: String, impulse: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetJumpImpulse { name, impulse })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_jumps(#[string] name: String, max: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxJumps { name, max })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jump_impulse(#[string] name: String) -> f32 {
+    JUMP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(imp, _, _, _, _)| *imp)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_jumps(#[string] name: String) -> u32 {
+    JUMP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, max, _, _, _)| *max)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_jumps_remaining(#[string] name: String) -> u32 {
+    JUMP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, rem, _, _)| *rem)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_wants_jump(#[string] name: String) -> bool {
+    JUMP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, wj, _)| *wj)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_jump_enabled(#[string] name: String) -> bool {
+    JUMP_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_begin_sprint(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginSprint { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_end_sprint(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EndSprint { name }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_sprint_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSprintEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_sprint_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSprintMultiplier { name, multiplier })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_sprint_multiplier(#[string] name: String) -> f32 {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(mul, _, _, _, _, _)| *mul)
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_sprinting(#[string] name: String) -> bool {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, spr, _, _, _, _)| *spr)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_sprint_exhausted(#[string] name: String) -> bool {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, exh, _, _, _)| *exh)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_sprint_just_started(#[string] name: String) -> bool {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, js, _, _)| *js)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_sprint_just_stopped(#[string] name: String) -> bool {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jst, _)| *jst)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_sprint_enabled(#[string] name: String) -> bool {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_effective_sprint_multiplier(#[string] name: String) -> f32 {
+    SPRINT_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(mul, spr, _, _, _, _)| if *spr { *mul } else { 1.0 })
+            .unwrap_or(1.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3741,6 +3961,27 @@ deno_core::extension!(
         bsengine_get_armor_durability_fraction,
         bsengine_is_armor_broken,
         bsengine_is_armor_enabled,
+        bsengine_press_jump,
+        bsengine_release_jump,
+        bsengine_set_jump_enabled,
+        bsengine_set_jump_impulse,
+        bsengine_set_max_jumps,
+        bsengine_get_jump_impulse,
+        bsengine_get_max_jumps,
+        bsengine_get_jumps_remaining,
+        bsengine_wants_jump,
+        bsengine_is_jump_enabled,
+        bsengine_begin_sprint,
+        bsengine_end_sprint,
+        bsengine_set_sprint_enabled,
+        bsengine_set_sprint_multiplier,
+        bsengine_get_sprint_multiplier,
+        bsengine_is_sprinting,
+        bsengine_is_sprint_exhausted,
+        bsengine_sprint_just_started,
+        bsengine_sprint_just_stopped,
+        bsengine_is_sprint_enabled,
+        bsengine_get_effective_sprint_multiplier,
     ],
 );
 
@@ -3968,6 +4209,27 @@ const Bsengine = {
     getArmorDurabilityFraction: (name)      => Deno.core.ops.bsengine_get_armor_durability_fraction(name),
     isArmorBroken:          (name)          => Deno.core.ops.bsengine_is_armor_broken(name),
     isArmorEnabled:         (name)          => Deno.core.ops.bsengine_is_armor_enabled(name),
+    pressJump:              (name)          => Deno.core.ops.bsengine_press_jump(name),
+    releaseJump:            (name)          => Deno.core.ops.bsengine_release_jump(name),
+    setJumpEnabled:         (name, enabled) => Deno.core.ops.bsengine_set_jump_enabled(name, enabled),
+    setJumpImpulse:         (name, impulse) => Deno.core.ops.bsengine_set_jump_impulse(name, impulse),
+    setMaxJumps:            (name, max)     => Deno.core.ops.bsengine_set_max_jumps(name, max),
+    getJumpImpulse:         (name)          => Deno.core.ops.bsengine_get_jump_impulse(name),
+    getMaxJumps:            (name)          => Deno.core.ops.bsengine_get_max_jumps(name),
+    getJumpsRemaining:      (name)          => Deno.core.ops.bsengine_get_jumps_remaining(name),
+    wantsJump:              (name)          => Deno.core.ops.bsengine_wants_jump(name),
+    isJumpEnabled:          (name)          => Deno.core.ops.bsengine_is_jump_enabled(name),
+    beginSprint:            (name)          => Deno.core.ops.bsengine_begin_sprint(name),
+    endSprint:              (name)          => Deno.core.ops.bsengine_end_sprint(name),
+    setSprintEnabled:       (name, enabled) => Deno.core.ops.bsengine_set_sprint_enabled(name, enabled),
+    setSprintMultiplier:    (name, mul)     => Deno.core.ops.bsengine_set_sprint_multiplier(name, mul),
+    getSprintMultiplier:    (name)          => Deno.core.ops.bsengine_get_sprint_multiplier(name),
+    isSprinting:            (name)          => Deno.core.ops.bsengine_is_sprinting(name),
+    isSprintExhausted:      (name)          => Deno.core.ops.bsengine_is_sprint_exhausted(name),
+    sprintJustStarted:      (name)          => Deno.core.ops.bsengine_sprint_just_started(name),
+    sprintJustStopped:      (name)          => Deno.core.ops.bsengine_sprint_just_stopped(name),
+    isSprintEnabled:        (name)          => Deno.core.ops.bsengine_is_sprint_enabled(name),
+    getEffectiveSprintMultiplier: (name)    => Deno.core.ops.bsengine_get_effective_sprint_multiplier(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -8690,5 +8952,173 @@ JSON.stringify(received)
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isArmorEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn press_jump_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.pressJump("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::PressJump { name } if name == "Player"),
+            );
+            assert!(found, "PressJump not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn release_jump_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.releaseJump("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::ReleaseJump { name } if name == "Player"),
+            );
+            assert!(found, "ReleaseJump not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_jump_impulse_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getJumpImpulse("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_max_jumps_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getMaxJumps("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_jumps_remaining_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getJumpsRemaining("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn wants_jump_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.wantsJump("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_jump_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isJumpEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn begin_sprint_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginSprint("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::BeginSprint { name } if name == "Player"),
+            );
+            assert!(found, "BeginSprint not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn end_sprint_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.endSprint("Player");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::EndSprint { name } if name == "Player"),
+            );
+            assert!(found, "EndSprint not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_sprint_multiplier_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getSprintMultiplier("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn is_sprinting_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isSprinting("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_sprint_exhausted_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.isSprintExhausted("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn sprint_just_started_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.sprintJustStarted("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn sprint_just_stopped_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.sprintJustStopped("Unknown");"#)
+            .unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_sprint_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isSprintEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn get_effective_sprint_multiplier_returns_one_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getEffectiveSprintMultiplier("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
     }
 }

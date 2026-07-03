@@ -20,16 +20,17 @@ use crate::ops::{
     COOLDOWN_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
     EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT,
-    LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
-    MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
-    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
-    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, PARENT_SNAPSHOT,
-    PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
-    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
-    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, JUMP_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LEVEL_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
+    PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
+    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -860,6 +861,43 @@ fn run_scripts(world: &mut World) {
             );
         }
         ARMOR_SNAPSHOT.with(|s| *s.borrow_mut() = armor_map);
+    }
+    {
+        use bsengine_core::Jump;
+        let mut jump_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Jump)>();
+        for (name, j) in q.iter(world) {
+            jump_map.insert(
+                name.0.clone(),
+                (
+                    j.impulse,
+                    j.max_jumps,
+                    j.jumps_remaining,
+                    j.wants_jump,
+                    j.enabled,
+                ),
+            );
+        }
+        JUMP_SNAPSHOT.with(|s| *s.borrow_mut() = jump_map);
+    }
+    {
+        use bsengine_core::Sprint;
+        let mut sprint_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Sprint)>();
+        for (name, sp) in q.iter(world) {
+            sprint_map.insert(
+                name.0.clone(),
+                (
+                    sp.speed_multiplier,
+                    sp.is_sprinting(),
+                    sp.is_exhausted(),
+                    sp.just_started,
+                    sp.just_stopped,
+                    sp.enabled,
+                ),
+            );
+        }
+        SPRINT_SNAPSHOT.with(|s| *s.borrow_mut() = sprint_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -1846,6 +1884,114 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut a) = world.get_mut::<Armor>(e) {
                         a.percent_reduction = value.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::PressJump { name } => {
+                use bsengine_core::Jump;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut j) = world.get_mut::<Jump>(e) {
+                        j.press();
+                    }
+                }
+            }
+            ScriptCommand::ReleaseJump { name } => {
+                use bsengine_core::Jump;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut j) = world.get_mut::<Jump>(e) {
+                        j.release();
+                    }
+                }
+            }
+            ScriptCommand::SetJumpEnabled { name, enabled } => {
+                use bsengine_core::Jump;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut j) = world.get_mut::<Jump>(e) {
+                        j.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetJumpImpulse { name, impulse } => {
+                use bsengine_core::Jump;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut j) = world.get_mut::<Jump>(e) {
+                        j.impulse = impulse;
+                    }
+                }
+            }
+            ScriptCommand::SetMaxJumps { name, max } => {
+                use bsengine_core::Jump;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut j) = world.get_mut::<Jump>(e) {
+                        j.max_jumps = max;
+                    }
+                }
+            }
+            ScriptCommand::BeginSprint { name } => {
+                use bsengine_core::Sprint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Sprint>(e) {
+                        sp.begin();
+                    }
+                }
+            }
+            ScriptCommand::EndSprint { name } => {
+                use bsengine_core::Sprint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Sprint>(e) {
+                        sp.end();
+                    }
+                }
+            }
+            ScriptCommand::SetSprintEnabled { name, enabled } => {
+                use bsengine_core::Sprint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Sprint>(e) {
+                        sp.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetSprintMultiplier { name, multiplier } => {
+                use bsengine_core::Sprint;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sp) = world.get_mut::<Sprint>(e) {
+                        sp.speed_multiplier = multiplier;
                     }
                 }
             }

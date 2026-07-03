@@ -27,11 +27,11 @@ use crate::ops::{
     MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
-    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
-    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
-    TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
+    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1033,6 +1033,18 @@ fn run_scripts(world: &mut World) {
             );
         }
         INTERACTABLE_SNAPSHOT.with(|s| *s.borrow_mut() = ia_map);
+    }
+    {
+        use bsengine_core::ScreenShake;
+        let mut ss_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &ScreenShake)>();
+        for (name, ss) in q.iter(world) {
+            ss_map.insert(
+                name.0.clone(),
+                (ss.trauma, ss.amplitude, ss.decay_rate, ss.frequency),
+            );
+        }
+        SCREEN_SHAKE_SNAPSHOT.with(|s| *s.borrow_mut() = ss_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2553,6 +2565,66 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut i) = world.get_mut::<Interactable>(e) {
                         i.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddScreenShakeTrauma { name, amount } => {
+                use bsengine_core::ScreenShake;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ss) = world.get_mut::<ScreenShake>(e) {
+                        ss.trauma = (ss.trauma + amount.max(0.0)).min(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetScreenShakeTrauma { name, trauma } => {
+                use bsengine_core::ScreenShake;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ss) = world.get_mut::<ScreenShake>(e) {
+                        ss.trauma = trauma.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetScreenShakeAmplitude { name, amplitude } => {
+                use bsengine_core::ScreenShake;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ss) = world.get_mut::<ScreenShake>(e) {
+                        ss.amplitude = amplitude.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetScreenShakeDecayRate { name, rate } => {
+                use bsengine_core::ScreenShake;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ss) = world.get_mut::<ScreenShake>(e) {
+                        ss.decay_rate = rate.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetScreenShakeFrequency { name, frequency } => {
+                use bsengine_core::ScreenShake;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ss) = world.get_mut::<ScreenShake>(e) {
+                        ss.frequency = frequency.max(0.0);
                     }
                 }
             }

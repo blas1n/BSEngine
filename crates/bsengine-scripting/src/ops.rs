@@ -544,6 +544,29 @@ pub enum ScriptCommand {
     ResetFootstep {
         name: String,
     },
+    SetDissolveProgress {
+        name: String,
+        progress: f32,
+    },
+    SetDissolveEdgeWidth {
+        name: String,
+        width: f32,
+    },
+    SetDissolveEdgeColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetDissolveNoiseScale {
+        name: String,
+        scale: f32,
+    },
+    SetDissolveEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1144,6 +1167,11 @@ thread_local! {
     // entity name → (step_interval, distance_accumulated, volume, audio_prefix, surface_u8, min_speed, enabled)
     pub(crate) static FOOTSTEP_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, String, u8, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+
+    // entity name → (progress, edge_width, edge_r, edge_g, edge_b, edge_a, noise_scale, enabled)
+    pub(crate) static DISSOLVE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, f32, f32, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -4113,6 +4141,136 @@ pub fn bsengine_is_footstep_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_dissolve_progress(#[string] name: String, progress: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveProgress { name, progress })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_edge_width(#[string] name: String, width: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveEdgeWidth { name, width })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_edge_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveEdgeColor { name, r, g, b, a })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_noise_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveNoiseScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_progress(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(p, _, _, _, _, _, _, _)| *p)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_width(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, ew, _, _, _, _, _, _)| *ew)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_r(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, r, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_g(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, g, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_b(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, b, _, _, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_a(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, a, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_noise_scale(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, ns, _)| *ns)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dissolve_enabled(#[string] name: String) -> bool {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dissolved(#[string] name: String) -> bool {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(p, _, _, _, _, _, _, _)| *p >= 1.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5272,6 +5430,20 @@ deno_core::extension!(
         bsengine_get_footstep_surface,
         bsengine_get_footstep_min_speed,
         bsengine_is_footstep_enabled,
+        bsengine_set_dissolve_progress,
+        bsengine_set_dissolve_edge_width,
+        bsengine_set_dissolve_edge_color,
+        bsengine_set_dissolve_noise_scale,
+        bsengine_set_dissolve_enabled,
+        bsengine_get_dissolve_progress,
+        bsengine_get_dissolve_edge_width,
+        bsengine_get_dissolve_edge_color_r,
+        bsengine_get_dissolve_edge_color_g,
+        bsengine_get_dissolve_edge_color_b,
+        bsengine_get_dissolve_edge_color_a,
+        bsengine_get_dissolve_noise_scale,
+        bsengine_is_dissolve_enabled,
+        bsengine_is_dissolved,
     ],
 );
 
@@ -5626,6 +5798,20 @@ const Bsengine = {
     getFootstepSurface:     (name)          => Deno.core.ops.bsengine_get_footstep_surface(name),
     getFootstepMinSpeed:    (name)          => Deno.core.ops.bsengine_get_footstep_min_speed(name),
     isFootstepEnabled:      (name)          => Deno.core.ops.bsengine_is_footstep_enabled(name),
+    setDissolveProgress:    (name, p)       => Deno.core.ops.bsengine_set_dissolve_progress(name, p),
+    setDissolveEdgeWidth:   (name, w)       => Deno.core.ops.bsengine_set_dissolve_edge_width(name, w),
+    setDissolveEdgeColor:   (name, r, g, b, a) => Deno.core.ops.bsengine_set_dissolve_edge_color(name, r, g, b, a),
+    setDissolveNoiseScale:  (name, s)       => Deno.core.ops.bsengine_set_dissolve_noise_scale(name, s),
+    setDissolveEnabled:     (name, enabled) => Deno.core.ops.bsengine_set_dissolve_enabled(name, enabled),
+    getDissolveProgress:    (name)          => Deno.core.ops.bsengine_get_dissolve_progress(name),
+    getDissolveEdgeWidth:   (name)          => Deno.core.ops.bsengine_get_dissolve_edge_width(name),
+    getDissolveEdgeColorR:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_r(name),
+    getDissolveEdgeColorG:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_g(name),
+    getDissolveEdgeColorB:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_b(name),
+    getDissolveEdgeColorA:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_a(name),
+    getDissolveNoiseScale:  (name)          => Deno.core.ops.bsengine_get_dissolve_noise_scale(name),
+    isDissolveEnabled:      (name)          => Deno.core.ops.bsengine_is_dissolve_enabled(name),
+    isDissolved:            (name)          => Deno.core.ops.bsengine_is_dissolved(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -11433,5 +11619,70 @@ JSON.stringify(received)
         let en = rt.eval(r#"Bsengine.isFootstepEnabled("Player");"#).unwrap();
         assert_eq!(en.trim(), "true");
         super::FOOTSTEP_SNAPSHOT.with(|s| s.borrow_mut().remove("Player"));
+    }
+
+    #[test]
+    fn dissolve_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDissolveProgress("Mesh", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveEdgeWidth("Mesh", 0.1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveEdgeColor("Mesh", 1.0, 0.4, 0.0, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveNoiseScale("Mesh", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveEnabled("Mesh", false);"#)
+            .unwrap();
+        let cmds = super::COMMAND_BUFFER.with(|c| c.borrow().len());
+        assert_eq!(cmds, 5);
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn dissolve_snapshot_read_ops() {
+        // progress=0.5, edge_width=0.1, r=1.0, g=0.4, b=0.0, a=1.0, noise_scale=8.0, enabled=true
+        super::DISSOLVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mesh".to_string(),
+                (
+                    0.5_f32, 0.1_f32, 1.0_f32, 0.4_f32, 0.0_f32, 1.0_f32, 8.0_f32, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let p = rt.eval(r#"Bsengine.getDissolveProgress("Mesh");"#).unwrap();
+        assert!((p.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let ew = rt
+            .eval(r#"Bsengine.getDissolveEdgeWidth("Mesh");"#)
+            .unwrap();
+        assert!((ew.trim().parse::<f32>().unwrap() - 0.1).abs() < 0.001);
+        let r = rt
+            .eval(r#"Bsengine.getDissolveEdgeColorR("Mesh");"#)
+            .unwrap();
+        assert!((r.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let g = rt
+            .eval(r#"Bsengine.getDissolveEdgeColorG("Mesh");"#)
+            .unwrap();
+        assert!((g.trim().parse::<f32>().unwrap() - 0.4).abs() < 0.001);
+        let b = rt
+            .eval(r#"Bsengine.getDissolveEdgeColorB("Mesh");"#)
+            .unwrap();
+        assert!((b.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
+        let a = rt
+            .eval(r#"Bsengine.getDissolveEdgeColorA("Mesh");"#)
+            .unwrap();
+        assert!((a.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let ns = rt
+            .eval(r#"Bsengine.getDissolveNoiseScale("Mesh");"#)
+            .unwrap();
+        assert!((ns.trim().parse::<f32>().unwrap() - 8.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isDissolveEnabled("Mesh");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        let dis = rt.eval(r#"Bsengine.isDissolved("Mesh");"#).unwrap();
+        assert_eq!(dis.trim(), "false");
+        super::DISSOLVE_SNAPSHOT.with(|s| s.borrow_mut().remove("Mesh"));
     }
 }

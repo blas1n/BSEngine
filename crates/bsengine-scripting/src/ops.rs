@@ -681,6 +681,26 @@ pub enum ScriptCommand {
         name: String,
         amount: f32,
     },
+    SetBloomIntensity {
+        name: String,
+        intensity: f32,
+    },
+    SetBloomThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetBloomRadius {
+        name: String,
+        radius: f32,
+    },
+    SetBloomSoftness {
+        name: String,
+        softness: f32,
+    },
+    SetBloomEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1305,6 +1325,10 @@ thread_local! {
 
     // entity name → (style_u8, color_r, color_g, color_b, color_a, size, thickness, gap, spread, max_spread, spread_decay, enabled)
     pub(crate) static CROSSHAIR_SNAPSHOT: RefCell<HashMap<String, (u8, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (intensity, threshold, radius, softness, enabled)
+    pub(crate) static BLOOM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5028,6 +5052,96 @@ pub fn bsengine_is_crosshair_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_bloom_intensity(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBloomIntensity { name, intensity })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bloom_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBloomThreshold { name, threshold })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bloom_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBloomRadius { name, radius })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bloom_softness(#[string] name: String, softness: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBloomSoftness { name, softness })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_bloom_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetBloomEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bloom_intensity(#[string] name: String) -> f32 {
+    BLOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(intensity, _, _, _, _)| *intensity)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bloom_threshold(#[string] name: String) -> f32 {
+    BLOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, threshold, _, _, _)| *threshold)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bloom_radius(#[string] name: String) -> f32 {
+    BLOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, radius, _, _)| *radius)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_bloom_softness(#[string] name: String) -> f32 {
+    BLOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, softness, _)| *softness)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_bloom_enabled(#[string] name: String) -> bool {
+    BLOOM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -6269,6 +6383,16 @@ deno_core::extension!(
         bsengine_get_crosshair_spread_decay,
         bsengine_get_crosshair_effective_gap,
         bsengine_is_crosshair_enabled,
+        bsengine_set_bloom_intensity,
+        bsengine_set_bloom_threshold,
+        bsengine_set_bloom_radius,
+        bsengine_set_bloom_softness,
+        bsengine_set_bloom_enabled,
+        bsengine_get_bloom_intensity,
+        bsengine_get_bloom_threshold,
+        bsengine_get_bloom_radius,
+        bsengine_get_bloom_softness,
+        bsengine_is_bloom_enabled,
     ],
 );
 
@@ -6705,6 +6829,16 @@ const Bsengine = {
     getCrosshairSpreadDecay:(name)          => Deno.core.ops.bsengine_get_crosshair_spread_decay(name),
     getCrosshairEffectiveGap:(name)         => Deno.core.ops.bsengine_get_crosshair_effective_gap(name),
     isCrosshairEnabled:     (name)          => Deno.core.ops.bsengine_is_crosshair_enabled(name),
+    setBloomIntensity:  (name, v)          => Deno.core.ops.bsengine_set_bloom_intensity(name, v),
+    setBloomThreshold:  (name, v)          => Deno.core.ops.bsengine_set_bloom_threshold(name, v),
+    setBloomRadius:     (name, v)          => Deno.core.ops.bsengine_set_bloom_radius(name, v),
+    setBloomSoftness:   (name, v)          => Deno.core.ops.bsengine_set_bloom_softness(name, v),
+    setBloomEnabled:    (name, v)          => Deno.core.ops.bsengine_set_bloom_enabled(name, v),
+    getBloomIntensity:  (name)             => Deno.core.ops.bsengine_get_bloom_intensity(name),
+    getBloomThreshold:  (name)             => Deno.core.ops.bsengine_get_bloom_threshold(name),
+    getBloomRadius:     (name)             => Deno.core.ops.bsengine_get_bloom_radius(name),
+    getBloomSoftness:   (name)             => Deno.core.ops.bsengine_get_bloom_softness(name),
+    isBloomEnabled:     (name)             => Deno.core.ops.bsengine_is_bloom_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -12922,5 +13056,71 @@ JSON.stringify(received)
         let en = rt.eval(r#"Bsengine.isCrosshairEnabled("Cam");"#).unwrap();
         assert_eq!(en.trim(), "true");
         super::CROSSHAIR_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn bloom_snapshot_read_ops() {
+        super::BLOOM_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Cam".to_string(), (0.5, 1.0, 4.0, 0.5, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let intensity = rt.eval(r#"Bsengine.getBloomIntensity("Cam");"#).unwrap();
+        assert!((intensity.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let threshold = rt.eval(r#"Bsengine.getBloomThreshold("Cam");"#).unwrap();
+        assert!((threshold.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let radius = rt.eval(r#"Bsengine.getBloomRadius("Cam");"#).unwrap();
+        assert!((radius.trim().parse::<f32>().unwrap() - 4.0).abs() < 0.001);
+        let softness = rt.eval(r#"Bsengine.getBloomSoftness("Cam");"#).unwrap();
+        assert!((softness.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isBloomEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        super::BLOOM_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn bloom_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setBloomIntensity("Cam", 0.8);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBloomThreshold("Cam", 0.9);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBloomRadius("Cam", 6.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setBloomSoftness("Cam", 0.3);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setBloomEnabled("Cam", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBloomIntensity { name, intensity }
+                if name == "Cam" && (*intensity - 0.8).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBloomThreshold { name, threshold }
+                if name == "Cam" && (*threshold - 0.9).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBloomRadius { name, radius }
+                if name == "Cam" && (*radius - 6.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBloomSoftness { name, softness }
+                if name == "Cam" && (*softness - 0.3).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetBloomEnabled { name, enabled }
+                if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 }

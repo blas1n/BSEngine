@@ -15,11 +15,11 @@ use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
-    ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
-    CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT,
-    EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
-    EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
+    ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
+    CHARGE_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
+    COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT,
+    DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
+    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
     GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
@@ -1212,6 +1212,18 @@ fn run_scripts(world: &mut World) {
             );
         }
         CROSSHAIR_SNAPSHOT.with(|s| *s.borrow_mut() = ch_map);
+    }
+    {
+        use bsengine_core::Bloom;
+        let mut bl_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Bloom)>();
+        for (_, name, b) in q.iter(world) {
+            bl_map.insert(
+                name.0.clone(),
+                (b.intensity, b.threshold, b.radius, b.softness, b.enabled),
+            );
+        }
+        BLOOM_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3270,6 +3282,66 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut c) = world.get_mut::<Crosshair>(e) {
                         c.add_spread(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetBloomIntensity { name, intensity } => {
+                use bsengine_core::Bloom;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Bloom>(e) {
+                        b.intensity = intensity.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBloomThreshold { name, threshold } => {
+                use bsengine_core::Bloom;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Bloom>(e) {
+                        b.threshold = threshold.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBloomRadius { name, radius } => {
+                use bsengine_core::Bloom;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Bloom>(e) {
+                        b.radius = radius.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBloomSoftness { name, softness } => {
+                use bsengine_core::Bloom;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Bloom>(e) {
+                        b.softness = softness.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetBloomEnabled { name, enabled } => {
+                use bsengine_core::Bloom;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut b) = world.get_mut::<Bloom>(e) {
+                        b.enabled = enabled;
                     }
                 }
             }

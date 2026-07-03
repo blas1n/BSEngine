@@ -278,6 +278,18 @@ pub enum ScriptCommand {
     NotifyRegenDamage {
         name: String,
     },
+    Refuel {
+        name: String,
+        amount: f32,
+    },
+    SetMaxFuel {
+        name: String,
+        value: f32,
+    },
+    SetFuelEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -822,6 +834,10 @@ thread_local! {
 
     // entity name → (rate, delay_after_damage, delay_timer, enabled)
     pub(crate) static REGEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (fuel, max_fuel, low_threshold, just_emptied, is_low, enabled)
+    pub(crate) static FUEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2362,6 +2378,97 @@ pub fn bsengine_is_regen_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_refuel(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Refuel { name, amount }));
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_fuel(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxFuel { name, value })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_fuel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFuelEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fuel(#[string] name: String) -> f32 {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(fuel, _, _, _, _, _)| *fuel)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_max_fuel(#[string] name: String) -> f32 {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, max, _, _, _, _)| *max)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_fuel_fraction(#[string] name: String) -> f32 {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(fuel, max, _, _, _, _)| if *max > 0.0 { *fuel / *max } else { 0.0 })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fuel_empty(#[string] name: String) -> bool {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(fuel, _, _, _, _, _)| *fuel <= 0.0)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fuel_low(#[string] name: String) -> bool {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, low, _)| *low)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_fuel_just_emptied(#[string] name: String) -> bool {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, je, _, _)| *je)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_fuel_enabled(#[string] name: String) -> bool {
+    FUEL_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3362,6 +3469,16 @@ deno_core::extension!(
         bsengine_get_regen_delay_timer,
         bsengine_is_regen_suppressed,
         bsengine_is_regen_enabled,
+        bsengine_refuel,
+        bsengine_set_max_fuel,
+        bsengine_set_fuel_enabled,
+        bsengine_get_fuel,
+        bsengine_get_max_fuel,
+        bsengine_get_fuel_fraction,
+        bsengine_is_fuel_empty,
+        bsengine_is_fuel_low,
+        bsengine_fuel_just_emptied,
+        bsengine_is_fuel_enabled,
     ],
 );
 
@@ -3557,6 +3674,16 @@ const Bsengine = {
     getRegenDelayTimer: (name)              => Deno.core.ops.bsengine_get_regen_delay_timer(name),
     isRegenSuppressed:  (name)              => Deno.core.ops.bsengine_is_regen_suppressed(name),
     isRegenEnabled:     (name)              => Deno.core.ops.bsengine_is_regen_enabled(name),
+    refuel:             (name, amount)      => Deno.core.ops.bsengine_refuel(name, amount),
+    setMaxFuel:         (name, value)       => Deno.core.ops.bsengine_set_max_fuel(name, value),
+    setFuelEnabled:     (name, enabled)     => Deno.core.ops.bsengine_set_fuel_enabled(name, enabled),
+    getFuel:            (name)              => Deno.core.ops.bsengine_get_fuel(name),
+    getMaxFuel:         (name)              => Deno.core.ops.bsengine_get_max_fuel(name),
+    getFuelFraction:    (name)              => Deno.core.ops.bsengine_get_fuel_fraction(name),
+    isFuelEmpty:        (name)              => Deno.core.ops.bsengine_is_fuel_empty(name),
+    isFuelLow:          (name)              => Deno.core.ops.bsengine_is_fuel_low(name),
+    fuelJustEmptied:    (name)              => Deno.core.ops.bsengine_fuel_just_emptied(name),
+    isFuelEnabled:      (name)              => Deno.core.ops.bsengine_is_fuel_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -8043,6 +8170,79 @@ JSON.stringify(received)
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         let r = rt.eval(r#"Bsengine.isRegenEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn refuel_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.refuel("Tank", 50.0);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::Refuel { name, amount }
+                    if name == "Tank" && (*amount - 50.0).abs() < 1e-5)
+            });
+            assert!(found, "Refuel not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_fuel_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFuelEnabled("Tank", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetFuelEnabled { name, enabled }
+                    if name == "Tank" && !*enabled)
+            });
+            assert!(found, "SetFuelEnabled not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_fuel_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getFuel("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_fuel_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getFuelFraction("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_fuel_empty_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isFuelEmpty("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn is_fuel_low_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isFuelLow("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_fuel_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isFuelEnabled("Unknown");"#).unwrap();
         assert_eq!(r.trim(), "true");
     }
 }

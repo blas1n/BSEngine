@@ -18,17 +18,18 @@ use crate::ops::{
     ANIMATION_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
     COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT,
     ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
-    FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
-    HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
-    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT,
+    LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
+    MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
+    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
+    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, PARENT_SNAPSHOT,
+    PHYSICS_WORLD_PTR, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
+    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT,
+    TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -804,6 +805,25 @@ fn run_scripts(world: &mut World) {
             );
         }
         REGEN_SNAPSHOT.with(|s| *s.borrow_mut() = regen_map);
+    }
+    {
+        use bsengine_core::Fuel;
+        let mut fuel_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Fuel)>();
+        for (name, f) in q.iter(world) {
+            fuel_map.insert(
+                name.0.clone(),
+                (
+                    f.fuel,
+                    f.max_fuel,
+                    f.low_threshold,
+                    f.just_emptied,
+                    f.is_low(),
+                    f.enabled,
+                ),
+            );
+        }
+        FUEL_SNAPSHOT.with(|s| *s.borrow_mut() = fuel_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -1645,6 +1665,43 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut r) = world.get_mut::<Regen>(e) {
                         r.notify_damage();
+                    }
+                }
+            }
+            ScriptCommand::Refuel { name, amount } => {
+                use bsengine_core::Fuel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Fuel>(e) {
+                        f.refuel(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetMaxFuel { name, value } => {
+                use bsengine_core::Fuel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Fuel>(e) {
+                        f.max_fuel = value.max(0.0);
+                        f.fuel = f.fuel.min(f.max_fuel);
+                    }
+                }
+            }
+            ScriptCommand::SetFuelEnabled { name, enabled } => {
+                use bsengine_core::Fuel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Fuel>(e) {
+                        f.enabled = enabled;
                     }
                 }
             }

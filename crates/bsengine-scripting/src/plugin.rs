@@ -17,8 +17,8 @@ use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
     CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
-    EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
+    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, DIALOGUE_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP,
+    ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
     GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
@@ -1095,6 +1095,30 @@ fn run_scripts(world: &mut World) {
             );
         }
         WIND_SNAPSHOT.with(|s| *s.borrow_mut() = wind_map);
+    }
+    {
+        use bsengine_core::Dialogue;
+        let mut dlg_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Dialogue)>();
+        for (name, d) in q.iter(world) {
+            let (speaker, text) = d
+                .current_line()
+                .map(|l| (l.speaker.clone(), l.text.clone()))
+                .unwrap_or_default();
+            dlg_map.insert(
+                name.0.clone(),
+                (
+                    d.current_index as u32,
+                    d.lines.len() as u32,
+                    d.looping,
+                    d.enabled,
+                    d.is_finished(),
+                    speaker,
+                    text,
+                ),
+            );
+        }
+        DIALOGUE_SNAPSHOT.with(|s| *s.borrow_mut() = dlg_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -2817,6 +2841,66 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<Wind>(e) {
                         w.radius = radius.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::AdvanceDialogue { name } => {
+                use bsengine_core::Dialogue;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dialogue>(e) {
+                        d.advance();
+                    }
+                }
+            }
+            ScriptCommand::ResetDialogue { name } => {
+                use bsengine_core::Dialogue;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dialogue>(e) {
+                        d.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetDialogueEnabled { name, enabled } => {
+                use bsengine_core::Dialogue;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dialogue>(e) {
+                        d.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetDialogueLooping { name, looping } => {
+                use bsengine_core::Dialogue;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dialogue>(e) {
+                        d.looping = looping;
+                    }
+                }
+            }
+            ScriptCommand::SetDialogueCurrentIndex { name, index } => {
+                use bsengine_core::Dialogue;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dialogue>(e) {
+                        d.current_index = (index as usize).min(d.lines.len());
                     }
                 }
             }

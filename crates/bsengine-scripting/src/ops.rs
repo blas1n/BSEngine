@@ -817,6 +817,18 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetMotionBlurShutterAngle {
+        name: String,
+        angle: f32,
+    },
+    SetMotionBlurSampleCount {
+        name: String,
+        count: u32,
+    },
+    SetMotionBlurEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1465,6 +1477,10 @@ thread_local! {
 
     // entity name → (focal_distance, focal_range, max_blur, bokeh_scale, enabled)
     pub(crate) static DEPTH_OF_FIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (shutter_angle, sample_count, enabled)
+    pub(crate) static MOTION_BLUR_SNAPSHOT: RefCell<HashMap<String, (f32, u32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -5787,6 +5803,45 @@ pub fn bsengine_is_dof_enabled(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_motion_blur_shutter_angle(#[string] name: String, angle: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMotionBlurShutterAngle { name, angle })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_motion_blur_sample_count(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMotionBlurSampleCount { name, count })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_motion_blur_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMotionBlurEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_motion_blur_shutter_angle(#[string] name: String) -> f32 {
+    MOTION_BLUR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(a, _, _)| *a).unwrap_or(0.0))
+}
+
+#[op2(fast)]
+pub fn bsengine_get_motion_blur_sample_count(#[string] name: String) -> u32 {
+    MOTION_BLUR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, c, _)| *c).unwrap_or(0))
+}
+
+#[op2(fast)]
+pub fn bsengine_is_motion_blur_enabled(#[string] name: String) -> bool {
+    MOTION_BLUR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, en)| *en).unwrap_or(true))
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -7095,6 +7150,12 @@ deno_core::extension!(
         bsengine_get_dof_max_blur,
         bsengine_get_dof_bokeh_scale,
         bsengine_is_dof_enabled,
+        bsengine_set_motion_blur_shutter_angle,
+        bsengine_set_motion_blur_sample_count,
+        bsengine_set_motion_blur_enabled,
+        bsengine_get_motion_blur_shutter_angle,
+        bsengine_get_motion_blur_sample_count,
+        bsengine_is_motion_blur_enabled,
     ],
 );
 
@@ -7598,6 +7659,12 @@ const Bsengine = {
     getDofMaxBlur:      (name)             => Deno.core.ops.bsengine_get_dof_max_blur(name),
     getDofBokehScale:   (name)             => Deno.core.ops.bsengine_get_dof_bokeh_scale(name),
     isDofEnabled:       (name)             => Deno.core.ops.bsengine_is_dof_enabled(name),
+    setMotionBlurShutterAngle:(name, v)    => Deno.core.ops.bsengine_set_motion_blur_shutter_angle(name, v),
+    setMotionBlurSampleCount:(name, v)     => Deno.core.ops.bsengine_set_motion_blur_sample_count(name, v),
+    setMotionBlurEnabled:(name, v)         => Deno.core.ops.bsengine_set_motion_blur_enabled(name, v),
+    getMotionBlurShutterAngle:(name)       => Deno.core.ops.bsengine_get_motion_blur_shutter_angle(name),
+    getMotionBlurSampleCount:(name)        => Deno.core.ops.bsengine_get_motion_blur_sample_count(name),
+    isMotionBlurEnabled:(name)             => Deno.core.ops.bsengine_is_motion_blur_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -14215,6 +14282,61 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(
                 cmd,
                 super::ScriptCommand::SetDofEnabled { name, enabled }
+                if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_motion_blur_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+
+        super::MOTION_BLUR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert("Cam".to_string(), (180.0, 8, true));
+        });
+
+        let angle = rt
+            .eval(r#"Bsengine.getMotionBlurShutterAngle("Cam");"#)
+            .unwrap();
+        assert!((angle.trim().parse::<f32>().unwrap() - 180.0).abs() < 0.001);
+        let count = rt
+            .eval(r#"Bsengine.getMotionBlurSampleCount("Cam");"#)
+            .unwrap();
+        assert_eq!(count.trim(), "8");
+        let en = rt.eval(r#"Bsengine.isMotionBlurEnabled("Cam");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+
+        super::MOTION_BLUR_SNAPSHOT.with(|s| s.borrow_mut().remove("Cam"));
+    }
+
+    #[test]
+    fn test_motion_blur_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMotionBlurShutterAngle("Cam", 90.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMotionBlurSampleCount("Cam", 16);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setMotionBlurEnabled("Cam", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetMotionBlurShutterAngle { name, angle }
+                if name == "Cam" && (*angle - 90.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetMotionBlurSampleCount { name, count }
+                if name == "Cam" && *count == 16
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetMotionBlurEnabled { name, enabled }
                 if name == "Cam" && !*enabled
             )));
         });

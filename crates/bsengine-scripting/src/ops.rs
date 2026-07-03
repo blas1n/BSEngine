@@ -1102,6 +1102,52 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetAbilityName {
+        name: String,
+        ability_name: String,
+    },
+    SetAbilityCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetAbilityCooldownRemaining {
+        name: String,
+        remaining: f32,
+    },
+    SetAbilityMaxCharges {
+        name: String,
+        max_charges: u32,
+    },
+    SetAbilityCharges {
+        name: String,
+        charges: u32,
+    },
+    SetAbilityChargeRegenTime {
+        name: String,
+        regen_time: f32,
+    },
+    SetAbilityEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetAlarmAlertDuration {
+        name: String,
+        duration: f32,
+    },
+    SetAlarmDetectionRadius {
+        name: String,
+        radius: f32,
+    },
+    SetAlarmEnabled {
+        name: String,
+        enabled: bool,
+    },
+    TriggerAlarm {
+        name: String,
+    },
+    CalmAlarm {
+        name: String,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1822,6 +1868,12 @@ thread_local! {
     // entity name → (id, kind_u32, custom_id, value, duration, ticks_every_frame, enabled)
     // EffectKind: StatMultiplier=0, DamageOverTime=1, Immobilize=2, Silence=3, Custom=4
     pub(crate) static STATUS_EFFECT_SNAPSHOT: RefCell<HashMap<String, (String, u32, u32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (ability_name, cooldown, cooldown_remaining, max_charges, charges, charge_regen_time, charge_regen_accumulated, enabled)
+    pub(crate) static ABILITY_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, u32, u32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (alert_duration, timer, detection_radius, just_triggered, just_calmed, enabled)
+    pub(crate) static ALARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -7523,6 +7575,267 @@ pub fn bsengine_is_status_effect_expired(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_ability_name(#[string] name: String, #[string] ability_name: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityName { name, ability_name });
+    });
+}
+
+#[op2]
+#[string]
+pub fn bsengine_get_ability_name(#[string] name: String) -> String {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(ability_name, _, _, _, _, _, _, _)| format!("\"{ability_name}\""))
+            .unwrap_or_else(|| "null".to_string())
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ability_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityCooldown { name, cooldown });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ability_cooldown(#[string] name: String) -> f32 {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, cd, _, _, _, _, _, _)| *cd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ability_cooldown_remaining(#[string] name: String, remaining: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityCooldownRemaining { name, remaining });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ability_cooldown_remaining(#[string] name: String) -> f32 {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, rem, _, _, _, _, _)| *rem)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ability_max_charges(#[string] name: String, max_charges: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityMaxCharges { name, max_charges });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ability_max_charges(#[string] name: String) -> u32 {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, mc, _, _, _, _)| *mc)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ability_charges(#[string] name: String, charges: u32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityCharges { name, charges });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ability_charges(#[string] name: String) -> u32 {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, ch, _, _, _)| *ch)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ability_charge_regen_time(#[string] name: String, regen_time: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityChargeRegenTime { name, regen_time });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_ability_charge_regen_time(#[string] name: String) -> f32 {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, rt, _, _)| *rt)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_ability_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAbilityEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ability_enabled(#[string] name: String) -> bool {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, e)| *e)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_ability_ready(#[string] name: String) -> bool {
+    ABILITY_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, rem, mc, ch, _, _, en)| *en && *rem <= 0.0 && (*mc == 0 || *ch > 0))
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_alarm_alert_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAlarmAlertDuration { name, duration });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_alarm_alert_duration(#[string] name: String) -> f32 {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(d, _, _, _, _, _)| *d)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_alarm_timer(#[string] name: String) -> f32 {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_alarm_detection_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAlarmDetectionRadius { name, radius });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_alarm_detection_radius(#[string] name: String) -> f32 {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, r, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_alarm_alert(#[string] name: String) -> bool {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, t, _, _, _, _)| *t > 0.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_alarm_just_triggered(#[string] name: String) -> bool {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, jt, _, _)| *jt)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_alarm_just_calmed(#[string] name: String) -> bool {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, jc, _)| *jc)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_alarm_enabled(#[string] name: String) -> bool {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, e)| *e)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_set_alarm_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut()
+            .push(ScriptCommand::SetAlarmEnabled { name, enabled });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_trigger_alarm(#[string] name: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut().push(ScriptCommand::TriggerAlarm { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_calm_alarm(#[string] name: String) {
+    COMMAND_BUFFER.with(|b| {
+        b.borrow_mut().push(ScriptCommand::CalmAlarm { name });
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_alarm_remaining_fraction(#[string] name: String) -> f32 {
+    ALARM_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(dur, timer, _, _, _, _)| {
+                if *dur <= 0.0 {
+                    0.0
+                } else {
+                    (*timer / *dur).clamp(0.0, 1.0)
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -8544,6 +8857,34 @@ deno_core::extension!(
         bsengine_set_status_effect_enabled,
         bsengine_is_status_effect_enabled,
         bsengine_is_status_effect_expired,
+        bsengine_set_ability_name,
+        bsengine_get_ability_name,
+        bsengine_set_ability_cooldown,
+        bsengine_get_ability_cooldown,
+        bsengine_set_ability_cooldown_remaining,
+        bsengine_get_ability_cooldown_remaining,
+        bsengine_set_ability_max_charges,
+        bsengine_get_ability_max_charges,
+        bsengine_set_ability_charges,
+        bsengine_get_ability_charges,
+        bsengine_set_ability_charge_regen_time,
+        bsengine_get_ability_charge_regen_time,
+        bsengine_set_ability_enabled,
+        bsengine_is_ability_enabled,
+        bsengine_is_ability_ready,
+        bsengine_set_alarm_alert_duration,
+        bsengine_get_alarm_alert_duration,
+        bsengine_get_alarm_timer,
+        bsengine_set_alarm_detection_radius,
+        bsengine_get_alarm_detection_radius,
+        bsengine_is_alarm_alert,
+        bsengine_is_alarm_just_triggered,
+        bsengine_is_alarm_just_calmed,
+        bsengine_is_alarm_enabled,
+        bsengine_set_alarm_enabled,
+        bsengine_trigger_alarm,
+        bsengine_calm_alarm,
+        bsengine_get_alarm_remaining_fraction,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -9652,6 +9993,34 @@ const Bsengine = {
     setStatusEffectEnabled:(name, en)      => Deno.core.ops.bsengine_set_status_effect_enabled(name, en),
     isStatusEffectEnabled:(name)           => Deno.core.ops.bsengine_is_status_effect_enabled(name),
     isStatusEffectExpired:(name)           => Deno.core.ops.bsengine_is_status_effect_expired(name),
+    setAbilityName: (name, abilityName)    => Deno.core.ops.bsengine_set_ability_name(name, abilityName),
+    getAbilityName: (name)                 => JSON.parse(Deno.core.ops.bsengine_get_ability_name(name)),
+    setAbilityCooldown:(name, cd)          => Deno.core.ops.bsengine_set_ability_cooldown(name, cd),
+    getAbilityCooldown:(name)              => Deno.core.ops.bsengine_get_ability_cooldown(name),
+    setAbilityCooldownRemaining:(name, r)  => Deno.core.ops.bsengine_set_ability_cooldown_remaining(name, r),
+    getAbilityCooldownRemaining:(name)     => Deno.core.ops.bsengine_get_ability_cooldown_remaining(name),
+    setAbilityMaxCharges:(name, mc)        => Deno.core.ops.bsengine_set_ability_max_charges(name, mc),
+    getAbilityMaxCharges:(name)            => Deno.core.ops.bsengine_get_ability_max_charges(name),
+    setAbilityCharges:(name, ch)           => Deno.core.ops.bsengine_set_ability_charges(name, ch),
+    getAbilityCharges:(name)               => Deno.core.ops.bsengine_get_ability_charges(name),
+    setAbilityChargeRegenTime:(name, t)    => Deno.core.ops.bsengine_set_ability_charge_regen_time(name, t),
+    getAbilityChargeRegenTime:(name)       => Deno.core.ops.bsengine_get_ability_charge_regen_time(name),
+    setAbilityEnabled:(name, en)           => Deno.core.ops.bsengine_set_ability_enabled(name, en),
+    isAbilityEnabled:(name)                => Deno.core.ops.bsengine_is_ability_enabled(name),
+    isAbilityReady: (name)                 => Deno.core.ops.bsengine_is_ability_ready(name),
+    setAlarmAlertDuration:(name, dur)      => Deno.core.ops.bsengine_set_alarm_alert_duration(name, dur),
+    getAlarmAlertDuration:(name)           => Deno.core.ops.bsengine_get_alarm_alert_duration(name),
+    getAlarmTimer:  (name)                 => Deno.core.ops.bsengine_get_alarm_timer(name),
+    setAlarmDetectionRadius:(name, r)      => Deno.core.ops.bsengine_set_alarm_detection_radius(name, r),
+    getAlarmDetectionRadius:(name)         => Deno.core.ops.bsengine_get_alarm_detection_radius(name),
+    isAlarmAlert:   (name)                 => Deno.core.ops.bsengine_is_alarm_alert(name),
+    isAlarmJustTriggered:(name)            => Deno.core.ops.bsengine_is_alarm_just_triggered(name),
+    isAlarmJustCalmed:(name)               => Deno.core.ops.bsengine_is_alarm_just_calmed(name),
+    isAlarmEnabled: (name)                 => Deno.core.ops.bsengine_is_alarm_enabled(name),
+    setAlarmEnabled:(name, en)             => Deno.core.ops.bsengine_set_alarm_enabled(name, en),
+    triggerAlarm:   (name)                 => Deno.core.ops.bsengine_trigger_alarm(name),
+    calmAlarm:      (name)                 => Deno.core.ops.bsengine_calm_alarm(name),
+    getAlarmRemainingFraction:(name)       => Deno.core.ops.bsengine_get_alarm_remaining_fraction(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -17456,6 +17825,208 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetStatusEffectEnabled { name, enabled }
                 if name == "Hero" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ability_read_ops() {
+        super::ABILITY_SNAPSHOT.with(|s| {
+            // name="dash", cooldown=1.0, remaining=0.3, max_charges=2, charges=1, regen_time=5.0, regen_acc=0.0, enabled=true
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                ("dash".to_string(), 1.0, 0.3, 2, 1, 5.0, 0.0, true),
+            );
+            // name="fireball", cooldown=3.0, remaining=0.0, max_charges=0, charges=0, regen_time=0.0, regen_acc=0.0, enabled=false
+            s.borrow_mut().insert(
+                "Mage".to_string(),
+                ("fireball".to_string(), 3.0, 0.0, 0, 0, 0.0, 0.0, false),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let aname = rt.eval(r#"Bsengine.getAbilityName("Player");"#).unwrap();
+        assert_eq!(aname.trim(), "dash");
+        let cd = rt
+            .eval(r#"Bsengine.getAbilityCooldown("Player");"#)
+            .unwrap();
+        assert!((cd.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let rem = rt
+            .eval(r#"Bsengine.getAbilityCooldownRemaining("Player");"#)
+            .unwrap();
+        assert!((rem.trim().parse::<f32>().unwrap() - 0.3).abs() < 0.001);
+        let mc = rt
+            .eval(r#"Bsengine.getAbilityMaxCharges("Player");"#)
+            .unwrap();
+        assert_eq!(mc.trim().parse::<u32>().unwrap(), 2);
+        let ch = rt.eval(r#"Bsengine.getAbilityCharges("Player");"#).unwrap();
+        assert_eq!(ch.trim().parse::<u32>().unwrap(), 1);
+        let regen = rt
+            .eval(r#"Bsengine.getAbilityChargeRegenTime("Player");"#)
+            .unwrap();
+        assert!((regen.trim().parse::<f32>().unwrap() - 5.0).abs() < 0.001);
+        let enabled = rt.eval(r#"Bsengine.isAbilityEnabled("Player");"#).unwrap();
+        assert_eq!(enabled.trim(), "true");
+        // Player: cooldown_remaining > 0 so not ready
+        let ready = rt.eval(r#"Bsengine.isAbilityReady("Player");"#).unwrap();
+        assert_eq!(ready.trim(), "false");
+        // Mage: disabled, not ready
+        let ready_mage = rt.eval(r#"Bsengine.isAbilityReady("Mage");"#).unwrap();
+        assert_eq!(ready_mage.trim(), "false");
+        super::ABILITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ability_ready_when_no_cooldown_no_charges() {
+        super::ABILITY_SNAPSHOT.with(|s| {
+            // cooldown=0.0, remaining=0.0, max_charges=0 (unlimited), enabled=true → ready
+            s.borrow_mut().insert(
+                "Sword".to_string(),
+                ("slash".to_string(), 1.0, 0.0, 0, 0, 0.0, 0.0, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let ready = rt.eval(r#"Bsengine.isAbilityReady("Sword");"#).unwrap();
+        assert_eq!(ready.trim(), "true");
+        super::ABILITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ability_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAbilityName("Hero", "blink");"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbilityCooldown("Hero", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbilityCooldownRemaining("Hero", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbilityMaxCharges("Hero", 3);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbilityCharges("Hero", 2);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbilityChargeRegenTime("Hero", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAbilityEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityName { name, ability_name }
+                if name == "Hero" && ability_name == "blink"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityCooldown { name, cooldown }
+                if name == "Hero" && (*cooldown - 2.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityCooldownRemaining { name, remaining }
+                if name == "Hero" && (*remaining - 0.5).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityMaxCharges { name, max_charges }
+                if name == "Hero" && *max_charges == 3
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityCharges { name, charges }
+                if name == "Hero" && *charges == 2
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityChargeRegenTime { name, regen_time }
+                if name == "Hero" && (*regen_time - 4.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAbilityEnabled { name, enabled }
+                if name == "Hero" && !enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_alarm_read_ops() {
+        super::ALARM_SNAPSHOT.with(|s| {
+            // alert_duration=10.0, timer=5.0, detection_radius=15.0, just_triggered=false, just_calmed=false, enabled=true
+            s.borrow_mut()
+                .insert("Guard".to_string(), (10.0, 5.0, 15.0, false, false, true));
+            // alert_duration=5.0, timer=0.0, detection_radius=8.0, just_triggered=false, just_calmed=true, enabled=true
+            s.borrow_mut()
+                .insert("Scout".to_string(), (5.0, 0.0, 8.0, false, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let dur = rt
+            .eval(r#"Bsengine.getAlarmAlertDuration("Guard");"#)
+            .unwrap();
+        assert!((dur.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
+        let timer = rt.eval(r#"Bsengine.getAlarmTimer("Guard");"#).unwrap();
+        assert!((timer.trim().parse::<f32>().unwrap() - 5.0).abs() < 0.001);
+        let radius = rt
+            .eval(r#"Bsengine.getAlarmDetectionRadius("Guard");"#)
+            .unwrap();
+        assert!((radius.trim().parse::<f32>().unwrap() - 15.0).abs() < 0.001);
+        let alert = rt.eval(r#"Bsengine.isAlarmAlert("Guard");"#).unwrap();
+        assert_eq!(alert.trim(), "true");
+        let calmed = rt.eval(r#"Bsengine.isAlarmJustCalmed("Scout");"#).unwrap();
+        assert_eq!(calmed.trim(), "true");
+        let frac = rt
+            .eval(r#"Bsengine.getAlarmRemainingFraction("Guard");"#)
+            .unwrap();
+        assert!((frac.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.01);
+        let not_alert = rt.eval(r#"Bsengine.isAlarmAlert("Scout");"#).unwrap();
+        assert_eq!(not_alert.trim(), "false");
+        super::ALARM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_alarm_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAlarmAlertDuration("Tower", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAlarmDetectionRadius("Tower", 20.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setAlarmEnabled("Tower", false);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.triggerAlarm("Tower");"#).unwrap();
+        rt.eval(r#"Bsengine.calmAlarm("Tower");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAlarmAlertDuration { name, duration }
+                if name == "Tower" && (*duration - 8.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAlarmDetectionRadius { name, radius }
+                if name == "Tower" && (*radius - 20.0).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetAlarmEnabled { name, enabled }
+                if name == "Tower" && !enabled
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::TriggerAlarm { name }
+                if name == "Tower"
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::CalmAlarm { name }
+                if name == "Tower"
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

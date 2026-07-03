@@ -580,6 +580,29 @@ pub enum ScriptCommand {
         name: String,
         index: u32,
     },
+    SetDissolveProgress {
+        name: String,
+        progress: f32,
+    },
+    SetDissolveEdgeWidth {
+        name: String,
+        width: f32,
+    },
+    SetDissolveEdgeColor {
+        name: String,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
+    SetDissolveNoiseScale {
+        name: String,
+        scale: f32,
+    },
+    SetDissolveEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -1188,6 +1211,10 @@ thread_local! {
 
     // entity name → (current_index, line_count, looping, enabled, is_finished, current_speaker, current_text)
     pub(crate) static DIALOGUE_SNAPSHOT: RefCell<HashMap<String, (u32, u32, bool, bool, bool, String, String)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (progress, edge_width, edge_r, edge_g, edge_b, edge_a, noise_scale, enabled)
+    pub(crate) static DISSOLVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -4375,6 +4402,136 @@ pub fn bsengine_is_dialogue_looping(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
+pub fn bsengine_set_dissolve_progress(#[string] name: String, progress: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveProgress { name, progress })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_edge_width(#[string] name: String, width: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveEdgeWidth { name, width })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_edge_color(#[string] name: String, r: f32, g: f32, b: f32, a: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveEdgeColor { name, r, g, b, a })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_noise_scale(#[string] name: String, scale: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveNoiseScale { name, scale })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dissolve_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDissolveEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_progress(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(p, _, _, _, _, _, _, _)| *p)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_width(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, w, _, _, _, _, _, _)| *w)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_r(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, r, _, _, _, _, _)| *r)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_g(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, g, _, _, _, _)| *g)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_b(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, b, _, _, _)| *b)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_edge_color_a(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, a, _, _)| *a)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dissolve_noise_scale(#[string] name: String) -> f32 {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, s, _)| *s)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dissolve_enabled(#[string] name: String) -> bool {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dissolved(#[string] name: String) -> bool {
+    DISSOLVE_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(p, _, _, _, _, _, _, _)| *p >= 1.0)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -5558,6 +5715,20 @@ deno_core::extension!(
         bsengine_is_dialogue_finished,
         bsengine_is_dialogue_enabled,
         bsengine_is_dialogue_looping,
+        bsengine_set_dissolve_progress,
+        bsengine_set_dissolve_edge_width,
+        bsengine_set_dissolve_edge_color,
+        bsengine_set_dissolve_noise_scale,
+        bsengine_set_dissolve_enabled,
+        bsengine_get_dissolve_progress,
+        bsengine_get_dissolve_edge_width,
+        bsengine_get_dissolve_edge_color_r,
+        bsengine_get_dissolve_edge_color_g,
+        bsengine_get_dissolve_edge_color_b,
+        bsengine_get_dissolve_edge_color_a,
+        bsengine_get_dissolve_noise_scale,
+        bsengine_is_dissolve_enabled,
+        bsengine_is_dissolved,
     ],
 );
 
@@ -5936,6 +6107,20 @@ const Bsengine = {
     isDialogueFinished:     (name)          => Deno.core.ops.bsengine_is_dialogue_finished(name),
     isDialogueEnabled:      (name)          => Deno.core.ops.bsengine_is_dialogue_enabled(name),
     isDialogueLooping:      (name)          => Deno.core.ops.bsengine_is_dialogue_looping(name),
+    setDissolveProgress:    (name, p)       => Deno.core.ops.bsengine_set_dissolve_progress(name, p),
+    setDissolveEdgeWidth:   (name, w)       => Deno.core.ops.bsengine_set_dissolve_edge_width(name, w),
+    setDissolveEdgeColor:   (name, r, g, b, a) => Deno.core.ops.bsengine_set_dissolve_edge_color(name, r, g, b, a),
+    setDissolveNoiseScale:  (name, s)       => Deno.core.ops.bsengine_set_dissolve_noise_scale(name, s),
+    setDissolveEnabled:     (name, v)       => Deno.core.ops.bsengine_set_dissolve_enabled(name, v),
+    getDissolveProgress:    (name)          => Deno.core.ops.bsengine_get_dissolve_progress(name),
+    getDissolveEdgeWidth:   (name)          => Deno.core.ops.bsengine_get_dissolve_edge_width(name),
+    getDissolveEdgeColorR:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_r(name),
+    getDissolveEdgeColorG:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_g(name),
+    getDissolveEdgeColorB:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_b(name),
+    getDissolveEdgeColorA:  (name)          => Deno.core.ops.bsengine_get_dissolve_edge_color_a(name),
+    getDissolveNoiseScale:  (name)          => Deno.core.ops.bsengine_get_dissolve_noise_scale(name),
+    isDissolveEnabled:      (name)          => Deno.core.ops.bsengine_is_dissolve_enabled(name),
+    isDissolved:            (name)          => Deno.core.ops.bsengine_is_dissolved(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -11871,5 +12056,85 @@ JSON.stringify(received)
         let lp = rt.eval(r#"Bsengine.isDialogueLooping("Npc");"#).unwrap();
         assert_eq!(lp.trim(), "true");
         super::DIALOGUE_SNAPSHOT.with(|s| s.borrow_mut().remove("Npc"));
+    }
+
+    #[test]
+    fn dissolve_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDissolveProgress("Obj", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveEdgeWidth("Obj", 0.1);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveEdgeColor("Obj", 1.0, 0.4, 0.0, 1.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveNoiseScale("Obj", 3.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setDissolveEnabled("Obj", false);"#)
+            .unwrap();
+        let cmds: Vec<_> = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        assert_eq!(cmds.len(), 5);
+        assert!(matches!(
+            &cmds[0],
+            super::ScriptCommand::SetDissolveProgress { name, progress }
+                if name == "Obj" && (*progress - 0.5).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[1],
+            super::ScriptCommand::SetDissolveEdgeWidth { name, width }
+                if name == "Obj" && (*width - 0.1).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[2],
+            super::ScriptCommand::SetDissolveEdgeColor { name, r, .. }
+                if name == "Obj" && (*r - 1.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[3],
+            super::ScriptCommand::SetDissolveNoiseScale { name, scale }
+                if name == "Obj" && (*scale - 3.0).abs() < 0.001
+        ));
+        assert!(matches!(
+            &cmds[4],
+            super::ScriptCommand::SetDissolveEnabled { name, enabled: false }
+                if name == "Obj"
+        ));
+    }
+
+    #[test]
+    fn dissolve_snapshot_read_ops() {
+        // progress=0.5, edge_width=0.1, edge_color=[1,0.4,0,1], noise_scale=3.0, enabled=true
+        super::DISSOLVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Obj".to_string(),
+                (
+                    0.5_f32, 0.1_f32, 1.0_f32, 0.4_f32, 0.0_f32, 1.0_f32, 3.0_f32, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let p = rt.eval(r#"Bsengine.getDissolveProgress("Obj");"#).unwrap();
+        assert!((p.trim().parse::<f32>().unwrap() - 0.5).abs() < 0.001);
+        let w = rt.eval(r#"Bsengine.getDissolveEdgeWidth("Obj");"#).unwrap();
+        assert!((w.trim().parse::<f32>().unwrap() - 0.1).abs() < 0.001);
+        let cr = rt
+            .eval(r#"Bsengine.getDissolveEdgeColorR("Obj");"#)
+            .unwrap();
+        assert!((cr.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
+        let cg = rt
+            .eval(r#"Bsengine.getDissolveEdgeColorG("Obj");"#)
+            .unwrap();
+        assert!((cg.trim().parse::<f32>().unwrap() - 0.4).abs() < 0.001);
+        let ns = rt
+            .eval(r#"Bsengine.getDissolveNoiseScale("Obj");"#)
+            .unwrap();
+        assert!((ns.trim().parse::<f32>().unwrap() - 3.0).abs() < 0.001);
+        let en = rt.eval(r#"Bsengine.isDissolveEnabled("Obj");"#).unwrap();
+        assert_eq!(en.trim(), "true");
+        let dis = rt.eval(r#"Bsengine.isDissolved("Obj");"#).unwrap();
+        assert_eq!(dis.trim(), "false");
+        super::DISSOLVE_SNAPSHOT.with(|s| s.borrow_mut().remove("Obj"));
     }
 }

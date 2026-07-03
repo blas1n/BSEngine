@@ -21,13 +21,13 @@ use crate::ops::{
     COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER, COOLDOWN_SNAPSHOT, CROSSHAIR_SNAPSHOT, DASH_SNAPSHOT,
     DEPTH_OF_FIELD_SNAPSHOT, DIALOGUE_SNAPSHOT, DISSOLVE_SNAPSHOT, EMISSIVE_SNAPSHOT,
     ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT, EXPERIENCE_SNAPSHOT,
-    FOG_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
+    FOG_SNAPSHOT, FOLLOW_SNAPSHOT, FOOTSTEP_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAPPLE_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT,
     GRAVITY_SNAPSHOT, GRID_SNAP_SNAPSHOT, HEALTH_SNAPSHOT, INTERACTABLE_SNAPSHOT, JUMP_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT,
-    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    LEVEL_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MANA_SNAPSHOT,
+    MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
@@ -1493,6 +1493,39 @@ fn run_scripts(world: &mut World) {
             );
         }
         BUOYANCY_SNAPSHOT.with(|s| *s.borrow_mut() = b_map);
+    }
+    {
+        use bsengine_core::Follow;
+        let mut f_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Follow)>();
+        for (_, name, f) in q.iter(world) {
+            let target_name = ENTITY_NAME_MAP.with(|m| {
+                m.borrow()
+                    .get(&f.target.to_bits())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            f_map.insert(
+                name.0.clone(),
+                (target_name, f.offset.x, f.offset.y, f.offset.z, f.speed),
+            );
+        }
+        FOLLOW_SNAPSHOT.with(|s| *s.borrow_mut() = f_map);
+    }
+    {
+        use bsengine_core::LookAt;
+        let mut la_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &LookAt)>();
+        for (_, name, la) in q.iter(world) {
+            let target_name = ENTITY_NAME_MAP.with(|m| {
+                m.borrow()
+                    .get(&la.target.to_bits())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            la_map.insert(name.0.clone(), (target_name, la.up.x, la.up.y, la.up.z));
+        }
+        LOOK_AT_SNAPSHOT.with(|s| *s.borrow_mut() = la_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -4407,6 +4440,78 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut b) = world.get_mut::<Buoyancy>(e) {
                         b.surface_y = y;
+                    }
+                }
+            }
+            ScriptCommand::SetFollowTarget { name, target } => {
+                use bsengine_core::Follow;
+                let target_entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == target).map(|(e, _)| e)
+                };
+                if let Some(te) = target_entity {
+                    let entity = {
+                        let mut q = world.query::<(Entity, &Name)>();
+                        q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                    };
+                    if let Some(e) = entity {
+                        if let Some(mut f) = world.get_mut::<Follow>(e) {
+                            f.target = te;
+                        }
+                    }
+                }
+            }
+            ScriptCommand::SetFollowOffset { name, x, y, z } => {
+                use bsengine_core::Follow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Follow>(e) {
+                        f.offset = Vec3::new(x, y, z);
+                    }
+                }
+            }
+            ScriptCommand::SetFollowSpeed { name, speed } => {
+                use bsengine_core::Follow;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<Follow>(e) {
+                        f.speed = speed;
+                    }
+                }
+            }
+            ScriptCommand::SetLookAtTarget { name, target } => {
+                use bsengine_core::LookAt;
+                let target_entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == target).map(|(e, _)| e)
+                };
+                if let Some(te) = target_entity {
+                    let entity = {
+                        let mut q = world.query::<(Entity, &Name)>();
+                        q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                    };
+                    if let Some(e) = entity {
+                        if let Some(mut la) = world.get_mut::<LookAt>(e) {
+                            la.target = te;
+                        }
+                    }
+                }
+            }
+            ScriptCommand::SetLookAtUp { name, x, y, z } => {
+                use bsengine_core::LookAt;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut la) = world.get_mut::<LookAt>(e) {
+                        la.up = Vec3::new(x, y, z);
                     }
                 }
             }

@@ -17,7 +17,7 @@ use crate::ops::{
     ScriptCommand, SpawnParams, AMMO_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHARGE_SNAPSHOT,
     CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    COOLDOWN_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
+    COOLDOWN_SNAPSHOT, DASH_SNAPSHOT, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, ENTITY_TAGS_SNAPSHOT,
     EXPERIENCE_SNAPSHOT, FRICTION_SNAPSHOT, FUEL_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
     GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, HEALTH_SNAPSHOT, JUMP_SNAPSHOT,
@@ -898,6 +898,29 @@ fn run_scripts(world: &mut World) {
             );
         }
         SPRINT_SNAPSHOT.with(|s| *s.borrow_mut() = sprint_map);
+    }
+    {
+        use bsengine_core::Dash;
+        let mut dash_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Dash)>();
+        for (name, d) in q.iter(world) {
+            dash_map.insert(
+                name.0.clone(),
+                (
+                    d.speed,
+                    d.duration,
+                    d.cooldown,
+                    d.cooldown_timer,
+                    d.max_charges,
+                    d.charges,
+                    d.is_active(),
+                    d.is_invincible(),
+                    d.can_dash(),
+                    d.enabled,
+                ),
+            );
+        }
+        DASH_SNAPSHOT.with(|s| *s.borrow_mut() = dash_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -1992,6 +2015,90 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut sp) = world.get_mut::<Sprint>(e) {
                         sp.speed_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::TriggerDash { name, dx, dy, dz } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.trigger(glam::Vec3::new(dx, dy, dz));
+                    }
+                }
+            }
+            ScriptCommand::SetDashEnabled { name, enabled } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetDashSpeed { name, speed } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.speed = speed.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDashDuration { name, duration } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.duration = duration.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetDashCooldown { name, cooldown } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.cooldown = cooldown.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMaxDashCharges { name, max } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.max_charges = max.max(1);
+                    }
+                }
+            }
+            ScriptCommand::SetDashInvincible { name, enabled } => {
+                use bsengine_core::Dash;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut d) = world.get_mut::<Dash>(e) {
+                        d.invincible_during_dash = enabled;
                     }
                 }
             }

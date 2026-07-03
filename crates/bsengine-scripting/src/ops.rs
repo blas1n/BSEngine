@@ -355,6 +355,36 @@ pub enum ScriptCommand {
         name: String,
         multiplier: f32,
     },
+    TriggerDash {
+        name: String,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+    },
+    SetDashEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetDashSpeed {
+        name: String,
+        speed: f32,
+    },
+    SetDashDuration {
+        name: String,
+        duration: f32,
+    },
+    SetDashCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetMaxDashCharges {
+        name: String,
+        max: u32,
+    },
+    SetDashInvincible {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -919,6 +949,10 @@ thread_local! {
 
     // entity name → (speed_multiplier, is_sprinting, is_exhausted, just_started, just_stopped, enabled)
     pub(crate) static SPRINT_SNAPSHOT: RefCell<HashMap<String, (f32, bool, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+
+    // entity name → (speed, duration, cooldown, cooldown_timer, max_charges, charges, is_active, is_invincible, can_dash, enabled)
+    pub(crate) static DASH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, u32, u32, bool, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -2929,6 +2963,178 @@ pub fn bsengine_get_effective_sprint_multiplier(#[string] name: String) -> f32 {
 }
 
 #[op2(fast)]
+pub fn bsengine_trigger_dash(#[string] name: String, dx: f32, dy: f32, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TriggerDash { name, dx, dy, dz })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dash_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDashEnabled { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dash_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDashSpeed { name, speed })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dash_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDashDuration { name, duration })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dash_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDashCooldown { name, cooldown })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_max_dash_charges(#[string] name: String, max: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxDashCharges { name, max })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_set_dash_invincible(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetDashInvincible { name, enabled })
+    });
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_speed(#[string] name: String) -> f32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(spd, _, _, _, _, _, _, _, _, _)| *spd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_duration(#[string] name: String) -> f32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, dur, _, _, _, _, _, _, _, _)| *dur)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_cooldown(#[string] name: String) -> f32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, cd, _, _, _, _, _, _, _)| *cd)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_cooldown_timer(#[string] name: String) -> f32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, cdt, _, _, _, _, _, _)| *cdt)
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_max_charges(#[string] name: String) -> u32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, max, _, _, _, _, _)| *max)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_charges(#[string] name: String) -> u32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, ch, _, _, _, _)| *ch)
+            .unwrap_or(0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_get_dash_charge_fraction(#[string] name: String) -> f32 {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, max, ch, _, _, _, _)| {
+                if *max == 0 {
+                    0.0
+                } else {
+                    *ch as f32 / *max as f32
+                }
+            })
+            .unwrap_or(0.0)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dashing(#[string] name: String) -> bool {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, active, _, _, _)| *active)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dash_invincible(#[string] name: String) -> bool {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, inv, _, _)| *inv)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_can_dash(#[string] name: String) -> bool {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, can, _)| *can)
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn bsengine_is_dash_enabled(#[string] name: String) -> bool {
+    DASH_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, _, _, _, _, _, _, _, _, en)| *en)
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
     if let Some(pos) = origin {
@@ -3982,6 +4188,24 @@ deno_core::extension!(
         bsengine_sprint_just_stopped,
         bsengine_is_sprint_enabled,
         bsengine_get_effective_sprint_multiplier,
+        bsengine_trigger_dash,
+        bsengine_set_dash_enabled,
+        bsengine_set_dash_speed,
+        bsengine_set_dash_duration,
+        bsengine_set_dash_cooldown,
+        bsengine_set_max_dash_charges,
+        bsengine_set_dash_invincible,
+        bsengine_get_dash_speed,
+        bsengine_get_dash_duration,
+        bsengine_get_dash_cooldown,
+        bsengine_get_dash_cooldown_timer,
+        bsengine_get_dash_max_charges,
+        bsengine_get_dash_charges,
+        bsengine_get_dash_charge_fraction,
+        bsengine_is_dashing,
+        bsengine_is_dash_invincible,
+        bsengine_can_dash,
+        bsengine_is_dash_enabled,
     ],
 );
 
@@ -4230,6 +4454,24 @@ const Bsengine = {
     sprintJustStopped:      (name)          => Deno.core.ops.bsengine_sprint_just_stopped(name),
     isSprintEnabled:        (name)          => Deno.core.ops.bsengine_is_sprint_enabled(name),
     getEffectiveSprintMultiplier: (name)    => Deno.core.ops.bsengine_get_effective_sprint_multiplier(name),
+    triggerDash:            (name, dx, dy, dz) => Deno.core.ops.bsengine_trigger_dash(name, dx, dy, dz),
+    setDashEnabled:         (name, enabled) => Deno.core.ops.bsengine_set_dash_enabled(name, enabled),
+    setDashSpeed:           (name, speed)   => Deno.core.ops.bsengine_set_dash_speed(name, speed),
+    setDashDuration:        (name, dur)     => Deno.core.ops.bsengine_set_dash_duration(name, dur),
+    setDashCooldown:        (name, cd)      => Deno.core.ops.bsengine_set_dash_cooldown(name, cd),
+    setMaxDashCharges:      (name, max)     => Deno.core.ops.bsengine_set_max_dash_charges(name, max),
+    setDashInvincible:      (name, enabled) => Deno.core.ops.bsengine_set_dash_invincible(name, enabled),
+    getDashSpeed:           (name)          => Deno.core.ops.bsengine_get_dash_speed(name),
+    getDashDuration:        (name)          => Deno.core.ops.bsengine_get_dash_duration(name),
+    getDashCooldown:        (name)          => Deno.core.ops.bsengine_get_dash_cooldown(name),
+    getDashCooldownTimer:   (name)          => Deno.core.ops.bsengine_get_dash_cooldown_timer(name),
+    getDashMaxCharges:      (name)          => Deno.core.ops.bsengine_get_dash_max_charges(name),
+    getDashCharges:         (name)          => Deno.core.ops.bsengine_get_dash_charges(name),
+    getDashChargeFraction:  (name)          => Deno.core.ops.bsengine_get_dash_charge_fraction(name),
+    isDashing:              (name)          => Deno.core.ops.bsengine_is_dashing(name),
+    isDashInvincible:       (name)          => Deno.core.ops.bsengine_is_dash_invincible(name),
+    canDash:                (name)          => Deno.core.ops.bsengine_can_dash(name),
+    isDashEnabled:          (name)          => Deno.core.ops.bsengine_is_dash_enabled(name),
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
     // Time
@@ -9120,5 +9362,97 @@ JSON.stringify(received)
             .eval(r#"Bsengine.getEffectiveSprintMultiplier("Unknown");"#)
             .unwrap();
         assert!(r.trim() == "1" || r.trim() == "1.0", "expected 1, got {r}");
+    }
+
+    #[test]
+    fn trigger_dash_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.triggerDash("Player", 1.0, 0.0, 0.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::TriggerDash { name, dx, .. }
+                    if name == "Player" && (*dx - 1.0).abs() < 1e-5)
+            });
+            assert!(found, "TriggerDash not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_dash_enabled_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setDashEnabled("Player", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetDashEnabled { name, enabled }
+                    if name == "Player" && !*enabled)
+            });
+            assert!(found, "SetDashEnabled not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_dash_speed_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getDashSpeed("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_dash_charges_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getDashCharges("Unknown");"#).unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn get_dash_charge_fraction_returns_zero_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getDashChargeFraction("Unknown");"#)
+            .unwrap();
+        assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
+    }
+
+    #[test]
+    fn is_dashing_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isDashing("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_dash_invincible_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isDashInvincible("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn can_dash_returns_false_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.canDash("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "false");
+    }
+
+    #[test]
+    fn is_dash_enabled_returns_true_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.isDashEnabled("Unknown");"#).unwrap();
+        assert_eq!(r.trim(), "true");
     }
 }

@@ -28,14 +28,14 @@ use crate::ops::{
     KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, KNOCKBACK_SNAPSHOT, LEVEL_SNAPSHOT,
     LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, MANA_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
-    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT,
-    NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT,
-    RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
-    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT,
-    STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TINT_SNAPSHOT, TRANSFORM_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOTION_BLUR_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, MOVE_SPEED_SNAPSHOT, NAV_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR,
+    PROJECTILE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, SCREEN_SHAKE_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
+    SOUND_STATE_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1319,6 +1319,18 @@ fn run_scripts(world: &mut World) {
             );
         }
         DEPTH_OF_FIELD_SNAPSHOT.with(|s| *s.borrow_mut() = dof_map);
+    }
+    {
+        use bsengine_core::MotionBlur;
+        let mut mb_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &MotionBlur)>();
+        for (_, name, mb) in q.iter(world) {
+            mb_map.insert(
+                name.0.clone(),
+                (mb.shutter_angle, mb.sample_count, mb.enabled),
+            );
+        }
+        MOTION_BLUR_SNAPSHOT.with(|s| *s.borrow_mut() = mb_map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -3783,6 +3795,42 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut dof) = world.get_mut::<DepthOfField>(e) {
                         dof.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetMotionBlurShutterAngle { name, angle } => {
+                use bsengine_core::MotionBlur;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mb) = world.get_mut::<MotionBlur>(e) {
+                        mb.shutter_angle = angle.clamp(0.0, 360.0);
+                    }
+                }
+            }
+            ScriptCommand::SetMotionBlurSampleCount { name, count } => {
+                use bsengine_core::MotionBlur;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mb) = world.get_mut::<MotionBlur>(e) {
+                        mb.sample_count = count.max(1);
+                    }
+                }
+            }
+            ScriptCommand::SetMotionBlurEnabled { name, enabled } => {
+                use bsengine_core::MotionBlur;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut mb) = world.get_mut::<MotionBlur>(e) {
+                        mb.enabled = enabled;
                     }
                 }
             }

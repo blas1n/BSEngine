@@ -5879,6 +5879,98 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    FretWorry {
+        name: String,
+        amount: f32,
+    },
+    CalmWorry {
+        name: String,
+        amount: f32,
+    },
+    SetWorryEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DeclineWorse {
+        name: String,
+        amount: f32,
+    },
+    RestoreWorse {
+        name: String,
+        amount: f32,
+    },
+    SetWorseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WorsenWorst {
+        name: String,
+        amount: f32,
+    },
+    EaseWorst {
+        name: String,
+        amount: f32,
+    },
+    SetWorstEnabled {
+        name: String,
+        enabled: bool,
+    },
+    MashWort {
+        name: String,
+        amount: f32,
+    },
+    PourWort {
+        name: String,
+        amount: f32,
+    },
+    SetWortEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EarnWorthy {
+        name: String,
+        amount: f32,
+    },
+    DemeanWorthy {
+        name: String,
+        amount: f32,
+    },
+    SetWorthyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddWound {
+        name: String,
+    },
+    HealWound {
+        name: String,
+    },
+    SetWoundEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnterWraith {
+        name: String,
+    },
+    ExitWraith {
+        name: String,
+    },
+    SetWraithEnabled {
+        name: String,
+        enabled: bool,
+    },
+    QuarrelWrangle {
+        name: String,
+        amount: f32,
+    },
+    ResolveWrangle {
+        name: String,
+        amount: f32,
+    },
+    SetWrangleEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7282,6 +7374,22 @@ thread_local! {
     pub(crate) static WORM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WORN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORSE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORTHY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOUND_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRAITH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRANGLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -18098,6 +18206,362 @@ pub fn bsengine_set_worn_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWornEnabled { name, enabled })
+    });
+}
+// ── Worry ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_worry_anxiety(#[string] name: String) -> f32 {
+    WORRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worry_max_anxiety(#[string] name: String) -> f32 {
+    WORRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worry_fret_rate(#[string] name: String) -> f32 {
+    WORRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_worry_just_anxious(#[string] name: String) -> bool {
+    WORRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worry_just_calm(#[string] name: String) -> bool {
+    WORRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worry_enabled(#[string] name: String) -> bool {
+    WORRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fret_worry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FretWorry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_worry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalmWorry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_worry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWorryEnabled { name, enabled })
+    });
+}
+// ── Worse ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_worse_deterioration(#[string] name: String) -> f32 {
+    WORSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worse_max_deterioration(#[string] name: String) -> f32 {
+    WORSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worse_decline_rate(#[string] name: String) -> f32 {
+    WORSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_worse_just_ruined(#[string] name: String) -> bool {
+    WORSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worse_just_restored(#[string] name: String) -> bool {
+    WORSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worse_enabled(#[string] name: String) -> bool {
+    WORSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_decline_worse(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeclineWorse { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_restore_worse(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestoreWorse { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_worse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWorseEnabled { name, enabled })
+    });
+}
+// ── Worst ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_worst_extremity(#[string] name: String) -> f32 {
+    WORST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worst_max_extremity(#[string] name: String) -> f32 {
+    WORST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worst_worsen_rate(#[string] name: String) -> f32 {
+    WORST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_worst_just_peaked(#[string] name: String) -> bool {
+    WORST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worst_just_eased(#[string] name: String) -> bool {
+    WORST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worst_enabled(#[string] name: String) -> bool {
+    WORST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_worsen_worst(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WorsenWorst { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_ease_worst(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EaseWorst { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_worst_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWorstEnabled { name, enabled })
+    });
+}
+// ── Wort ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wort_brew(#[string] name: String) -> f32 {
+    WORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wort_max_brew(#[string] name: String) -> f32 {
+    WORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wort_ferment_rate(#[string] name: String) -> f32 {
+    WORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wort_just_brewed(#[string] name: String) -> bool {
+    WORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wort_just_dry(#[string] name: String) -> bool {
+    WORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wort_enabled(#[string] name: String) -> bool {
+    WORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_mash_wort(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MashWort { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_pour_wort(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PourWort { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wort_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWortEnabled { name, enabled })
+    });
+}
+// ── Worthy ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_worthy_merit(#[string] name: String) -> f32 {
+    WORTHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worthy_max_merit(#[string] name: String) -> f32 {
+    WORTHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worthy_earn_rate(#[string] name: String) -> f32 {
+    WORTHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_worthy_just_deserving(#[string] name: String) -> bool {
+    WORTHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worthy_just_unworthy(#[string] name: String) -> bool {
+    WORTHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worthy_enabled(#[string] name: String) -> bool {
+    WORTHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_earn_worthy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EarnWorthy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_demean_worthy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DemeanWorthy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_worthy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWorthyEnabled { name, enabled })
+    });
+}
+// ── Wound ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wound_count(#[string] name: String) -> f32 {
+    WOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wound_max_count(#[string] name: String) -> f32 {
+    WOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wound_bleed_per_wound(#[string] name: String) -> f32 {
+    WOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wound_just_wounded(#[string] name: String) -> bool {
+    WOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wound_just_healed(#[string] name: String) -> bool {
+    WOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wound_enabled(#[string] name: String) -> bool {
+    WOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_wound(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AddWound { name }));
+}
+#[op2(fast)]
+pub fn bsengine_heal_wound(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HealWound { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wound_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoundEnabled { name, enabled })
+    });
+}
+// ── Wraith ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wraith_timer(#[string] name: String) -> f32 {
+    WRAITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wraith_duration(#[string] name: String) -> f32 {
+    WRAITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wraith_damage_reduction(#[string] name: String) -> f32 {
+    WRAITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wraith_just_entered(#[string] name: String) -> bool {
+    WRAITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wraith_just_exited(#[string] name: String) -> bool {
+    WRAITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wraith_enabled(#[string] name: String) -> bool {
+    WRAITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enter_wraith(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnterWraith { name }));
+}
+#[op2(fast)]
+pub fn bsengine_exit_wraith(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExitWraith { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wraith_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWraithEnabled { name, enabled })
+    });
+}
+// ── Wrangle ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrangle_dispute(#[string] name: String) -> f32 {
+    WRANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrangle_max_dispute(#[string] name: String) -> f32 {
+    WRANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrangle_quarrel_rate(#[string] name: String) -> f32 {
+    WRANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrangle_just_embroiled(#[string] name: String) -> bool {
+    WRANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrangle_just_resolved(#[string] name: String) -> bool {
+    WRANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrangle_enabled(#[string] name: String) -> bool {
+    WRANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_quarrel_wrangle(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::QuarrelWrangle { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_resolve_wrangle(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ResolveWrangle { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wrangle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrangleEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -39189,6 +39653,78 @@ deno_core::extension!(
         bsengine_degrade_worn,
         bsengine_repair_worn,
         bsengine_set_worn_enabled,
+        bsengine_get_worry_anxiety,
+        bsengine_get_worry_max_anxiety,
+        bsengine_get_worry_fret_rate,
+        bsengine_is_worry_just_anxious,
+        bsengine_is_worry_just_calm,
+        bsengine_is_worry_enabled,
+        bsengine_fret_worry,
+        bsengine_calm_worry,
+        bsengine_set_worry_enabled,
+        bsengine_get_worse_deterioration,
+        bsengine_get_worse_max_deterioration,
+        bsengine_get_worse_decline_rate,
+        bsengine_is_worse_just_ruined,
+        bsengine_is_worse_just_restored,
+        bsengine_is_worse_enabled,
+        bsengine_decline_worse,
+        bsengine_restore_worse,
+        bsengine_set_worse_enabled,
+        bsengine_get_worst_extremity,
+        bsengine_get_worst_max_extremity,
+        bsengine_get_worst_worsen_rate,
+        bsengine_is_worst_just_peaked,
+        bsengine_is_worst_just_eased,
+        bsengine_is_worst_enabled,
+        bsengine_worsen_worst,
+        bsengine_ease_worst,
+        bsengine_set_worst_enabled,
+        bsengine_get_wort_brew,
+        bsengine_get_wort_max_brew,
+        bsengine_get_wort_ferment_rate,
+        bsengine_is_wort_just_brewed,
+        bsengine_is_wort_just_dry,
+        bsengine_is_wort_enabled,
+        bsengine_mash_wort,
+        bsengine_pour_wort,
+        bsengine_set_wort_enabled,
+        bsengine_get_worthy_merit,
+        bsengine_get_worthy_max_merit,
+        bsengine_get_worthy_earn_rate,
+        bsengine_is_worthy_just_deserving,
+        bsengine_is_worthy_just_unworthy,
+        bsengine_is_worthy_enabled,
+        bsengine_earn_worthy,
+        bsengine_demean_worthy,
+        bsengine_set_worthy_enabled,
+        bsengine_get_wound_count,
+        bsengine_get_wound_max_count,
+        bsengine_get_wound_bleed_per_wound,
+        bsengine_is_wound_just_wounded,
+        bsengine_is_wound_just_healed,
+        bsengine_is_wound_enabled,
+        bsengine_add_wound,
+        bsengine_heal_wound,
+        bsengine_set_wound_enabled,
+        bsengine_get_wraith_timer,
+        bsengine_get_wraith_duration,
+        bsengine_get_wraith_damage_reduction,
+        bsengine_is_wraith_just_entered,
+        bsengine_is_wraith_just_exited,
+        bsengine_is_wraith_enabled,
+        bsengine_enter_wraith,
+        bsengine_exit_wraith,
+        bsengine_set_wraith_enabled,
+        bsengine_get_wrangle_dispute,
+        bsengine_get_wrangle_max_dispute,
+        bsengine_get_wrangle_quarrel_rate,
+        bsengine_is_wrangle_just_embroiled,
+        bsengine_is_wrangle_just_resolved,
+        bsengine_is_wrangle_enabled,
+        bsengine_quarrel_wrangle,
+        bsengine_resolve_wrangle,
+        bsengine_set_wrangle_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -43692,6 +44228,78 @@ const Bsengine = {
     degradeWorn:                (name, v)           => Deno.core.ops.bsengine_degrade_worn(name, v),
     repairWorn:                 (name, v)           => Deno.core.ops.bsengine_repair_worn(name, v),
     setWornEnabled:             (name, v)           => Deno.core.ops.bsengine_set_worn_enabled(name, v),
+    getWorryAnxiety:            (name)              => Deno.core.ops.bsengine_get_worry_anxiety(name),
+    getWorryMaxAnxiety:         (name)              => Deno.core.ops.bsengine_get_worry_max_anxiety(name),
+    getWorryFretRate:           (name)              => Deno.core.ops.bsengine_get_worry_fret_rate(name),
+    isWorryJustAnxious:         (name)              => Deno.core.ops.bsengine_is_worry_just_anxious(name),
+    isWorryJustCalm:            (name)              => Deno.core.ops.bsengine_is_worry_just_calm(name),
+    isWorryEnabled:             (name)              => Deno.core.ops.bsengine_is_worry_enabled(name),
+    fretWorry:                  (name, v)           => Deno.core.ops.bsengine_fret_worry(name, v),
+    calmWorry:                  (name, v)           => Deno.core.ops.bsengine_calm_worry(name, v),
+    setWorryEnabled:            (name, v)           => Deno.core.ops.bsengine_set_worry_enabled(name, v),
+    getWorseDeterioration:      (name)              => Deno.core.ops.bsengine_get_worse_deterioration(name),
+    getWorseMaxDeterioration:   (name)              => Deno.core.ops.bsengine_get_worse_max_deterioration(name),
+    getWorseDeclineRate:        (name)              => Deno.core.ops.bsengine_get_worse_decline_rate(name),
+    isWorseJustRuined:          (name)              => Deno.core.ops.bsengine_is_worse_just_ruined(name),
+    isWorseJustRestored:        (name)              => Deno.core.ops.bsengine_is_worse_just_restored(name),
+    isWorseEnabled:             (name)              => Deno.core.ops.bsengine_is_worse_enabled(name),
+    declineWorse:               (name, v)           => Deno.core.ops.bsengine_decline_worse(name, v),
+    restoreWorse:               (name, v)           => Deno.core.ops.bsengine_restore_worse(name, v),
+    setWorseEnabled:            (name, v)           => Deno.core.ops.bsengine_set_worse_enabled(name, v),
+    getWorstExtremity:          (name)              => Deno.core.ops.bsengine_get_worst_extremity(name),
+    getWorstMaxExtremity:       (name)              => Deno.core.ops.bsengine_get_worst_max_extremity(name),
+    getWorstWorsenRate:         (name)              => Deno.core.ops.bsengine_get_worst_worsen_rate(name),
+    isWorstJustPeaked:          (name)              => Deno.core.ops.bsengine_is_worst_just_peaked(name),
+    isWorstJustEased:           (name)              => Deno.core.ops.bsengine_is_worst_just_eased(name),
+    isWorstEnabled:             (name)              => Deno.core.ops.bsengine_is_worst_enabled(name),
+    worsenWorst:                (name, v)           => Deno.core.ops.bsengine_worsen_worst(name, v),
+    easeWorst:                  (name, v)           => Deno.core.ops.bsengine_ease_worst(name, v),
+    setWorstEnabled:            (name, v)           => Deno.core.ops.bsengine_set_worst_enabled(name, v),
+    getWortBrew:                (name)              => Deno.core.ops.bsengine_get_wort_brew(name),
+    getWortMaxBrew:             (name)              => Deno.core.ops.bsengine_get_wort_max_brew(name),
+    getWortFermentRate:         (name)              => Deno.core.ops.bsengine_get_wort_ferment_rate(name),
+    isWortJustBrewed:           (name)              => Deno.core.ops.bsengine_is_wort_just_brewed(name),
+    isWortJustDry:              (name)              => Deno.core.ops.bsengine_is_wort_just_dry(name),
+    isWortEnabled:              (name)              => Deno.core.ops.bsengine_is_wort_enabled(name),
+    mashWort:                   (name, v)           => Deno.core.ops.bsengine_mash_wort(name, v),
+    pourWort:                   (name, v)           => Deno.core.ops.bsengine_pour_wort(name, v),
+    setWortEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wort_enabled(name, v),
+    getWorthyMerit:             (name)              => Deno.core.ops.bsengine_get_worthy_merit(name),
+    getWorthyMaxMerit:          (name)              => Deno.core.ops.bsengine_get_worthy_max_merit(name),
+    getWorthyEarnRate:          (name)              => Deno.core.ops.bsengine_get_worthy_earn_rate(name),
+    isWorthyJustDeserving:      (name)              => Deno.core.ops.bsengine_is_worthy_just_deserving(name),
+    isWorthyJustUnworthy:       (name)              => Deno.core.ops.bsengine_is_worthy_just_unworthy(name),
+    isWorthyEnabled:            (name)              => Deno.core.ops.bsengine_is_worthy_enabled(name),
+    earnWorthy:                 (name, v)           => Deno.core.ops.bsengine_earn_worthy(name, v),
+    demeanWorthy:               (name, v)           => Deno.core.ops.bsengine_demean_worthy(name, v),
+    setWorthyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_worthy_enabled(name, v),
+    getWoundCount:              (name)              => Deno.core.ops.bsengine_get_wound_count(name),
+    getWoundMaxCount:           (name)              => Deno.core.ops.bsengine_get_wound_max_count(name),
+    getWoundBleedPerWound:      (name)              => Deno.core.ops.bsengine_get_wound_bleed_per_wound(name),
+    isWoundJustWounded:         (name)              => Deno.core.ops.bsengine_is_wound_just_wounded(name),
+    isWoundJustHealed:          (name)              => Deno.core.ops.bsengine_is_wound_just_healed(name),
+    isWoundEnabled:             (name)              => Deno.core.ops.bsengine_is_wound_enabled(name),
+    addWound:                   (name)              => Deno.core.ops.bsengine_add_wound(name),
+    healWound:                  (name)              => Deno.core.ops.bsengine_heal_wound(name),
+    setWoundEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wound_enabled(name, v),
+    getWraithTimer:             (name)              => Deno.core.ops.bsengine_get_wraith_timer(name),
+    getWraithDuration:          (name)              => Deno.core.ops.bsengine_get_wraith_duration(name),
+    getWraithDamageReduction:   (name)              => Deno.core.ops.bsengine_get_wraith_damage_reduction(name),
+    isWraithJustEntered:        (name)              => Deno.core.ops.bsengine_is_wraith_just_entered(name),
+    isWraithJustExited:         (name)              => Deno.core.ops.bsengine_is_wraith_just_exited(name),
+    isWraithEnabled:            (name)              => Deno.core.ops.bsengine_is_wraith_enabled(name),
+    enterWraith:                (name)              => Deno.core.ops.bsengine_enter_wraith(name),
+    exitWraith:                 (name)              => Deno.core.ops.bsengine_exit_wraith(name),
+    setWraithEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wraith_enabled(name, v),
+    getWrangleDispute:          (name)              => Deno.core.ops.bsengine_get_wrangle_dispute(name),
+    getWrangleMaxDispute:       (name)              => Deno.core.ops.bsengine_get_wrangle_max_dispute(name),
+    getWrangleQuarrelRate:      (name)              => Deno.core.ops.bsengine_get_wrangle_quarrel_rate(name),
+    isWrangleJustEmbroiled:     (name)              => Deno.core.ops.bsengine_is_wrangle_just_embroiled(name),
+    isWrangleJustResolved:      (name)              => Deno.core.ops.bsengine_is_wrangle_just_resolved(name),
+    isWrangleEnabled:           (name)              => Deno.core.ops.bsengine_is_wrangle_enabled(name),
+    quarrelWrangle:             (name, v)           => Deno.core.ops.bsengine_quarrel_wrangle(name, v),
+    resolveWrangle:             (name, v)           => Deno.core.ops.bsengine_resolve_wrangle(name, v),
+    setWrangleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_wrangle_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -73018,6 +73626,446 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DegradeWorn { name, amount } if name == "Worn" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairWorn { name, amount } if name == "Worn" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWornEnabled { name, enabled } if name == "Worn" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worry_read_ops() {
+        super::WORRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Anxious".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWorryAnxiety("Anxious"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorryMaxAnxiety("Anxious"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorryFretRate("Anxious"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorryJustAnxious("Anxious"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorryJustCalm("Anxious"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorryEnabled("Anxious"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worry_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fretWorry("Anxious", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmWorry("Anxious", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWorryEnabled("Anxious", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FretWorry { name, amount } if name == "Anxious" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmWorry { name, amount } if name == "Anxious" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWorryEnabled { name, enabled } if name == "Anxious" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worse_read_ops() {
+        super::WORSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ruined".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWorseDeterioration("Ruined"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorseMaxDeterioration("Ruined"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorseDeclineRate("Ruined"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorseJustRuined("Ruined"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorseJustRestored("Ruined"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorseEnabled("Ruined"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worse_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.declineWorse("Ruined", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.restoreWorse("Ruined", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWorseEnabled("Ruined", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeclineWorse { name, amount } if name == "Ruined" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestoreWorse { name, amount } if name == "Ruined" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWorseEnabled { name, enabled } if name == "Ruined" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worst_read_ops() {
+        super::WORST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Peaked".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWorstExtremity("Peaked"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorstMaxExtremity("Peaked"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorstWorsenRate("Peaked"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorstJustPeaked("Peaked"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorstJustEased("Peaked"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorstEnabled("Peaked"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worst_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.worsenWorst("Peaked", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.easeWorst("Peaked", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWorstEnabled("Peaked", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WorsenWorst { name, amount } if name == "Peaked" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EaseWorst { name, amount } if name == "Peaked" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWorstEnabled { name, enabled } if name == "Peaked" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wort_read_ops() {
+        super::WORT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Brewed".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWortBrew("Brewed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWortMaxBrew("Brewed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWortFermentRate("Brewed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWortJustBrewed("Brewed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWortJustDry("Brewed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWortEnabled("Brewed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wort_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.mashWort("Brewed", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.pourWort("Brewed", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWortEnabled("Brewed", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MashWort { name, amount } if name == "Brewed" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PourWort { name, amount } if name == "Brewed" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWortEnabled { name, enabled } if name == "Brewed" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worthy_read_ops() {
+        super::WORTHY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Merit".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWorthyMerit("Merit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorthyMaxMerit("Merit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWorthyEarnRate("Merit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorthyJustDeserving("Merit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorthyJustUnworthy("Merit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWorthyEnabled("Merit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORTHY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worthy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.earnWorthy("Merit", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.demeanWorthy("Merit", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWorthyEnabled("Merit", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EarnWorthy { name, amount } if name == "Merit" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DemeanWorthy { name, amount } if name == "Merit" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWorthyEnabled { name, enabled } if name == "Merit" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wound_read_ops() {
+        super::WOUND_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wound".to_string(),
+                (2.0f32, 5.0f32, 0.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoundCount("Wound"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoundMaxCount("Wound"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoundBleedPerWound("Wound"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoundJustWounded("Wound"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoundJustHealed("Wound"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoundEnabled("Wound"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOUND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wound_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addWound("Wound");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.healWound("Wound");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoundEnabled("Wound", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddWound { name } if name == "Wound")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HealWound { name } if name == "Wound")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoundEnabled { name, enabled } if name == "Wound" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wraith_read_ops() {
+        super::WRAITH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Phantom".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWraithTimer("Phantom"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWraithDuration("Phantom"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWraithDamageReduction("Phantom"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWraithJustEntered("Phantom"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWraithJustExited("Phantom"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWraithEnabled("Phantom"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRAITH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wraith_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.enterWraith("Phantom");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exitWraith("Phantom");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWraithEnabled("Phantom", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterWraith { name } if name == "Phantom")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExitWraith { name } if name == "Phantom")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWraithEnabled { name, enabled } if name == "Phantom" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrangle_read_ops() {
+        super::WRANGLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dispute".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrangleDispute("Dispute"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrangleMaxDispute("Dispute"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrangleQuarrelRate("Dispute"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrangleJustEmbroiled("Dispute"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrangleJustResolved("Dispute"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrangleEnabled("Dispute"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRANGLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrangle_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.quarrelWrangle("Dispute", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resolveWrangle("Dispute", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrangleEnabled("Dispute", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuarrelWrangle { name, amount } if name == "Dispute" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResolveWrangle { name, amount } if name == "Dispute" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrangleEnabled { name, enabled } if name == "Dispute" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

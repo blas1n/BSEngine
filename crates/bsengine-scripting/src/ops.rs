@@ -6222,6 +6222,79 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Xray ─────────────────────────────────────────────────────────────────
+    PulseXray {
+        name: String,
+    },
+    SetXrayEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yak ──────────────────────────────────────────────────────────────────
+    SilenceYak {
+        name: String,
+    },
+    SetYakEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yam ──────────────────────────────────────────────────────────────────
+    HarvestYam {
+        name: String,
+    },
+    SetYamEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yang ─────────────────────────────────────────────────────────────────
+    EnergizeYang {
+        name: String,
+    },
+    DischargeYang {
+        name: String,
+    },
+    SetYangEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yank ─────────────────────────────────────────────────────────────────
+    YankYank {
+        name: String,
+    },
+    SetYankEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yap ──────────────────────────────────────────────────────────────────
+    YapYap {
+        name: String,
+    },
+    SetYapEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yard ─────────────────────────────────────────────────────────────────
+    BreachYard {
+        name: String,
+    },
+    VacateYard {
+        name: String,
+    },
+    SetYardEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Yare ─────────────────────────────────────────────────────────────────
+    PrimeYare {
+        name: String,
+    },
+    ExertYare {
+        name: String,
+    },
+    SetYareEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7687,6 +7760,30 @@ thread_local! {
     pub(crate) static WRUNG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // xray_range, pulse_bonus, pulse_timer, pulse_duration, just_pulsed, enabled
+    pub(crate) static XRAY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yak_interval, elapsed, silence_remaining, just_yakked, just_silenced, enabled
+    pub(crate) static YAK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yield_stored, yield_cap, yield_rate, just_capped, enabled
+    pub(crate) static YAM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // charge, threshold, polarity, just_flipped, enabled
+    pub(crate) static YANG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // impulse, peak, just_yanked, enabled
+    pub(crate) static YANK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yap_interval, cooldown_remaining, just_yapped, enabled
+    pub(crate) static YAP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // range, intruder_count_as_f32, just_breached, just_cleared, enabled
+    pub(crate) static YARD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // readiness, max_readiness, recovery_rate, just_primed, just_exhausted, enabled
+    pub(crate) static YARE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -19802,6 +19899,278 @@ pub fn bsengine_set_wry_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWryEnabled { name, enabled })
+    });
+}
+// ── Xray ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_xray_range(#[string] name: String) -> f32 {
+    XRAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_xray_pulse_bonus(#[string] name: String) -> f32 {
+    XRAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_xray_pulse_timer(#[string] name: String) -> f32 {
+    XRAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_xray_pulse_duration(#[string] name: String) -> f32 {
+    XRAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_xray_just_pulsed(#[string] name: String) -> bool {
+    XRAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_xray_enabled(#[string] name: String) -> bool {
+    XRAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pulse_xray(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PulseXray { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_xray_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetXrayEnabled { name, enabled })
+    });
+}
+// ── Yak ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yak_interval(#[string] name: String) -> f32 {
+    YAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yak_elapsed(#[string] name: String) -> f32 {
+    YAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yak_silence_remaining(#[string] name: String) -> f32 {
+    YAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yak_just_yakked(#[string] name: String) -> bool {
+    YAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yak_just_silenced(#[string] name: String) -> bool {
+    YAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yak_enabled(#[string] name: String) -> bool {
+    YAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_silence_yak(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SilenceYak { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yak_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYakEnabled { name, enabled })
+    });
+}
+// ── Yam ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yam_yield_stored(#[string] name: String) -> f32 {
+    YAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yam_yield_cap(#[string] name: String) -> f32 {
+    YAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yam_yield_rate(#[string] name: String) -> f32 {
+    YAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yam_just_capped(#[string] name: String) -> bool {
+    YAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yam_enabled(#[string] name: String) -> bool {
+    YAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_harvest_yam(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HarvestYam { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yam_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYamEnabled { name, enabled })
+    });
+}
+// ── Yang ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yang_charge(#[string] name: String) -> f32 {
+    YANG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yang_threshold(#[string] name: String) -> f32 {
+    YANG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yang_polarity(#[string] name: String) -> bool {
+    YANG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yang_just_flipped(#[string] name: String) -> bool {
+    YANG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yang_enabled(#[string] name: String) -> bool {
+    YANG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_energize_yang(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnergizeYang { name }));
+}
+#[op2(fast)]
+pub fn bsengine_discharge_yang(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DischargeYang { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yang_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYangEnabled { name, enabled })
+    });
+}
+// ── Yank ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yank_impulse(#[string] name: String) -> f32 {
+    YANK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yank_peak(#[string] name: String) -> f32 {
+    YANK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yank_just_yanked(#[string] name: String) -> bool {
+    YANK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yank_enabled(#[string] name: String) -> bool {
+    YANK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yank_yank(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YankYank { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yank_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYankEnabled { name, enabled })
+    });
+}
+// ── Yap ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yap_interval(#[string] name: String) -> f32 {
+    YAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yap_cooldown_remaining(#[string] name: String) -> f32 {
+    YAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yap_just_yapped(#[string] name: String) -> bool {
+    YAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yap_enabled(#[string] name: String) -> bool {
+    YAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yap_yap(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YapYap { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yap_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYapEnabled { name, enabled })
+    });
+}
+// ── Yard ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yard_range(#[string] name: String) -> f32 {
+    YARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yard_intruder_count(#[string] name: String) -> f32 {
+    YARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yard_just_breached(#[string] name: String) -> bool {
+    YARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yard_just_cleared(#[string] name: String) -> bool {
+    YARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yard_enabled(#[string] name: String) -> bool {
+    YARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_breach_yard(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreachYard { name }));
+}
+#[op2(fast)]
+pub fn bsengine_vacate_yard(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::VacateYard { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yard_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYardEnabled { name, enabled })
+    });
+}
+// ── Yare ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yare_readiness(#[string] name: String) -> f32 {
+    YARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yare_max_readiness(#[string] name: String) -> f32 {
+    YARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yare_recovery_rate(#[string] name: String) -> f32 {
+    YARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yare_just_primed(#[string] name: String) -> bool {
+    YARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yare_just_exhausted(#[string] name: String) -> bool {
+    YARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yare_enabled(#[string] name: String) -> bool {
+    YARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_prime_yare(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PrimeYare { name }));
+}
+#[op2(fast)]
+pub fn bsengine_exert_yare(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExertYare { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yare_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYareEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -41171,6 +41540,66 @@ deno_core::extension!(
         bsengine_quip_wry,
         bsengine_sincere_wry,
         bsengine_set_wry_enabled,
+        bsengine_get_xray_range,
+        bsengine_get_xray_pulse_bonus,
+        bsengine_get_xray_pulse_timer,
+        bsengine_get_xray_pulse_duration,
+        bsengine_is_xray_just_pulsed,
+        bsengine_is_xray_enabled,
+        bsengine_pulse_xray,
+        bsengine_set_xray_enabled,
+        bsengine_get_yak_interval,
+        bsengine_get_yak_elapsed,
+        bsengine_get_yak_silence_remaining,
+        bsengine_is_yak_just_yakked,
+        bsengine_is_yak_just_silenced,
+        bsengine_is_yak_enabled,
+        bsengine_silence_yak,
+        bsengine_set_yak_enabled,
+        bsengine_get_yam_yield_stored,
+        bsengine_get_yam_yield_cap,
+        bsengine_get_yam_yield_rate,
+        bsengine_is_yam_just_capped,
+        bsengine_is_yam_enabled,
+        bsengine_harvest_yam,
+        bsengine_set_yam_enabled,
+        bsengine_get_yang_charge,
+        bsengine_get_yang_threshold,
+        bsengine_is_yang_polarity,
+        bsengine_is_yang_just_flipped,
+        bsengine_is_yang_enabled,
+        bsengine_energize_yang,
+        bsengine_discharge_yang,
+        bsengine_set_yang_enabled,
+        bsengine_get_yank_impulse,
+        bsengine_get_yank_peak,
+        bsengine_is_yank_just_yanked,
+        bsengine_is_yank_enabled,
+        bsengine_yank_yank,
+        bsengine_set_yank_enabled,
+        bsengine_get_yap_interval,
+        bsengine_get_yap_cooldown_remaining,
+        bsengine_is_yap_just_yapped,
+        bsengine_is_yap_enabled,
+        bsengine_yap_yap,
+        bsengine_set_yap_enabled,
+        bsengine_get_yard_range,
+        bsengine_get_yard_intruder_count,
+        bsengine_is_yard_just_breached,
+        bsengine_is_yard_just_cleared,
+        bsengine_is_yard_enabled,
+        bsengine_breach_yard,
+        bsengine_vacate_yard,
+        bsengine_set_yard_enabled,
+        bsengine_get_yare_readiness,
+        bsengine_get_yare_max_readiness,
+        bsengine_get_yare_recovery_rate,
+        bsengine_is_yare_just_primed,
+        bsengine_is_yare_just_exhausted,
+        bsengine_is_yare_enabled,
+        bsengine_prime_yare,
+        bsengine_exert_yare,
+        bsengine_set_yare_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -45952,6 +46381,66 @@ const Bsengine = {
     quipWry:                    (name)              => Deno.core.ops.bsengine_quip_wry(name),
     sincereWry:                 (name)              => Deno.core.ops.bsengine_sincere_wry(name),
     setWryEnabled:              (name, v)           => Deno.core.ops.bsengine_set_wry_enabled(name, v),
+    getXrayRange:               (name)              => Deno.core.ops.bsengine_get_xray_range(name),
+    getXrayPulseBonus:          (name)              => Deno.core.ops.bsengine_get_xray_pulse_bonus(name),
+    getXrayPulseTimer:          (name)              => Deno.core.ops.bsengine_get_xray_pulse_timer(name),
+    getXrayPulseDuration:       (name)              => Deno.core.ops.bsengine_get_xray_pulse_duration(name),
+    isXrayJustPulsed:           (name)              => Deno.core.ops.bsengine_is_xray_just_pulsed(name),
+    isXrayEnabled:              (name)              => Deno.core.ops.bsengine_is_xray_enabled(name),
+    pulseXray:                  (name)              => Deno.core.ops.bsengine_pulse_xray(name),
+    setXrayEnabled:             (name, v)           => Deno.core.ops.bsengine_set_xray_enabled(name, v),
+    getYakInterval:             (name)              => Deno.core.ops.bsengine_get_yak_interval(name),
+    getYakElapsed:              (name)              => Deno.core.ops.bsengine_get_yak_elapsed(name),
+    getYakSilenceRemaining:     (name)              => Deno.core.ops.bsengine_get_yak_silence_remaining(name),
+    isYakJustYakked:            (name)              => Deno.core.ops.bsengine_is_yak_just_yakked(name),
+    isYakJustSilenced:          (name)              => Deno.core.ops.bsengine_is_yak_just_silenced(name),
+    isYakEnabled:               (name)              => Deno.core.ops.bsengine_is_yak_enabled(name),
+    silenceYak:                 (name)              => Deno.core.ops.bsengine_silence_yak(name),
+    setYakEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yak_enabled(name, v),
+    getYamYieldStored:          (name)              => Deno.core.ops.bsengine_get_yam_yield_stored(name),
+    getYamYieldCap:             (name)              => Deno.core.ops.bsengine_get_yam_yield_cap(name),
+    getYamYieldRate:            (name)              => Deno.core.ops.bsengine_get_yam_yield_rate(name),
+    isYamJustCapped:            (name)              => Deno.core.ops.bsengine_is_yam_just_capped(name),
+    isYamEnabled:               (name)              => Deno.core.ops.bsengine_is_yam_enabled(name),
+    harvestYam:                 (name)              => Deno.core.ops.bsengine_harvest_yam(name),
+    setYamEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yam_enabled(name, v),
+    getYangCharge:              (name)              => Deno.core.ops.bsengine_get_yang_charge(name),
+    getYangThreshold:           (name)              => Deno.core.ops.bsengine_get_yang_threshold(name),
+    isYangPolarity:             (name)              => Deno.core.ops.bsengine_is_yang_polarity(name),
+    isYangJustFlipped:          (name)              => Deno.core.ops.bsengine_is_yang_just_flipped(name),
+    isYangEnabled:              (name)              => Deno.core.ops.bsengine_is_yang_enabled(name),
+    energizeYang:               (name)              => Deno.core.ops.bsengine_energize_yang(name),
+    dischargeYang:              (name)              => Deno.core.ops.bsengine_discharge_yang(name),
+    setYangEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yang_enabled(name, v),
+    getYankImpulse:             (name)              => Deno.core.ops.bsengine_get_yank_impulse(name),
+    getYankPeak:                (name)              => Deno.core.ops.bsengine_get_yank_peak(name),
+    isYankJustYanked:           (name)              => Deno.core.ops.bsengine_is_yank_just_yanked(name),
+    isYankEnabled:              (name)              => Deno.core.ops.bsengine_is_yank_enabled(name),
+    yankYank:                   (name)              => Deno.core.ops.bsengine_yank_yank(name),
+    setYankEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yank_enabled(name, v),
+    getYapInterval:             (name)              => Deno.core.ops.bsengine_get_yap_interval(name),
+    getYapCooldownRemaining:    (name)              => Deno.core.ops.bsengine_get_yap_cooldown_remaining(name),
+    isYapJustYapped:            (name)              => Deno.core.ops.bsengine_is_yap_just_yapped(name),
+    isYapEnabled:               (name)              => Deno.core.ops.bsengine_is_yap_enabled(name),
+    yapYap:                     (name)              => Deno.core.ops.bsengine_yap_yap(name),
+    setYapEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yap_enabled(name, v),
+    getYardRange:               (name)              => Deno.core.ops.bsengine_get_yard_range(name),
+    getYardIntruderCount:       (name)              => Deno.core.ops.bsengine_get_yard_intruder_count(name),
+    isYardJustBreached:         (name)              => Deno.core.ops.bsengine_is_yard_just_breached(name),
+    isYardJustCleared:          (name)              => Deno.core.ops.bsengine_is_yard_just_cleared(name),
+    isYardEnabled:              (name)              => Deno.core.ops.bsengine_is_yard_enabled(name),
+    breachYard:                 (name)              => Deno.core.ops.bsengine_breach_yard(name),
+    vacateYard:                 (name)              => Deno.core.ops.bsengine_vacate_yard(name),
+    setYardEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yard_enabled(name, v),
+    getYareReadiness:           (name)              => Deno.core.ops.bsengine_get_yare_readiness(name),
+    getYareMaxReadiness:        (name)              => Deno.core.ops.bsengine_get_yare_max_readiness(name),
+    getYareRecoveryRate:        (name)              => Deno.core.ops.bsengine_get_yare_recovery_rate(name),
+    isYareJustPrimed:           (name)              => Deno.core.ops.bsengine_is_yare_just_primed(name),
+    isYareJustExhausted:        (name)              => Deno.core.ops.bsengine_is_yare_just_exhausted(name),
+    isYareEnabled:              (name)              => Deno.core.ops.bsengine_is_yare_enabled(name),
+    primeYare:                  (name)              => Deno.core.ops.bsengine_prime_yare(name),
+    exertYare:                  (name)              => Deno.core.ops.bsengine_exert_yare(name),
+    setYareEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yare_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -76970,6 +77459,377 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuipWry { name } if name == "Jest")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SincereWry { name } if name == "Jest")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWryEnabled { name, enabled } if name == "Jest" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_xray_read_ops() {
+        super::XRAY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pulse".to_string(),
+                (5.0f32, 10.0f32, 2.5f32, 3.0f32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getXrayRange("Pulse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getXrayPulseBonus("Pulse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getXrayPulseDuration("Pulse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isXrayJustPulsed("Pulse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isXrayEnabled("Pulse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::XRAY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_xray_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pulseXray("Pulse");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setXrayEnabled("Pulse", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PulseXray { name } if name == "Pulse")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetXrayEnabled { name, enabled } if name == "Pulse" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yak_read_ops() {
+        super::YAK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Chatter".to_string(),
+                (2.0f32, 0.5f32, 0.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYakInterval("Chatter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getYakElapsed("Chatter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYakJustYakked("Chatter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYakEnabled("Chatter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yak_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.silenceYak("Chatter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYakEnabled("Chatter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SilenceYak { name } if name == "Chatter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYakEnabled { name, enabled } if name == "Chatter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yam_read_ops() {
+        super::YAM_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Farm".to_string(), (5.0f32, 10.0f32, 1.0f32, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYamYieldStored("Farm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYamYieldCap("Farm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getYamYieldRate("Farm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isYamJustCapped("Farm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isYamEnabled("Farm"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yam_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.harvestYam("Farm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYamEnabled("Farm", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HarvestYam { name } if name == "Farm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYamEnabled { name, enabled } if name == "Farm" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yang_read_ops() {
+        super::YANG_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Charge".to_string(), (7.0f32, 10.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYangCharge("Charge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt
+            .eval(r#"String(Bsengine.getYangThreshold("Charge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYangPolarity("Charge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYangJustFlipped("Charge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYangEnabled("Charge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YANG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yang_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.energizeYang("Charge");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dischargeYang("Charge");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYangEnabled("Charge", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnergizeYang { name } if name == "Charge")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DischargeYang { name } if name == "Charge")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYangEnabled { name, enabled } if name == "Charge" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yank_read_ops() {
+        super::YANK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Pull".to_string(), (15.0f32, 20.0f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYankImpulse("Pull"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "15");
+        let r = rt.eval(r#"String(Bsengine.getYankPeak("Pull"))"#).unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.isYankJustYanked("Pull"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYankEnabled("Pull"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YANK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yank_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yankYank("Pull");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYankEnabled("Pull", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YankYank { name } if name == "Pull")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYankEnabled { name, enabled } if name == "Pull" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yap_read_ops() {
+        super::YAP_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Bark".to_string(), (1.0f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYapInterval("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getYapCooldownRemaining("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYapJustYapped("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isYapEnabled("Bark"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yap_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yapYap("Bark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYapEnabled("Bark", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YapYap { name } if name == "Bark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYapEnabled { name, enabled } if name == "Bark" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yard_read_ops() {
+        super::YARD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Perimeter".to_string(),
+                (10.0f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYardRange("Perimeter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getYardIntruderCount("Perimeter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isYardJustBreached("Perimeter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYardJustCleared("Perimeter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYardEnabled("Perimeter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YARD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yard_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.breachYard("Perimeter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.vacateYard("Perimeter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYardEnabled("Perimeter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BreachYard { name } if name == "Perimeter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VacateYard { name } if name == "Perimeter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYardEnabled { name, enabled } if name == "Perimeter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yare_read_ops() {
+        super::YARE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ready".to_string(),
+                (80.0f32, 100.0f32, 5.0f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYareReadiness("Ready"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getYareMaxReadiness("Ready"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getYareRecoveryRate("Ready"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYareJustPrimed("Ready"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYareJustExhausted("Ready"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYareEnabled("Ready"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YARE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yare_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.primeYare("Ready");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exertYare("Ready");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYareEnabled("Ready", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PrimeYare { name } if name == "Ready")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExertYare { name } if name == "Ready")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYareEnabled { name, enabled } if name == "Ready" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -102,8 +102,9 @@ use crate::ops::{
     WITTY_SNAPSHOT, WIT_SNAPSHOT, WIZ_SNAPSHOT, WOEFUL_SNAPSHOT, WOE_SNAPSHOT, WOKEN_SNAPSHOT,
     WOKE_SNAPSHOT, WOK_SNAPSHOT, WOLD_SNAPSHOT, WOLF_SNAPSHOT, WOMBAT_SNAPSHOT, WOMB_SNAPSHOT,
     WOMEN_SNAPSHOT, WONDER_SNAPSHOT, WONDROUS_SNAPSHOT, WONKY_SNAPSHOT, WONK_SNAPSHOT,
-    WONT_SNAPSHOT, WON_SNAPSHOT, WOODSY_SNAPSHOT, WOOD_SNAPSHOT, WOOER_SNAPSHOT, WOO_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    WONT_SNAPSHOT, WON_SNAPSHOT, WOODSY_SNAPSHOT, WOOD_SNAPSHOT, WOOER_SNAPSHOT, WOOF_SNAPSHOT,
+    WOOLLY_SNAPSHOT, WOOL_SNAPSHOT, WOOZY_SNAPSHOT, WOO_SNAPSHOT, WORDY_SNAPSHOT, WORE_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT, WORM_SNAPSHOT, WORN_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -4583,6 +4584,158 @@ fn run_scripts(world: &mut World) {
             );
         }
         WOOER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woof;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woof)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.bark,
+                    w.max_bark,
+                    w.howl_rate,
+                    w.just_howling,
+                    w.just_quiet,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wool;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wool)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.warmth,
+                    w.max_warmth,
+                    w.insulate_rate,
+                    w.just_warm,
+                    w.just_cold,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woolly;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woolly)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.fleece,
+                    w.max_fleece,
+                    w.grow_rate,
+                    w.just_shaggy,
+                    w.just_shorn,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOLLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woozy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woozy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.dizziness,
+                    w.max_dizziness,
+                    w.spin_rate,
+                    w.just_reeling,
+                    w.just_clear,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOZY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wordy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wordy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.verbosity,
+                    w.max_verbosity,
+                    w.ramble_rate,
+                    w.just_verbose,
+                    w.just_terse,
+                    w.enabled,
+                ),
+            );
+        }
+        WORDY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wore;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wore)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wear,
+                    w.max_wear,
+                    w.abrade_rate,
+                    w.just_worn,
+                    w.just_fresh,
+                    w.enabled,
+                ),
+            );
+        }
+        WORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worm;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worm)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.worm_depth,
+                    w.max_depth,
+                    w.burrow_rate,
+                    w.just_burrowed,
+                    w.just_expelled,
+                    w.enabled,
+                ),
+            );
+        }
+        WORM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worn)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.worn_level,
+                    w.max_worn,
+                    w.wear_rate,
+                    w.just_wore,
+                    w.just_broke,
+                    w.enabled,
+                ),
+            );
+        }
+        WORN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -27050,6 +27203,270 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Wooer>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::HowlWoof { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woof>(e) {
+                        w.howl(amount);
+                    }
+                }
+            }
+            ScriptCommand::HushWoof { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woof>(e) {
+                        w.hush(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWoofEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woof>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InsulateWool { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wool>(e) {
+                        w.insulate(amount);
+                    }
+                }
+            }
+            ScriptCommand::ChillWool { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wool>(e) {
+                        w.chill(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWoolEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wool>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::GrowWoolly { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woolly>(e) {
+                        w.grow(amount);
+                    }
+                }
+            }
+            ScriptCommand::ShearWoolly { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woolly>(e) {
+                        w.shear(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWoollyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woolly>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SpinWoozy { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woozy>(e) {
+                        w.spin(amount);
+                    }
+                }
+            }
+            ScriptCommand::RecoverWoozy { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woozy>(e) {
+                        w.recover(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWoozyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Woozy>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RambleWordy { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wordy>(e) {
+                        w.ramble(amount);
+                    }
+                }
+            }
+            ScriptCommand::TruncateWordy { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wordy>(e) {
+                        w.truncate(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWordyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wordy>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AbradeWore { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wore>(e) {
+                        w.abrade(amount);
+                    }
+                }
+            }
+            ScriptCommand::RestoreWore { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wore>(e) {
+                        w.restore(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWoreEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wore>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BurrowWorm { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Worm>(e) {
+                        w.burrow();
+                    }
+                }
+            }
+            ScriptCommand::ExpelWorm { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Worm>(e) {
+                        w.expel();
+                    }
+                }
+            }
+            ScriptCommand::SetWormEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Worm>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::DegradeWorn { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Worn>(e) {
+                        w.degrade(amount);
+                    }
+                }
+            }
+            ScriptCommand::RepairWorn { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Worn>(e) {
+                        w.repair(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWornEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Worn>(e) {
                         w.enabled = enabled;
                     }
                 }

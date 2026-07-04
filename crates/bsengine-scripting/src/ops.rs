@@ -6360,6 +6360,80 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AcheYearn {
+        name: String,
+    },
+    SuppressYearn {
+        name: String,
+    },
+    SetYearnEnabled {
+        name: String,
+        enabled: bool,
+    },
+    InoculateYeast {
+        name: String,
+    },
+    SterilizeYeast {
+        name: String,
+    },
+    SetYeastEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ChargeYell {
+        name: String,
+    },
+    CeaseYell {
+        name: String,
+    },
+    ShoutYell {
+        name: String,
+    },
+    SetYellEnabled {
+        name: String,
+        enabled: bool,
+    },
+    YelpYelp {
+        name: String,
+    },
+    SetYelpEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SatisfyYen {
+        name: String,
+    },
+    SetYenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SpreadYenta {
+        name: String,
+    },
+    QuellYenta {
+        name: String,
+    },
+    SetYentaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ServeYeoman {
+        name: String,
+    },
+    SetYeomanEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AffirmYep {
+        name: String,
+    },
+    RetractYep {
+        name: String,
+    },
+    SetYepEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7873,6 +7947,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // year: elapsed, period, just_cycled, just_new_season, enabled
     pub(crate) static YEAR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yearn: longing, max_longing, accumulation_rate, just_fulfilled, just_suppressed, enabled
+    pub(crate) static YEARN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yeast: quantity, max_quantity, growth_rate, just_peaked, just_dormant, enabled
+    pub(crate) static YEAST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yell: charge_level, max_charge, charge_rate, power_bonus, charging, just_shouted, enabled
+    pub(crate) static YELL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yelp: yelps, max_yelps, decay_timer, decay_interval, just_yelped, just_peaked, just_calmed, enabled
+    pub(crate) static YELP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yen: yen_level, max_yen, yen_rate, just_yearned, just_satisfied, enabled
+    pub(crate) static YEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yenta: gossip, max_gossip, fade_rate, just_notorious, just_forgotten, enabled
+    pub(crate) static YENTA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yeoman: reliability, max_reliability, falter_rate, served, just_trusted, just_failed, enabled
+    pub(crate) static YEOMAN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yep: consent, max_consent, doubt_rate, just_agreed, just_withdrew, enabled
+    pub(crate) static YEP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -20524,6 +20622,326 @@ pub fn bsengine_set_year_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetYearEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yearn_longing(#[string] name: String) -> f32 {
+    YEARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yearn_max_longing(#[string] name: String) -> f32 {
+    YEARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yearn_accumulation_rate(#[string] name: String) -> f32 {
+    YEARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yearn_just_fulfilled(#[string] name: String) -> bool {
+    YEARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yearn_just_suppressed(#[string] name: String) -> bool {
+    YEARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yearn_enabled(#[string] name: String) -> bool {
+    YEARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ache_yearn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AcheYearn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_suppress_yearn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SuppressYearn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yearn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYearnEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yeast_quantity(#[string] name: String) -> f32 {
+    YEAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yeast_max_quantity(#[string] name: String) -> f32 {
+    YEAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yeast_growth_rate(#[string] name: String) -> f32 {
+    YEAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeast_just_peaked(#[string] name: String) -> bool {
+    YEAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeast_just_dormant(#[string] name: String) -> bool {
+    YEAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeast_enabled(#[string] name: String) -> bool {
+    YEAST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_inoculate_yeast(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::InoculateYeast { name }));
+}
+#[op2(fast)]
+pub fn bsengine_sterilize_yeast(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SterilizeYeast { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yeast_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYeastEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yell_charge_level(#[string] name: String) -> f32 {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yell_max_charge(#[string] name: String) -> f32 {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yell_charge_rate(#[string] name: String) -> f32 {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yell_power_bonus(#[string] name: String) -> f32 {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yell_charging(#[string] name: String) -> bool {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yell_just_shouted(#[string] name: String) -> bool {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yell_enabled(#[string] name: String) -> bool {
+    YELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_yell(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ChargeYell { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cease_yell(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CeaseYell { name }));
+}
+#[op2(fast)]
+pub fn bsengine_shout_yell(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ShoutYell { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yell_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYellEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yelp_yelps(#[string] name: String) -> f32 {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yelp_max_yelps(#[string] name: String) -> f32 {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yelp_decay_timer(#[string] name: String) -> f32 {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yelp_decay_interval(#[string] name: String) -> f32 {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yelp_just_yelped(#[string] name: String) -> bool {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yelp_just_peaked(#[string] name: String) -> bool {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yelp_just_calmed(#[string] name: String) -> bool {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yelp_enabled(#[string] name: String) -> bool {
+    YELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yelp_yelp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YelpYelp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yelp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYelpEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yen_level(#[string] name: String) -> f32 {
+    YEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yen_max(#[string] name: String) -> f32 {
+    YEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yen_rate(#[string] name: String) -> f32 {
+    YEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yen_just_yearned(#[string] name: String) -> bool {
+    YEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yen_just_satisfied(#[string] name: String) -> bool {
+    YEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yen_enabled(#[string] name: String) -> bool {
+    YEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_satisfy_yen(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SatisfyYen { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yen_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYenEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yenta_gossip(#[string] name: String) -> f32 {
+    YENTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yenta_max_gossip(#[string] name: String) -> f32 {
+    YENTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yenta_fade_rate(#[string] name: String) -> f32 {
+    YENTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yenta_just_notorious(#[string] name: String) -> bool {
+    YENTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yenta_just_forgotten(#[string] name: String) -> bool {
+    YENTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yenta_enabled(#[string] name: String) -> bool {
+    YENTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_spread_yenta(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SpreadYenta { name }));
+}
+#[op2(fast)]
+pub fn bsengine_quell_yenta(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::QuellYenta { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yenta_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYentaEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yeoman_reliability(#[string] name: String) -> f32 {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yeoman_max_reliability(#[string] name: String) -> f32 {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yeoman_falter_rate(#[string] name: String) -> f32 {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeoman_served(#[string] name: String) -> bool {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeoman_just_trusted(#[string] name: String) -> bool {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeoman_just_failed(#[string] name: String) -> bool {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeoman_enabled(#[string] name: String) -> bool {
+    YEOMAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_serve_yeoman(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ServeYeoman { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yeoman_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYeomanEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yep_consent(#[string] name: String) -> f32 {
+    YEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yep_max_consent(#[string] name: String) -> f32 {
+    YEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yep_doubt_rate(#[string] name: String) -> f32 {
+    YEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yep_just_agreed(#[string] name: String) -> bool {
+    YEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yep_just_withdrew(#[string] name: String) -> bool {
+    YEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yep_enabled(#[string] name: String) -> bool {
+    YEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_affirm_yep(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AffirmYep { name }));
+}
+#[op2(fast)]
+pub fn bsengine_retract_yep(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RetractYep { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yep_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYepEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -42013,6 +42431,80 @@ deno_core::extension!(
         bsengine_is_year_enabled,
         bsengine_advance_year,
         bsengine_set_year_enabled,
+        bsengine_get_yearn_longing,
+        bsengine_get_yearn_max_longing,
+        bsengine_get_yearn_accumulation_rate,
+        bsengine_is_yearn_just_fulfilled,
+        bsengine_is_yearn_just_suppressed,
+        bsengine_is_yearn_enabled,
+        bsengine_ache_yearn,
+        bsengine_suppress_yearn,
+        bsengine_set_yearn_enabled,
+        bsengine_get_yeast_quantity,
+        bsengine_get_yeast_max_quantity,
+        bsengine_get_yeast_growth_rate,
+        bsengine_is_yeast_just_peaked,
+        bsengine_is_yeast_just_dormant,
+        bsengine_is_yeast_enabled,
+        bsengine_inoculate_yeast,
+        bsengine_sterilize_yeast,
+        bsengine_set_yeast_enabled,
+        bsengine_get_yell_charge_level,
+        bsengine_get_yell_max_charge,
+        bsengine_get_yell_charge_rate,
+        bsengine_get_yell_power_bonus,
+        bsengine_is_yell_charging,
+        bsengine_is_yell_just_shouted,
+        bsengine_is_yell_enabled,
+        bsengine_charge_yell,
+        bsengine_cease_yell,
+        bsengine_shout_yell,
+        bsengine_set_yell_enabled,
+        bsengine_get_yelp_yelps,
+        bsengine_get_yelp_max_yelps,
+        bsengine_get_yelp_decay_timer,
+        bsengine_get_yelp_decay_interval,
+        bsengine_is_yelp_just_yelped,
+        bsengine_is_yelp_just_peaked,
+        bsengine_is_yelp_just_calmed,
+        bsengine_is_yelp_enabled,
+        bsengine_yelp_yelp,
+        bsengine_set_yelp_enabled,
+        bsengine_get_yen_level,
+        bsengine_get_yen_max,
+        bsengine_get_yen_rate,
+        bsengine_is_yen_just_yearned,
+        bsengine_is_yen_just_satisfied,
+        bsengine_is_yen_enabled,
+        bsengine_satisfy_yen,
+        bsengine_set_yen_enabled,
+        bsengine_get_yenta_gossip,
+        bsengine_get_yenta_max_gossip,
+        bsengine_get_yenta_fade_rate,
+        bsengine_is_yenta_just_notorious,
+        bsengine_is_yenta_just_forgotten,
+        bsengine_is_yenta_enabled,
+        bsengine_spread_yenta,
+        bsengine_quell_yenta,
+        bsengine_set_yenta_enabled,
+        bsengine_get_yeoman_reliability,
+        bsengine_get_yeoman_max_reliability,
+        bsengine_get_yeoman_falter_rate,
+        bsengine_is_yeoman_served,
+        bsengine_is_yeoman_just_trusted,
+        bsengine_is_yeoman_just_failed,
+        bsengine_is_yeoman_enabled,
+        bsengine_serve_yeoman,
+        bsengine_set_yeoman_enabled,
+        bsengine_get_yep_consent,
+        bsengine_get_yep_max_consent,
+        bsengine_get_yep_doubt_rate,
+        bsengine_is_yep_just_agreed,
+        bsengine_is_yep_just_withdrew,
+        bsengine_is_yep_enabled,
+        bsengine_affirm_yep,
+        bsengine_retract_yep,
+        bsengine_set_yep_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -46914,6 +47406,80 @@ const Bsengine = {
     isYearEnabled:              (name)              => Deno.core.ops.bsengine_is_year_enabled(name),
     advanceYear:                (name)              => Deno.core.ops.bsengine_advance_year(name),
     setYearEnabled:             (name, v)           => Deno.core.ops.bsengine_set_year_enabled(name, v),
+    getYearnLonging:            (name)              => Deno.core.ops.bsengine_get_yearn_longing(name),
+    getYearnMaxLonging:         (name)              => Deno.core.ops.bsengine_get_yearn_max_longing(name),
+    getYearnAccumulationRate:   (name)              => Deno.core.ops.bsengine_get_yearn_accumulation_rate(name),
+    isYearnJustFulfilled:       (name)              => Deno.core.ops.bsengine_is_yearn_just_fulfilled(name),
+    isYearnJustSuppressed:      (name)              => Deno.core.ops.bsengine_is_yearn_just_suppressed(name),
+    isYearnEnabled:             (name)              => Deno.core.ops.bsengine_is_yearn_enabled(name),
+    acheYearn:                  (name)              => Deno.core.ops.bsengine_ache_yearn(name),
+    suppressYearn:              (name)              => Deno.core.ops.bsengine_suppress_yearn(name),
+    setYearnEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yearn_enabled(name, v),
+    getYeastQuantity:           (name)              => Deno.core.ops.bsengine_get_yeast_quantity(name),
+    getYeastMaxQuantity:        (name)              => Deno.core.ops.bsengine_get_yeast_max_quantity(name),
+    getYeastGrowthRate:         (name)              => Deno.core.ops.bsengine_get_yeast_growth_rate(name),
+    isYeastJustPeaked:          (name)              => Deno.core.ops.bsengine_is_yeast_just_peaked(name),
+    isYeastJustDormant:         (name)              => Deno.core.ops.bsengine_is_yeast_just_dormant(name),
+    isYeastEnabled:             (name)              => Deno.core.ops.bsengine_is_yeast_enabled(name),
+    inoculateYeast:             (name)              => Deno.core.ops.bsengine_inoculate_yeast(name),
+    sterilizeYeast:             (name)              => Deno.core.ops.bsengine_sterilize_yeast(name),
+    setYeastEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yeast_enabled(name, v),
+    getYellChargeLevel:         (name)              => Deno.core.ops.bsengine_get_yell_charge_level(name),
+    getYellMaxCharge:           (name)              => Deno.core.ops.bsengine_get_yell_max_charge(name),
+    getYellChargeRate:          (name)              => Deno.core.ops.bsengine_get_yell_charge_rate(name),
+    getYellPowerBonus:          (name)              => Deno.core.ops.bsengine_get_yell_power_bonus(name),
+    isYellCharging:             (name)              => Deno.core.ops.bsengine_is_yell_charging(name),
+    isYellJustShouted:          (name)              => Deno.core.ops.bsengine_is_yell_just_shouted(name),
+    isYellEnabled:              (name)              => Deno.core.ops.bsengine_is_yell_enabled(name),
+    chargeYell:                 (name)              => Deno.core.ops.bsengine_charge_yell(name),
+    ceaseYell:                  (name)              => Deno.core.ops.bsengine_cease_yell(name),
+    shoutYell:                  (name)              => Deno.core.ops.bsengine_shout_yell(name),
+    setYellEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yell_enabled(name, v),
+    getYelpYelps:               (name)              => Deno.core.ops.bsengine_get_yelp_yelps(name),
+    getYelpMaxYelps:            (name)              => Deno.core.ops.bsengine_get_yelp_max_yelps(name),
+    getYelpDecayTimer:          (name)              => Deno.core.ops.bsengine_get_yelp_decay_timer(name),
+    getYelpDecayInterval:       (name)              => Deno.core.ops.bsengine_get_yelp_decay_interval(name),
+    isYelpJustYelped:           (name)              => Deno.core.ops.bsengine_is_yelp_just_yelped(name),
+    isYelpJustPeaked:           (name)              => Deno.core.ops.bsengine_is_yelp_just_peaked(name),
+    isYelpJustCalmed:           (name)              => Deno.core.ops.bsengine_is_yelp_just_calmed(name),
+    isYelpEnabled:              (name)              => Deno.core.ops.bsengine_is_yelp_enabled(name),
+    yelpYelp:                   (name)              => Deno.core.ops.bsengine_yelp_yelp(name),
+    setYelpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yelp_enabled(name, v),
+    getYenLevel:                (name)              => Deno.core.ops.bsengine_get_yen_level(name),
+    getYenMax:                  (name)              => Deno.core.ops.bsengine_get_yen_max(name),
+    getYenRate:                 (name)              => Deno.core.ops.bsengine_get_yen_rate(name),
+    isYenJustYearned:           (name)              => Deno.core.ops.bsengine_is_yen_just_yearned(name),
+    isYenJustSatisfied:         (name)              => Deno.core.ops.bsengine_is_yen_just_satisfied(name),
+    isYenEnabled:               (name)              => Deno.core.ops.bsengine_is_yen_enabled(name),
+    satisfyYen:                 (name)              => Deno.core.ops.bsengine_satisfy_yen(name),
+    setYenEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yen_enabled(name, v),
+    getYentaGossip:             (name)              => Deno.core.ops.bsengine_get_yenta_gossip(name),
+    getYentaMaxGossip:          (name)              => Deno.core.ops.bsengine_get_yenta_max_gossip(name),
+    getYentaFadeRate:           (name)              => Deno.core.ops.bsengine_get_yenta_fade_rate(name),
+    isYentaJustNotorious:       (name)              => Deno.core.ops.bsengine_is_yenta_just_notorious(name),
+    isYentaJustForgotten:       (name)              => Deno.core.ops.bsengine_is_yenta_just_forgotten(name),
+    isYentaEnabled:             (name)              => Deno.core.ops.bsengine_is_yenta_enabled(name),
+    spreadYenta:                (name)              => Deno.core.ops.bsengine_spread_yenta(name),
+    quellYenta:                 (name)              => Deno.core.ops.bsengine_quell_yenta(name),
+    setYentaEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yenta_enabled(name, v),
+    getYeomanReliability:       (name)              => Deno.core.ops.bsengine_get_yeoman_reliability(name),
+    getYeomanMaxReliability:    (name)              => Deno.core.ops.bsengine_get_yeoman_max_reliability(name),
+    getYeomanFalterRate:        (name)              => Deno.core.ops.bsengine_get_yeoman_falter_rate(name),
+    isYeomanServed:             (name)              => Deno.core.ops.bsengine_is_yeoman_served(name),
+    isYeomanJustTrusted:        (name)              => Deno.core.ops.bsengine_is_yeoman_just_trusted(name),
+    isYeomanJustFailed:         (name)              => Deno.core.ops.bsengine_is_yeoman_just_failed(name),
+    isYeomanEnabled:            (name)              => Deno.core.ops.bsengine_is_yeoman_enabled(name),
+    serveYeoman:                (name)              => Deno.core.ops.bsengine_serve_yeoman(name),
+    setYeomanEnabled:           (name, v)           => Deno.core.ops.bsengine_set_yeoman_enabled(name, v),
+    getYepConsent:              (name)              => Deno.core.ops.bsengine_get_yep_consent(name),
+    getYepMaxConsent:           (name)              => Deno.core.ops.bsengine_get_yep_max_consent(name),
+    getYepDoubtRate:            (name)              => Deno.core.ops.bsengine_get_yep_doubt_rate(name),
+    isYepJustAgreed:            (name)              => Deno.core.ops.bsengine_is_yep_just_agreed(name),
+    isYepJustWithdrew:          (name)              => Deno.core.ops.bsengine_is_yep_just_withdrew(name),
+    isYepEnabled:               (name)              => Deno.core.ops.bsengine_is_yep_enabled(name),
+    affirmYep:                  (name)              => Deno.core.ops.bsengine_affirm_yep(name),
+    retractYep:                 (name)              => Deno.core.ops.bsengine_retract_yep(name),
+    setYepEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yep_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -78682,6 +79248,400 @@ JSON.stringify(received)
             let buf = c.borrow();
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdvanceYear { name } if name == "Season")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYearEnabled { name, enabled } if name == "Season" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yearn_read_ops() {
+        super::YEARN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ache".to_string(),
+                (4.0f32, 10.0f32, 1.0f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYearnLonging("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getYearnMaxLonging("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYearnJustFulfilled("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYearnJustSuppressed("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYearnEnabled("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEARN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yearn_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.acheYearn("Ache");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.suppressYearn("Ache");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYearnEnabled("Ache", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AcheYearn { name } if name == "Ache")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SuppressYearn { name } if name == "Ache")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYearnEnabled { name, enabled } if name == "Ache" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yeast_read_ops() {
+        super::YEAST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Culture".to_string(),
+                (3.0f32, 10.0f32, 0.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYeastQuantity("Culture"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getYeastMaxQuantity("Culture"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeastJustPeaked("Culture"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeastJustDormant("Culture"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeastEnabled("Culture"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEAST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yeast_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.inoculateYeast("Culture");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.sterilizeYeast("Culture");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYeastEnabled("Culture", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InoculateYeast { name } if name == "Culture")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SterilizeYeast { name } if name == "Culture")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYeastEnabled { name, enabled } if name == "Culture" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yell_read_ops() {
+        super::YELL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Blast".to_string(),
+                (5.0f32, 10.0f32, 2.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYellChargeLevel("Blast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYellMaxCharge("Blast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getYellPowerBonus("Blast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYellCharging("Blast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYellJustShouted("Blast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYellEnabled("Blast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YELL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yell_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chargeYell("Blast");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.ceaseYell("Blast");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shoutYell("Blast");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYellEnabled("Blast", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChargeYell { name } if name == "Blast")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CeaseYell { name } if name == "Blast")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShoutYell { name } if name == "Blast")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYellEnabled { name, enabled } if name == "Blast" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yelp_read_ops() {
+        super::YELP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Panic".to_string(),
+                (2.0f32, 5.0f32, 0.3f32, 1.0f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYelpYelps("Panic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getYelpMaxYelps("Panic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYelpJustYelped("Panic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYelpEnabled("Panic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YELP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yelp_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yelpYelp("Panic");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYelpEnabled("Panic", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YelpYelp { name } if name == "Panic")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYelpEnabled { name, enabled } if name == "Panic" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yen_read_ops() {
+        super::YEN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Crave".to_string(),
+                (7.0f32, 10.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getYenLevel("Crave"))"#).unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt.eval(r#"String(Bsengine.getYenMax("Crave"))"#).unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYenJustYearned("Crave"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYenEnabled("Crave"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yen_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.satisfyYen("Crave");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYenEnabled("Crave", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SatisfyYen { name } if name == "Crave")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYenEnabled { name, enabled } if name == "Crave" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yenta_read_ops() {
+        super::YENTA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gossip".to_string(),
+                (6.0f32, 10.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYentaGossip("Gossip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.getYentaMaxGossip("Gossip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYentaJustNotorious("Gossip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYentaJustForgotten("Gossip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYentaEnabled("Gossip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YENTA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yenta_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.spreadYenta("Gossip");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.quellYenta("Gossip");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYentaEnabled("Gossip", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpreadYenta { name } if name == "Gossip")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuellYenta { name } if name == "Gossip")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYentaEnabled { name, enabled } if name == "Gossip" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yeoman_read_ops() {
+        super::YEOMAN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Loyal".to_string(),
+                (9.0f32, 10.0f32, 0.2f32, true, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYeomanReliability("Loyal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "9");
+        let r = rt
+            .eval(r#"String(Bsengine.getYeomanMaxReliability("Loyal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeomanServed("Loyal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeomanJustTrusted("Loyal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeomanEnabled("Loyal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEOMAN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yeoman_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.serveYeoman("Loyal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYeomanEnabled("Loyal", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ServeYeoman { name } if name == "Loyal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYeomanEnabled { name, enabled } if name == "Loyal" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yep_read_ops() {
+        super::YEP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Agree".to_string(),
+                (8.0f32, 10.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYepConsent("Agree"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getYepMaxConsent("Agree"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYepJustAgreed("Agree"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYepJustWithdrew("Agree"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYepEnabled("Agree"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yep_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.affirmYep("Agree");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.retractYep("Agree");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYepEnabled("Agree", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AffirmYep { name } if name == "Agree")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetractYep { name } if name == "Agree")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYepEnabled { name, enabled } if name == "Agree" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

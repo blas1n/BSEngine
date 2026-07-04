@@ -113,7 +113,8 @@ use crate::ops::{
     WROTE_SNAPSHOT, WROTH_SNAPSHOT, WRUNG_SNAPSHOT, WRY_SNAPSHOT, XRAY_SNAPSHOT, YAK_SNAPSHOT,
     YAM_SNAPSHOT, YANG_SNAPSHOT, YANK_SNAPSHOT, YAP_SNAPSHOT, YARD_SNAPSHOT, YARE_SNAPSHOT,
     YARN_SNAPSHOT, YAWL_SNAPSHOT, YAWN_SNAPSHOT, YAWP_SNAPSHOT, YAW_SNAPSHOT, YAY_SNAPSHOT,
-    YEAR_SNAPSHOT, YEA_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    YEARN_SNAPSHOT, YEAR_SNAPSHOT, YEAST_SNAPSHOT, YEA_SNAPSHOT, YELL_SNAPSHOT, YELP_SNAPSHOT,
+    YENTA_SNAPSHOT, YEN_SNAPSHOT, YEOMAN_SNAPSHOT, YEP_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -5608,6 +5609,162 @@ fn run_scripts(world: &mut World) {
             );
         }
         YEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yearn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yearn)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.longing,
+                    y.max_longing,
+                    y.accumulation_rate,
+                    y.just_fulfilled,
+                    y.just_suppressed,
+                    y.enabled,
+                ),
+            );
+        }
+        YEARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yeast;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yeast)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.quantity,
+                    y.max_quantity,
+                    y.growth_rate,
+                    y.just_peaked,
+                    y.just_dormant,
+                    y.enabled,
+                ),
+            );
+        }
+        YEAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yell;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yell)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.charge_level,
+                    y.max_charge,
+                    y.charge_rate,
+                    y.power_bonus,
+                    y.charging,
+                    y.just_shouted,
+                    y.enabled,
+                ),
+            );
+        }
+        YELL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yelp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yelp)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yelps as f32,
+                    y.max_yelps as f32,
+                    y.decay_timer,
+                    y.decay_interval,
+                    y.just_yelped,
+                    y.just_peaked,
+                    y.just_calmed,
+                    y.enabled,
+                ),
+            );
+        }
+        YELP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yen;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yen)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yen_level,
+                    y.max_yen,
+                    y.yen_rate,
+                    y.just_yearned,
+                    y.just_satisfied,
+                    y.enabled,
+                ),
+            );
+        }
+        YEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yenta;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yenta)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.gossip,
+                    y.max_gossip,
+                    y.fade_rate,
+                    y.just_notorious,
+                    y.just_forgotten,
+                    y.enabled,
+                ),
+            );
+        }
+        YENTA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yeoman;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yeoman)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.reliability,
+                    y.max_reliability,
+                    y.falter_rate,
+                    y.served,
+                    y.just_trusted,
+                    y.just_failed,
+                    y.enabled,
+                ),
+            );
+        }
+        YEOMAN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yep;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yep)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.consent,
+                    y.max_consent,
+                    y.doubt_rate,
+                    y.just_agreed,
+                    y.just_withdrew,
+                    y.enabled,
+                ),
+            );
+        }
+        YEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -29769,6 +29926,248 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Year>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AcheYearn { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yearn>(e) {
+                        w.ache(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SuppressYearn { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yearn>(e) {
+                        w.suppress(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetYearnEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yearn>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InoculateYeast { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yeast>(e) {
+                        w.inoculate(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SterilizeYeast { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yeast>(e) {
+                        w.sterilize(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetYeastEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yeast>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ChargeYell { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yell>(e) {
+                        w.charge();
+                    }
+                }
+            }
+            ScriptCommand::CeaseYell { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yell>(e) {
+                        w.cease();
+                    }
+                }
+            }
+            ScriptCommand::ShoutYell { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yell>(e) {
+                        w.shout();
+                    }
+                }
+            }
+            ScriptCommand::SetYellEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yell>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::YelpYelp { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yelp>(e) {
+                        w.yelp();
+                    }
+                }
+            }
+            ScriptCommand::SetYelpEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yelp>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SatisfyYen { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yen>(e) {
+                        w.satisfy(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetYenEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yen>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SpreadYenta { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yenta>(e) {
+                        w.spread(1.0);
+                    }
+                }
+            }
+            ScriptCommand::QuellYenta { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yenta>(e) {
+                        w.quell(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetYentaEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yenta>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ServeYeoman { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yeoman>(e) {
+                        w.serve(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetYeomanEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yeoman>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AffirmYep { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yep>(e) {
+                        w.affirm(1.0);
+                    }
+                }
+            }
+            ScriptCommand::RetractYep { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yep>(e) {
+                        w.retract(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetYepEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Yep>(e) {
                         w.enabled = enabled;
                     }
                 }

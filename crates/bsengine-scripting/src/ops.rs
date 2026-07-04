@@ -3784,6 +3784,93 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Sulk ─────────────────────────────────────────────────────────────────
+    BeginSulk {
+        name: String,
+    },
+    EndSulk {
+        name: String,
+    },
+    SetSulkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Sunder ───────────────────────────────────────────────────────────────
+    ApplySunder {
+        name: String,
+        count: u32,
+    },
+    RepairSunder {
+        name: String,
+        count: u32,
+    },
+    RepairAllSunder {
+        name: String,
+    },
+    SetSunderEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Suppress ─────────────────────────────────────────────────────────────
+    ApplySuppress {
+        name: String,
+        duration: f32,
+    },
+    ClearSuppress {
+        name: String,
+    },
+    SetSuppressEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Surge ────────────────────────────────────────────────────────────────
+    ApplySurge {
+        name: String,
+        duration: f32,
+    },
+    ClearSurge {
+        name: String,
+    },
+    SetSurgeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Surround ─────────────────────────────────────────────────────────────
+    UpdateSurround {
+        name: String,
+        count: u32,
+    },
+    SetSurroundEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Survive ──────────────────────────────────────────────────────────────
+    AddSurviveCharge {
+        name: String,
+    },
+    SetSurviveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Swim ─────────────────────────────────────────────────────────────────
+    EnterWater {
+        name: String,
+    },
+    ExitWater {
+        name: String,
+    },
+    SetWantsDive {
+        name: String,
+        wants: bool,
+    },
+    SetWantsSurface {
+        name: String,
+        wants: bool,
+    },
+    SetSwimEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -4834,6 +4921,27 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (stumble_timer, stumble_duration, vulnerability_factor, move_penalty, stumble_count, stumbling, just_stumbled, just_recovered, enabled)
     pub(crate) static STUMBLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, u32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (sulk_depth, sulk_rate, recovery_rate, support_penalty, sulking, just_sulked, just_snapped_out, enabled)
+    pub(crate) static SULK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (shards, max_shards, damage_reduction_per_shard, just_sundered, enabled)
+    pub(crate) static SUNDER_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, potency_fraction, blocks_ultimates, just_suppressed, just_lifted, enabled)
+    pub(crate) static SUPPRESS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, multiplier, just_surged, just_expired, enabled)
+    pub(crate) static SURGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (adjacent_count, encircle_threshold, defense_bonus, just_encircled, just_cleared, enabled)
+    pub(crate) static SURROUND_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (charges, max_charges, just_survived, enabled)
+    pub(crate) static SURVIVE_SNAPSHOT: RefCell<HashMap<String, (u32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (state, swim_speed, dive_speed, ascent_speed, breath_remaining, max_breath, breath_drain_rate, breath_regen_rate, depth, submerge_depth, wants_dive, wants_surface, enabled)
+    pub(crate) static SWIM_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -7796,6 +7904,342 @@ pub fn bsengine_set_stumble_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetStumbleEnabled { name, enabled })
+    });
+}
+// ── Sulk ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_sulk_depth(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sulk_rate(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sulk_recovery_rate(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sulk_support_penalty(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_sulking(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_sulked(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_snapped_out(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_sulk_enabled(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_sulk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginSulk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_end_sulk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EndSulk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_sulk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSulkEnabled { name, enabled })
+    });
+}
+// ── Sunder ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_sunder_shards(#[string] name: String) -> u32 {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sunder_max_shards(#[string] name: String) -> u32 {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sunder_damage_reduction_per_shard(#[string] name: String) -> f32 {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_sundered(#[string] name: String) -> bool {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_sunder_enabled(#[string] name: String) -> bool {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_sunder(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySunder { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repair_sunder(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RepairSunder { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repair_all_sunder(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RepairAllSunder { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_sunder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSunderEnabled { name, enabled })
+    });
+}
+// ── Suppress ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_suppress_duration(#[string] name: String) -> f32 {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_suppress_timer(#[string] name: String) -> f32 {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_suppress_potency_fraction(#[string] name: String) -> f32 {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_suppress_blocks_ultimates(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_suppressed(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_suppress_lifted(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_suppress_enabled(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_suppress(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySuppress { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_suppress(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearSuppress { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_suppress_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSuppressEnabled { name, enabled })
+    });
+}
+// ── Surge ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_surge_duration(#[string] name: String) -> f32 {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surge_timer(#[string] name: String) -> f32 {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surge_multiplier(#[string] name: String) -> f32 {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_surged(#[string] name: String) -> bool {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_surge_expired(#[string] name: String) -> bool {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_surge_enabled(#[string] name: String) -> bool {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_surge(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySurge { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_surge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearSurge { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_surge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSurgeEnabled { name, enabled })
+    });
+}
+// ── Surround ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_surround_adjacent_count(#[string] name: String) -> u32 {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surround_encircle_threshold(#[string] name: String) -> u32 {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surround_defense_bonus(#[string] name: String) -> f32 {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_encircled(#[string] name: String) -> bool {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_surround_cleared(#[string] name: String) -> bool {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_surround_enabled(#[string] name: String) -> bool {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_update_surround(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UpdateSurround { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_surround_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSurroundEnabled { name, enabled })
+    });
+}
+// ── Survive ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_survive_charges(#[string] name: String) -> u32 {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_survive_max_charges(#[string] name: String) -> u32 {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_survived(#[string] name: String) -> bool {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_survive_enabled(#[string] name: String) -> bool {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_survive_charge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddSurviveCharge { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_survive_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSurviveEnabled { name, enabled })
+    });
+}
+// ── Swim ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_swim_state(#[string] name: String) -> u32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_swim_speed(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_dive_speed(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ascent_speed(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_breath_remaining(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_breath(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_breath_drain_rate(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_breath_regen_rate(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_swim_depth(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_submerge_depth(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wants_dive(#[string] name: String) -> bool {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wants_surface(#[string] name: String) -> bool {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_swim_enabled(#[string] name: String) -> bool {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.12).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enter_water(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnterWater { name }));
+}
+#[op2(fast)]
+pub fn bsengine_exit_water(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExitWater { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wants_dive(#[string] name: String, wants: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWantsDive { name, wants })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wants_surface(#[string] name: String, wants: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWantsSurface { name, wants })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_swim_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSwimEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -27307,6 +27751,77 @@ deno_core::extension!(
         bsengine_is_stumble_enabled,
         bsengine_trigger_stumble,
         bsengine_set_stumble_enabled,
+        bsengine_get_sulk_depth,
+        bsengine_get_sulk_rate,
+        bsengine_get_sulk_recovery_rate,
+        bsengine_get_sulk_support_penalty,
+        bsengine_is_sulking,
+        bsengine_is_just_sulked,
+        bsengine_is_just_snapped_out,
+        bsengine_is_sulk_enabled,
+        bsengine_begin_sulk,
+        bsengine_end_sulk,
+        bsengine_set_sulk_enabled,
+        bsengine_get_sunder_shards,
+        bsengine_get_sunder_max_shards,
+        bsengine_get_sunder_damage_reduction_per_shard,
+        bsengine_is_just_sundered,
+        bsengine_is_sunder_enabled,
+        bsengine_apply_sunder,
+        bsengine_repair_sunder,
+        bsengine_repair_all_sunder,
+        bsengine_set_sunder_enabled,
+        bsengine_get_suppress_duration,
+        bsengine_get_suppress_timer,
+        bsengine_get_suppress_potency_fraction,
+        bsengine_is_suppress_blocks_ultimates,
+        bsengine_is_just_suppressed,
+        bsengine_is_just_suppress_lifted,
+        bsengine_is_suppress_enabled,
+        bsengine_apply_suppress,
+        bsengine_clear_suppress,
+        bsengine_set_suppress_enabled,
+        bsengine_get_surge_duration,
+        bsengine_get_surge_timer,
+        bsengine_get_surge_multiplier,
+        bsengine_is_just_surged,
+        bsengine_is_just_surge_expired,
+        bsengine_is_surge_enabled,
+        bsengine_apply_surge,
+        bsengine_clear_surge,
+        bsengine_set_surge_enabled,
+        bsengine_get_surround_adjacent_count,
+        bsengine_get_surround_encircle_threshold,
+        bsengine_get_surround_defense_bonus,
+        bsengine_is_just_encircled,
+        bsengine_is_just_surround_cleared,
+        bsengine_is_surround_enabled,
+        bsengine_update_surround,
+        bsengine_set_surround_enabled,
+        bsengine_get_survive_charges,
+        bsengine_get_survive_max_charges,
+        bsengine_is_just_survived,
+        bsengine_is_survive_enabled,
+        bsengine_add_survive_charge,
+        bsengine_set_survive_enabled,
+        bsengine_get_swim_state,
+        bsengine_get_swim_speed,
+        bsengine_get_dive_speed,
+        bsengine_get_ascent_speed,
+        bsengine_get_breath_remaining,
+        bsengine_get_max_breath,
+        bsengine_get_breath_drain_rate,
+        bsengine_get_breath_regen_rate,
+        bsengine_get_swim_depth,
+        bsengine_get_submerge_depth,
+        bsengine_is_wants_dive,
+        bsengine_is_wants_surface,
+        bsengine_is_swim_enabled,
+        bsengine_enter_water,
+        bsengine_exit_water,
+        bsengine_set_wants_dive,
+        bsengine_set_wants_surface,
+        bsengine_set_swim_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -30230,6 +30745,77 @@ const Bsengine = {
     isStumbleEnabled:           (name)              => Deno.core.ops.bsengine_is_stumble_enabled(name),
     triggerStumble:             (name)              => Deno.core.ops.bsengine_trigger_stumble(name),
     setStumbleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_stumble_enabled(name, v),
+    getSulkDepth:               (name)              => Deno.core.ops.bsengine_get_sulk_depth(name),
+    getSulkRate:                (name)              => Deno.core.ops.bsengine_get_sulk_rate(name),
+    getSulkRecoveryRate:        (name)              => Deno.core.ops.bsengine_get_sulk_recovery_rate(name),
+    getSulkSupportPenalty:      (name)              => Deno.core.ops.bsengine_get_sulk_support_penalty(name),
+    isSulking:                  (name)              => Deno.core.ops.bsengine_is_sulking(name),
+    isJustSulked:               (name)              => Deno.core.ops.bsengine_is_just_sulked(name),
+    isJustSnappedOut:           (name)              => Deno.core.ops.bsengine_is_just_snapped_out(name),
+    isSulkEnabled:              (name)              => Deno.core.ops.bsengine_is_sulk_enabled(name),
+    beginSulk:                  (name)              => Deno.core.ops.bsengine_begin_sulk(name),
+    endSulk:                    (name)              => Deno.core.ops.bsengine_end_sulk(name),
+    setSulkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_sulk_enabled(name, v),
+    getSunderShards:            (name)              => Deno.core.ops.bsengine_get_sunder_shards(name),
+    getSunderMaxShards:         (name)              => Deno.core.ops.bsengine_get_sunder_max_shards(name),
+    getSunderDrPerShard:        (name)              => Deno.core.ops.bsengine_get_sunder_damage_reduction_per_shard(name),
+    isJustSundered:             (name)              => Deno.core.ops.bsengine_is_just_sundered(name),
+    isSunderEnabled:            (name)              => Deno.core.ops.bsengine_is_sunder_enabled(name),
+    applySunder:                (name, count)       => Deno.core.ops.bsengine_apply_sunder(name, count),
+    repairSunder:               (name, count)       => Deno.core.ops.bsengine_repair_sunder(name, count),
+    repairAllSunder:            (name)              => Deno.core.ops.bsengine_repair_all_sunder(name),
+    setSunderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_sunder_enabled(name, v),
+    getSuppressDuration:        (name)              => Deno.core.ops.bsengine_get_suppress_duration(name),
+    getSuppressTimer:           (name)              => Deno.core.ops.bsengine_get_suppress_timer(name),
+    getSuppressPotencyFraction: (name)              => Deno.core.ops.bsengine_get_suppress_potency_fraction(name),
+    isSuppressBlocksUltimates:  (name)              => Deno.core.ops.bsengine_is_suppress_blocks_ultimates(name),
+    isJustSuppressed:           (name)              => Deno.core.ops.bsengine_is_just_suppressed(name),
+    isJustSuppressLifted:       (name)              => Deno.core.ops.bsengine_is_just_suppress_lifted(name),
+    isSuppressEnabled:          (name)              => Deno.core.ops.bsengine_is_suppress_enabled(name),
+    applySuppress:              (name, duration)    => Deno.core.ops.bsengine_apply_suppress(name, duration),
+    clearSuppress:              (name)              => Deno.core.ops.bsengine_clear_suppress(name),
+    setSuppressEnabled:         (name, v)           => Deno.core.ops.bsengine_set_suppress_enabled(name, v),
+    getSurgeDuration:           (name)              => Deno.core.ops.bsengine_get_surge_duration(name),
+    getSurgeTimer:              (name)              => Deno.core.ops.bsengine_get_surge_timer(name),
+    getSurgeMultiplier:         (name)              => Deno.core.ops.bsengine_get_surge_multiplier(name),
+    isJustSurged:               (name)              => Deno.core.ops.bsengine_is_just_surged(name),
+    isJustSurgeExpired:         (name)              => Deno.core.ops.bsengine_is_just_surge_expired(name),
+    isSurgeEnabled:             (name)              => Deno.core.ops.bsengine_is_surge_enabled(name),
+    applySurge:                 (name, duration)    => Deno.core.ops.bsengine_apply_surge(name, duration),
+    clearSurge:                 (name)              => Deno.core.ops.bsengine_clear_surge(name),
+    setSurgeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_surge_enabled(name, v),
+    getSurroundAdjacentCount:   (name)              => Deno.core.ops.bsengine_get_surround_adjacent_count(name),
+    getSurroundThreshold:       (name)              => Deno.core.ops.bsengine_get_surround_encircle_threshold(name),
+    getSurroundDefenseBonus:    (name)              => Deno.core.ops.bsengine_get_surround_defense_bonus(name),
+    isJustEncircled:            (name)              => Deno.core.ops.bsengine_is_just_encircled(name),
+    isJustSurroundCleared:      (name)              => Deno.core.ops.bsengine_is_just_surround_cleared(name),
+    isSurroundEnabled:          (name)              => Deno.core.ops.bsengine_is_surround_enabled(name),
+    updateSurround:             (name, count)       => Deno.core.ops.bsengine_update_surround(name, count),
+    setSurroundEnabled:         (name, v)           => Deno.core.ops.bsengine_set_surround_enabled(name, v),
+    getSurviveCharges:          (name)              => Deno.core.ops.bsengine_get_survive_charges(name),
+    getSurviveMaxCharges:       (name)              => Deno.core.ops.bsengine_get_survive_max_charges(name),
+    isJustSurvived:             (name)              => Deno.core.ops.bsengine_is_just_survived(name),
+    isSurviveEnabled:           (name)              => Deno.core.ops.bsengine_is_survive_enabled(name),
+    addSurviveCharge:           (name)              => Deno.core.ops.bsengine_add_survive_charge(name),
+    setSurviveEnabled:          (name, v)           => Deno.core.ops.bsengine_set_survive_enabled(name, v),
+    getSwimState:               (name)              => Deno.core.ops.bsengine_get_swim_state(name),
+    getSwimSpeed:               (name)              => Deno.core.ops.bsengine_get_swim_speed(name),
+    getDiveSpeed:               (name)              => Deno.core.ops.bsengine_get_dive_speed(name),
+    getAscentSpeed:             (name)              => Deno.core.ops.bsengine_get_ascent_speed(name),
+    getBreathRemaining:         (name)              => Deno.core.ops.bsengine_get_breath_remaining(name),
+    getMaxBreath:               (name)              => Deno.core.ops.bsengine_get_max_breath(name),
+    getBreathDrainRate:         (name)              => Deno.core.ops.bsengine_get_breath_drain_rate(name),
+    getBreathRegenRate:         (name)              => Deno.core.ops.bsengine_get_breath_regen_rate(name),
+    getSwimDepth:               (name)              => Deno.core.ops.bsengine_get_swim_depth(name),
+    getSubmergeDepth:           (name)              => Deno.core.ops.bsengine_get_submerge_depth(name),
+    isWantsDive:                (name)              => Deno.core.ops.bsengine_is_wants_dive(name),
+    isWantsSurface:             (name)              => Deno.core.ops.bsengine_is_wants_surface(name),
+    isSwimEnabled:              (name)              => Deno.core.ops.bsengine_is_swim_enabled(name),
+    enterWater:                 (name)              => Deno.core.ops.bsengine_enter_water(name),
+    exitWater:                  (name)              => Deno.core.ops.bsengine_exit_water(name),
+    setWantsDive:               (name, v)           => Deno.core.ops.bsengine_set_wants_dive(name, v),
+    setWantsSurface:            (name, v)           => Deno.core.ops.bsengine_set_wants_surface(name, v),
+    setSwimEnabled:             (name, v)           => Deno.core.ops.bsengine_set_swim_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -50252,6 +50838,406 @@ JSON.stringify(received)
             let buf = c.borrow();
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerStumble { name } if name == "Grunt")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStumbleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sulk_read_ops() {
+        super::SULK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (0.5f32, 1.0f32, 1.5f32, 0.25f32, true, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSulkDepth("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getSulkRate("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSulkRecoveryRate("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSulkSupportPenalty("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isSulking("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSulked("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSnappedOut("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSulkEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SULK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sulk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginSulk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.endSulk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSulkEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginSulk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EndSulk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSulkEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sunder_read_ops() {
+        super::SUNDER_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (3u32, 5u32, 0.25f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSunderShards("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSunderMaxShards("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSunderDrPerShard("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSundered("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSunderEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SUNDER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sunder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySunder("Grunt", 2);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairSunder("Grunt", 1);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairAllSunder("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSunderEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySunder { name, count } if name == "Grunt" && *count == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairSunder { name, count } if name == "Grunt" && *count == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairAllSunder { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSunderEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_suppress_read_ops() {
+        super::SUPPRESS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (2.0f32, 0.5f32, 0.75f32, true, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSuppressDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSuppressTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSuppressPotencyFraction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isSuppressBlocksUltimates("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSuppressed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSuppressLifted("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSuppressEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SUPPRESS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_suppress_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySuppress("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearSuppress("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSuppressEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySuppress { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearSuppress { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSuppressEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surge_read_ops() {
+        super::SURGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (3.0f32, 1.5f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSurgeDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurgeTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurgeMultiplier("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurged("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurgeExpired("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSurgeEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SURGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surge_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySurge("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearSurge("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSurgeEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySurge { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearSurge { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSurgeEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surround_read_ops() {
+        super::SURROUND_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (4u32, 3u32, 0.5f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSurroundAdjacentCount("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurroundThreshold("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurroundDefenseBonus("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustEncircled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurroundCleared("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSurroundEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SURROUND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surround_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.updateSurround("Grunt", 4);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSurroundEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UpdateSurround { name, count } if name == "Grunt" && *count == 4)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSurroundEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_survive_read_ops() {
+        super::SURVIVE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (2u32, 3u32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSurviveCharges("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurviveMaxCharges("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurvived("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSurviveEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SURVIVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_survive_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addSurviveCharge("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSurviveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddSurviveCharge { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSurviveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_swim_read_ops() {
+        super::SWIM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (
+                    1u32, 2.0f32, 1.5f32, 1.0f32, 0.75f32, 1.0f32, 0.25f32, 0.5f32, 3.0f32, 2.0f32,
+                    true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSwimState("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSwimSpeed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getDiveSpeed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getAscentSpeed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getBreathRemaining("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxBreath("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getBreathDrainRate("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getBreathRegenRate("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSwimDepth("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSubmergeDepth("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt.eval(r#"String(Bsengine.isWantsDive("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantsSurface("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSwimEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SWIM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_swim_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.enterWater("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exitWater("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWantsDive("Grunt", true);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWantsSurface("Grunt", false);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSwimEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterWater { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExitWater { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantsDive { name, wants } if name == "Grunt" && *wants)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantsSurface { name, wants } if name == "Grunt" && !wants)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSwimEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

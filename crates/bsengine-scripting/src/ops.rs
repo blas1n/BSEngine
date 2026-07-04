@@ -4207,6 +4207,101 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Verve ────────────────────────────────────────────────────────────────
+    ActVerve {
+        name: String,
+    },
+    SetVerveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vest ─────────────────────────────────────────────────────────────────
+    AbsorbVest {
+        name: String,
+        incoming: f32,
+    },
+    SetVestEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vice ─────────────────────────────────────────────────────────────────
+    CorruptVice {
+        name: String,
+        amount: f32,
+    },
+    PurifyVice {
+        name: String,
+        amount: f32,
+    },
+    SetViceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vim ──────────────────────────────────────────────────────────────────
+    InvigorateVim {
+        name: String,
+        amount: f32,
+    },
+    SapVim {
+        name: String,
+        amount: f32,
+    },
+    SetVimEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Viper ────────────────────────────────────────────────────────────────
+    Envenomate {
+        name: String,
+        amount: f32,
+    },
+    DrainViper {
+        name: String,
+        amount: f32,
+    },
+    SetViperEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Viral ────────────────────────────────────────────────────────────────
+    ExposeViral {
+        name: String,
+        amount: f32,
+    },
+    ContainViral {
+        name: String,
+        amount: f32,
+    },
+    SetViralEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Visit ────────────────────────────────────────────────────────────────
+    ApproachVisit {
+        name: String,
+        amount: f32,
+    },
+    WithdrawVisit {
+        name: String,
+        amount: f32,
+    },
+    SetVisitEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vista ────────────────────────────────────────────────────────────────
+    IlluminateVista {
+        name: String,
+        amount: f32,
+    },
+    ObscureVista {
+        name: String,
+        amount: f32,
+    },
+    SetVistaEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5338,6 +5433,22 @@ thread_local! {
     pub(crate) static VERSE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static VERTEX_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VEST_SNAPSHOT: RefCell<HashMap<String, (f32, u32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VICE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIPER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIRAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VISIT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VISTA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -9972,6 +10083,354 @@ pub fn bsengine_set_vertex_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetVertexEnabled { name, enabled })
+    });
+}
+// ── Verve ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_verve_level(#[string] name: String) -> f32 {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_verve(#[string] name: String) -> f32 {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verve_gain_per_action(#[string] name: String) -> f32 {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verve_decay_rate(#[string] name: String) -> f32 {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verve_action_bonus(#[string] name: String) -> f32 {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_verve_just_peaked(#[string] name: String) -> bool {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_verve_enabled(#[string] name: String) -> bool {
+    VERVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_act_verve(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActVerve { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_verve_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVerveEnabled { name, enabled })
+    });
+}
+// ── Vest ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_absorption_per_hit(#[string] name: String) -> f32 {
+    VEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_hits_absorbed(#[string] name: String) -> u32 {
+    VEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_last_absorbed(#[string] name: String) -> f32 {
+    VEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_absorbed(#[string] name: String) -> bool {
+    VEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vest_enabled(#[string] name: String) -> bool {
+    VEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_absorb_vest(#[string] name: String, incoming: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AbsorbVest { name, incoming })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vest_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVestEnabled { name, enabled })
+    });
+}
+// ── Vice ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_corruption(#[string] name: String) -> f32 {
+    VICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_corruption(#[string] name: String) -> f32 {
+    VICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_temptation_rate(#[string] name: String) -> f32 {
+    VICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_corrupted(#[string] name: String) -> bool {
+    VICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_purified(#[string] name: String) -> bool {
+    VICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vice_enabled(#[string] name: String) -> bool {
+    VICE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_corrupt_vice(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CorruptVice { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_purify_vice(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PurifyVice { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vice_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetViceEnabled { name, enabled })
+    });
+}
+// ── Vim ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_drive(#[string] name: String) -> f32 {
+    VIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_drive(#[string] name: String) -> f32 {
+    VIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vim_vigor_rate(#[string] name: String) -> f32 {
+    VIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_energized(#[string] name: String) -> bool {
+    VIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_sapped(#[string] name: String) -> bool {
+    VIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vim_enabled(#[string] name: String) -> bool {
+    VIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_invigorate_vim(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InvigorateVim { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_sap_vim(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SapVim { name, amount }));
+}
+#[op2(fast)]
+pub fn bsengine_set_vim_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVimEnabled { name, enabled })
+    });
+}
+// ── Viper ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_viper_venom(#[string] name: String) -> f32 {
+    VIPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_viper_max_venom(#[string] name: String) -> f32 {
+    VIPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_viper_toxin_rate(#[string] name: String) -> f32 {
+    VIPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_envenomed(#[string] name: String) -> bool {
+    VIPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_drained(#[string] name: String) -> bool {
+    VIPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_viper_enabled(#[string] name: String) -> bool {
+    VIPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_envenomate(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::Envenomate { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_drain_viper(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DrainViper { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_viper_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetViperEnabled { name, enabled })
+    });
+}
+// ── Viral ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_contagion(#[string] name: String) -> f32 {
+    VIRAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_contagion(#[string] name: String) -> f32 {
+    VIRAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_spread_rate(#[string] name: String) -> f32 {
+    VIRAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_spread(#[string] name: String) -> bool {
+    VIRAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_contained(#[string] name: String) -> bool {
+    VIRAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_viral_enabled(#[string] name: String) -> bool {
+    VIRAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_expose_viral(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExposeViral { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_contain_viral(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ContainViral { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_viral_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetViralEnabled { name, enabled })
+    });
+}
+// ── Visit ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_exposure(#[string] name: String) -> f32 {
+    VISIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_exposure(#[string] name: String) -> f32 {
+    VISIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_presence_rate(#[string] name: String) -> f32 {
+    VISIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_visited(#[string] name: String) -> bool {
+    VISIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_departed(#[string] name: String) -> bool {
+    VISIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_visit_enabled(#[string] name: String) -> bool {
+    VISIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_approach_visit(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApproachVisit { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_withdraw_visit(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WithdrawVisit { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_visit_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVisitEnabled { name, enabled })
+    });
+}
+// ── Vista ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_clarity(#[string] name: String) -> f32 {
+    VISTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_clarity(#[string] name: String) -> f32 {
+    VISTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reveal_rate(#[string] name: String) -> f32 {
+    VISTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_revealed(#[string] name: String) -> bool {
+    VISTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_dimmed(#[string] name: String) -> bool {
+    VISTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vista_enabled(#[string] name: String) -> bool {
+    VISTA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_illuminate_vista(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::IlluminateVista { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_obscure_vista(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ObscureVista { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vista_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVistaEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -29834,6 +30293,76 @@ deno_core::extension!(
         bsengine_ascend_vertex,
         bsengine_descend_vertex,
         bsengine_set_vertex_enabled,
+        bsengine_get_verve_level,
+        bsengine_get_max_verve,
+        bsengine_get_verve_gain_per_action,
+        bsengine_get_verve_decay_rate,
+        bsengine_get_verve_action_bonus,
+        bsengine_is_verve_just_peaked,
+        bsengine_is_verve_enabled,
+        bsengine_act_verve,
+        bsengine_set_verve_enabled,
+        bsengine_get_absorption_per_hit,
+        bsengine_get_hits_absorbed,
+        bsengine_get_last_absorbed,
+        bsengine_is_just_absorbed,
+        bsengine_is_vest_enabled,
+        bsengine_absorb_vest,
+        bsengine_set_vest_enabled,
+        bsengine_get_corruption,
+        bsengine_get_max_corruption,
+        bsengine_get_temptation_rate,
+        bsengine_is_just_corrupted,
+        bsengine_is_just_purified,
+        bsengine_is_vice_enabled,
+        bsengine_corrupt_vice,
+        bsengine_purify_vice,
+        bsengine_set_vice_enabled,
+        bsengine_get_drive,
+        bsengine_get_max_drive,
+        bsengine_get_vim_vigor_rate,
+        bsengine_is_just_energized,
+        bsengine_is_just_sapped,
+        bsengine_is_vim_enabled,
+        bsengine_invigorate_vim,
+        bsengine_sap_vim,
+        bsengine_set_vim_enabled,
+        bsengine_get_viper_venom,
+        bsengine_get_viper_max_venom,
+        bsengine_get_viper_toxin_rate,
+        bsengine_is_just_envenomed,
+        bsengine_is_just_drained,
+        bsengine_is_viper_enabled,
+        bsengine_envenomate,
+        bsengine_drain_viper,
+        bsengine_set_viper_enabled,
+        bsengine_get_contagion,
+        bsengine_get_max_contagion,
+        bsengine_get_spread_rate,
+        bsengine_is_just_spread,
+        bsengine_is_just_contained,
+        bsengine_is_viral_enabled,
+        bsengine_expose_viral,
+        bsengine_contain_viral,
+        bsengine_set_viral_enabled,
+        bsengine_get_exposure,
+        bsengine_get_max_exposure,
+        bsengine_get_presence_rate,
+        bsengine_is_just_visited,
+        bsengine_is_just_departed,
+        bsengine_is_visit_enabled,
+        bsengine_approach_visit,
+        bsengine_withdraw_visit,
+        bsengine_set_visit_enabled,
+        bsengine_get_clarity,
+        bsengine_get_max_clarity,
+        bsengine_get_reveal_rate,
+        bsengine_is_just_revealed,
+        bsengine_is_just_dimmed,
+        bsengine_is_vista_enabled,
+        bsengine_illuminate_vista,
+        bsengine_obscure_vista,
+        bsengine_set_vista_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -33108,6 +33637,76 @@ const Bsengine = {
     ascendVertex:               (name, amount)      => Deno.core.ops.bsengine_ascend_vertex(name, amount),
     descendVertex:              (name, amount)      => Deno.core.ops.bsengine_descend_vertex(name, amount),
     setVertexEnabled:           (name, v)           => Deno.core.ops.bsengine_set_vertex_enabled(name, v),
+    getVerveLevel:              (name)              => Deno.core.ops.bsengine_get_verve_level(name),
+    getMaxVerve:                (name)              => Deno.core.ops.bsengine_get_max_verve(name),
+    getVerveGainPerAction:      (name)              => Deno.core.ops.bsengine_get_verve_gain_per_action(name),
+    getVerveDecayRate:          (name)              => Deno.core.ops.bsengine_get_verve_decay_rate(name),
+    getVerveActionBonus:        (name)              => Deno.core.ops.bsengine_get_verve_action_bonus(name),
+    isVerveJustPeaked:          (name)              => Deno.core.ops.bsengine_is_verve_just_peaked(name),
+    isVerveEnabled:             (name)              => Deno.core.ops.bsengine_is_verve_enabled(name),
+    actVerve:                   (name)              => Deno.core.ops.bsengine_act_verve(name),
+    setVerveEnabled:            (name, v)           => Deno.core.ops.bsengine_set_verve_enabled(name, v),
+    getAbsorptionPerHit:        (name)              => Deno.core.ops.bsengine_get_absorption_per_hit(name),
+    getHitsAbsorbed:            (name)              => Deno.core.ops.bsengine_get_hits_absorbed(name),
+    getLastAbsorbed:            (name)              => Deno.core.ops.bsengine_get_last_absorbed(name),
+    isJustAbsorbed:             (name)              => Deno.core.ops.bsengine_is_just_absorbed(name),
+    isVestEnabled:              (name)              => Deno.core.ops.bsengine_is_vest_enabled(name),
+    absorbVest:                 (name, amount)      => Deno.core.ops.bsengine_absorb_vest(name, amount),
+    setVestEnabled:             (name, v)           => Deno.core.ops.bsengine_set_vest_enabled(name, v),
+    getCorruption:              (name)              => Deno.core.ops.bsengine_get_corruption(name),
+    getMaxCorruption:           (name)              => Deno.core.ops.bsengine_get_max_corruption(name),
+    getTemptationRate:          (name)              => Deno.core.ops.bsengine_get_temptation_rate(name),
+    isJustCorrupted:            (name)              => Deno.core.ops.bsengine_is_just_corrupted(name),
+    isJustPurified:             (name)              => Deno.core.ops.bsengine_is_just_purified(name),
+    isViceEnabled:              (name)              => Deno.core.ops.bsengine_is_vice_enabled(name),
+    corruptVice:                (name, amount)      => Deno.core.ops.bsengine_corrupt_vice(name, amount),
+    purifyVice:                 (name, amount)      => Deno.core.ops.bsengine_purify_vice(name, amount),
+    setViceEnabled:             (name, v)           => Deno.core.ops.bsengine_set_vice_enabled(name, v),
+    getDrive:                   (name)              => Deno.core.ops.bsengine_get_drive(name),
+    getMaxDrive:                (name)              => Deno.core.ops.bsengine_get_max_drive(name),
+    getVimVigorRate:            (name)              => Deno.core.ops.bsengine_get_vim_vigor_rate(name),
+    isJustEnergized:            (name)              => Deno.core.ops.bsengine_is_just_energized(name),
+    isJustSapped:               (name)              => Deno.core.ops.bsengine_is_just_sapped(name),
+    isVimEnabled:               (name)              => Deno.core.ops.bsengine_is_vim_enabled(name),
+    invigorateVim:              (name, amount)      => Deno.core.ops.bsengine_invigorate_vim(name, amount),
+    sapVim:                     (name, amount)      => Deno.core.ops.bsengine_sap_vim(name, amount),
+    setVimEnabled:              (name, v)           => Deno.core.ops.bsengine_set_vim_enabled(name, v),
+    getViperVenom:              (name)              => Deno.core.ops.bsengine_get_viper_venom(name),
+    getViperMaxVenom:           (name)              => Deno.core.ops.bsengine_get_viper_max_venom(name),
+    getViperToxinRate:          (name)              => Deno.core.ops.bsengine_get_viper_toxin_rate(name),
+    isJustEnvenomed:            (name)              => Deno.core.ops.bsengine_is_just_envenomed(name),
+    isJustDrained:              (name)              => Deno.core.ops.bsengine_is_just_drained(name),
+    isViperEnabled:             (name)              => Deno.core.ops.bsengine_is_viper_enabled(name),
+    envenomate:                 (name, amount)      => Deno.core.ops.bsengine_envenomate(name, amount),
+    drainViper:                 (name, amount)      => Deno.core.ops.bsengine_drain_viper(name, amount),
+    setViperEnabled:            (name, v)           => Deno.core.ops.bsengine_set_viper_enabled(name, v),
+    getContagion:               (name)              => Deno.core.ops.bsengine_get_contagion(name),
+    getMaxContagion:            (name)              => Deno.core.ops.bsengine_get_max_contagion(name),
+    getSpreadRate:              (name)              => Deno.core.ops.bsengine_get_spread_rate(name),
+    isJustSpread:               (name)              => Deno.core.ops.bsengine_is_just_spread(name),
+    isJustContained:            (name)              => Deno.core.ops.bsengine_is_just_contained(name),
+    isViralEnabled:             (name)              => Deno.core.ops.bsengine_is_viral_enabled(name),
+    exposeViral:                (name, amount)      => Deno.core.ops.bsengine_expose_viral(name, amount),
+    containViral:               (name, amount)      => Deno.core.ops.bsengine_contain_viral(name, amount),
+    setViralEnabled:            (name, v)           => Deno.core.ops.bsengine_set_viral_enabled(name, v),
+    getExposure:                (name)              => Deno.core.ops.bsengine_get_exposure(name),
+    getMaxExposure:             (name)              => Deno.core.ops.bsengine_get_max_exposure(name),
+    getPresenceRate:            (name)              => Deno.core.ops.bsengine_get_presence_rate(name),
+    isJustVisited:              (name)              => Deno.core.ops.bsengine_is_just_visited(name),
+    isJustDeparted:             (name)              => Deno.core.ops.bsengine_is_just_departed(name),
+    isVisitEnabled:             (name)              => Deno.core.ops.bsengine_is_visit_enabled(name),
+    approachVisit:              (name, amount)      => Deno.core.ops.bsengine_approach_visit(name, amount),
+    withdrawVisit:              (name, amount)      => Deno.core.ops.bsengine_withdraw_visit(name, amount),
+    setVisitEnabled:            (name, v)           => Deno.core.ops.bsengine_set_visit_enabled(name, v),
+    getClarity:                 (name)              => Deno.core.ops.bsengine_get_clarity(name),
+    getMaxClarity:              (name)              => Deno.core.ops.bsengine_get_max_clarity(name),
+    getRevealRate:              (name)              => Deno.core.ops.bsengine_get_reveal_rate(name),
+    isJustRevealed:             (name)              => Deno.core.ops.bsengine_is_just_revealed(name),
+    isJustDimmed:               (name)              => Deno.core.ops.bsengine_is_just_dimmed(name),
+    isVistaEnabled:             (name)              => Deno.core.ops.bsengine_is_vista_enabled(name),
+    illuminateVista:            (name, amount)      => Deno.core.ops.bsengine_illuminate_vista(name, amount),
+    obscureVista:               (name, amount)      => Deno.core.ops.bsengine_obscure_vista(name, amount),
+    setVistaEnabled:            (name, v)           => Deno.core.ops.bsengine_set_vista_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -55151,6 +55750,410 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AscendVertex { name, amount } if name == "Grunt" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DescendVertex { name, amount } if name == "Grunt" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVertexEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verve_read_ops() {
+        super::VERVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, 0.5f32, 0.75f32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVerveLevel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getMaxVerve("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerveGainPerAction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerveDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerveActionBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isVerveJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVerveEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verve_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.actVerve("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVerveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActVerve { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVerveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vest_read_ops() {
+        super::VEST_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.5f32, 2u32, 0.25f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getAbsorptionPerHit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getHitsAbsorbed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getLastAbsorbed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustAbsorbed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVestEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VEST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vest_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.absorbVest("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVestEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AbsorbVest { name, incoming } if name == "Grunt" && *incoming == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVestEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vice_read_ops() {
+        super::VICE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getCorruption("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxCorruption("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTemptationRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustCorrupted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustPurified("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isViceEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VICE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vice_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.corruptVice("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.purifyVice("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setViceEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorruptVice { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PurifyVice { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetViceEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vim_read_ops() {
+        super::VIM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getDrive("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getMaxDrive("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVimVigorRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustEnergized("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isJustSapped("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isVimEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VIM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vim_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.invigorateVim("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.sapVim("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVimEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InvigorateVim { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SapVim { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVimEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_viper_read_ops() {
+        super::VIPER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getViperVenom("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getViperMaxVenom("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getViperToxinRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustEnvenomed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustDrained("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isViperEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VIPER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_viper_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.envenomate("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.drainViper("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setViperEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::Envenomate { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrainViper { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetViperEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_viral_read_ops() {
+        super::VIRAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getContagion("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxContagion("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSpreadRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isJustSpread("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustContained("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isViralEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VIRAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_viral_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.exposeViral("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.containViral("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setViralEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExposeViral { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ContainViral { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetViralEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_visit_read_ops() {
+        super::VISIT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getExposure("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxExposure("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getPresenceRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustVisited("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustDeparted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVisitEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VISIT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_visit_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.approachVisit("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.withdrawVisit("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVisitEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApproachVisit { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WithdrawVisit { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVisitEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vista_read_ops() {
+        super::VISTA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getClarity("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxClarity("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevealRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustRevealed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isJustDimmed("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVistaEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VISTA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vista_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.illuminateVista("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.obscureVista("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVistaEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IlluminateVista { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObscureVista { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVistaEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

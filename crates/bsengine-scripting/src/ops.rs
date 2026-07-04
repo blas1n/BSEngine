@@ -3360,6 +3360,437 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Quest ────────────────────────────────────────────────────────────────
+    SetQuestXpReward {
+        name: String,
+        xp_reward: f32,
+    },
+    SetQuestEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Radar ────────────────────────────────────────────────────────────────
+    SetRadarRange {
+        name: String,
+        range: f32,
+    },
+    SetRadarScanInterval {
+        name: String,
+        interval: f32,
+    },
+    SetRadarEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rage ─────────────────────────────────────────────────────────────────
+    SetMaxRage {
+        name: String,
+        max_rage: f32,
+    },
+    SetRagePerDamage {
+        name: String,
+        rage_per_damage: f32,
+    },
+    SetRageActivationThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetRageDamageMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetRageDefenseMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetRageEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rally ────────────────────────────────────────────────────────────────
+    CallRally {
+        name: String,
+        duration: f32,
+    },
+    DismissRally {
+        name: String,
+    },
+    SetRallyAuraRadius {
+        name: String,
+        radius: f32,
+    },
+    SetRallySpeedBonusFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetRallyDamageBonusFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetRallyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rampage ──────────────────────────────────────────────────────────────
+    RampageKill {
+        name: String,
+    },
+    SetRampageDamagePerStack {
+        name: String,
+        damage_per_stack: f32,
+    },
+    SetRampageSpeedPerStack {
+        name: String,
+        speed_per_stack: f32,
+    },
+    SetRampageDecayInterval {
+        name: String,
+        interval: f32,
+    },
+    SetRampageEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Ravage ───────────────────────────────────────────────────────────────
+    TriggerRavage {
+        name: String,
+        duration: f32,
+    },
+    SetRavageDamageBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetRavageAttackSpeedBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetRavageEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Reave ────────────────────────────────────────────────────────────────
+    ApplyReave {
+        name: String,
+        duration: f32,
+    },
+    ClearReave {
+        name: String,
+    },
+    SetReaveLechFraction {
+        name: String,
+        leech_fraction: f32,
+    },
+    SetReaveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rebound ──────────────────────────────────────────────────────────────
+    SetReboundCoefficient {
+        name: String,
+        coefficient: f32,
+    },
+    SetReboundMinSpeed {
+        name: String,
+        min_speed: f32,
+    },
+    SetReboundEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Recharge ─────────────────────────────────────────────────────────────
+    SetRechargeRate {
+        name: String,
+        rate: f32,
+    },
+    SetRechargeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Reckless ─────────────────────────────────────────────────────────────
+    ChargeReckless {
+        name: String,
+        duration: f32,
+    },
+    SnapOutReckless {
+        name: String,
+    },
+    SetRecklessDamageBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetRecklessDefensePenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetRecklessEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Recluse ──────────────────────────────────────────────────────────────
+    SetRecluseAlone {
+        name: String,
+        alone: bool,
+    },
+    SetRecluseDamageBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetRecluseDefenseBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetRecluseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Recoil ───────────────────────────────────────────────────────────────
+    KickRecoil {
+        name: String,
+    },
+    ResetRecoil {
+        name: String,
+    },
+    SetRecoilKickForce {
+        name: String,
+        force: f32,
+    },
+    SetRecoilAngularKick {
+        name: String,
+        angular_kick: f32,
+    },
+    SetRecoilRecoverySpeed {
+        name: String,
+        speed: f32,
+    },
+    SetRecoilEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Reflect ──────────────────────────────────────────────────────────────
+    ActivateReflect {
+        name: String,
+    },
+    DeactivateReflect {
+        name: String,
+    },
+    SetReflectDamageMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetReflectWindowDuration {
+        name: String,
+        duration: f32,
+    },
+    SetReflectEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Reflex ───────────────────────────────────────────────────────────────
+    TriggerReflex {
+        name: String,
+        duration: f32,
+    },
+    EvadeReflex {
+        name: String,
+    },
+    SetReflexEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Repel ────────────────────────────────────────────────────────────────
+    ApplyRepel {
+        name: String,
+        duration: f32,
+    },
+    ClearRepel {
+        name: String,
+    },
+    SetRepelPushForce {
+        name: String,
+        force: f32,
+    },
+    SetRepelRadius {
+        name: String,
+        radius: f32,
+    },
+    SetRepelEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Repose ───────────────────────────────────────────────────────────────
+    RestRepose {
+        name: String,
+        duration: f32,
+    },
+    RouseRepose {
+        name: String,
+    },
+    SetReposeRegenMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetReposeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Respawn ──────────────────────────────────────────────────────────────
+    SetRespawnDelay {
+        name: String,
+        delay: f32,
+    },
+    SetRespawnEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Retaliate ────────────────────────────────────────────────────────────
+    ChargeRetaliate {
+        name: String,
+    },
+    ClearRetaliate {
+        name: String,
+    },
+    SetRetaliateMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetRetaliateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Revenge ──────────────────────────────────────────────────────────────
+    ResetRevenge {
+        name: String,
+    },
+    SetRevengeMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetRevengeTriggerFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetRevengeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Reveal ───────────────────────────────────────────────────────────────
+    ActivateReveal {
+        name: String,
+        duration: f32,
+    },
+    DeactivateReveal {
+        name: String,
+    },
+    SetRevealRadius {
+        name: String,
+        radius: f32,
+    },
+    SetRevealEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Revive ───────────────────────────────────────────────────────────────
+    TakeDownRevive {
+        name: String,
+    },
+    BeginRevive {
+        name: String,
+    },
+    CancelRevive {
+        name: String,
+    },
+    SetReviveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Ricochet ─────────────────────────────────────────────────────────────
+    ResetRicochet {
+        name: String,
+    },
+    SetRicochetEnergyRetention {
+        name: String,
+        retention: f32,
+    },
+    SetRicochetMinDot {
+        name: String,
+        min_dot: f32,
+    },
+    SetRicochetEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rifle ────────────────────────────────────────────────────────────────
+    SetRifleMinRange {
+        name: String,
+        range: f32,
+    },
+    SetRiflePeakRange {
+        name: String,
+        range: f32,
+    },
+    SetRifleDamageBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetRiflePointBlankPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetRifleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rot ──────────────────────────────────────────────────────────────────
+    InfectRot {
+        name: String,
+    },
+    CleanseRot {
+        name: String,
+    },
+    RestoreRot {
+        name: String,
+    },
+    SetRotDecayRate {
+        name: String,
+        rate: f32,
+    },
+    SetRotEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rout ─────────────────────────────────────────────────────────────────
+    ApplyRout {
+        name: String,
+        duration: f32,
+    },
+    ClearRout {
+        name: String,
+    },
+    SetRoutFleeSpeedMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetRoutEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Rupture ──────────────────────────────────────────────────────────────
+    ApplyRupture {
+        name: String,
+        count: u32,
+    },
+    CleanseRupture {
+        name: String,
+        count: u32,
+    },
+    SetRuptureDamagePerStack {
+        name: String,
+        damage_per_stack: f32,
+    },
+    SetRuptureEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -4558,6 +4989,103 @@ thread_local! {
     pub(crate) static PULSE_SNAPSHOT: RefCell<
         HashMap<String, (u32, bool, f32, f32, f32, f32, f32, u32, bool, bool)>,
     > = RefCell::new(HashMap::new());
+    // entity name → (state, xp_reward, enabled)
+    pub(crate) static QUEST_SNAPSHOT: RefCell<HashMap<String, (u32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (range, scan_interval, scan_timer, enabled)
+    pub(crate) static RADAR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (phase, rage, max_rage, rage_per_damage, activation_threshold, damage_multiplier, defense_multiplier, just_entered_rage, just_left_rage, enabled)
+    pub(crate) static RAGE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, aura_radius, speed_bonus_fraction, damage_bonus_fraction, just_rallied, just_ended, enabled)
+    pub(crate) static RALLY_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, damage_per_stack, speed_per_stack, decay_interval, decay_timer, just_stacked, just_ended, enabled)
+    pub(crate) static RAMPAGE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (active, timer, damage_bonus, attack_speed_bonus, just_triggered, just_expired, enabled)
+    pub(crate) static RAVAGE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, leech_fraction, just_reaving, just_faded, enabled)
+    pub(crate) static REAVE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (rebound_coefficient, min_speed, last_rebound_speed, just_rebounded, enabled)
+    pub(crate) static REBOUND_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (current, max, rate, just_recharged, just_depleted, enabled)
+    pub(crate) static RECHARGE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage_bonus, defense_penalty, just_entered, just_exited, enabled)
+    pub(crate) static RECKLESS_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (is_alone, damage_bonus, defense_bonus, just_became_alone, just_joined_group, enabled)
+    pub(crate) static RECLUSE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (kick_force, angular_kick, recovery_speed, yaw_fraction, max_position_offset, max_angular_offset, enabled)
+    pub(crate) static RECOIL_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, f32, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (is_active, damage_multiplier, window_duration, window_timer, just_activated, just_reflected, just_closed, enabled)
+    pub(crate) static REFLECT_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (timer, just_triggered, just_evaded, just_missed, enabled)
+    pub(crate) static REFLEX_SNAPSHOT: RefCell<HashMap<String, (f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, push_force, radius, just_activated, just_deactivated, enabled)
+    pub(crate) static REPEL_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (active, timer, regen_multiplier, just_began, just_ended, enabled)
+    pub(crate) static REPOSE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state, delay, delay_timer, respawn_count, enabled)
+    pub(crate) static RESPAWN_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (multiplier, max_charges, charges, just_charged, just_consumed, enabled)
+    pub(crate) static RETALIATE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, u32, u32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, revenge_multiplier, trigger_fraction, triggered, just_triggered, just_ended, enabled)
+    pub(crate) static REVENGE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, radius, just_activated, just_expired, enabled)
+    pub(crate) static REVEAL_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state, down_duration, down_timer, revive_duration, revive_progress, revives_remaining, just_downed, just_revived, just_died, enabled)
+    pub(crate) static REVIVE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, u32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (max_bounces, bounces_remaining, energy_retention, min_dot, just_bounced, enabled)
+    pub(crate) static RICOCHET_SNAPSHOT: RefCell<
+        HashMap<String, (u32, u32, f32, f32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (min_range, peak_range, damage_bonus, point_blank_penalty, enabled)
+    pub(crate) static RIFLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (active, decay_rate, total_decayed, decay_cap, just_began, just_capped, enabled)
+    pub(crate) static ROT_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, flee_speed_multiplier, just_routed, just_recovered, enabled)
+    pub(crate) static ROUT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (stacks, max_stacks, damage_per_stack, just_maxed, enabled)
+    pub(crate) static RUPTURE_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -16019,7 +16547,7 @@ pub fn bsengine_is_just_jeered(#[string] name: String) -> bool {
 }
 
 #[op2(fast)]
-pub fn bsengine_is_just_rallied(#[string] name: String) -> bool {
+pub fn bsengine_is_jeer_just_rallied(#[string] name: String) -> bool {
     JEER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
 }
 
@@ -21979,6 +22507,1428 @@ pub fn bsengine_set_pulse_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+// ── Quest ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_quest_state(#[string] name: String) -> u32 {
+    QUEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_quest_xp_reward(#[string] name: String) -> f32 {
+    QUEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_quest_enabled(#[string] name: String) -> bool {
+    QUEST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_quest_xp_reward(#[string] name: String, xp_reward: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetQuestXpReward { name, xp_reward })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_quest_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetQuestEnabled { name, enabled })
+    });
+}
+
+// ── Radar ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_radar_range(#[string] name: String) -> f32 {
+    RADAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_radar_scan_interval(#[string] name: String) -> f32 {
+    RADAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_radar_scan_timer(#[string] name: String) -> f32 {
+    RADAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_radar_enabled(#[string] name: String) -> bool {
+    RADAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_radar_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRadarRange { name, range })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_radar_scan_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRadarScanInterval { name, interval })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_radar_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRadarEnabled { name, enabled })
+    });
+}
+
+// ── Rage ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rage_phase(#[string] name: String) -> u32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rage(#[string] name: String) -> f32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_rage(#[string] name: String) -> f32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rage_per_damage(#[string] name: String) -> f32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rage_activation_threshold(#[string] name: String) -> f32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rage_damage_multiplier(#[string] name: String) -> f32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rage_defense_multiplier(#[string] name: String) -> f32 {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_entered_rage(#[string] name: String) -> bool {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_left_rage(#[string] name: String) -> bool {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rage_enabled(#[string] name: String) -> bool {
+    RAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_max_rage(#[string] name: String, max_rage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetMaxRage { name, max_rage })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rage_per_damage(#[string] name: String, rage_per_damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetRagePerDamage {
+            name,
+            rage_per_damage,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rage_activation_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRageActivationThreshold { name, threshold })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rage_damage_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRageDamageMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rage_defense_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRageDefenseMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rage_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRageEnabled { name, enabled })
+    });
+}
+
+// ── Rally ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rally_duration(#[string] name: String) -> f32 {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rally_timer(#[string] name: String) -> f32 {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rally_aura_radius(#[string] name: String) -> f32 {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rally_speed_bonus_fraction(#[string] name: String) -> f32 {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rally_damage_bonus_fraction(#[string] name: String) -> f32 {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_rallied(#[string] name: String) -> bool {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rally_just_ended(#[string] name: String) -> bool {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rally_enabled(#[string] name: String) -> bool {
+    RALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_call_rally(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CallRally { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dismiss_rally(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DismissRally { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_rally_aura_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRallyAuraRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rally_speed_bonus_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRallySpeedBonusFraction { name, fraction })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rally_damage_bonus_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRallyDamageBonusFraction { name, fraction })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rally_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRallyEnabled { name, enabled })
+    });
+}
+
+// ── Rampage ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rampage_stacks(#[string] name: String) -> u32 {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rampage_max_stacks(#[string] name: String) -> u32 {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rampage_damage_per_stack(#[string] name: String) -> f32 {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rampage_speed_per_stack(#[string] name: String) -> f32 {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rampage_decay_interval(#[string] name: String) -> f32 {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rampage_decay_timer(#[string] name: String) -> f32 {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_rampage_just_stacked(#[string] name: String) -> bool {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rampage_just_ended(#[string] name: String) -> bool {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rampage_enabled(#[string] name: String) -> bool {
+    RAMPAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rampage_kill(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RampageKill { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_rampage_damage_per_stack(#[string] name: String, damage_per_stack: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRampageDamagePerStack {
+                name,
+                damage_per_stack,
+            })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rampage_speed_per_stack(#[string] name: String, speed_per_stack: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetRampageSpeedPerStack {
+            name,
+            speed_per_stack,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rampage_decay_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRampageDecayInterval { name, interval })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rampage_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRampageEnabled { name, enabled })
+    });
+}
+
+// ── Ravage ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_ravage_active(#[string] name: String) -> bool {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_ravage_timer(#[string] name: String) -> f32 {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ravage_damage_bonus(#[string] name: String) -> f32 {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ravage_attack_speed_bonus(#[string] name: String) -> f32 {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ravage_just_triggered(#[string] name: String) -> bool {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ravage_just_expired(#[string] name: String) -> bool {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ravage_enabled(#[string] name: String) -> bool {
+    RAVAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_trigger_ravage(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TriggerRavage { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ravage_damage_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRavageDamageBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ravage_attack_speed_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRavageAttackSpeedBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ravage_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRavageEnabled { name, enabled })
+    });
+}
+
+// ── Reave ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_reave_duration(#[string] name: String) -> f32 {
+    REAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reave_timer(#[string] name: String) -> f32 {
+    REAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reave_leech_fraction(#[string] name: String) -> f32 {
+    REAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_reave_just_reaving(#[string] name: String) -> bool {
+    REAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reave_just_faded(#[string] name: String) -> bool {
+    REAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reave_enabled(#[string] name: String) -> bool {
+    REAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_reave(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyReave { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_reave(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearReave { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_reave_lech_fraction(#[string] name: String, leech_fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetReaveLechFraction {
+            name,
+            leech_fraction,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reave_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReaveEnabled { name, enabled })
+    });
+}
+
+// ── Rebound ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rebound_coefficient(#[string] name: String) -> f32 {
+    REBOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rebound_min_speed(#[string] name: String) -> f32 {
+    REBOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rebound_last_speed(#[string] name: String) -> f32 {
+    REBOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_rebound_just_rebounded(#[string] name: String) -> bool {
+    REBOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rebound_enabled(#[string] name: String) -> bool {
+    REBOUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_rebound_coefficient(#[string] name: String, coefficient: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReboundCoefficient { name, coefficient })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rebound_min_speed(#[string] name: String, min_speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReboundMinSpeed { name, min_speed })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rebound_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReboundEnabled { name, enabled })
+    });
+}
+
+// ── Recharge ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_recharge_current(#[string] name: String) -> f32 {
+    RECHARGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recharge_max(#[string] name: String) -> f32 {
+    RECHARGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recharge_rate(#[string] name: String) -> f32 {
+    RECHARGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_recharge_just_recharged(#[string] name: String) -> bool {
+    RECHARGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_recharge_just_depleted(#[string] name: String) -> bool {
+    RECHARGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_recharge_enabled(#[string] name: String) -> bool {
+    RECHARGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_recharge_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRechargeRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recharge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRechargeEnabled { name, enabled })
+    });
+}
+
+// ── Reckless ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_reckless_duration(#[string] name: String) -> f32 {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reckless_timer(#[string] name: String) -> f32 {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reckless_damage_bonus(#[string] name: String) -> f32 {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reckless_defense_penalty(#[string] name: String) -> f32 {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_reckless_just_entered(#[string] name: String) -> bool {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reckless_just_exited(#[string] name: String) -> bool {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reckless_enabled(#[string] name: String) -> bool {
+    RECKLESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_reckless(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChargeReckless { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_snap_out_reckless(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SnapOutReckless { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_reckless_damage_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecklessDamageBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reckless_defense_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecklessDefensePenalty { name, penalty })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reckless_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecklessEnabled { name, enabled })
+    });
+}
+
+// ── Recluse ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_recluse_alone(#[string] name: String) -> bool {
+    RECLUSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_recluse_damage_bonus(#[string] name: String) -> f32 {
+    RECLUSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recluse_defense_bonus(#[string] name: String) -> f32 {
+    RECLUSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_recluse_just_became_alone(#[string] name: String) -> bool {
+    RECLUSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_recluse_just_joined_group(#[string] name: String) -> bool {
+    RECLUSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_recluse_enabled(#[string] name: String) -> bool {
+    RECLUSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_recluse_alone(#[string] name: String, alone: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecluseAlone { name, alone })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recluse_damage_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecluseDamageBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recluse_defense_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecluseDefenseBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recluse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecluseEnabled { name, enabled })
+    });
+}
+
+// ── Recoil ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_recoil_kick_force(#[string] name: String) -> f32 {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recoil_angular_kick(#[string] name: String) -> f32 {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recoil_recovery_speed(#[string] name: String) -> f32 {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recoil_yaw_fraction(#[string] name: String) -> f32 {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recoil_max_position_offset(#[string] name: String) -> f32 {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recoil_max_angular_offset(#[string] name: String) -> f32 {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_recoil_enabled(#[string] name: String) -> bool {
+    RECOIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_kick_recoil(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::KickRecoil { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_recoil(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetRecoil { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_recoil_kick_force(#[string] name: String, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecoilKickForce { name, force })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recoil_angular_kick(#[string] name: String, angular_kick: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecoilAngularKick { name, angular_kick })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recoil_recovery_speed(#[string] name: String, speed: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecoilRecoverySpeed { name, speed })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_recoil_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRecoilEnabled { name, enabled })
+    });
+}
+
+// ── Reflect ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_reflect_active(#[string] name: String) -> bool {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_reflect_damage_multiplier(#[string] name: String) -> f32 {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reflect_window_duration(#[string] name: String) -> f32 {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reflect_window_timer(#[string] name: String) -> f32 {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflect_just_activated(#[string] name: String) -> bool {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflect_just_reflected(#[string] name: String) -> bool {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflect_just_closed(#[string] name: String) -> bool {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflect_enabled(#[string] name: String) -> bool {
+    REFLECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_reflect(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateReflect { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_reflect(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeactivateReflect { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reflect_damage_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReflectDamageMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reflect_window_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReflectWindowDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reflect_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReflectEnabled { name, enabled })
+    });
+}
+
+// ── Reflex ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_reflex_timer(#[string] name: String) -> f32 {
+    REFLEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflex_just_triggered(#[string] name: String) -> bool {
+    REFLEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflex_just_evaded(#[string] name: String) -> bool {
+    REFLEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflex_just_missed(#[string] name: String) -> bool {
+    REFLEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reflex_enabled(#[string] name: String) -> bool {
+    REFLEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_trigger_reflex(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TriggerReflex { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_evade_reflex(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EvadeReflex { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_reflex_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReflexEnabled { name, enabled })
+    });
+}
+
+// ── Repel ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_repel_duration(#[string] name: String) -> f32 {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_repel_timer(#[string] name: String) -> f32 {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_repel_push_force(#[string] name: String) -> f32 {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_repel_radius(#[string] name: String) -> f32 {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_repel_just_activated(#[string] name: String) -> bool {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_repel_just_deactivated(#[string] name: String) -> bool {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_repel_enabled(#[string] name: String) -> bool {
+    REPEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_repel(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyRepel { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_repel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearRepel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_repel_push_force(#[string] name: String, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRepelPushForce { name, force })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_repel_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRepelRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_repel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRepelEnabled { name, enabled })
+    });
+}
+
+// ── Repose ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_repose_active(#[string] name: String) -> bool {
+    REPOSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_repose_timer(#[string] name: String) -> f32 {
+    REPOSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_repose_regen_multiplier(#[string] name: String) -> f32 {
+    REPOSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_repose_just_began(#[string] name: String) -> bool {
+    REPOSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_repose_just_ended(#[string] name: String) -> bool {
+    REPOSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_repose_enabled(#[string] name: String) -> bool {
+    REPOSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rest_repose(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestRepose { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_rouse_repose(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RouseRepose { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_repose_regen_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReposeRegenMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_repose_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReposeEnabled { name, enabled })
+    });
+}
+
+// ── Respawn ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_respawn_state(#[string] name: String) -> u32 {
+    RESPAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_respawn_delay(#[string] name: String) -> f32 {
+    RESPAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_respawn_delay_timer(#[string] name: String) -> f32 {
+    RESPAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_respawn_count(#[string] name: String) -> u32 {
+    RESPAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_respawn_enabled(#[string] name: String) -> bool {
+    RESPAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_respawn_delay(#[string] name: String, delay: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRespawnDelay { name, delay })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_respawn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRespawnEnabled { name, enabled })
+    });
+}
+
+// ── Retaliate ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_retaliate_multiplier(#[string] name: String) -> f32 {
+    RETALIATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_retaliate_max_charges(#[string] name: String) -> u32 {
+    RETALIATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_retaliate_charges(#[string] name: String) -> u32 {
+    RETALIATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_retaliate_just_charged(#[string] name: String) -> bool {
+    RETALIATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_retaliate_just_consumed(#[string] name: String) -> bool {
+    RETALIATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_retaliate_enabled(#[string] name: String) -> bool {
+    RETALIATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_retaliate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ChargeRetaliate { name }));
+}
+#[op2(fast)]
+pub fn bsengine_clear_retaliate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearRetaliate { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_retaliate_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRetaliateMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_retaliate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRetaliateEnabled { name, enabled })
+    });
+}
+
+// ── Revenge ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_revenge_duration(#[string] name: String) -> f32 {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revenge_timer(#[string] name: String) -> f32 {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revenge_multiplier(#[string] name: String) -> f32 {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revenge_trigger_fraction(#[string] name: String) -> f32 {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_revenge_triggered(#[string] name: String) -> bool {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_revenge_just_triggered(#[string] name: String) -> bool {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_revenge_just_ended(#[string] name: String) -> bool {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_revenge_enabled(#[string] name: String) -> bool {
+    REVENGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_reset_revenge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetRevenge { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_revenge_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRevengeMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_revenge_trigger_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRevengeTriggerFraction { name, fraction })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_revenge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRevengeEnabled { name, enabled })
+    });
+}
+
+// ── Reveal ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_reveal_duration(#[string] name: String) -> f32 {
+    REVEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reveal_timer(#[string] name: String) -> f32 {
+    REVEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_reveal_radius(#[string] name: String) -> f32 {
+    REVEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_reveal_just_activated(#[string] name: String) -> bool {
+    REVEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reveal_just_expired(#[string] name: String) -> bool {
+    REVEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_reveal_enabled(#[string] name: String) -> bool {
+    REVEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_reveal(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ActivateReveal { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_reveal(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeactivateReveal { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reveal_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRevealRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_reveal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRevealEnabled { name, enabled })
+    });
+}
+
+// ── Revive ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_revive_state(#[string] name: String) -> u32 {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revive_down_duration(#[string] name: String) -> f32 {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revive_down_timer(#[string] name: String) -> f32 {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revive_duration(#[string] name: String) -> f32 {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revive_progress(#[string] name: String) -> f32 {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_revives_remaining(#[string] name: String) -> u32 {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_revive_just_downed(#[string] name: String) -> bool {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_revive_just_revived(#[string] name: String) -> bool {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_revive_just_died(#[string] name: String) -> bool {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_revive_enabled(#[string] name: String) -> bool {
+    REVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_take_down_revive(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TakeDownRevive { name }));
+}
+#[op2(fast)]
+pub fn bsengine_begin_revive(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginRevive { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cancel_revive(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CancelRevive { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_revive_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetReviveEnabled { name, enabled })
+    });
+}
+
+// ── Ricochet ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_ricochet_max_bounces(#[string] name: String) -> u32 {
+    RICOCHET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ricochet_bounces_remaining(#[string] name: String) -> u32 {
+    RICOCHET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ricochet_energy_retention(#[string] name: String) -> f32 {
+    RICOCHET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ricochet_min_dot(#[string] name: String) -> f32 {
+    RICOCHET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ricochet_just_bounced(#[string] name: String) -> bool {
+    RICOCHET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ricochet_enabled(#[string] name: String) -> bool {
+    RICOCHET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_reset_ricochet(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetRicochet { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_ricochet_energy_retention(#[string] name: String, retention: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRicochetEnergyRetention { name, retention })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ricochet_min_dot(#[string] name: String, min_dot: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRicochetMinDot { name, min_dot })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ricochet_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRicochetEnabled { name, enabled })
+    });
+}
+
+// ── Rifle ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rifle_min_range(#[string] name: String) -> f32 {
+    RIFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rifle_peak_range(#[string] name: String) -> f32 {
+    RIFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rifle_damage_bonus(#[string] name: String) -> f32 {
+    RIFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rifle_point_blank_penalty(#[string] name: String) -> f32 {
+    RIFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_rifle_enabled(#[string] name: String) -> bool {
+    RIFLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_rifle_min_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRifleMinRange { name, range })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rifle_peak_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRiflePeakRange { name, range })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rifle_damage_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRifleDamageBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rifle_point_blank_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRiflePointBlankPenalty { name, penalty })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rifle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRifleEnabled { name, enabled })
+    });
+}
+
+// ── Rot ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_rot_active(#[string] name: String) -> bool {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_rot_decay_rate(#[string] name: String) -> f32 {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rot_total_decayed(#[string] name: String) -> f32 {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rot_decay_cap(#[string] name: String) -> f32 {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_rot_just_began(#[string] name: String) -> bool {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rot_just_capped(#[string] name: String) -> bool {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rot_enabled(#[string] name: String) -> bool {
+    ROT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_infect_rot(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::InfectRot { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_rot(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CleanseRot { name }));
+}
+#[op2(fast)]
+pub fn bsengine_restore_rot(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RestoreRot { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_rot_decay_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRotDecayRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rot_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRotEnabled { name, enabled })
+    });
+}
+
+// ── Rout ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rout_duration(#[string] name: String) -> f32 {
+    ROUT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rout_timer(#[string] name: String) -> f32 {
+    ROUT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rout_flee_speed_multiplier(#[string] name: String) -> f32 {
+    ROUT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_rout_just_routed(#[string] name: String) -> bool {
+    ROUT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rout_just_recovered(#[string] name: String) -> bool {
+    ROUT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rout_enabled(#[string] name: String) -> bool {
+    ROUT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_rout(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyRout { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_rout(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearRout { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_rout_flee_speed_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRoutFleeSpeedMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rout_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRoutEnabled { name, enabled })
+    });
+}
+
+// ── Rupture ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_rupture_stacks(#[string] name: String) -> u32 {
+    RUPTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rupture_max_stacks(#[string] name: String) -> u32 {
+    RUPTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_rupture_damage_per_stack(#[string] name: String) -> f32 {
+    RUPTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_rupture_just_maxed(#[string] name: String) -> bool {
+    RUPTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_rupture_enabled(#[string] name: String) -> bool {
+    RUPTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_rupture(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyRupture { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_rupture(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CleanseRupture { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rupture_damage_per_stack(#[string] name: String, damage_per_stack: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRuptureDamagePerStack {
+                name,
+                damage_per_stack,
+            })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_rupture_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetRuptureEnabled { name, enabled })
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -23632,7 +25582,7 @@ deno_core::extension!(
         bsengine_get_jeer_damage_fraction,
         bsengine_is_jeered,
         bsengine_is_just_jeered,
-        bsengine_is_just_rallied,
+        bsengine_is_jeer_just_rallied,
         bsengine_is_jeer_enabled,
         bsengine_apply_jeer,
         bsengine_clear_jeer,
@@ -24561,6 +26511,281 @@ deno_core::extension!(
         bsengine_set_pulse_interval,
         bsengine_set_pulse_falloff,
         bsengine_set_pulse_enabled,
+        bsengine_get_quest_state,
+        bsengine_get_quest_xp_reward,
+        bsengine_is_quest_enabled,
+        bsengine_set_quest_xp_reward,
+        bsengine_set_quest_enabled,
+        bsengine_get_radar_range,
+        bsengine_get_radar_scan_interval,
+        bsengine_get_radar_scan_timer,
+        bsengine_is_radar_enabled,
+        bsengine_set_radar_range,
+        bsengine_set_radar_scan_interval,
+        bsengine_set_radar_enabled,
+        bsengine_get_rage_phase,
+        bsengine_get_rage,
+        bsengine_get_max_rage,
+        bsengine_get_rage_per_damage,
+        bsengine_get_rage_activation_threshold,
+        bsengine_get_rage_damage_multiplier,
+        bsengine_get_rage_defense_multiplier,
+        bsengine_is_just_entered_rage,
+        bsengine_is_just_left_rage,
+        bsengine_is_rage_enabled,
+        bsengine_set_max_rage,
+        bsengine_set_rage_per_damage,
+        bsengine_set_rage_activation_threshold,
+        bsengine_set_rage_damage_multiplier,
+        bsengine_set_rage_defense_multiplier,
+        bsengine_set_rage_enabled,
+        bsengine_get_rally_duration,
+        bsengine_get_rally_timer,
+        bsengine_get_rally_aura_radius,
+        bsengine_get_rally_speed_bonus_fraction,
+        bsengine_get_rally_damage_bonus_fraction,
+        bsengine_is_just_rallied,
+        bsengine_is_rally_just_ended,
+        bsengine_is_rally_enabled,
+        bsengine_call_rally,
+        bsengine_dismiss_rally,
+        bsengine_set_rally_aura_radius,
+        bsengine_set_rally_speed_bonus_fraction,
+        bsengine_set_rally_damage_bonus_fraction,
+        bsengine_set_rally_enabled,
+        bsengine_get_rampage_stacks,
+        bsengine_get_rampage_max_stacks,
+        bsengine_get_rampage_damage_per_stack,
+        bsengine_get_rampage_speed_per_stack,
+        bsengine_get_rampage_decay_interval,
+        bsengine_get_rampage_decay_timer,
+        bsengine_is_rampage_just_stacked,
+        bsengine_is_rampage_just_ended,
+        bsengine_is_rampage_enabled,
+        bsengine_rampage_kill,
+        bsengine_set_rampage_damage_per_stack,
+        bsengine_set_rampage_speed_per_stack,
+        bsengine_set_rampage_decay_interval,
+        bsengine_set_rampage_enabled,
+        bsengine_is_ravage_active,
+        bsengine_get_ravage_timer,
+        bsengine_get_ravage_damage_bonus,
+        bsengine_get_ravage_attack_speed_bonus,
+        bsengine_is_ravage_just_triggered,
+        bsengine_is_ravage_just_expired,
+        bsengine_is_ravage_enabled,
+        bsengine_trigger_ravage,
+        bsengine_set_ravage_damage_bonus,
+        bsengine_set_ravage_attack_speed_bonus,
+        bsengine_set_ravage_enabled,
+        bsengine_get_reave_duration,
+        bsengine_get_reave_timer,
+        bsengine_get_reave_leech_fraction,
+        bsengine_is_reave_just_reaving,
+        bsengine_is_reave_just_faded,
+        bsengine_is_reave_enabled,
+        bsengine_apply_reave,
+        bsengine_clear_reave,
+        bsengine_set_reave_lech_fraction,
+        bsengine_set_reave_enabled,
+        bsengine_get_rebound_coefficient,
+        bsengine_get_rebound_min_speed,
+        bsengine_get_rebound_last_speed,
+        bsengine_is_rebound_just_rebounded,
+        bsengine_is_rebound_enabled,
+        bsengine_set_rebound_coefficient,
+        bsengine_set_rebound_min_speed,
+        bsengine_set_rebound_enabled,
+        bsengine_get_recharge_current,
+        bsengine_get_recharge_max,
+        bsengine_get_recharge_rate,
+        bsengine_is_recharge_just_recharged,
+        bsengine_is_recharge_just_depleted,
+        bsengine_is_recharge_enabled,
+        bsengine_set_recharge_rate,
+        bsengine_set_recharge_enabled,
+        bsengine_get_reckless_duration,
+        bsengine_get_reckless_timer,
+        bsengine_get_reckless_damage_bonus,
+        bsengine_get_reckless_defense_penalty,
+        bsengine_is_reckless_just_entered,
+        bsengine_is_reckless_just_exited,
+        bsengine_is_reckless_enabled,
+        bsengine_charge_reckless,
+        bsengine_snap_out_reckless,
+        bsengine_set_reckless_damage_bonus,
+        bsengine_set_reckless_defense_penalty,
+        bsengine_set_reckless_enabled,
+        bsengine_is_recluse_alone,
+        bsengine_get_recluse_damage_bonus,
+        bsengine_get_recluse_defense_bonus,
+        bsengine_is_recluse_just_became_alone,
+        bsengine_is_recluse_just_joined_group,
+        bsengine_is_recluse_enabled,
+        bsengine_set_recluse_alone,
+        bsengine_set_recluse_damage_bonus,
+        bsengine_set_recluse_defense_bonus,
+        bsengine_set_recluse_enabled,
+        bsengine_get_recoil_kick_force,
+        bsengine_get_recoil_angular_kick,
+        bsengine_get_recoil_recovery_speed,
+        bsengine_get_recoil_yaw_fraction,
+        bsengine_get_recoil_max_position_offset,
+        bsengine_get_recoil_max_angular_offset,
+        bsengine_is_recoil_enabled,
+        bsengine_kick_recoil,
+        bsengine_reset_recoil,
+        bsengine_set_recoil_kick_force,
+        bsengine_set_recoil_angular_kick,
+        bsengine_set_recoil_recovery_speed,
+        bsengine_set_recoil_enabled,
+        bsengine_is_reflect_active,
+        bsengine_get_reflect_damage_multiplier,
+        bsengine_get_reflect_window_duration,
+        bsengine_get_reflect_window_timer,
+        bsengine_is_reflect_just_activated,
+        bsengine_is_reflect_just_reflected,
+        bsengine_is_reflect_just_closed,
+        bsengine_is_reflect_enabled,
+        bsengine_activate_reflect,
+        bsengine_deactivate_reflect,
+        bsengine_set_reflect_damage_multiplier,
+        bsengine_set_reflect_window_duration,
+        bsengine_set_reflect_enabled,
+        bsengine_get_reflex_timer,
+        bsengine_is_reflex_just_triggered,
+        bsengine_is_reflex_just_evaded,
+        bsengine_is_reflex_just_missed,
+        bsengine_is_reflex_enabled,
+        bsengine_trigger_reflex,
+        bsengine_evade_reflex,
+        bsengine_set_reflex_enabled,
+        bsengine_get_repel_duration,
+        bsengine_get_repel_timer,
+        bsengine_get_repel_push_force,
+        bsengine_get_repel_radius,
+        bsengine_is_repel_just_activated,
+        bsengine_is_repel_just_deactivated,
+        bsengine_is_repel_enabled,
+        bsengine_apply_repel,
+        bsengine_clear_repel,
+        bsengine_set_repel_push_force,
+        bsengine_set_repel_radius,
+        bsengine_set_repel_enabled,
+        bsengine_is_repose_active,
+        bsengine_get_repose_timer,
+        bsengine_get_repose_regen_multiplier,
+        bsengine_is_repose_just_began,
+        bsengine_is_repose_just_ended,
+        bsengine_is_repose_enabled,
+        bsengine_rest_repose,
+        bsengine_rouse_repose,
+        bsengine_set_repose_regen_multiplier,
+        bsengine_set_repose_enabled,
+        bsengine_get_respawn_state,
+        bsengine_get_respawn_delay,
+        bsengine_get_respawn_delay_timer,
+        bsengine_get_respawn_count,
+        bsengine_is_respawn_enabled,
+        bsengine_set_respawn_delay,
+        bsengine_set_respawn_enabled,
+        bsengine_get_retaliate_multiplier,
+        bsengine_get_retaliate_max_charges,
+        bsengine_get_retaliate_charges,
+        bsengine_is_retaliate_just_charged,
+        bsengine_is_retaliate_just_consumed,
+        bsengine_is_retaliate_enabled,
+        bsengine_charge_retaliate,
+        bsengine_clear_retaliate,
+        bsengine_set_retaliate_multiplier,
+        bsengine_set_retaliate_enabled,
+        bsengine_get_revenge_duration,
+        bsengine_get_revenge_timer,
+        bsengine_get_revenge_multiplier,
+        bsengine_get_revenge_trigger_fraction,
+        bsengine_is_revenge_triggered,
+        bsengine_is_revenge_just_triggered,
+        bsengine_is_revenge_just_ended,
+        bsengine_is_revenge_enabled,
+        bsengine_reset_revenge,
+        bsengine_set_revenge_multiplier,
+        bsengine_set_revenge_trigger_fraction,
+        bsengine_set_revenge_enabled,
+        bsengine_get_reveal_duration,
+        bsengine_get_reveal_timer,
+        bsengine_get_reveal_radius,
+        bsengine_is_reveal_just_activated,
+        bsengine_is_reveal_just_expired,
+        bsengine_is_reveal_enabled,
+        bsengine_activate_reveal,
+        bsengine_deactivate_reveal,
+        bsengine_set_reveal_radius,
+        bsengine_set_reveal_enabled,
+        bsengine_get_revive_state,
+        bsengine_get_revive_down_duration,
+        bsengine_get_revive_down_timer,
+        bsengine_get_revive_duration,
+        bsengine_get_revive_progress,
+        bsengine_get_revives_remaining,
+        bsengine_is_revive_just_downed,
+        bsengine_is_revive_just_revived,
+        bsengine_is_revive_just_died,
+        bsengine_is_revive_enabled,
+        bsengine_take_down_revive,
+        bsengine_begin_revive,
+        bsengine_cancel_revive,
+        bsengine_set_revive_enabled,
+        bsengine_get_ricochet_max_bounces,
+        bsengine_get_ricochet_bounces_remaining,
+        bsengine_get_ricochet_energy_retention,
+        bsengine_get_ricochet_min_dot,
+        bsengine_is_ricochet_just_bounced,
+        bsengine_is_ricochet_enabled,
+        bsengine_reset_ricochet,
+        bsengine_set_ricochet_energy_retention,
+        bsengine_set_ricochet_min_dot,
+        bsengine_set_ricochet_enabled,
+        bsengine_get_rifle_min_range,
+        bsengine_get_rifle_peak_range,
+        bsengine_get_rifle_damage_bonus,
+        bsengine_get_rifle_point_blank_penalty,
+        bsengine_is_rifle_enabled,
+        bsengine_set_rifle_min_range,
+        bsengine_set_rifle_peak_range,
+        bsengine_set_rifle_damage_bonus,
+        bsengine_set_rifle_point_blank_penalty,
+        bsengine_set_rifle_enabled,
+        bsengine_is_rot_active,
+        bsengine_get_rot_decay_rate,
+        bsengine_get_rot_total_decayed,
+        bsengine_get_rot_decay_cap,
+        bsengine_is_rot_just_began,
+        bsengine_is_rot_just_capped,
+        bsengine_is_rot_enabled,
+        bsengine_infect_rot,
+        bsengine_cleanse_rot,
+        bsengine_restore_rot,
+        bsengine_set_rot_decay_rate,
+        bsengine_set_rot_enabled,
+        bsengine_get_rout_duration,
+        bsengine_get_rout_timer,
+        bsengine_get_rout_flee_speed_multiplier,
+        bsengine_is_rout_just_routed,
+        bsengine_is_rout_just_recovered,
+        bsengine_is_rout_enabled,
+        bsengine_apply_rout,
+        bsengine_clear_rout,
+        bsengine_set_rout_flee_speed_multiplier,
+        bsengine_set_rout_enabled,
+        bsengine_get_rupture_stacks,
+        bsengine_get_rupture_max_stacks,
+        bsengine_get_rupture_damage_per_stack,
+        bsengine_is_rupture_just_maxed,
+        bsengine_is_rupture_enabled,
+        bsengine_apply_rupture,
+        bsengine_cleanse_rupture,
+        bsengine_set_rupture_damage_per_stack,
+        bsengine_set_rupture_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -26313,7 +28538,7 @@ const Bsengine = {
     getJeerDamageFraction:         (name)           => Deno.core.ops.bsengine_get_jeer_damage_fraction(name),
     isJeered:                      (name)           => Deno.core.ops.bsengine_is_jeered(name),
     isJustJeered:                  (name)           => Deno.core.ops.bsengine_is_just_jeered(name),
-    isJustRallied:                 (name)           => Deno.core.ops.bsengine_is_just_rallied(name),
+    isJustRallied:                 (name)           => Deno.core.ops.bsengine_is_jeer_just_rallied(name),
     isJeerEnabled:                 (name)           => Deno.core.ops.bsengine_is_jeer_enabled(name),
     applyJeer:                     (name, dur)      => Deno.core.ops.bsengine_apply_jeer(name, dur),
     clearJeer:                     (name)           => Deno.core.ops.bsengine_clear_jeer(name),
@@ -27306,6 +29531,307 @@ const Bsengine = {
     setPulseInterval:              (name, i)        => Deno.core.ops.bsengine_set_pulse_interval(name, i),
     setPulseFalloff:               (name, f)        => Deno.core.ops.bsengine_set_pulse_falloff(name, f),
     setPulseEnabled:               (name, en)       => Deno.core.ops.bsengine_set_pulse_enabled(name, en),
+
+    getQuestState:                 (name)           => Deno.core.ops.bsengine_get_quest_state(name),
+    getQuestXpReward:              (name)           => Deno.core.ops.bsengine_get_quest_xp_reward(name),
+    isQuestEnabled:                (name)           => Deno.core.ops.bsengine_is_quest_enabled(name),
+    setQuestXpReward:              (name, v)        => Deno.core.ops.bsengine_set_quest_xp_reward(name, v),
+    setQuestEnabled:               (name, en)       => Deno.core.ops.bsengine_set_quest_enabled(name, en),
+
+    getRadarRange:                 (name)           => Deno.core.ops.bsengine_get_radar_range(name),
+    getRadarScanInterval:          (name)           => Deno.core.ops.bsengine_get_radar_scan_interval(name),
+    getRadarScanTimer:             (name)           => Deno.core.ops.bsengine_get_radar_scan_timer(name),
+    isRadarEnabled:                (name)           => Deno.core.ops.bsengine_is_radar_enabled(name),
+    setRadarRange:                 (name, v)        => Deno.core.ops.bsengine_set_radar_range(name, v),
+    setRadarScanInterval:          (name, v)        => Deno.core.ops.bsengine_set_radar_scan_interval(name, v),
+    setRadarEnabled:               (name, en)       => Deno.core.ops.bsengine_set_radar_enabled(name, en),
+
+    getRagePhase:                  (name)           => Deno.core.ops.bsengine_get_rage_phase(name),
+    getRage:                       (name)           => Deno.core.ops.bsengine_get_rage(name),
+    getMaxRage:                    (name)           => Deno.core.ops.bsengine_get_max_rage(name),
+    getRagePerDamage:              (name)           => Deno.core.ops.bsengine_get_rage_per_damage(name),
+    getRageActivationThreshold:    (name)           => Deno.core.ops.bsengine_get_rage_activation_threshold(name),
+    getRageDamageMultiplier:       (name)           => Deno.core.ops.bsengine_get_rage_damage_multiplier(name),
+    getRageDefenseMultiplier:      (name)           => Deno.core.ops.bsengine_get_rage_defense_multiplier(name),
+    isJustEnteredRage:             (name)           => Deno.core.ops.bsengine_is_just_entered_rage(name),
+    isJustLeftRage:                (name)           => Deno.core.ops.bsengine_is_just_left_rage(name),
+    isRageEnabled:                 (name)           => Deno.core.ops.bsengine_is_rage_enabled(name),
+    setMaxRage:                    (name, v)        => Deno.core.ops.bsengine_set_max_rage(name, v),
+    setRagePerDamage:              (name, v)        => Deno.core.ops.bsengine_set_rage_per_damage(name, v),
+    setRageActivationThreshold:    (name, v)        => Deno.core.ops.bsengine_set_rage_activation_threshold(name, v),
+    setRageDamageMultiplier:       (name, v)        => Deno.core.ops.bsengine_set_rage_damage_multiplier(name, v),
+    setRageDefenseMultiplier:      (name, v)        => Deno.core.ops.bsengine_set_rage_defense_multiplier(name, v),
+    setRageEnabled:                (name, en)       => Deno.core.ops.bsengine_set_rage_enabled(name, en),
+
+    getRallyDuration:              (name)           => Deno.core.ops.bsengine_get_rally_duration(name),
+    getRallyTimer:                 (name)           => Deno.core.ops.bsengine_get_rally_timer(name),
+    getRallyAuraRadius:            (name)           => Deno.core.ops.bsengine_get_rally_aura_radius(name),
+    getRallySpeedBonusFraction:    (name)           => Deno.core.ops.bsengine_get_rally_speed_bonus_fraction(name),
+    getRallyDamageBonusFraction:   (name)           => Deno.core.ops.bsengine_get_rally_damage_bonus_fraction(name),
+    isJustRallied:                 (name)           => Deno.core.ops.bsengine_is_just_rallied(name),
+    isRallyJustEnded:              (name)           => Deno.core.ops.bsengine_is_rally_just_ended(name),
+    isRallyEnabled:                (name)           => Deno.core.ops.bsengine_is_rally_enabled(name),
+    callRally:                     (name, dur)      => Deno.core.ops.bsengine_call_rally(name, dur),
+    dismissRally:                  (name)           => Deno.core.ops.bsengine_dismiss_rally(name),
+    setRallyAuraRadius:            (name, v)        => Deno.core.ops.bsengine_set_rally_aura_radius(name, v),
+    setRallySpeedBonusFraction:    (name, v)        => Deno.core.ops.bsengine_set_rally_speed_bonus_fraction(name, v),
+    setRallyDamageBonusFraction:   (name, v)        => Deno.core.ops.bsengine_set_rally_damage_bonus_fraction(name, v),
+    setRallyEnabled:               (name, en)       => Deno.core.ops.bsengine_set_rally_enabled(name, en),
+
+    getRampageStacks:              (name)           => Deno.core.ops.bsengine_get_rampage_stacks(name),
+    getRampageMaxStacks:           (name)           => Deno.core.ops.bsengine_get_rampage_max_stacks(name),
+    getRampageDamagePerStack:      (name)           => Deno.core.ops.bsengine_get_rampage_damage_per_stack(name),
+    getRampageSpeedPerStack:       (name)           => Deno.core.ops.bsengine_get_rampage_speed_per_stack(name),
+    getRampageDecayInterval:       (name)           => Deno.core.ops.bsengine_get_rampage_decay_interval(name),
+    getRampageDecayTimer:          (name)           => Deno.core.ops.bsengine_get_rampage_decay_timer(name),
+    isRampageJustStacked:          (name)           => Deno.core.ops.bsengine_is_rampage_just_stacked(name),
+    isRampageJustEnded:            (name)           => Deno.core.ops.bsengine_is_rampage_just_ended(name),
+    isRampageEnabled:              (name)           => Deno.core.ops.bsengine_is_rampage_enabled(name),
+    rampageKill:                   (name)           => Deno.core.ops.bsengine_rampage_kill(name),
+    setRampageDamagePerStack:      (name, v)        => Deno.core.ops.bsengine_set_rampage_damage_per_stack(name, v),
+    setRampageSpeedPerStack:       (name, v)        => Deno.core.ops.bsengine_set_rampage_speed_per_stack(name, v),
+    setRampageDecayInterval:       (name, v)        => Deno.core.ops.bsengine_set_rampage_decay_interval(name, v),
+    setRampageEnabled:             (name, en)       => Deno.core.ops.bsengine_set_rampage_enabled(name, en),
+
+    isRavageActive:                (name)           => Deno.core.ops.bsengine_is_ravage_active(name),
+    getRavageTimer:                (name)           => Deno.core.ops.bsengine_get_ravage_timer(name),
+    getRavageDamageBonus:          (name)           => Deno.core.ops.bsengine_get_ravage_damage_bonus(name),
+    getRavageAttackSpeedBonus:     (name)           => Deno.core.ops.bsengine_get_ravage_attack_speed_bonus(name),
+    isRavageJustTriggered:         (name)           => Deno.core.ops.bsengine_is_ravage_just_triggered(name),
+    isRavageJustExpired:           (name)           => Deno.core.ops.bsengine_is_ravage_just_expired(name),
+    isRavageEnabled:               (name)           => Deno.core.ops.bsengine_is_ravage_enabled(name),
+    triggerRavage:                 (name, dur)      => Deno.core.ops.bsengine_trigger_ravage(name, dur),
+    setRavageDamageBonus:          (name, v)        => Deno.core.ops.bsengine_set_ravage_damage_bonus(name, v),
+    setRavageAttackSpeedBonus:     (name, v)        => Deno.core.ops.bsengine_set_ravage_attack_speed_bonus(name, v),
+    setRavageEnabled:              (name, en)       => Deno.core.ops.bsengine_set_ravage_enabled(name, en),
+
+    getReaveDuration:              (name)           => Deno.core.ops.bsengine_get_reave_duration(name),
+    getReaveTimer:                 (name)           => Deno.core.ops.bsengine_get_reave_timer(name),
+    getReaveLechFraction:          (name)           => Deno.core.ops.bsengine_get_reave_leech_fraction(name),
+    isReaveJustReaving:            (name)           => Deno.core.ops.bsengine_is_reave_just_reaving(name),
+    isReaveJustFaded:              (name)           => Deno.core.ops.bsengine_is_reave_just_faded(name),
+    isReaveEnabled:                (name)           => Deno.core.ops.bsengine_is_reave_enabled(name),
+    applyReave:                    (name, dur)      => Deno.core.ops.bsengine_apply_reave(name, dur),
+    clearReave:                    (name)           => Deno.core.ops.bsengine_clear_reave(name),
+    setReaveLechFraction:          (name, v)        => Deno.core.ops.bsengine_set_reave_lech_fraction(name, v),
+    setReaveEnabled:               (name, en)       => Deno.core.ops.bsengine_set_reave_enabled(name, en),
+
+    getReboundCoefficient:         (name)           => Deno.core.ops.bsengine_get_rebound_coefficient(name),
+    getReboundMinSpeed:            (name)           => Deno.core.ops.bsengine_get_rebound_min_speed(name),
+    getReboundLastSpeed:           (name)           => Deno.core.ops.bsengine_get_rebound_last_speed(name),
+    isReboundJustRebounded:        (name)           => Deno.core.ops.bsengine_is_rebound_just_rebounded(name),
+    isReboundEnabled:              (name)           => Deno.core.ops.bsengine_is_rebound_enabled(name),
+    setReboundCoefficient:         (name, v)        => Deno.core.ops.bsengine_set_rebound_coefficient(name, v),
+    setReboundMinSpeed:            (name, v)        => Deno.core.ops.bsengine_set_rebound_min_speed(name, v),
+    setReboundEnabled:             (name, en)       => Deno.core.ops.bsengine_set_rebound_enabled(name, en),
+
+    getRechargeCurrent:            (name)           => Deno.core.ops.bsengine_get_recharge_current(name),
+    getRechargeMax:                (name)           => Deno.core.ops.bsengine_get_recharge_max(name),
+    getRechargeRate:               (name)           => Deno.core.ops.bsengine_get_recharge_rate(name),
+    isRechargeJustRecharged:       (name)           => Deno.core.ops.bsengine_is_recharge_just_recharged(name),
+    isRechargeJustDepleted:        (name)           => Deno.core.ops.bsengine_is_recharge_just_depleted(name),
+    isRechargeEnabled:             (name)           => Deno.core.ops.bsengine_is_recharge_enabled(name),
+    setRechargeRate:               (name, v)        => Deno.core.ops.bsengine_set_recharge_rate(name, v),
+    setRechargeEnabled:            (name, en)       => Deno.core.ops.bsengine_set_recharge_enabled(name, en),
+
+    getRecklessDuration:           (name)           => Deno.core.ops.bsengine_get_reckless_duration(name),
+    getRecklessTimer:              (name)           => Deno.core.ops.bsengine_get_reckless_timer(name),
+    getRecklessDamageBonus:        (name)           => Deno.core.ops.bsengine_get_reckless_damage_bonus(name),
+    getRecklessDefensePenalty:     (name)           => Deno.core.ops.bsengine_get_reckless_defense_penalty(name),
+    isRecklessJustEntered:         (name)           => Deno.core.ops.bsengine_is_reckless_just_entered(name),
+    isRecklessJustExited:          (name)           => Deno.core.ops.bsengine_is_reckless_just_exited(name),
+    isRecklessEnabled:             (name)           => Deno.core.ops.bsengine_is_reckless_enabled(name),
+    chargeReckless:                (name, dur)      => Deno.core.ops.bsengine_charge_reckless(name, dur),
+    snapOutReckless:               (name)           => Deno.core.ops.bsengine_snap_out_reckless(name),
+    setRecklessDamageBonus:        (name, v)        => Deno.core.ops.bsengine_set_reckless_damage_bonus(name, v),
+    setRecklessDefensePenalty:     (name, v)        => Deno.core.ops.bsengine_set_reckless_defense_penalty(name, v),
+    setRecklessEnabled:            (name, en)       => Deno.core.ops.bsengine_set_reckless_enabled(name, en),
+
+    isRecluseAlone:                (name)           => Deno.core.ops.bsengine_is_recluse_alone(name),
+    getRecluseDamageBonus:         (name)           => Deno.core.ops.bsengine_get_recluse_damage_bonus(name),
+    getRecluseDefenseBonus:        (name)           => Deno.core.ops.bsengine_get_recluse_defense_bonus(name),
+    isRecluseJustBecameAlone:      (name)           => Deno.core.ops.bsengine_is_recluse_just_became_alone(name),
+    isRecluseJustJoinedGroup:      (name)           => Deno.core.ops.bsengine_is_recluse_just_joined_group(name),
+    isRecluseEnabled:              (name)           => Deno.core.ops.bsengine_is_recluse_enabled(name),
+    setRecluseAlone:               (name, v)        => Deno.core.ops.bsengine_set_recluse_alone(name, v),
+    setRecluseDamageBonus:         (name, v)        => Deno.core.ops.bsengine_set_recluse_damage_bonus(name, v),
+    setRecluseDefenseBonus:        (name, v)        => Deno.core.ops.bsengine_set_recluse_defense_bonus(name, v),
+    setRecluseEnabled:             (name, en)       => Deno.core.ops.bsengine_set_recluse_enabled(name, en),
+
+    getRecoilKickForce:            (name)           => Deno.core.ops.bsengine_get_recoil_kick_force(name),
+    getRecoilAngularKick:          (name)           => Deno.core.ops.bsengine_get_recoil_angular_kick(name),
+    getRecoilRecoverySpeed:        (name)           => Deno.core.ops.bsengine_get_recoil_recovery_speed(name),
+    getRecoilYawFraction:          (name)           => Deno.core.ops.bsengine_get_recoil_yaw_fraction(name),
+    getRecoilMaxPositionOffset:    (name)           => Deno.core.ops.bsengine_get_recoil_max_position_offset(name),
+    getRecoilMaxAngularOffset:     (name)           => Deno.core.ops.bsengine_get_recoil_max_angular_offset(name),
+    isRecoilEnabled:               (name)           => Deno.core.ops.bsengine_is_recoil_enabled(name),
+    kickRecoil:                    (name)           => Deno.core.ops.bsengine_kick_recoil(name),
+    resetRecoil:                   (name)           => Deno.core.ops.bsengine_reset_recoil(name),
+    setRecoilKickForce:            (name, v)        => Deno.core.ops.bsengine_set_recoil_kick_force(name, v),
+    setRecoilAngularKick:          (name, v)        => Deno.core.ops.bsengine_set_recoil_angular_kick(name, v),
+    setRecoilRecoverySpeed:        (name, v)        => Deno.core.ops.bsengine_set_recoil_recovery_speed(name, v),
+    setRecoilEnabled:              (name, en)       => Deno.core.ops.bsengine_set_recoil_enabled(name, en),
+
+    isReflectActive:               (name)           => Deno.core.ops.bsengine_is_reflect_active(name),
+    getReflectDamageMultiplier:    (name)           => Deno.core.ops.bsengine_get_reflect_damage_multiplier(name),
+    getReflectWindowDuration:      (name)           => Deno.core.ops.bsengine_get_reflect_window_duration(name),
+    getReflectWindowTimer:         (name)           => Deno.core.ops.bsengine_get_reflect_window_timer(name),
+    isReflectJustActivated:        (name)           => Deno.core.ops.bsengine_is_reflect_just_activated(name),
+    isReflectJustReflected:        (name)           => Deno.core.ops.bsengine_is_reflect_just_reflected(name),
+    isReflectJustClosed:           (name)           => Deno.core.ops.bsengine_is_reflect_just_closed(name),
+    isReflectEnabled:              (name)           => Deno.core.ops.bsengine_is_reflect_enabled(name),
+    activateReflect:               (name)           => Deno.core.ops.bsengine_activate_reflect(name),
+    deactivateReflect:             (name)           => Deno.core.ops.bsengine_deactivate_reflect(name),
+    setReflectDamageMultiplier:    (name, v)        => Deno.core.ops.bsengine_set_reflect_damage_multiplier(name, v),
+    setReflectWindowDuration:      (name, v)        => Deno.core.ops.bsengine_set_reflect_window_duration(name, v),
+    setReflectEnabled:             (name, en)       => Deno.core.ops.bsengine_set_reflect_enabled(name, en),
+
+    getReflexTimer:                (name)           => Deno.core.ops.bsengine_get_reflex_timer(name),
+    isReflexJustTriggered:         (name)           => Deno.core.ops.bsengine_is_reflex_just_triggered(name),
+    isReflexJustEvaded:            (name)           => Deno.core.ops.bsengine_is_reflex_just_evaded(name),
+    isReflexJustMissed:            (name)           => Deno.core.ops.bsengine_is_reflex_just_missed(name),
+    isReflexEnabled:               (name)           => Deno.core.ops.bsengine_is_reflex_enabled(name),
+    triggerReflex:                 (name, dur)      => Deno.core.ops.bsengine_trigger_reflex(name, dur),
+    evadeReflex:                   (name)           => Deno.core.ops.bsengine_evade_reflex(name),
+    setReflexEnabled:              (name, en)       => Deno.core.ops.bsengine_set_reflex_enabled(name, en),
+
+    getRepelDuration:              (name)           => Deno.core.ops.bsengine_get_repel_duration(name),
+    getRepelTimer:                 (name)           => Deno.core.ops.bsengine_get_repel_timer(name),
+    getRepelPushForce:             (name)           => Deno.core.ops.bsengine_get_repel_push_force(name),
+    getRepelRadius:                (name)           => Deno.core.ops.bsengine_get_repel_radius(name),
+    isRepelJustActivated:          (name)           => Deno.core.ops.bsengine_is_repel_just_activated(name),
+    isRepelJustDeactivated:        (name)           => Deno.core.ops.bsengine_is_repel_just_deactivated(name),
+    isRepelEnabled:                (name)           => Deno.core.ops.bsengine_is_repel_enabled(name),
+    applyRepel:                    (name, dur)      => Deno.core.ops.bsengine_apply_repel(name, dur),
+    clearRepel:                    (name)           => Deno.core.ops.bsengine_clear_repel(name),
+    setRepelPushForce:             (name, v)        => Deno.core.ops.bsengine_set_repel_push_force(name, v),
+    setRepelRadius:                (name, v)        => Deno.core.ops.bsengine_set_repel_radius(name, v),
+    setRepelEnabled:               (name, en)       => Deno.core.ops.bsengine_set_repel_enabled(name, en),
+
+    isReposeActive:                (name)           => Deno.core.ops.bsengine_is_repose_active(name),
+    getReposeTimer:                (name)           => Deno.core.ops.bsengine_get_repose_timer(name),
+    getReposeRegenMultiplier:      (name)           => Deno.core.ops.bsengine_get_repose_regen_multiplier(name),
+    isReposeJustBegan:             (name)           => Deno.core.ops.bsengine_is_repose_just_began(name),
+    isReposeJustEnded:             (name)           => Deno.core.ops.bsengine_is_repose_just_ended(name),
+    isReposeEnabled:               (name)           => Deno.core.ops.bsengine_is_repose_enabled(name),
+    restRepose:                    (name, dur)      => Deno.core.ops.bsengine_rest_repose(name, dur),
+    rouseRepose:                   (name)           => Deno.core.ops.bsengine_rouse_repose(name),
+    setReposeRegenMultiplier:      (name, v)        => Deno.core.ops.bsengine_set_repose_regen_multiplier(name, v),
+    setReposeEnabled:              (name, en)       => Deno.core.ops.bsengine_set_repose_enabled(name, en),
+
+    getRespawnState:               (name)           => Deno.core.ops.bsengine_get_respawn_state(name),
+    getRespawnDelay:               (name)           => Deno.core.ops.bsengine_get_respawn_delay(name),
+    getRespawnDelayTimer:          (name)           => Deno.core.ops.bsengine_get_respawn_delay_timer(name),
+    getRespawnCount:               (name)           => Deno.core.ops.bsengine_get_respawn_count(name),
+    isRespawnEnabled:              (name)           => Deno.core.ops.bsengine_is_respawn_enabled(name),
+    setRespawnDelay:               (name, v)        => Deno.core.ops.bsengine_set_respawn_delay(name, v),
+    setRespawnEnabled:             (name, en)       => Deno.core.ops.bsengine_set_respawn_enabled(name, en),
+
+    getRetaliateMultiplier:        (name)           => Deno.core.ops.bsengine_get_retaliate_multiplier(name),
+    getRetaliateMaxCharges:        (name)           => Deno.core.ops.bsengine_get_retaliate_max_charges(name),
+    getRetaliateCharges:           (name)           => Deno.core.ops.bsengine_get_retaliate_charges(name),
+    isRetaliateJustCharged:        (name)           => Deno.core.ops.bsengine_is_retaliate_just_charged(name),
+    isRetaliateJustConsumed:       (name)           => Deno.core.ops.bsengine_is_retaliate_just_consumed(name),
+    isRetaliateEnabled:            (name)           => Deno.core.ops.bsengine_is_retaliate_enabled(name),
+    chargeRetaliate:               (name)           => Deno.core.ops.bsengine_charge_retaliate(name),
+    clearRetaliate:                (name)           => Deno.core.ops.bsengine_clear_retaliate(name),
+    setRetaliateMultiplier:        (name, v)        => Deno.core.ops.bsengine_set_retaliate_multiplier(name, v),
+    setRetaliateEnabled:           (name, en)       => Deno.core.ops.bsengine_set_retaliate_enabled(name, en),
+
+    getRevengeDuration:            (name)           => Deno.core.ops.bsengine_get_revenge_duration(name),
+    getRevengeTimer:               (name)           => Deno.core.ops.bsengine_get_revenge_timer(name),
+    getRevengeMultiplier:          (name)           => Deno.core.ops.bsengine_get_revenge_multiplier(name),
+    getRevengeTriggerFraction:     (name)           => Deno.core.ops.bsengine_get_revenge_trigger_fraction(name),
+    isRevengeTriggered:            (name)           => Deno.core.ops.bsengine_is_revenge_triggered(name),
+    isRevengeJustTriggered:        (name)           => Deno.core.ops.bsengine_is_revenge_just_triggered(name),
+    isRevengeJustEnded:            (name)           => Deno.core.ops.bsengine_is_revenge_just_ended(name),
+    isRevengeEnabled:              (name)           => Deno.core.ops.bsengine_is_revenge_enabled(name),
+    resetRevenge:                  (name)           => Deno.core.ops.bsengine_reset_revenge(name),
+    setRevengeMultiplier:          (name, v)        => Deno.core.ops.bsengine_set_revenge_multiplier(name, v),
+    setRevengeTriggerFraction:     (name, v)        => Deno.core.ops.bsengine_set_revenge_trigger_fraction(name, v),
+    setRevengeEnabled:             (name, en)       => Deno.core.ops.bsengine_set_revenge_enabled(name, en),
+
+    getRevealDuration:             (name)           => Deno.core.ops.bsengine_get_reveal_duration(name),
+    getRevealTimer:                (name)           => Deno.core.ops.bsengine_get_reveal_timer(name),
+    getRevealRadius:               (name)           => Deno.core.ops.bsengine_get_reveal_radius(name),
+    isRevealJustActivated:         (name)           => Deno.core.ops.bsengine_is_reveal_just_activated(name),
+    isRevealJustExpired:           (name)           => Deno.core.ops.bsengine_is_reveal_just_expired(name),
+    isRevealEnabled:               (name)           => Deno.core.ops.bsengine_is_reveal_enabled(name),
+    activateReveal:                (name, dur)      => Deno.core.ops.bsengine_activate_reveal(name, dur),
+    deactivateReveal:              (name)           => Deno.core.ops.bsengine_deactivate_reveal(name),
+    setRevealRadius:               (name, v)        => Deno.core.ops.bsengine_set_reveal_radius(name, v),
+    setRevealEnabled:              (name, en)       => Deno.core.ops.bsengine_set_reveal_enabled(name, en),
+
+    getReviveState:                (name)           => Deno.core.ops.bsengine_get_revive_state(name),
+    getReviveDownDuration:         (name)           => Deno.core.ops.bsengine_get_revive_down_duration(name),
+    getReviveDownTimer:            (name)           => Deno.core.ops.bsengine_get_revive_down_timer(name),
+    getReviveDuration:             (name)           => Deno.core.ops.bsengine_get_revive_duration(name),
+    getReviveProgress:             (name)           => Deno.core.ops.bsengine_get_revive_progress(name),
+    getRevivesRemaining:           (name)           => Deno.core.ops.bsengine_get_revives_remaining(name),
+    isReviveJustDowned:            (name)           => Deno.core.ops.bsengine_is_revive_just_downed(name),
+    isReviveJustRevived:           (name)           => Deno.core.ops.bsengine_is_revive_just_revived(name),
+    isReviveJustDied:              (name)           => Deno.core.ops.bsengine_is_revive_just_died(name),
+    isReviveEnabled:               (name)           => Deno.core.ops.bsengine_is_revive_enabled(name),
+    takeDownRevive:                (name)           => Deno.core.ops.bsengine_take_down_revive(name),
+    beginRevive:                   (name)           => Deno.core.ops.bsengine_begin_revive(name),
+    cancelRevive:                  (name)           => Deno.core.ops.bsengine_cancel_revive(name),
+    setReviveEnabled:              (name, en)       => Deno.core.ops.bsengine_set_revive_enabled(name, en),
+
+    getRicochetMaxBounces:         (name)           => Deno.core.ops.bsengine_get_ricochet_max_bounces(name),
+    getRicochetBouncesRemaining:   (name)           => Deno.core.ops.bsengine_get_ricochet_bounces_remaining(name),
+    getRicochetEnergyRetention:    (name)           => Deno.core.ops.bsengine_get_ricochet_energy_retention(name),
+    getRicochetMinDot:             (name)           => Deno.core.ops.bsengine_get_ricochet_min_dot(name),
+    isRicochetJustBounced:         (name)           => Deno.core.ops.bsengine_is_ricochet_just_bounced(name),
+    isRicochetEnabled:             (name)           => Deno.core.ops.bsengine_is_ricochet_enabled(name),
+    resetRicochet:                 (name)           => Deno.core.ops.bsengine_reset_ricochet(name),
+    setRicochetEnergyRetention:    (name, v)        => Deno.core.ops.bsengine_set_ricochet_energy_retention(name, v),
+    setRicochetMinDot:             (name, v)        => Deno.core.ops.bsengine_set_ricochet_min_dot(name, v),
+    setRicochetEnabled:            (name, en)       => Deno.core.ops.bsengine_set_ricochet_enabled(name, en),
+
+    getRifleMinRange:              (name)           => Deno.core.ops.bsengine_get_rifle_min_range(name),
+    getRiflePeakRange:             (name)           => Deno.core.ops.bsengine_get_rifle_peak_range(name),
+    getRifleDamageBonus:           (name)           => Deno.core.ops.bsengine_get_rifle_damage_bonus(name),
+    getRiflePointBlankPenalty:     (name)           => Deno.core.ops.bsengine_get_rifle_point_blank_penalty(name),
+    isRifleEnabled:                (name)           => Deno.core.ops.bsengine_is_rifle_enabled(name),
+    setRifleMinRange:              (name, v)        => Deno.core.ops.bsengine_set_rifle_min_range(name, v),
+    setRiflePeakRange:             (name, v)        => Deno.core.ops.bsengine_set_rifle_peak_range(name, v),
+    setRifleDamageBonus:           (name, v)        => Deno.core.ops.bsengine_set_rifle_damage_bonus(name, v),
+    setRiflePointBlankPenalty:     (name, v)        => Deno.core.ops.bsengine_set_rifle_point_blank_penalty(name, v),
+    setRifleEnabled:               (name, en)       => Deno.core.ops.bsengine_set_rifle_enabled(name, en),
+
+    isRotActive:                   (name)           => Deno.core.ops.bsengine_is_rot_active(name),
+    getRotDecayRate:               (name)           => Deno.core.ops.bsengine_get_rot_decay_rate(name),
+    getRotTotalDecayed:            (name)           => Deno.core.ops.bsengine_get_rot_total_decayed(name),
+    getRotDecayCap:                (name)           => Deno.core.ops.bsengine_get_rot_decay_cap(name),
+    isRotJustBegan:                (name)           => Deno.core.ops.bsengine_is_rot_just_began(name),
+    isRotJustCapped:               (name)           => Deno.core.ops.bsengine_is_rot_just_capped(name),
+    isRotEnabled:                  (name)           => Deno.core.ops.bsengine_is_rot_enabled(name),
+    infectRot:                     (name)           => Deno.core.ops.bsengine_infect_rot(name),
+    cleanseRot:                    (name)           => Deno.core.ops.bsengine_cleanse_rot(name),
+    restoreRot:                    (name)           => Deno.core.ops.bsengine_restore_rot(name),
+    setRotDecayRate:               (name, v)        => Deno.core.ops.bsengine_set_rot_decay_rate(name, v),
+    setRotEnabled:                 (name, en)       => Deno.core.ops.bsengine_set_rot_enabled(name, en),
+
+    getRoutDuration:               (name)           => Deno.core.ops.bsengine_get_rout_duration(name),
+    getRoutTimer:                  (name)           => Deno.core.ops.bsengine_get_rout_timer(name),
+    getRoutFleeSpeedMultiplier:    (name)           => Deno.core.ops.bsengine_get_rout_flee_speed_multiplier(name),
+    isRoutJustRouted:              (name)           => Deno.core.ops.bsengine_is_rout_just_routed(name),
+    isRoutJustRecovered:           (name)           => Deno.core.ops.bsengine_is_rout_just_recovered(name),
+    isRoutEnabled:                 (name)           => Deno.core.ops.bsengine_is_rout_enabled(name),
+    applyRout:                     (name, dur)      => Deno.core.ops.bsengine_apply_rout(name, dur),
+    clearRout:                     (name)           => Deno.core.ops.bsengine_clear_rout(name),
+    setRoutFleeSpeedMultiplier:    (name, v)        => Deno.core.ops.bsengine_set_rout_flee_speed_multiplier(name, v),
+    setRoutEnabled:                (name, en)       => Deno.core.ops.bsengine_set_rout_enabled(name, en),
+
+    getRuptureStacks:              (name)           => Deno.core.ops.bsengine_get_rupture_stacks(name),
+    getRuptureMaxStacks:           (name)           => Deno.core.ops.bsengine_get_rupture_max_stacks(name),
+    getRuptureDamagePerStack:      (name)           => Deno.core.ops.bsengine_get_rupture_damage_per_stack(name),
+    isRuptureJustMaxed:            (name)           => Deno.core.ops.bsengine_is_rupture_just_maxed(name),
+    isRuptureEnabled:              (name)           => Deno.core.ops.bsengine_is_rupture_enabled(name),
+    applyRupture:                  (name, cnt)      => Deno.core.ops.bsengine_apply_rupture(name, cnt),
+    cleanseRupture:                (name, cnt)      => Deno.core.ops.bsengine_cleanse_rupture(name, cnt),
+    setRuptureDamagePerStack:      (name, v)        => Deno.core.ops.bsengine_set_rupture_damage_per_stack(name, v),
+    setRuptureEnabled:             (name, en)       => Deno.core.ops.bsengine_set_rupture_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -42870,6 +45396,1416 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivatePulse { name } if name == "Emitter")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPulseRadius { name, radius } if name == "Emitter" && (*radius - 8.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPulseEnabled { name, enabled } if name == "Emitter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_quest_read_ops() {
+        super::QUEST_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (1u32, 0.25f32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getQuestState("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getQuestXpReward("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isQuestEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::QUEST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_quest_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setQuestXpReward("Hero", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setQuestEnabled("Hero", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetQuestXpReward { name, xp_reward } if name == "Hero" && (*xp_reward - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetQuestEnabled { name, enabled } if name == "Hero" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_radar_read_ops() {
+        super::RADAR_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Sensor".to_string(), (4.0f32, 0.5f32, 0.25f32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRadarRange("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRadarScanInterval("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRadarScanTimer("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRadarEnabled("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RADAR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_radar_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRadarRange("Sensor", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRadarEnabled("Sensor", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRadarRange { name, range } if name == "Sensor" && (*range - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRadarEnabled { name, enabled } if name == "Sensor" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rage_read_ops() {
+        super::RAGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Berserker".to_string(),
+                (
+                    2u32, 0.5f32, 1.0f32, 0.25f32, 0.75f32, 2.0f32, 0.5f32, false, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRagePhase("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt.eval(r#"String(Bsengine.getRage("Berserker"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxRage("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRagePerDamage("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getRageActivationThreshold("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getRageDamageMultiplier("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRageDefenseMultiplier("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustEnteredRage("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustLeftRage("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRageEnabled("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RAGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rage_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setMaxRage("Berserker", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRageEnabled("Berserker", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetMaxRage { name, max_rage } if name == "Berserker" && (*max_rage - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRageEnabled { name, enabled } if name == "Berserker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rally_read_ops() {
+        super::RALLY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Captain".to_string(),
+                (4.0f32, 2.0f32, 8.0f32, 0.25f32, 0.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRallyDuration("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRallyTimer("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRallyAuraRadius("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getRallySpeedBonusFraction("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getRallyDamageBonusFraction("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustRallied("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRallyJustEnded("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRallyEnabled("Captain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RALLY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rally_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.callRally("Captain", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setRallyEnabled("Captain", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CallRally { name, duration } if name == "Captain" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRallyEnabled { name, enabled } if name == "Captain" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rampage_read_ops() {
+        super::RAMPAGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Warrior".to_string(),
+                (
+                    3u32, 8u32, 0.25f32, 0.5f32, 2.0f32, 1.0f32, false, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRampageStacks("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getRampageMaxStacks("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getRampageDamagePerStack("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getRampageSpeedPerStack("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRampageDecayInterval("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRampageDecayTimer("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isRampageJustStacked("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRampageJustEnded("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRampageEnabled("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RAMPAGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rampage_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRampageDamagePerStack("Warrior", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRampageEnabled("Warrior", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRampageDamagePerStack { name, damage_per_stack } if name == "Warrior" && (*damage_per_stack - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRampageEnabled { name, enabled } if name == "Warrior" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ravage_read_ops() {
+        super::RAVAGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Raider".to_string(),
+                (true, 1.0f32, 0.5f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isRavageActive("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getRavageTimer("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRavageDamageBonus("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRavageAttackSpeedBonus("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRavageJustTriggered("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRavageJustExpired("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRavageEnabled("Raider"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RAVAGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ravage_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.triggerRavage("Raider", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRavageEnabled("Raider", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerRavage { name, duration } if name == "Raider" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRavageEnabled { name, enabled } if name == "Raider" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_reave_read_ops() {
+        super::REAVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Vampire".to_string(),
+                (2.0f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getReaveDuration("Vampire"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getReaveTimer("Vampire"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getReaveLechFraction("Vampire"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isReaveJustReaving("Vampire"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReaveJustFaded("Vampire"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReaveEnabled("Vampire"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REAVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_reave_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyReave("Vampire", 2.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setReaveEnabled("Vampire", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyReave { name, duration } if name == "Vampire" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReaveEnabled { name, enabled } if name == "Vampire" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rebound_read_ops() {
+        super::REBOUND_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ball".to_string(), (0.75f32, 0.5f32, 1.0f32, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getReboundCoefficient("Ball"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getReboundMinSpeed("Ball"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getReboundLastSpeed("Ball"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isReboundJustRebounded("Ball"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReboundEnabled("Ball"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REBOUND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rebound_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setReboundCoefficient("Ball", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setReboundEnabled("Ball", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReboundCoefficient { name, coefficient } if name == "Ball" && (*coefficient - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReboundEnabled { name, enabled } if name == "Ball" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_recharge_read_ops() {
+        super::RECHARGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cell".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRechargeCurrent("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRechargeMax("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRechargeRate("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRechargeJustRecharged("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRechargeJustDepleted("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRechargeEnabled("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RECHARGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_recharge_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRechargeRate("Cell", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRechargeEnabled("Cell", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRechargeRate { name, rate } if name == "Cell" && (*rate - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRechargeEnabled { name, enabled } if name == "Cell" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_reckless_read_ops() {
+        super::RECKLESS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Daredevil".to_string(),
+                (2.0f32, 1.0f32, 0.5f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRecklessDuration("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecklessTimer("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecklessDamageBonus("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecklessDefensePenalty("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecklessJustEntered("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecklessJustExited("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecklessEnabled("Daredevil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RECKLESS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_reckless_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRecklessDamageBonus("Daredevil", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRecklessEnabled("Daredevil", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRecklessDamageBonus { name, bonus } if name == "Daredevil" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRecklessEnabled { name, enabled } if name == "Daredevil" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_recluse_read_ops() {
+        super::RECLUSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Loner".to_string(),
+                (true, 0.5f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isRecluseAlone("Loner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecluseDamageBonus("Loner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecluseDefenseBonus("Loner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecluseJustBecameAlone("Loner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecluseJustJoinedGroup("Loner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecluseEnabled("Loner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RECLUSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_recluse_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRecluseDamageBonus("Loner", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRecluseEnabled("Loner", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRecluseDamageBonus { name, bonus } if name == "Loner" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRecluseEnabled { name, enabled } if name == "Loner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_recoil_read_ops() {
+        super::RECOIL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gun".to_string(),
+                (2.0f32, 1.0f32, 0.5f32, 0.25f32, 0.5f32, 0.25f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoilKickForce("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoilAngularKick("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoilRecoverySpeed("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoilYawFraction("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoilMaxPositionOffset("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoilMaxAngularOffset("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRecoilEnabled("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RECOIL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_recoil_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRecoilKickForce("Gun", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRecoilEnabled("Gun", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRecoilKickForce { name, force } if name == "Gun" && (*force - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRecoilEnabled { name, enabled } if name == "Gun" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_reflect_read_ops() {
+        super::REFLECT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shield".to_string(),
+                (true, 2.0f32, 1.0f32, 0.5f32, false, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isReflectActive("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getReflectDamageMultiplier("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getReflectWindowDuration("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getReflectWindowTimer("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflectJustActivated("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflectJustReflected("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflectJustClosed("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflectEnabled("Shield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REFLECT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_reflect_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.activateReflect("Shield");"#).unwrap();
+        rt.eval(r#"Bsengine.setReflectEnabled("Shield", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateReflect { name } if name == "Shield")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReflectEnabled { name, enabled } if name == "Shield" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_reflex_read_ops() {
+        super::REFLEX_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Ninja".to_string(), (0.5f32, false, false, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getReflexTimer("Ninja"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflexJustTriggered("Ninja"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflexJustEvaded("Ninja"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflexJustMissed("Ninja"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReflexEnabled("Ninja"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REFLEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_reflex_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.triggerReflex("Ninja", 1.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setReflexEnabled("Ninja", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerReflex { name, duration } if name == "Ninja" && (*duration - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReflexEnabled { name, enabled } if name == "Ninja" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_repel_read_ops() {
+        super::REPEL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Forcefield".to_string(),
+                (2.0f32, 1.0f32, 4.0f32, 8.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRepelDuration("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRepelTimer("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRepelPushForce("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRepelRadius("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.isRepelJustActivated("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRepelJustDeactivated("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRepelEnabled("Forcefield"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REPEL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_repel_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRepelPushForce("Forcefield", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRepelEnabled("Forcefield", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRepelPushForce { name, force } if name == "Forcefield" && (*force - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRepelEnabled { name, enabled } if name == "Forcefield" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_repose_read_ops() {
+        super::REPOSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Meditator".to_string(),
+                (true, 1.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isReposeActive("Meditator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getReposeTimer("Meditator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getReposeRegenMultiplier("Meditator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isReposeJustBegan("Meditator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReposeJustEnded("Meditator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReposeEnabled("Meditator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REPOSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_repose_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setReposeRegenMultiplier("Meditator", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setReposeEnabled("Meditator", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReposeRegenMultiplier { name, multiplier } if name == "Meditator" && (*multiplier - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReposeEnabled { name, enabled } if name == "Meditator" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_respawn_read_ops() {
+        super::RESPAWN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Phoenix".to_string(), (1u32, 2.0f32, 0.5f32, 3u32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRespawnState("Phoenix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getRespawnDelay("Phoenix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRespawnDelayTimer("Phoenix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRespawnCount("Phoenix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isRespawnEnabled("Phoenix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RESPAWN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_respawn_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRespawnDelay("Phoenix", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRespawnEnabled("Phoenix", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRespawnDelay { name, delay } if name == "Phoenix" && (*delay - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRespawnEnabled { name, enabled } if name == "Phoenix" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_retaliate_read_ops() {
+        super::RETALIATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fighter".to_string(),
+                (2.0f32, 4u32, 2u32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRetaliateMultiplier("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRetaliateMaxCharges("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRetaliateCharges("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isRetaliateJustCharged("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRetaliateJustConsumed("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRetaliateEnabled("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RETALIATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_retaliate_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRetaliateMultiplier("Fighter", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRetaliateEnabled("Fighter", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRetaliateMultiplier { name, multiplier } if name == "Fighter" && (*multiplier - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRetaliateEnabled { name, enabled } if name == "Fighter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_revenge_read_ops() {
+        super::REVENGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Avenger".to_string(),
+                (4.0f32, 2.0f32, 2.0f32, 0.25f32, false, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRevengeDuration("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevengeTimer("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevengeMultiplier("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevengeTriggerFraction("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevengeTriggered("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevengeJustTriggered("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevengeJustEnded("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevengeEnabled("Avenger"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REVENGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_revenge_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRevengeMultiplier("Avenger", 2.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRevengeEnabled("Avenger", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRevengeMultiplier { name, multiplier } if name == "Avenger" && (*multiplier - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRevengeEnabled { name, enabled } if name == "Avenger" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_reveal_read_ops() {
+        super::REVEAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Scout".to_string(),
+                (4.0f32, 2.0f32, 8.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRevealDuration("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevealTimer("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevealRadius("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevealJustActivated("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevealJustExpired("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRevealEnabled("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REVEAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_reveal_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.activateReveal("Scout", 4.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRevealEnabled("Scout", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateReveal { name, duration } if name == "Scout" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRevealEnabled { name, enabled } if name == "Scout" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_revive_read_ops() {
+        super::REVIVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Medic".to_string(),
+                (
+                    1u32, 4.0f32, 2.0f32, 2.0f32, 0.5f32, 3u32, false, false, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getReviveState("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getReviveDownDuration("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getReviveDownTimer("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getReviveDuration("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getReviveProgress("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRevivesRemaining("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isReviveJustDowned("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReviveJustRevived("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReviveJustDied("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isReviveEnabled("Medic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::REVIVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_revive_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.takeDownRevive("Medic");"#).unwrap();
+        rt.eval(r#"Bsengine.setReviveEnabled("Medic", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TakeDownRevive { name } if name == "Medic")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetReviveEnabled { name, enabled } if name == "Medic" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ricochet_read_ops() {
+        super::RICOCHET_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Bullet".to_string(),
+                (4u32, 2u32, 0.75f32, 0.5f32, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRicochetMaxBounces("Bullet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRicochetBouncesRemaining("Bullet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRicochetEnergyRetention("Bullet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getRicochetMinDot("Bullet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isRicochetJustBounced("Bullet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRicochetEnabled("Bullet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RICOCHET_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ricochet_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRicochetEnergyRetention("Bullet", 0.75);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRicochetEnabled("Bullet", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRicochetEnergyRetention { name, retention } if name == "Bullet" && (*retention - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRicochetEnabled { name, enabled } if name == "Bullet" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rifle_read_ops() {
+        super::RIFLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sniper".to_string(),
+                (4.0f32, 16.0f32, 0.5f32, 0.25f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRifleMinRange("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRiflePeakRange("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "16");
+        let r = rt
+            .eval(r#"String(Bsengine.getRifleDamageBonus("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRiflePointBlankPenalty("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRifleEnabled("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RIFLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rifle_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setRifleDamageBonus("Sniper", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setRifleEnabled("Sniper", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRifleDamageBonus { name, bonus } if name == "Sniper" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRifleEnabled { name, enabled } if name == "Sniper" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rot_read_ops() {
+        super::ROT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Plague".to_string(),
+                (true, 0.25f32, 0.5f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isRotActive("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getRotDecayRate("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getRotTotalDecayed("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getRotDecayCap("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isRotJustBegan("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRotJustCapped("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRotEnabled("Plague"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ROT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rot_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.infectRot("Plague");"#).unwrap();
+        rt.eval(r#"Bsengine.setRotEnabled("Plague", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InfectRot { name } if name == "Plague")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRotEnabled { name, enabled } if name == "Plague" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rout_read_ops() {
+        super::ROUT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Coward".to_string(),
+                (4.0f32, 2.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRoutDuration("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getRoutTimer("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getRoutFleeSpeedMultiplier("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isRoutJustRouted("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRoutJustRecovered("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRoutEnabled("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ROUT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rout_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyRout("Coward", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setRoutEnabled("Coward", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyRout { name, duration } if name == "Coward" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRoutEnabled { name, enabled } if name == "Coward" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_rupture_read_ops() {
+        super::RUPTURE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Victim".to_string(), (3u32, 8u32, 0.25f32, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getRuptureStacks("Victim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getRuptureMaxStacks("Victim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getRuptureDamagePerStack("Victim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isRuptureJustMaxed("Victim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isRuptureEnabled("Victim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::RUPTURE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_rupture_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyRupture("Victim", 3);"#).unwrap();
+        rt.eval(r#"Bsengine.setRuptureEnabled("Victim", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyRupture { name, count } if name == "Victim" && *count == 3)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRuptureEnabled { name, enabled } if name == "Victim" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

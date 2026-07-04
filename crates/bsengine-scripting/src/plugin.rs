@@ -55,7 +55,12 @@ use crate::ops::{
     PETRIFY_SNAPSHOT, PHASE_SNAPSHOT, PHYSICS_WORLD_PTR, PIERCE_SNAPSHOT, PIN_SNAPSHOT,
     PLEA_SNAPSHOT, PLOY_SNAPSHOT, PLUCK_SNAPSHOT, POISE_SNAPSHOT, POISON_SNAPSHOT, POUNCE_SNAPSHOT,
     PROJECTILE_SNAPSHOT, PRONE_SNAPSHOT, PROTECT_SNAPSHOT, PROUD_SNAPSHOT, PROVOKE_SNAPSHOT,
-    PROWL_SNAPSHOT, PULSE_SNAPSHOT, REGEN_SNAPSHOT, RESTITUTION_SNAPSHOT, ROOT_SNAPSHOT,
+    PROWL_SNAPSHOT, PULSE_SNAPSHOT, QUEST_SNAPSHOT, RADAR_SNAPSHOT, RAGE_SNAPSHOT, RALLY_SNAPSHOT,
+    RAMPAGE_SNAPSHOT, RAVAGE_SNAPSHOT, REAVE_SNAPSHOT, REBOUND_SNAPSHOT, RECHARGE_SNAPSHOT,
+    RECKLESS_SNAPSHOT, RECLUSE_SNAPSHOT, RECOIL_SNAPSHOT, REFLECT_SNAPSHOT, REFLEX_SNAPSHOT,
+    REGEN_SNAPSHOT, REPEL_SNAPSHOT, REPOSE_SNAPSHOT, RESPAWN_SNAPSHOT, RESTITUTION_SNAPSHOT,
+    RETALIATE_SNAPSHOT, REVEAL_SNAPSHOT, REVENGE_SNAPSHOT, REVIVE_SNAPSHOT, RICOCHET_SNAPSHOT,
+    RIFLE_SNAPSHOT, ROOT_SNAPSHOT, ROT_SNAPSHOT, ROUT_SNAPSHOT, RUPTURE_SNAPSHOT,
     SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT,
     SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
     SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT,
@@ -4187,6 +4192,524 @@ fn run_scripts(world: &mut World) {
             );
         }
         PULSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Quest, QuestState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Quest)>();
+        for (_, name, qu) in q.iter(world) {
+            let state: u32 = match qu.state {
+                QuestState::Active => 0,
+                QuestState::ReadyToComplete => 1,
+                QuestState::Completed => 2,
+                QuestState::Abandoned => 3,
+            };
+            map.insert(name.0.clone(), (state, qu.xp_reward, qu.enabled));
+        }
+        QUEST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Radar;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Radar)>();
+        for (_, name, rd) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (rd.range, rd.scan_interval, rd.scan_timer, rd.enabled),
+            );
+        }
+        RADAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Rage, RagePhase};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rage)>();
+        for (_, name, rg) in q.iter(world) {
+            let phase: u32 = match rg.phase {
+                RagePhase::Calm => 0,
+                RagePhase::Building => 1,
+                RagePhase::Raging => 2,
+                RagePhase::Cooling => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    phase,
+                    rg.rage,
+                    rg.max_rage,
+                    rg.rage_per_damage,
+                    rg.activation_threshold,
+                    rg.damage_multiplier,
+                    rg.defense_multiplier,
+                    rg.just_entered_rage,
+                    rg.just_left_rage,
+                    rg.enabled,
+                ),
+            );
+        }
+        RAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rally;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rally)>();
+        for (_, name, ra) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ra.duration,
+                    ra.timer,
+                    ra.aura_radius,
+                    ra.speed_bonus_fraction,
+                    ra.damage_bonus_fraction,
+                    ra.just_rallied,
+                    ra.just_ended,
+                    ra.enabled,
+                ),
+            );
+        }
+        RALLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rampage;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rampage)>();
+        for (_, name, rm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rm.stacks,
+                    rm.max_stacks,
+                    rm.damage_per_stack,
+                    rm.speed_per_stack,
+                    rm.decay_interval,
+                    rm.decay_timer,
+                    rm.just_stacked,
+                    rm.just_ended,
+                    rm.enabled,
+                ),
+            );
+        }
+        RAMPAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ravage;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ravage)>();
+        for (_, name, rv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rv.active,
+                    rv.timer,
+                    rv.damage_bonus,
+                    rv.attack_speed_bonus,
+                    rv.just_triggered,
+                    rv.just_expired,
+                    rv.enabled,
+                ),
+            );
+        }
+        RAVAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reave;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reave)>();
+        for (_, name, re) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    re.duration,
+                    re.timer,
+                    re.leech_fraction,
+                    re.just_reaving,
+                    re.just_faded,
+                    re.enabled,
+                ),
+            );
+        }
+        REAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rebound;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rebound)>();
+        for (_, name, rb) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rb.rebound_coefficient,
+                    rb.min_speed,
+                    rb.last_rebound_speed,
+                    rb.just_rebounded,
+                    rb.enabled,
+                ),
+            );
+        }
+        REBOUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Recharge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Recharge)>();
+        for (_, name, rc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rc.current,
+                    rc.max,
+                    rc.rate,
+                    rc.just_recharged,
+                    rc.just_depleted,
+                    rc.enabled,
+                ),
+            );
+        }
+        RECHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reckless;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reckless)>();
+        for (_, name, rk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rk.duration,
+                    rk.timer,
+                    rk.damage_bonus,
+                    rk.defense_penalty,
+                    rk.just_entered,
+                    rk.just_exited,
+                    rk.enabled,
+                ),
+            );
+        }
+        RECKLESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Recluse;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Recluse)>();
+        for (_, name, rl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rl.is_alone,
+                    rl.damage_bonus,
+                    rl.defense_bonus,
+                    rl.just_became_alone,
+                    rl.just_joined_group,
+                    rl.enabled,
+                ),
+            );
+        }
+        RECLUSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Recoil;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Recoil)>();
+        for (_, name, rc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rc.kick_force,
+                    rc.angular_kick,
+                    rc.recovery_speed,
+                    rc.yaw_fraction,
+                    rc.max_position_offset,
+                    rc.max_angular_offset,
+                    rc.enabled,
+                ),
+            );
+        }
+        RECOIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reflect;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reflect)>();
+        for (_, name, rf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rf.is_active,
+                    rf.damage_multiplier,
+                    rf.window_duration,
+                    rf.window_timer,
+                    rf.just_activated,
+                    rf.just_reflected,
+                    rf.just_closed,
+                    rf.enabled,
+                ),
+            );
+        }
+        REFLECT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reflex;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reflex)>();
+        for (_, name, rf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rf.timer,
+                    rf.just_triggered,
+                    rf.just_evaded,
+                    rf.just_missed,
+                    rf.enabled,
+                ),
+            );
+        }
+        REFLEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Repel;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Repel)>();
+        for (_, name, rp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rp.duration,
+                    rp.timer,
+                    rp.push_force,
+                    rp.radius,
+                    rp.just_activated,
+                    rp.just_deactivated,
+                    rp.enabled,
+                ),
+            );
+        }
+        REPEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Repose;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Repose)>();
+        for (_, name, rp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rp.active,
+                    rp.timer,
+                    rp.regen_multiplier,
+                    rp.just_began,
+                    rp.just_ended,
+                    rp.enabled,
+                ),
+            );
+        }
+        REPOSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Respawn, RespawnState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Respawn)>();
+        for (_, name, rs) in q.iter(world) {
+            let state: u32 = match rs.state {
+                RespawnState::Alive => 0,
+                RespawnState::Pending => 1,
+                RespawnState::Ready => 2,
+                RespawnState::Forbidden => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state,
+                    rs.delay,
+                    rs.delay_timer,
+                    rs.respawn_count,
+                    rs.enabled,
+                ),
+            );
+        }
+        RESPAWN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Retaliate;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Retaliate)>();
+        for (_, name, rt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rt.multiplier,
+                    rt.max_charges,
+                    rt.charges,
+                    rt.just_charged,
+                    rt.just_consumed,
+                    rt.enabled,
+                ),
+            );
+        }
+        RETALIATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Revenge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Revenge)>();
+        for (_, name, rv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rv.duration,
+                    rv.timer,
+                    rv.revenge_multiplier,
+                    rv.trigger_fraction,
+                    rv.triggered,
+                    rv.just_triggered,
+                    rv.just_ended,
+                    rv.enabled,
+                ),
+            );
+        }
+        REVENGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reveal;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reveal)>();
+        for (_, name, rv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rv.duration,
+                    rv.timer,
+                    rv.radius,
+                    rv.just_activated,
+                    rv.just_expired,
+                    rv.enabled,
+                ),
+            );
+        }
+        REVEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Revive, ReviveState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Revive)>();
+        for (_, name, rv) in q.iter(world) {
+            let state: u32 = match rv.state {
+                ReviveState::Alive => 0,
+                ReviveState::Downed => 1,
+                ReviveState::Reviving => 2,
+                ReviveState::Dead => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state,
+                    rv.down_duration,
+                    rv.down_timer,
+                    rv.revive_duration,
+                    rv.revive_progress,
+                    rv.revives_remaining,
+                    rv.just_downed,
+                    rv.just_revived,
+                    rv.just_died,
+                    rv.enabled,
+                ),
+            );
+        }
+        REVIVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ricochet;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ricochet)>();
+        for (_, name, ri) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ri.max_bounces,
+                    ri.bounces_remaining,
+                    ri.energy_retention,
+                    ri.min_dot,
+                    ri.just_bounced,
+                    ri.enabled,
+                ),
+            );
+        }
+        RICOCHET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rifle;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rifle)>();
+        for (_, name, ri) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ri.min_range,
+                    ri.peak_range,
+                    ri.damage_bonus,
+                    ri.point_blank_penalty,
+                    ri.enabled,
+                ),
+            );
+        }
+        RIFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rot;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rot)>();
+        for (_, name, ro) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ro.active,
+                    ro.decay_rate,
+                    ro.total_decayed,
+                    ro.decay_cap,
+                    ro.just_began,
+                    ro.just_capped,
+                    ro.enabled,
+                ),
+            );
+        }
+        ROT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rout;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rout)>();
+        for (_, name, ro) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ro.duration,
+                    ro.timer,
+                    ro.flee_speed_multiplier,
+                    ro.just_routed,
+                    ro.just_recovered,
+                    ro.enabled,
+                ),
+            );
+        }
+        ROUT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rupture;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rupture)>();
+        for (_, name, ru) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ru.stacks,
+                    ru.max_stacks,
+                    ru.damage_per_stack,
+                    ru.just_maxed,
+                    ru.enabled,
+                ),
+            );
+        }
+        RUPTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
 
@@ -14700,6 +15223,1305 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut pu) = world.get_mut::<Pulse>(e) {
                         pu.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetQuestXpReward { name, xp_reward } => {
+                use bsengine_core::Quest;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut qu) = world.get_mut::<Quest>(e) {
+                        qu.xp_reward = xp_reward;
+                    }
+                }
+            }
+            ScriptCommand::SetQuestEnabled { name, enabled } => {
+                use bsengine_core::Quest;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut qu) = world.get_mut::<Quest>(e) {
+                        qu.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetRadarRange { name, range } => {
+                use bsengine_core::Radar;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rd) = world.get_mut::<Radar>(e) {
+                        rd.range = range;
+                    }
+                }
+            }
+            ScriptCommand::SetRadarScanInterval { name, interval } => {
+                use bsengine_core::Radar;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rd) = world.get_mut::<Radar>(e) {
+                        rd.scan_interval = interval;
+                    }
+                }
+            }
+            ScriptCommand::SetRadarEnabled { name, enabled } => {
+                use bsengine_core::Radar;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rd) = world.get_mut::<Radar>(e) {
+                        rd.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetMaxRage { name, max_rage } => {
+                use bsengine_core::Rage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rg) = world.get_mut::<Rage>(e) {
+                        rg.max_rage = max_rage;
+                    }
+                }
+            }
+            ScriptCommand::SetRagePerDamage {
+                name,
+                rage_per_damage,
+            } => {
+                use bsengine_core::Rage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rg) = world.get_mut::<Rage>(e) {
+                        rg.rage_per_damage = rage_per_damage;
+                    }
+                }
+            }
+            ScriptCommand::SetRageActivationThreshold { name, threshold } => {
+                use bsengine_core::Rage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rg) = world.get_mut::<Rage>(e) {
+                        rg.activation_threshold = threshold;
+                    }
+                }
+            }
+            ScriptCommand::SetRageDamageMultiplier { name, multiplier } => {
+                use bsengine_core::Rage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rg) = world.get_mut::<Rage>(e) {
+                        rg.damage_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetRageDefenseMultiplier { name, multiplier } => {
+                use bsengine_core::Rage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rg) = world.get_mut::<Rage>(e) {
+                        rg.defense_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetRageEnabled { name, enabled } => {
+                use bsengine_core::Rage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rg) = world.get_mut::<Rage>(e) {
+                        rg.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::CallRally { name, duration } => {
+                use bsengine_core::Rally;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ra) = world.get_mut::<Rally>(e) {
+                        ra.call(duration);
+                    }
+                }
+            }
+            ScriptCommand::DismissRally { name } => {
+                use bsengine_core::Rally;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ra) = world.get_mut::<Rally>(e) {
+                        ra.dismiss();
+                    }
+                }
+            }
+            ScriptCommand::SetRallyAuraRadius { name, radius } => {
+                use bsengine_core::Rally;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ra) = world.get_mut::<Rally>(e) {
+                        ra.aura_radius = radius;
+                    }
+                }
+            }
+            ScriptCommand::SetRallySpeedBonusFraction { name, fraction } => {
+                use bsengine_core::Rally;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ra) = world.get_mut::<Rally>(e) {
+                        ra.speed_bonus_fraction = fraction;
+                    }
+                }
+            }
+            ScriptCommand::SetRallyDamageBonusFraction { name, fraction } => {
+                use bsengine_core::Rally;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ra) = world.get_mut::<Rally>(e) {
+                        ra.damage_bonus_fraction = fraction;
+                    }
+                }
+            }
+            ScriptCommand::SetRallyEnabled { name, enabled } => {
+                use bsengine_core::Rally;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ra) = world.get_mut::<Rally>(e) {
+                        ra.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RampageKill { name } => {
+                use bsengine_core::Rampage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rm) = world.get_mut::<Rampage>(e) {
+                        rm.kill();
+                    }
+                }
+            }
+            ScriptCommand::SetRampageDamagePerStack {
+                name,
+                damage_per_stack,
+            } => {
+                use bsengine_core::Rampage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rm) = world.get_mut::<Rampage>(e) {
+                        rm.damage_per_stack = damage_per_stack;
+                    }
+                }
+            }
+            ScriptCommand::SetRampageSpeedPerStack {
+                name,
+                speed_per_stack,
+            } => {
+                use bsengine_core::Rampage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rm) = world.get_mut::<Rampage>(e) {
+                        rm.speed_per_stack = speed_per_stack;
+                    }
+                }
+            }
+            ScriptCommand::SetRampageDecayInterval { name, interval } => {
+                use bsengine_core::Rampage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rm) = world.get_mut::<Rampage>(e) {
+                        rm.decay_interval = interval;
+                    }
+                }
+            }
+            ScriptCommand::SetRampageEnabled { name, enabled } => {
+                use bsengine_core::Rampage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rm) = world.get_mut::<Rampage>(e) {
+                        rm.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TriggerRavage { name, duration } => {
+                use bsengine_core::Ravage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rv) = world.get_mut::<Ravage>(e) {
+                        rv.trigger(duration);
+                    }
+                }
+            }
+            ScriptCommand::SetRavageDamageBonus { name, bonus } => {
+                use bsengine_core::Ravage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rv) = world.get_mut::<Ravage>(e) {
+                        rv.damage_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetRavageAttackSpeedBonus { name, bonus } => {
+                use bsengine_core::Ravage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rv) = world.get_mut::<Ravage>(e) {
+                        rv.attack_speed_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetRavageEnabled { name, enabled } => {
+                use bsengine_core::Ravage;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rv) = world.get_mut::<Ravage>(e) {
+                        rv.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyReave { name, duration } => {
+                use bsengine_core::Reave;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut re) = world.get_mut::<Reave>(e) {
+                        re.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearReave { name } => {
+                use bsengine_core::Reave;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut re) = world.get_mut::<Reave>(e) {
+                        re.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetReaveLechFraction {
+                name,
+                leech_fraction,
+            } => {
+                use bsengine_core::Reave;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut re) = world.get_mut::<Reave>(e) {
+                        re.leech_fraction = leech_fraction;
+                    }
+                }
+            }
+            ScriptCommand::SetReaveEnabled { name, enabled } => {
+                use bsengine_core::Reave;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut re) = world.get_mut::<Reave>(e) {
+                        re.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetReboundCoefficient { name, coefficient } => {
+                use bsengine_core::Rebound;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rb) = world.get_mut::<Rebound>(e) {
+                        rb.rebound_coefficient = coefficient;
+                    }
+                }
+            }
+            ScriptCommand::SetReboundMinSpeed { name, min_speed } => {
+                use bsengine_core::Rebound;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rb) = world.get_mut::<Rebound>(e) {
+                        rb.min_speed = min_speed;
+                    }
+                }
+            }
+            ScriptCommand::SetReboundEnabled { name, enabled } => {
+                use bsengine_core::Rebound;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rb) = world.get_mut::<Rebound>(e) {
+                        rb.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetRechargeRate { name, rate } => {
+                use bsengine_core::Recharge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rch) = world.get_mut::<Recharge>(e) {
+                        rch.rate = rate;
+                    }
+                }
+            }
+            ScriptCommand::SetRechargeEnabled { name, enabled } => {
+                use bsengine_core::Recharge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rch) = world.get_mut::<Recharge>(e) {
+                        rch.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ChargeReckless { name, duration } => {
+                use bsengine_core::Reckless;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rk) = world.get_mut::<Reckless>(e) {
+                        rk.charge(duration);
+                    }
+                }
+            }
+            ScriptCommand::SnapOutReckless { name } => {
+                use bsengine_core::Reckless;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rk) = world.get_mut::<Reckless>(e) {
+                        rk.snap_out();
+                    }
+                }
+            }
+            ScriptCommand::SetRecklessDamageBonus { name, bonus } => {
+                use bsengine_core::Reckless;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rk) = world.get_mut::<Reckless>(e) {
+                        rk.damage_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetRecklessDefensePenalty { name, penalty } => {
+                use bsengine_core::Reckless;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rk) = world.get_mut::<Reckless>(e) {
+                        rk.defense_penalty = penalty;
+                    }
+                }
+            }
+            ScriptCommand::SetRecklessEnabled { name, enabled } => {
+                use bsengine_core::Reckless;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rk) = world.get_mut::<Reckless>(e) {
+                        rk.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetRecluseAlone { name, alone } => {
+                use bsengine_core::Recluse;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rl) = world.get_mut::<Recluse>(e) {
+                        rl.is_alone = alone;
+                    }
+                }
+            }
+            ScriptCommand::SetRecluseDamageBonus { name, bonus } => {
+                use bsengine_core::Recluse;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rl) = world.get_mut::<Recluse>(e) {
+                        rl.damage_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetRecluseDefenseBonus { name, bonus } => {
+                use bsengine_core::Recluse;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rl) = world.get_mut::<Recluse>(e) {
+                        rl.defense_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetRecluseEnabled { name, enabled } => {
+                use bsengine_core::Recluse;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rl) = world.get_mut::<Recluse>(e) {
+                        rl.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::KickRecoil { name } => {
+                use bsengine_core::Recoil;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rco) = world.get_mut::<Recoil>(e) {
+                        rco.kick();
+                    }
+                }
+            }
+            ScriptCommand::ResetRecoil { name } => {
+                use bsengine_core::Recoil;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rco) = world.get_mut::<Recoil>(e) {
+                        rco.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetRecoilKickForce { name, force } => {
+                use bsengine_core::Recoil;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rco) = world.get_mut::<Recoil>(e) {
+                        rco.kick_force = force;
+                    }
+                }
+            }
+            ScriptCommand::SetRecoilAngularKick { name, angular_kick } => {
+                use bsengine_core::Recoil;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rco) = world.get_mut::<Recoil>(e) {
+                        rco.angular_kick = angular_kick;
+                    }
+                }
+            }
+            ScriptCommand::SetRecoilRecoverySpeed { name, speed } => {
+                use bsengine_core::Recoil;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rco) = world.get_mut::<Recoil>(e) {
+                        rco.recovery_speed = speed;
+                    }
+                }
+            }
+            ScriptCommand::SetRecoilEnabled { name, enabled } => {
+                use bsengine_core::Recoil;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rco) = world.get_mut::<Recoil>(e) {
+                        rco.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ActivateReflect { name } => {
+                use bsengine_core::Reflect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfl) = world.get_mut::<Reflect>(e) {
+                        rfl.activate();
+                    }
+                }
+            }
+            ScriptCommand::DeactivateReflect { name } => {
+                use bsengine_core::Reflect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfl) = world.get_mut::<Reflect>(e) {
+                        rfl.deactivate();
+                    }
+                }
+            }
+            ScriptCommand::SetReflectDamageMultiplier { name, multiplier } => {
+                use bsengine_core::Reflect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfl) = world.get_mut::<Reflect>(e) {
+                        rfl.damage_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetReflectWindowDuration { name, duration } => {
+                use bsengine_core::Reflect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfl) = world.get_mut::<Reflect>(e) {
+                        rfl.window_duration = duration;
+                    }
+                }
+            }
+            ScriptCommand::SetReflectEnabled { name, enabled } => {
+                use bsengine_core::Reflect;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfl) = world.get_mut::<Reflect>(e) {
+                        rfl.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TriggerReflex { name, duration } => {
+                use bsengine_core::Reflex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfx) = world.get_mut::<Reflex>(e) {
+                        rfx.trigger(duration);
+                    }
+                }
+            }
+            ScriptCommand::EvadeReflex { name } => {
+                use bsengine_core::Reflex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfx) = world.get_mut::<Reflex>(e) {
+                        rfx.evade();
+                    }
+                }
+            }
+            ScriptCommand::SetReflexEnabled { name, enabled } => {
+                use bsengine_core::Reflex;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rfx) = world.get_mut::<Reflex>(e) {
+                        rfx.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyRepel { name, duration } => {
+                use bsengine_core::Repel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rp) = world.get_mut::<Repel>(e) {
+                        rp.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearRepel { name } => {
+                use bsengine_core::Repel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rp) = world.get_mut::<Repel>(e) {
+                        rp.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetRepelPushForce { name, force } => {
+                use bsengine_core::Repel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rp) = world.get_mut::<Repel>(e) {
+                        rp.push_force = force;
+                    }
+                }
+            }
+            ScriptCommand::SetRepelRadius { name, radius } => {
+                use bsengine_core::Repel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rp) = world.get_mut::<Repel>(e) {
+                        rp.radius = radius;
+                    }
+                }
+            }
+            ScriptCommand::SetRepelEnabled { name, enabled } => {
+                use bsengine_core::Repel;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rp) = world.get_mut::<Repel>(e) {
+                        rp.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RestRepose { name, duration } => {
+                use bsengine_core::Repose;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rpo) = world.get_mut::<Repose>(e) {
+                        rpo.rest(duration);
+                    }
+                }
+            }
+            ScriptCommand::RouseRepose { name } => {
+                use bsengine_core::Repose;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rpo) = world.get_mut::<Repose>(e) {
+                        rpo.rouse();
+                    }
+                }
+            }
+            ScriptCommand::SetReposeRegenMultiplier { name, multiplier } => {
+                use bsengine_core::Repose;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rpo) = world.get_mut::<Repose>(e) {
+                        rpo.regen_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetReposeEnabled { name, enabled } => {
+                use bsengine_core::Repose;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rpo) = world.get_mut::<Repose>(e) {
+                        rpo.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetRespawnDelay { name, delay } => {
+                use bsengine_core::Respawn;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rs) = world.get_mut::<Respawn>(e) {
+                        rs.delay = delay;
+                    }
+                }
+            }
+            ScriptCommand::SetRespawnEnabled { name, enabled } => {
+                use bsengine_core::Respawn;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rs) = world.get_mut::<Respawn>(e) {
+                        rs.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ChargeRetaliate { name } => {
+                use bsengine_core::Retaliate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ret) = world.get_mut::<Retaliate>(e) {
+                        ret.charge();
+                    }
+                }
+            }
+            ScriptCommand::ClearRetaliate { name } => {
+                use bsengine_core::Retaliate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ret) = world.get_mut::<Retaliate>(e) {
+                        ret.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetRetaliateMultiplier { name, multiplier } => {
+                use bsengine_core::Retaliate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ret) = world.get_mut::<Retaliate>(e) {
+                        ret.multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetRetaliateEnabled { name, enabled } => {
+                use bsengine_core::Retaliate;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ret) = world.get_mut::<Retaliate>(e) {
+                        ret.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ResetRevenge { name } => {
+                use bsengine_core::Revenge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvn) = world.get_mut::<Revenge>(e) {
+                        rvn.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetRevengeMultiplier { name, multiplier } => {
+                use bsengine_core::Revenge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvn) = world.get_mut::<Revenge>(e) {
+                        rvn.revenge_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetRevengeTriggerFraction { name, fraction } => {
+                use bsengine_core::Revenge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvn) = world.get_mut::<Revenge>(e) {
+                        rvn.trigger_fraction = fraction;
+                    }
+                }
+            }
+            ScriptCommand::SetRevengeEnabled { name, enabled } => {
+                use bsengine_core::Revenge;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvn) = world.get_mut::<Revenge>(e) {
+                        rvn.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ActivateReveal { name, duration } => {
+                use bsengine_core::Reveal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvl) = world.get_mut::<Reveal>(e) {
+                        rvl.activate(duration);
+                    }
+                }
+            }
+            ScriptCommand::DeactivateReveal { name } => {
+                use bsengine_core::Reveal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvl) = world.get_mut::<Reveal>(e) {
+                        rvl.deactivate();
+                    }
+                }
+            }
+            ScriptCommand::SetRevealRadius { name, radius } => {
+                use bsengine_core::Reveal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvl) = world.get_mut::<Reveal>(e) {
+                        rvl.radius = radius;
+                    }
+                }
+            }
+            ScriptCommand::SetRevealEnabled { name, enabled } => {
+                use bsengine_core::Reveal;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvl) = world.get_mut::<Reveal>(e) {
+                        rvl.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TakeDownRevive { name } => {
+                use bsengine_core::Revive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvi) = world.get_mut::<Revive>(e) {
+                        rvi.take_down();
+                    }
+                }
+            }
+            ScriptCommand::BeginRevive { name } => {
+                use bsengine_core::Revive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvi) = world.get_mut::<Revive>(e) {
+                        rvi.begin_revive();
+                    }
+                }
+            }
+            ScriptCommand::CancelRevive { name } => {
+                use bsengine_core::Revive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvi) = world.get_mut::<Revive>(e) {
+                        rvi.cancel_revive();
+                    }
+                }
+            }
+            ScriptCommand::SetReviveEnabled { name, enabled } => {
+                use bsengine_core::Revive;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rvi) = world.get_mut::<Revive>(e) {
+                        rvi.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ResetRicochet { name } => {
+                use bsengine_core::Ricochet;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ric) = world.get_mut::<Ricochet>(e) {
+                        ric.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetRicochetEnergyRetention { name, retention } => {
+                use bsengine_core::Ricochet;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ric) = world.get_mut::<Ricochet>(e) {
+                        ric.energy_retention = retention;
+                    }
+                }
+            }
+            ScriptCommand::SetRicochetMinDot { name, min_dot } => {
+                use bsengine_core::Ricochet;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ric) = world.get_mut::<Ricochet>(e) {
+                        ric.min_dot = min_dot;
+                    }
+                }
+            }
+            ScriptCommand::SetRicochetEnabled { name, enabled } => {
+                use bsengine_core::Ricochet;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ric) = world.get_mut::<Ricochet>(e) {
+                        ric.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetRifleMinRange { name, range } => {
+                use bsengine_core::Rifle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rif) = world.get_mut::<Rifle>(e) {
+                        rif.min_range = range;
+                    }
+                }
+            }
+            ScriptCommand::SetRiflePeakRange { name, range } => {
+                use bsengine_core::Rifle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rif) = world.get_mut::<Rifle>(e) {
+                        rif.peak_range = range;
+                    }
+                }
+            }
+            ScriptCommand::SetRifleDamageBonus { name, bonus } => {
+                use bsengine_core::Rifle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rif) = world.get_mut::<Rifle>(e) {
+                        rif.damage_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetRiflePointBlankPenalty { name, penalty } => {
+                use bsengine_core::Rifle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rif) = world.get_mut::<Rifle>(e) {
+                        rif.point_blank_penalty = penalty;
+                    }
+                }
+            }
+            ScriptCommand::SetRifleEnabled { name, enabled } => {
+                use bsengine_core::Rifle;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rif) = world.get_mut::<Rifle>(e) {
+                        rif.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InfectRot { name } => {
+                use bsengine_core::Rot;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rot) = world.get_mut::<Rot>(e) {
+                        rot.infect();
+                    }
+                }
+            }
+            ScriptCommand::CleanseRot { name } => {
+                use bsengine_core::Rot;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rot) = world.get_mut::<Rot>(e) {
+                        rot.cleanse();
+                    }
+                }
+            }
+            ScriptCommand::RestoreRot { name } => {
+                use bsengine_core::Rot;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rot) = world.get_mut::<Rot>(e) {
+                        rot.restore();
+                    }
+                }
+            }
+            ScriptCommand::SetRotDecayRate { name, rate } => {
+                use bsengine_core::Rot;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rot) = world.get_mut::<Rot>(e) {
+                        rot.decay_rate = rate;
+                    }
+                }
+            }
+            ScriptCommand::SetRotEnabled { name, enabled } => {
+                use bsengine_core::Rot;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rot) = world.get_mut::<Rot>(e) {
+                        rot.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyRout { name, duration } => {
+                use bsengine_core::Rout;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rout) = world.get_mut::<Rout>(e) {
+                        rout.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearRout { name } => {
+                use bsengine_core::Rout;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rout) = world.get_mut::<Rout>(e) {
+                        rout.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetRoutFleeSpeedMultiplier { name, multiplier } => {
+                use bsengine_core::Rout;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rout) = world.get_mut::<Rout>(e) {
+                        rout.flee_speed_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetRoutEnabled { name, enabled } => {
+                use bsengine_core::Rout;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rout) = world.get_mut::<Rout>(e) {
+                        rout.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyRupture { name, count } => {
+                use bsengine_core::Rupture;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rup) = world.get_mut::<Rupture>(e) {
+                        rup.apply(count);
+                    }
+                }
+            }
+            ScriptCommand::CleanseRupture { name, count } => {
+                use bsengine_core::Rupture;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rup) = world.get_mut::<Rupture>(e) {
+                        rup.cleanse(count);
+                    }
+                }
+            }
+            ScriptCommand::SetRuptureDamagePerStack {
+                name,
+                damage_per_stack,
+            } => {
+                use bsengine_core::Rupture;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rup) = world.get_mut::<Rupture>(e) {
+                        rup.damage_per_stack = damage_per_stack;
+                    }
+                }
+            }
+            ScriptCommand::SetRuptureEnabled { name, enabled } => {
+                use bsengine_core::Rupture;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut rup) = world.get_mut::<Rupture>(e) {
+                        rup.enabled = enabled;
                     }
                 }
             }

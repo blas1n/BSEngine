@@ -4636,6 +4636,113 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SetWarnHpThreshold {
+        name: String,
+        value: f32,
+    },
+    SetWarnCooldown {
+        name: String,
+        value: f32,
+    },
+    SetWarnEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AlertWary {
+        name: String,
+        amount: f32,
+    },
+    SettleWary {
+        name: String,
+        amount: f32,
+    },
+    SetWaryEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SoilWash {
+        name: String,
+        amount: f32,
+    },
+    CleanseWash {
+        name: String,
+        amount: f32,
+    },
+    SetWashEnabled {
+        name: String,
+        enabled: bool,
+    },
+    InjectWasp {
+        name: String,
+        amount: f32,
+    },
+    NeutralizeWasp {
+        name: String,
+        amount: f32,
+    },
+    SetWaspEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CleanseWaste {
+        name: String,
+        amount: f32,
+    },
+    SetWasteDecayRate {
+        name: String,
+        value: f32,
+    },
+    SetWasteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetWaterBodyWaveHeight {
+        name: String,
+        value: f32,
+    },
+    SetWaterBodyWaveSpeed {
+        name: String,
+        value: f32,
+    },
+    SetWaterBodyRoughness {
+        name: String,
+        value: f32,
+    },
+    SetWaterBodyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EmitWave {
+        name: String,
+    },
+    SetWaveMaxRadius {
+        name: String,
+        value: f32,
+    },
+    SetWaveExpansionRate {
+        name: String,
+        value: f32,
+    },
+    SetWaveDamage {
+        name: String,
+        value: f32,
+    },
+    SetWaveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    HesitateWaver {
+        name: String,
+        amount: f32,
+    },
+    ResolveWaver {
+        name: String,
+        amount: f32,
+    },
+    SetWaverEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5831,6 +5938,22 @@ thread_local! {
     pub(crate) static WARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WARP_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WARN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WARY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WASH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WASP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WASTE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WATER_BODY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAVER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -11968,6 +12091,380 @@ pub fn bsengine_set_warp_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWarpEnabled { name, enabled })
+    });
+}
+// ── Warn ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_warn_hp_threshold(#[string] name: String) -> f32 {
+    WARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warn_cooldown(#[string] name: String) -> f32 {
+    WARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warn_cooldown_timer(#[string] name: String) -> f32 {
+    WARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_warn_just_triggered(#[string] name: String) -> bool {
+    WARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_warn_enabled(#[string] name: String) -> bool {
+    WARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_warn_hp_threshold(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarnHpThreshold { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_warn_cooldown(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarnCooldown { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_warn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarnEnabled { name, enabled })
+    });
+}
+// ── Wary ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wary_level(#[string] name: String) -> f32 {
+    WARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wary_max_wary(#[string] name: String) -> f32 {
+    WARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wary_threshold(#[string] name: String) -> f32 {
+    WARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wary_just_alerted(#[string] name: String) -> bool {
+    WARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wary_just_calmed(#[string] name: String) -> bool {
+    WARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wary_enabled(#[string] name: String) -> bool {
+    WARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_alert_wary(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AlertWary { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_settle_wary(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SettleWary { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wary_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaryEnabled { name, enabled })
+    });
+}
+// ── Wash ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wash_grime(#[string] name: String) -> f32 {
+    WASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wash_max_grime(#[string] name: String) -> f32 {
+    WASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wash_soil_rate(#[string] name: String) -> f32 {
+    WASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wash_just_clean(#[string] name: String) -> bool {
+    WASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wash_just_grimy(#[string] name: String) -> bool {
+    WASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wash_enabled(#[string] name: String) -> bool {
+    WASH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_soil_wash(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SoilWash { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_wash(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CleanseWash { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wash_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWashEnabled { name, enabled })
+    });
+}
+// ── Wasp ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wasp_sting(#[string] name: String) -> f32 {
+    WASP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wasp_max_sting(#[string] name: String) -> f32 {
+    WASP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wasp_venom_rate(#[string] name: String) -> f32 {
+    WASP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wasp_just_venomous(#[string] name: String) -> bool {
+    WASP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wasp_just_spent(#[string] name: String) -> bool {
+    WASP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wasp_enabled(#[string] name: String) -> bool {
+    WASP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_inject_wasp(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InjectWasp { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_neutralize_wasp(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NeutralizeWasp { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wasp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaspEnabled { name, enabled })
+    });
+}
+// ── Waste ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_waste_accumulated(#[string] name: String) -> f32 {
+    WASTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_waste_decay_rate(#[string] name: String) -> f32 {
+    WASTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_waste_just_peaked(#[string] name: String) -> bool {
+    WASTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_waste_enabled(#[string] name: String) -> bool {
+    WASTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_waste(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CleanseWaste { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_waste_decay_rate(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWasteDecayRate { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_waste_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWasteEnabled { name, enabled })
+    });
+}
+// ── WaterBody ────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_water_body_wave_height(#[string] name: String) -> f32 {
+    WATER_BODY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_water_body_wave_speed(#[string] name: String) -> f32 {
+    WATER_BODY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_water_body_roughness(#[string] name: String) -> f32 {
+    WATER_BODY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_water_body_ssr_intensity(#[string] name: String) -> f32 {
+    WATER_BODY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_water_body_enabled(#[string] name: String) -> bool {
+    WATER_BODY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_water_body_wave_height(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaterBodyWaveHeight { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_water_body_wave_speed(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaterBodyWaveSpeed { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_water_body_roughness(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaterBodyRoughness { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_water_body_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaterBodyEnabled { name, enabled })
+    });
+}
+// ── Wave ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wave_radius(#[string] name: String) -> f32 {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wave_max_radius(#[string] name: String) -> f32 {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wave_expansion_rate(#[string] name: String) -> f32 {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wave_damage(#[string] name: String) -> f32 {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wave_just_emitted(#[string] name: String) -> bool {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wave_just_dissipated(#[string] name: String) -> bool {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wave_enabled(#[string] name: String) -> bool {
+    WAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_emit_wave(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EmitWave { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wave_max_radius(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaveMaxRadius { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wave_expansion_rate(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaveExpansionRate { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wave_damage(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaveDamage { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wave_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaveEnabled { name, enabled })
+    });
+}
+// ── Waver ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_waver_doubt(#[string] name: String) -> f32 {
+    WAVER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_waver_max_doubt(#[string] name: String) -> f32 {
+    WAVER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_waver_waver_rate(#[string] name: String) -> f32 {
+    WAVER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_waver_just_wavered(#[string] name: String) -> bool {
+    WAVER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_waver_just_resolved(#[string] name: String) -> bool {
+    WAVER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_waver_enabled(#[string] name: String) -> bool {
+    WAVER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_hesitate_waver(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HesitateWaver { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_resolve_waver(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ResolveWaver { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_waver_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaverEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -32123,6 +32620,78 @@ deno_core::extension!(
         bsengine_set_warp_charge_duration,
         bsengine_set_warp_cooldown_duration,
         bsengine_set_warp_enabled,
+        bsengine_get_warn_hp_threshold,
+        bsengine_get_warn_cooldown,
+        bsengine_get_warn_cooldown_timer,
+        bsengine_is_warn_just_triggered,
+        bsengine_is_warn_enabled,
+        bsengine_set_warn_hp_threshold,
+        bsengine_set_warn_cooldown,
+        bsengine_set_warn_enabled,
+        bsengine_get_wary_level,
+        bsengine_get_wary_max_wary,
+        bsengine_get_wary_threshold,
+        bsengine_is_wary_just_alerted,
+        bsengine_is_wary_just_calmed,
+        bsengine_is_wary_enabled,
+        bsengine_alert_wary,
+        bsengine_settle_wary,
+        bsengine_set_wary_enabled,
+        bsengine_get_wash_grime,
+        bsengine_get_wash_max_grime,
+        bsengine_get_wash_soil_rate,
+        bsengine_is_wash_just_clean,
+        bsengine_is_wash_just_grimy,
+        bsengine_is_wash_enabled,
+        bsengine_soil_wash,
+        bsengine_cleanse_wash,
+        bsengine_set_wash_enabled,
+        bsengine_get_wasp_sting,
+        bsengine_get_wasp_max_sting,
+        bsengine_get_wasp_venom_rate,
+        bsengine_is_wasp_just_venomous,
+        bsengine_is_wasp_just_spent,
+        bsengine_is_wasp_enabled,
+        bsengine_inject_wasp,
+        bsengine_neutralize_wasp,
+        bsengine_set_wasp_enabled,
+        bsengine_get_waste_accumulated,
+        bsengine_get_waste_decay_rate,
+        bsengine_is_waste_just_peaked,
+        bsengine_is_waste_enabled,
+        bsengine_cleanse_waste,
+        bsengine_set_waste_decay_rate,
+        bsengine_set_waste_enabled,
+        bsengine_get_water_body_wave_height,
+        bsengine_get_water_body_wave_speed,
+        bsengine_get_water_body_roughness,
+        bsengine_get_water_body_ssr_intensity,
+        bsengine_is_water_body_enabled,
+        bsengine_set_water_body_wave_height,
+        bsengine_set_water_body_wave_speed,
+        bsengine_set_water_body_roughness,
+        bsengine_set_water_body_enabled,
+        bsengine_get_wave_radius,
+        bsengine_get_wave_max_radius,
+        bsengine_get_wave_expansion_rate,
+        bsengine_get_wave_damage,
+        bsengine_is_wave_just_emitted,
+        bsengine_is_wave_just_dissipated,
+        bsengine_is_wave_enabled,
+        bsengine_emit_wave,
+        bsengine_set_wave_max_radius,
+        bsengine_set_wave_expansion_rate,
+        bsengine_set_wave_damage,
+        bsengine_set_wave_enabled,
+        bsengine_get_waver_doubt,
+        bsengine_get_waver_max_doubt,
+        bsengine_get_waver_waver_rate,
+        bsengine_is_waver_just_wavered,
+        bsengine_is_waver_just_resolved,
+        bsengine_is_waver_enabled,
+        bsengine_hesitate_waver,
+        bsengine_resolve_waver,
+        bsengine_set_waver_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -35690,6 +36259,78 @@ const Bsengine = {
     setWarpChargeDuration:      (name, v)           => Deno.core.ops.bsengine_set_warp_charge_duration(name, v),
     setWarpCooldownDuration:    (name, v)           => Deno.core.ops.bsengine_set_warp_cooldown_duration(name, v),
     setWarpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_warp_enabled(name, v),
+    getWarnHpThreshold:         (name)              => Deno.core.ops.bsengine_get_warn_hp_threshold(name),
+    getWarnCooldown:            (name)              => Deno.core.ops.bsengine_get_warn_cooldown(name),
+    getWarnCooldownTimer:       (name)              => Deno.core.ops.bsengine_get_warn_cooldown_timer(name),
+    isWarnJustTriggered:        (name)              => Deno.core.ops.bsengine_is_warn_just_triggered(name),
+    isWarnEnabled:              (name)              => Deno.core.ops.bsengine_is_warn_enabled(name),
+    setWarnHpThreshold:         (name, v)           => Deno.core.ops.bsengine_set_warn_hp_threshold(name, v),
+    setWarnCooldown:            (name, v)           => Deno.core.ops.bsengine_set_warn_cooldown(name, v),
+    setWarnEnabled:             (name, v)           => Deno.core.ops.bsengine_set_warn_enabled(name, v),
+    getWaryLevel:               (name)              => Deno.core.ops.bsengine_get_wary_level(name),
+    getWaryMaxWary:             (name)              => Deno.core.ops.bsengine_get_wary_max_wary(name),
+    getWaryThreshold:           (name)              => Deno.core.ops.bsengine_get_wary_threshold(name),
+    isWaryJustAlerted:          (name)              => Deno.core.ops.bsengine_is_wary_just_alerted(name),
+    isWaryJustCalmed:           (name)              => Deno.core.ops.bsengine_is_wary_just_calmed(name),
+    isWaryEnabled:              (name)              => Deno.core.ops.bsengine_is_wary_enabled(name),
+    alertWary:                  (name, amount)      => Deno.core.ops.bsengine_alert_wary(name, amount),
+    settleWary:                 (name, amount)      => Deno.core.ops.bsengine_settle_wary(name, amount),
+    setWaryEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wary_enabled(name, v),
+    getWashGrime:               (name)              => Deno.core.ops.bsengine_get_wash_grime(name),
+    getWashMaxGrime:            (name)              => Deno.core.ops.bsengine_get_wash_max_grime(name),
+    getWashSoilRate:            (name)              => Deno.core.ops.bsengine_get_wash_soil_rate(name),
+    isWashJustClean:            (name)              => Deno.core.ops.bsengine_is_wash_just_clean(name),
+    isWashJustGrimy:            (name)              => Deno.core.ops.bsengine_is_wash_just_grimy(name),
+    isWashEnabled:              (name)              => Deno.core.ops.bsengine_is_wash_enabled(name),
+    soilWash:                   (name, amount)      => Deno.core.ops.bsengine_soil_wash(name, amount),
+    cleanseWash:                (name, amount)      => Deno.core.ops.bsengine_cleanse_wash(name, amount),
+    setWashEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wash_enabled(name, v),
+    getWaspSting:               (name)              => Deno.core.ops.bsengine_get_wasp_sting(name),
+    getWaspMaxSting:            (name)              => Deno.core.ops.bsengine_get_wasp_max_sting(name),
+    getWaspVenomRate:           (name)              => Deno.core.ops.bsengine_get_wasp_venom_rate(name),
+    isWaspJustVenomous:         (name)              => Deno.core.ops.bsengine_is_wasp_just_venomous(name),
+    isWaspJustSpent:            (name)              => Deno.core.ops.bsengine_is_wasp_just_spent(name),
+    isWaspEnabled:              (name)              => Deno.core.ops.bsengine_is_wasp_enabled(name),
+    injectWasp:                 (name, amount)      => Deno.core.ops.bsengine_inject_wasp(name, amount),
+    neutralizeWasp:             (name, amount)      => Deno.core.ops.bsengine_neutralize_wasp(name, amount),
+    setWaspEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wasp_enabled(name, v),
+    getWasteAccumulated:        (name)              => Deno.core.ops.bsengine_get_waste_accumulated(name),
+    getWasteDecayRate:          (name)              => Deno.core.ops.bsengine_get_waste_decay_rate(name),
+    isWasteJustPeaked:          (name)              => Deno.core.ops.bsengine_is_waste_just_peaked(name),
+    isWasteEnabled:             (name)              => Deno.core.ops.bsengine_is_waste_enabled(name),
+    cleanseWaste:               (name, amount)      => Deno.core.ops.bsengine_cleanse_waste(name, amount),
+    setWasteDecayRate:          (name, v)           => Deno.core.ops.bsengine_set_waste_decay_rate(name, v),
+    setWasteEnabled:            (name, v)           => Deno.core.ops.bsengine_set_waste_enabled(name, v),
+    getWaterBodyWaveHeight:     (name)              => Deno.core.ops.bsengine_get_water_body_wave_height(name),
+    getWaterBodyWaveSpeed:      (name)              => Deno.core.ops.bsengine_get_water_body_wave_speed(name),
+    getWaterBodyRoughness:      (name)              => Deno.core.ops.bsengine_get_water_body_roughness(name),
+    getWaterBodySsrIntensity:   (name)              => Deno.core.ops.bsengine_get_water_body_ssr_intensity(name),
+    isWaterBodyEnabled:         (name)              => Deno.core.ops.bsengine_is_water_body_enabled(name),
+    setWaterBodyWaveHeight:     (name, v)           => Deno.core.ops.bsengine_set_water_body_wave_height(name, v),
+    setWaterBodyWaveSpeed:      (name, v)           => Deno.core.ops.bsengine_set_water_body_wave_speed(name, v),
+    setWaterBodyRoughness:      (name, v)           => Deno.core.ops.bsengine_set_water_body_roughness(name, v),
+    setWaterBodyEnabled:        (name, v)           => Deno.core.ops.bsengine_set_water_body_enabled(name, v),
+    getWaveRadius:              (name)              => Deno.core.ops.bsengine_get_wave_radius(name),
+    getWaveMaxRadius:           (name)              => Deno.core.ops.bsengine_get_wave_max_radius(name),
+    getWaveExpansionRate:       (name)              => Deno.core.ops.bsengine_get_wave_expansion_rate(name),
+    getWaveDamage:              (name)              => Deno.core.ops.bsengine_get_wave_damage(name),
+    isWaveJustEmitted:          (name)              => Deno.core.ops.bsengine_is_wave_just_emitted(name),
+    isWaveJustDissipated:       (name)              => Deno.core.ops.bsengine_is_wave_just_dissipated(name),
+    isWaveEnabled:              (name)              => Deno.core.ops.bsengine_is_wave_enabled(name),
+    emitWave:                   (name)              => Deno.core.ops.bsengine_emit_wave(name),
+    setWaveMaxRadius:           (name, v)           => Deno.core.ops.bsengine_set_wave_max_radius(name, v),
+    setWaveExpansionRate:       (name, v)           => Deno.core.ops.bsengine_set_wave_expansion_rate(name, v),
+    setWaveDamage:              (name, v)           => Deno.core.ops.bsengine_set_wave_damage(name, v),
+    setWaveEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wave_enabled(name, v),
+    getWaverDoubt:              (name)              => Deno.core.ops.bsengine_get_waver_doubt(name),
+    getWaverMaxDoubt:           (name)              => Deno.core.ops.bsengine_get_waver_max_doubt(name),
+    getWaverWaverRate:          (name)              => Deno.core.ops.bsengine_get_waver_waver_rate(name),
+    isWaverJustWavered:         (name)              => Deno.core.ops.bsengine_is_waver_just_wavered(name),
+    isWaverJustResolved:        (name)              => Deno.core.ops.bsengine_is_waver_just_resolved(name),
+    isWaverEnabled:             (name)              => Deno.core.ops.bsengine_is_waver_enabled(name),
+    hesitateWaver:              (name, amount)      => Deno.core.ops.bsengine_hesitate_waver(name, amount),
+    resolveWaver:               (name, amount)      => Deno.core.ops.bsengine_resolve_waver(name, amount),
+    setWaverEnabled:            (name, v)           => Deno.core.ops.bsengine_set_waver_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -59462,6 +60103,434 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpChargeDuration { name, value } if name == "Grunt" && *value == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpCooldownDuration { name, value } if name == "Grunt" && *value == 1.0)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_warn_read_ops() {
+        super::WARN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.25f32, 0.5f32, 0.125f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWarnHpThreshold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarnCooldown("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarnCooldownTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarnJustTriggered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarnEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WARN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_warn_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setWarnHpThreshold("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWarnCooldown("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWarnEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarnHpThreshold { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarnCooldown { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarnEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wary_read_ops() {
+        super::WARY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWaryLevel("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaryMaxWary("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaryThreshold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaryJustAlerted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaryJustCalmed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaryEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WARY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wary_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.alertWary("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.settleWary("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaryEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AlertWary { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SettleWary { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaryEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wash_read_ops() {
+        super::WASH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWashGrime("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWashMaxGrime("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWashSoilRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWashJustClean("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWashJustGrimy("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWashEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WASH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wash_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.soilWash("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cleanseWash("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWashEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SoilWash { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseWash { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWashEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wasp_read_ops() {
+        super::WASP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWaspSting("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaspMaxSting("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaspVenomRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaspJustVenomous("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaspJustSpent("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaspEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WASP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wasp_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.injectWasp("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.neutralizeWasp("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaspEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InjectWasp { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NeutralizeWasp { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaspEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_waste_read_ops() {
+        super::WASTE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.5f32, 0.25f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWasteAccumulated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWasteDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWasteJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWasteEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WASTE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_waste_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.cleanseWaste("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWasteDecayRate("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWasteEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseWaste { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWasteDecayRate { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWasteEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_water_body_read_ops() {
+        super::WATER_BODY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 0.25f32, 0.125f32, 0.0625f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWaterBodyWaveHeight("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaterBodyWaveSpeed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaterBodyRoughness("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaterBodySsrIntensity("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.0625");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaterBodyEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WATER_BODY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_water_body_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWaterBodyWaveHeight("Grunt", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWaterBodyWaveSpeed("Grunt", 0.25);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWaterBodyRoughness("Grunt", 0.125);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setWaterBodyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaterBodyWaveHeight { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaterBodyWaveSpeed { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaterBodyRoughness { name, value } if name == "Grunt" && *value == 0.125)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaterBodyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wave_read_ops() {
+        super::WAVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWaveRadius("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaveMaxRadius("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaveExpansionRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaveDamage("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaveJustEmitted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaveJustDissipated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaveEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wave_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.emitWave("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaveMaxRadius("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaveExpansionRate("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaveDamage("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EmitWave { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaveMaxRadius { name, value } if name == "Grunt" && *value == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaveExpansionRate { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaveDamage { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_waver_read_ops() {
+        super::WAVER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWaverDoubt("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaverMaxDoubt("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaverWaverRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaverJustWavered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaverJustResolved("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaverEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAVER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_waver_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.hesitateWaver("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resolveWaver("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaverEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HesitateWaver { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResolveWaver { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaverEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

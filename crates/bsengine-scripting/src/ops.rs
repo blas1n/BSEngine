@@ -4529,6 +4529,113 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Wand ─────────────────────────────────────────────────────────────────
+    ChannelWand {
+        name: String,
+        amount: f32,
+    },
+    DischargeWand {
+        name: String,
+        amount: f32,
+    },
+    SetWandEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wane ─────────────────────────────────────────────────────────────────
+    StartWane {
+        name: String,
+        duration: f32,
+    },
+    StopWane {
+        name: String,
+    },
+    SetWaneEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wangle ───────────────────────────────────────────────────────────────
+    ManeuverWangle {
+        name: String,
+        amount: f32,
+    },
+    FoilWangle {
+        name: String,
+        amount: f32,
+    },
+    SetWangleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Want ─────────────────────────────────────────────────────────────────
+    CraveWant {
+        name: String,
+        amount: f32,
+    },
+    SateWant {
+        name: String,
+        amount: f32,
+    },
+    SetWantEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wanton ───────────────────────────────────────────────────────────────
+    IndulgeWanton {
+        name: String,
+        amount: f32,
+    },
+    RestrainWanton {
+        name: String,
+        amount: f32,
+    },
+    SetWantonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Ward ─────────────────────────────────────────────────────────────────
+    ReinforceWard {
+        name: String,
+        amount: f32,
+    },
+    AbsorbWard {
+        name: String,
+        amount: f32,
+    },
+    SetWardEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Warm ─────────────────────────────────────────────────────────────────
+    KindleWarm {
+        name: String,
+        amount: f32,
+    },
+    ChillWarm {
+        name: String,
+        amount: f32,
+    },
+    SetWarmEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Warp ─────────────────────────────────────────────────────────────────
+    SetWarpMaxRange {
+        name: String,
+        value: f32,
+    },
+    SetWarpChargeDuration {
+        name: String,
+        value: f32,
+    },
+    SetWarpCooldownDuration {
+        name: String,
+        value: f32,
+    },
+    SetWarpEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5708,6 +5815,22 @@ thread_local! {
     pub(crate) static WALL_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WALTZ_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAND_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WANE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WANGLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WANT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WANTON_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WARD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WARM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WARP_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -11477,6 +11600,374 @@ pub fn bsengine_set_waltz_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWaltzEnabled { name, enabled })
+    });
+}
+// ── Wand ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wand_charge(#[string] name: String) -> f32 {
+    WAND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wand_max_charge(#[string] name: String) -> f32 {
+    WAND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wand_channel_rate(#[string] name: String) -> f32 {
+    WAND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wand_just_charged(#[string] name: String) -> bool {
+    WAND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wand_just_spent(#[string] name: String) -> bool {
+    WAND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wand_enabled(#[string] name: String) -> bool {
+    WAND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_channel_wand(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChannelWand { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_discharge_wand(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DischargeWand { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wand_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWandEnabled { name, enabled })
+    });
+}
+// ── Wane ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wane_duration(#[string] name: String) -> f32 {
+    WANE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wane_timer(#[string] name: String) -> f32 {
+    WANE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wane_min_potency(#[string] name: String) -> f32 {
+    WANE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wane_just_waning(#[string] name: String) -> bool {
+    WANE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wane_just_expired(#[string] name: String) -> bool {
+    WANE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wane_enabled(#[string] name: String) -> bool {
+    WANE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_start_wane(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StartWane { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stop_wane(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopWane { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wane_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaneEnabled { name, enabled })
+    });
+}
+// ── Wangle ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wangle_scheme(#[string] name: String) -> f32 {
+    WANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wangle_max_scheme(#[string] name: String) -> f32 {
+    WANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wangle_maneuver_rate(#[string] name: String) -> f32 {
+    WANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wangle_just_schemed(#[string] name: String) -> bool {
+    WANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wangle_just_foiled(#[string] name: String) -> bool {
+    WANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wangle_enabled(#[string] name: String) -> bool {
+    WANGLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_maneuver_wangle(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ManeuverWangle { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_foil_wangle(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FoilWangle { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wangle_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWangleEnabled { name, enabled })
+    });
+}
+// ── Want ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_want_desire(#[string] name: String) -> f32 {
+    WANT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_want_max_desire(#[string] name: String) -> f32 {
+    WANT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_want_craving_rate(#[string] name: String) -> f32 {
+    WANT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_want_just_wanted(#[string] name: String) -> bool {
+    WANT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_want_just_sated(#[string] name: String) -> bool {
+    WANT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_want_enabled(#[string] name: String) -> bool {
+    WANT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crave_want(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CraveWant { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_sate_want(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SateWant { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_want_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWantEnabled { name, enabled })
+    });
+}
+// ── Wanton ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wanton_excess(#[string] name: String) -> f32 {
+    WANTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wanton_max_excess(#[string] name: String) -> f32 {
+    WANTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wanton_indulge_rate(#[string] name: String) -> f32 {
+    WANTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wanton_just_reckless(#[string] name: String) -> bool {
+    WANTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wanton_just_restrained(#[string] name: String) -> bool {
+    WANTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wanton_enabled(#[string] name: String) -> bool {
+    WANTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_indulge_wanton(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::IndulgeWanton { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_restrain_wanton(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestrainWanton { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wanton_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWantonEnabled { name, enabled })
+    });
+}
+// ── Ward ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_ward_hp(#[string] name: String) -> f32 {
+    WARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ward_max_hp(#[string] name: String) -> f32 {
+    WARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ward_just_broke(#[string] name: String) -> bool {
+    WARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ward_just_reinforced(#[string] name: String) -> bool {
+    WARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ward_enabled(#[string] name: String) -> bool {
+    WARD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_reinforce_ward(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ReinforceWard { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_absorb_ward(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AbsorbWard { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ward_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWardEnabled { name, enabled })
+    });
+}
+// ── Warm ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_warm_heat(#[string] name: String) -> f32 {
+    WARM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warm_max_heat(#[string] name: String) -> f32 {
+    WARM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warm_kindle_rate(#[string] name: String) -> f32 {
+    WARM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_warm_just_warm(#[string] name: String) -> bool {
+    WARM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_warm_just_cold(#[string] name: String) -> bool {
+    WARM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_warm_enabled(#[string] name: String) -> bool {
+    WARM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_kindle_warm(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::KindleWarm { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_chill_warm(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChillWarm { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_warm_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarmEnabled { name, enabled })
+    });
+}
+// ── Warp ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_warp_phase(#[string] name: String) -> u32 {
+    WARP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warp_max_range(#[string] name: String) -> f32 {
+    WARP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warp_charge_duration(#[string] name: String) -> f32 {
+    WARP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_warp_cooldown_duration(#[string] name: String) -> f32 {
+    WARP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_warp_just_warped(#[string] name: String) -> bool {
+    WARP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_warp_enabled(#[string] name: String) -> bool {
+    WARP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_warp_max_range(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarpMaxRange { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_warp_charge_duration(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarpChargeDuration { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_warp_cooldown_duration(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarpCooldownDuration { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_warp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWarpEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -31560,6 +32051,78 @@ deno_core::extension!(
         bsengine_step_waltz,
         bsengine_halt_waltz,
         bsengine_set_waltz_enabled,
+        bsengine_get_wand_charge,
+        bsengine_get_wand_max_charge,
+        bsengine_get_wand_channel_rate,
+        bsengine_is_wand_just_charged,
+        bsengine_is_wand_just_spent,
+        bsengine_is_wand_enabled,
+        bsengine_channel_wand,
+        bsengine_discharge_wand,
+        bsengine_set_wand_enabled,
+        bsengine_get_wane_duration,
+        bsengine_get_wane_timer,
+        bsengine_get_wane_min_potency,
+        bsengine_is_wane_just_waning,
+        bsengine_is_wane_just_expired,
+        bsengine_is_wane_enabled,
+        bsengine_start_wane,
+        bsengine_stop_wane,
+        bsengine_set_wane_enabled,
+        bsengine_get_wangle_scheme,
+        bsengine_get_wangle_max_scheme,
+        bsengine_get_wangle_maneuver_rate,
+        bsengine_is_wangle_just_schemed,
+        bsengine_is_wangle_just_foiled,
+        bsengine_is_wangle_enabled,
+        bsengine_maneuver_wangle,
+        bsengine_foil_wangle,
+        bsengine_set_wangle_enabled,
+        bsengine_get_want_desire,
+        bsengine_get_want_max_desire,
+        bsengine_get_want_craving_rate,
+        bsengine_is_want_just_wanted,
+        bsengine_is_want_just_sated,
+        bsengine_is_want_enabled,
+        bsengine_crave_want,
+        bsengine_sate_want,
+        bsengine_set_want_enabled,
+        bsengine_get_wanton_excess,
+        bsengine_get_wanton_max_excess,
+        bsengine_get_wanton_indulge_rate,
+        bsengine_is_wanton_just_reckless,
+        bsengine_is_wanton_just_restrained,
+        bsengine_is_wanton_enabled,
+        bsengine_indulge_wanton,
+        bsengine_restrain_wanton,
+        bsengine_set_wanton_enabled,
+        bsengine_get_ward_hp,
+        bsengine_get_ward_max_hp,
+        bsengine_is_ward_just_broke,
+        bsengine_is_ward_just_reinforced,
+        bsengine_is_ward_enabled,
+        bsengine_reinforce_ward,
+        bsengine_absorb_ward,
+        bsengine_set_ward_enabled,
+        bsengine_get_warm_heat,
+        bsengine_get_warm_max_heat,
+        bsengine_get_warm_kindle_rate,
+        bsengine_is_warm_just_warm,
+        bsengine_is_warm_just_cold,
+        bsengine_is_warm_enabled,
+        bsengine_kindle_warm,
+        bsengine_chill_warm,
+        bsengine_set_warm_enabled,
+        bsengine_get_warp_phase,
+        bsengine_get_warp_max_range,
+        bsengine_get_warp_charge_duration,
+        bsengine_get_warp_cooldown_duration,
+        bsengine_is_warp_just_warped,
+        bsengine_is_warp_enabled,
+        bsengine_set_warp_max_range,
+        bsengine_set_warp_charge_duration,
+        bsengine_set_warp_cooldown_duration,
+        bsengine_set_warp_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -35055,6 +35618,78 @@ const Bsengine = {
     stepWaltz:                  (name, amount)      => Deno.core.ops.bsengine_step_waltz(name, amount),
     haltWaltz:                  (name, amount)      => Deno.core.ops.bsengine_halt_waltz(name, amount),
     setWaltzEnabled:            (name, v)           => Deno.core.ops.bsengine_set_waltz_enabled(name, v),
+    getWandCharge:              (name)              => Deno.core.ops.bsengine_get_wand_charge(name),
+    getWandMaxCharge:           (name)              => Deno.core.ops.bsengine_get_wand_max_charge(name),
+    getWandChannelRate:         (name)              => Deno.core.ops.bsengine_get_wand_channel_rate(name),
+    isWandJustCharged:          (name)              => Deno.core.ops.bsengine_is_wand_just_charged(name),
+    isWandJustSpent:            (name)              => Deno.core.ops.bsengine_is_wand_just_spent(name),
+    isWandEnabled:              (name)              => Deno.core.ops.bsengine_is_wand_enabled(name),
+    channelWand:                (name, amount)      => Deno.core.ops.bsengine_channel_wand(name, amount),
+    dischargeWand:              (name, amount)      => Deno.core.ops.bsengine_discharge_wand(name, amount),
+    setWandEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wand_enabled(name, v),
+    getWaneDuration:            (name)              => Deno.core.ops.bsengine_get_wane_duration(name),
+    getWaneTimer:               (name)              => Deno.core.ops.bsengine_get_wane_timer(name),
+    getWaneMinPotency:          (name)              => Deno.core.ops.bsengine_get_wane_min_potency(name),
+    isWaneJustWaning:           (name)              => Deno.core.ops.bsengine_is_wane_just_waning(name),
+    isWaneJustExpired:          (name)              => Deno.core.ops.bsengine_is_wane_just_expired(name),
+    isWaneEnabled:              (name)              => Deno.core.ops.bsengine_is_wane_enabled(name),
+    startWane:                  (name, duration)    => Deno.core.ops.bsengine_start_wane(name, duration),
+    stopWane:                   (name)              => Deno.core.ops.bsengine_stop_wane(name),
+    setWaneEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wane_enabled(name, v),
+    getWangleScheme:            (name)              => Deno.core.ops.bsengine_get_wangle_scheme(name),
+    getWangleMaxScheme:         (name)              => Deno.core.ops.bsengine_get_wangle_max_scheme(name),
+    getWangleManeuverRate:      (name)              => Deno.core.ops.bsengine_get_wangle_maneuver_rate(name),
+    isWangleJustSchemed:        (name)              => Deno.core.ops.bsengine_is_wangle_just_schemed(name),
+    isWangleJustFoiled:         (name)              => Deno.core.ops.bsengine_is_wangle_just_foiled(name),
+    isWangleEnabled:            (name)              => Deno.core.ops.bsengine_is_wangle_enabled(name),
+    maneuverWangle:             (name, amount)      => Deno.core.ops.bsengine_maneuver_wangle(name, amount),
+    foilWangle:                 (name, amount)      => Deno.core.ops.bsengine_foil_wangle(name, amount),
+    setWangleEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wangle_enabled(name, v),
+    getWantDesire:              (name)              => Deno.core.ops.bsengine_get_want_desire(name),
+    getWantMaxDesire:           (name)              => Deno.core.ops.bsengine_get_want_max_desire(name),
+    getWantCravingRate:         (name)              => Deno.core.ops.bsengine_get_want_craving_rate(name),
+    isWantJustWanted:           (name)              => Deno.core.ops.bsengine_is_want_just_wanted(name),
+    isWantJustSated:            (name)              => Deno.core.ops.bsengine_is_want_just_sated(name),
+    isWantEnabled:              (name)              => Deno.core.ops.bsengine_is_want_enabled(name),
+    craveWant:                  (name, amount)      => Deno.core.ops.bsengine_crave_want(name, amount),
+    sateWant:                   (name, amount)      => Deno.core.ops.bsengine_sate_want(name, amount),
+    setWantEnabled:             (name, v)           => Deno.core.ops.bsengine_set_want_enabled(name, v),
+    getWantonExcess:            (name)              => Deno.core.ops.bsengine_get_wanton_excess(name),
+    getWantonMaxExcess:         (name)              => Deno.core.ops.bsengine_get_wanton_max_excess(name),
+    getWantonIndulgeRate:       (name)              => Deno.core.ops.bsengine_get_wanton_indulge_rate(name),
+    isWantonJustReckless:       (name)              => Deno.core.ops.bsengine_is_wanton_just_reckless(name),
+    isWantonJustRestrained:     (name)              => Deno.core.ops.bsengine_is_wanton_just_restrained(name),
+    isWantonEnabled:            (name)              => Deno.core.ops.bsengine_is_wanton_enabled(name),
+    indulgeWanton:              (name, amount)      => Deno.core.ops.bsengine_indulge_wanton(name, amount),
+    restrainWanton:             (name, amount)      => Deno.core.ops.bsengine_restrain_wanton(name, amount),
+    setWantonEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wanton_enabled(name, v),
+    getWardHp:                  (name)              => Deno.core.ops.bsengine_get_ward_hp(name),
+    getWardMaxHp:               (name)              => Deno.core.ops.bsengine_get_ward_max_hp(name),
+    isWardJustBroke:            (name)              => Deno.core.ops.bsengine_is_ward_just_broke(name),
+    isWardJustReinforced:       (name)              => Deno.core.ops.bsengine_is_ward_just_reinforced(name),
+    isWardEnabled:              (name)              => Deno.core.ops.bsengine_is_ward_enabled(name),
+    reinforceWard:              (name, amount)      => Deno.core.ops.bsengine_reinforce_ward(name, amount),
+    absorbWard:                 (name, amount)      => Deno.core.ops.bsengine_absorb_ward(name, amount),
+    setWardEnabled:             (name, v)           => Deno.core.ops.bsengine_set_ward_enabled(name, v),
+    getWarmHeat:                (name)              => Deno.core.ops.bsengine_get_warm_heat(name),
+    getWarmMaxHeat:             (name)              => Deno.core.ops.bsengine_get_warm_max_heat(name),
+    getWarmKindleRate:          (name)              => Deno.core.ops.bsengine_get_warm_kindle_rate(name),
+    isWarmJustWarm:             (name)              => Deno.core.ops.bsengine_is_warm_just_warm(name),
+    isWarmJustCold:             (name)              => Deno.core.ops.bsengine_is_warm_just_cold(name),
+    isWarmEnabled:              (name)              => Deno.core.ops.bsengine_is_warm_enabled(name),
+    kindleWarm:                 (name, amount)      => Deno.core.ops.bsengine_kindle_warm(name, amount),
+    chillWarm:                  (name, amount)      => Deno.core.ops.bsengine_chill_warm(name, amount),
+    setWarmEnabled:             (name, v)           => Deno.core.ops.bsengine_set_warm_enabled(name, v),
+    getWarpPhase:               (name)              => Deno.core.ops.bsengine_get_warp_phase(name),
+    getWarpMaxRange:            (name)              => Deno.core.ops.bsengine_get_warp_max_range(name),
+    getWarpChargeDuration:      (name)              => Deno.core.ops.bsengine_get_warp_charge_duration(name),
+    getWarpCooldownDuration:    (name)              => Deno.core.ops.bsengine_get_warp_cooldown_duration(name),
+    isWarpJustWarped:           (name)              => Deno.core.ops.bsengine_is_warp_just_warped(name),
+    isWarpEnabled:              (name)              => Deno.core.ops.bsengine_is_warp_enabled(name),
+    setWarpMaxRange:            (name, v)           => Deno.core.ops.bsengine_set_warp_max_range(name, v),
+    setWarpChargeDuration:      (name, v)           => Deno.core.ops.bsengine_set_warp_charge_duration(name, v),
+    setWarpCooldownDuration:    (name, v)           => Deno.core.ops.bsengine_set_warp_cooldown_duration(name, v),
+    setWarpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_warp_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -58402,6 +59037,431 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StepWaltz { name, amount } if name == "Grunt" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HaltWaltz { name, amount } if name == "Grunt" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaltzEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wand_read_ops() {
+        super::WAND_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWandCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWandMaxCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWandChannelRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWandJustCharged("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWandJustSpent("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWandEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wand_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.channelWand("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dischargeWand("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWandEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChannelWand { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DischargeWand { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWandEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wane_read_ops() {
+        super::WANE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 0.25f32, 0.125f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWaneDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getWaneTimer("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaneMinPotency("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaneJustWaning("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaneJustExpired("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaneEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WANE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wane_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startWane("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stopWane("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaneEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartWane { name, duration } if name == "Grunt" && *duration == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopWane { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaneEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wangle_read_ops() {
+        super::WANGLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWangleScheme("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWangleMaxScheme("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWangleManeuverRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWangleJustSchemed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWangleJustFoiled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWangleEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WANGLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wangle_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.maneuverWangle("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.foilWangle("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWangleEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ManeuverWangle { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FoilWangle { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWangleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_want_read_ops() {
+        super::WANT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWantDesire("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWantMaxDesire("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWantCravingRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantJustWanted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantJustSated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WANT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_want_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.craveWant("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.sateWant("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWantEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CraveWant { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SateWant { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wanton_read_ops() {
+        super::WANTON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWantonExcess("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWantonMaxExcess("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWantonIndulgeRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantonJustReckless("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantonJustRestrained("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantonEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WANTON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wanton_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.indulgeWanton("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.restrainWanton("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWantonEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IndulgeWanton { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestrainWanton { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantonEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ward_read_ops() {
+        super::WARD_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.5f32, 1.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWardHp("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getWardMaxHp("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isWardJustBroke("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWardJustReinforced("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWardEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WARD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ward_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.reinforceWard("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.absorbWard("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWardEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReinforceWard { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AbsorbWard { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWardEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_warm_read_ops() {
+        super::WARM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWarmHeat("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarmMaxHeat("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarmKindleRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarmJustWarm("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarmJustCold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarmEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WARM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_warm_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.kindleWarm("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.chillWarm("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWarmEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::KindleWarm { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChillWarm { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarmEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_warp_read_ops() {
+        super::WARP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0u32, 0.5f32, 0.25f32, 1.0f32, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWarpPhase("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarpMaxRange("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarpChargeDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWarpCooldownDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarpJustWarped("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWarpEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WARP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_warp_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setWarpMaxRange("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWarpChargeDuration("Grunt", 0.25);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWarpCooldownDuration("Grunt", 1.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setWarpEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpMaxRange { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpChargeDuration { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpCooldownDuration { name, value } if name == "Grunt" && *value == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWarpEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

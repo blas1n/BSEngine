@@ -90,7 +90,9 @@ use crate::ops::{
     WATER_BODY_SNAPSHOT, WAVER_SNAPSHOT, WAVE_SNAPSHOT, WAX_SNAPSHOT, WAY_SNAPSHOT, WEAL_SNAPSHOT,
     WEARY_SNAPSHOT, WEASEL_SNAPSHOT, WEATHER_SNAPSHOT, WEAVE_SNAPSHOT, WEB_SNAPSHOT,
     WEDGE_SNAPSHOT, WED_SNAPSHOT, WEEDY_SNAPSHOT, WEED_SNAPSHOT, WEEP_SNAPSHOT, WEE_SNAPSHOT,
-    WEFT_SNAPSHOT, WEIGH_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    WEFT_SNAPSHOT, WEIGHT_SNAPSHOT, WEIGH_SNAPSHOT, WEIRD_SNAPSHOT, WELDER_SNAPSHOT, WELD_SNAPSHOT,
+    WELKIN_SNAPSHOT, WELLY_SNAPSHOT, WELL_SNAPSHOT, WELP_SNAPSHOT, WIND_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -3202,6 +3204,158 @@ fn run_scripts(world: &mut World) {
             );
         }
         WEIGH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weight;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weight)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.mass,
+                    w.max_mass,
+                    w.accrue_rate,
+                    w.just_heavy,
+                    w.just_weightless,
+                    w.enabled,
+                ),
+            );
+        }
+        WEIGHT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weird;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weird)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.strangeness,
+                    w.max_strangeness,
+                    w.warp_rate,
+                    w.just_bizarre,
+                    w.just_mundane,
+                    w.enabled,
+                ),
+            );
+        }
+        WEIRD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weld;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weld)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.strength,
+                    w.max_strength,
+                    w.welding,
+                    w.just_bonded,
+                    w.just_fractured,
+                    w.enabled,
+                ),
+            );
+        }
+        WELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welder)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.bond_strength,
+                    w.max_bond_strength,
+                    w.fuse_rate,
+                    w.just_fused,
+                    w.just_fractured,
+                    w.enabled,
+                ),
+            );
+        }
+        WELDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welkin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welkin)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.expanse,
+                    w.max_expanse,
+                    w.vault_rate,
+                    w.just_heavens,
+                    w.just_zenith,
+                    w.enabled,
+                ),
+            );
+        }
+        WELKIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Well;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Well)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.reserve,
+                    w.max_reserve,
+                    w.seep_rate,
+                    w.just_full,
+                    w.just_dry,
+                    w.enabled,
+                ),
+            );
+        }
+        WELL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welly;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welly)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.stride,
+                    w.max_stride,
+                    w.plod_rate,
+                    w.just_marched,
+                    w.just_halted,
+                    w.enabled,
+                ),
+            );
+        }
+        WELLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welp)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.distress,
+                    w.max_distress,
+                    w.panic_rate,
+                    w.just_overwhelmed,
+                    w.just_calm,
+                    w.enabled,
+                ),
+            );
+        }
+        WELP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -23292,6 +23446,270 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Weigh>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AccrueWeight { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weight>(e) {
+                        w.accrue(amount);
+                    }
+                }
+            }
+            ScriptCommand::ShedWeight { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weight>(e) {
+                        w.shed(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWeightEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weight>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::WarpWeird { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weird>(e) {
+                        w.warp(amount);
+                    }
+                }
+            }
+            ScriptCommand::NormalizeWeird { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weird>(e) {
+                        w.normalize(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWeirdEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weird>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::WeldWeld { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weld>(e) {
+                        w.weld();
+                    }
+                }
+            }
+            ScriptCommand::CoolWeld { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weld>(e) {
+                        w.cool();
+                    }
+                }
+            }
+            ScriptCommand::SetWeldEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Weld>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::FuseWelder { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welder>(e) {
+                        w.fuse(amount);
+                    }
+                }
+            }
+            ScriptCommand::FractureWelder { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welder>(e) {
+                        w.fracture(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWelderEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welder>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::VaultWelkin { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welkin>(e) {
+                        w.vault(amount);
+                    }
+                }
+            }
+            ScriptCommand::DescendWelkin { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welkin>(e) {
+                        w.descend(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWelkinEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welkin>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::FillWell { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Well>(e) {
+                        w.fill(amount);
+                    }
+                }
+            }
+            ScriptCommand::DrawWell { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Well>(e) {
+                        w.draw(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWellEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Well>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::PlodWelly { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welly>(e) {
+                        w.plod(amount);
+                    }
+                }
+            }
+            ScriptCommand::RestWelly { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welly>(e) {
+                        w.rest(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWellyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welly>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::PanicWelp { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welp>(e) {
+                        w.panic(amount);
+                    }
+                }
+            }
+            ScriptCommand::CalmWelp { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welp>(e) {
+                        w.calm(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetWelpEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Welp>(e) {
                         w.enabled = enabled;
                     }
                 }

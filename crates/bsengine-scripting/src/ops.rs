@@ -5785,6 +5785,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    HowlWoof {
+        name: String,
+        amount: f32,
+    },
+    HushWoof {
+        name: String,
+        amount: f32,
+    },
+    SetWoofEnabled {
+        name: String,
+        enabled: bool,
+    },
+    InsulateWool {
+        name: String,
+        amount: f32,
+    },
+    ChillWool {
+        name: String,
+        amount: f32,
+    },
+    SetWoolEnabled {
+        name: String,
+        enabled: bool,
+    },
+    GrowWoolly {
+        name: String,
+        amount: f32,
+    },
+    ShearWoolly {
+        name: String,
+        amount: f32,
+    },
+    SetWoollyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SpinWoozy {
+        name: String,
+        amount: f32,
+    },
+    RecoverWoozy {
+        name: String,
+        amount: f32,
+    },
+    SetWoozyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RambleWordy {
+        name: String,
+        amount: f32,
+    },
+    TruncateWordy {
+        name: String,
+        amount: f32,
+    },
+    SetWordyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AbradeWore {
+        name: String,
+        amount: f32,
+    },
+    RestoreWore {
+        name: String,
+        amount: f32,
+    },
+    SetWoreEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BurrowWorm {
+        name: String,
+    },
+    ExpelWorm {
+        name: String,
+    },
+    SetWormEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DegradeWorn {
+        name: String,
+        amount: f32,
+    },
+    RepairWorn {
+        name: String,
+        amount: f32,
+    },
+    SetWornEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7172,6 +7266,22 @@ thread_local! {
     pub(crate) static WOODSY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WOOER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOOF_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOOL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOOLLY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOOZY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORDY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WORN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -17626,6 +17736,368 @@ pub fn bsengine_set_wooer_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWooerEnabled { name, enabled })
+    });
+}
+// ── Woof ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_woof_bark(#[string] name: String) -> f32 {
+    WOOF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woof_max_bark(#[string] name: String) -> f32 {
+    WOOF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woof_howl_rate(#[string] name: String) -> f32 {
+    WOOF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_woof_just_howling(#[string] name: String) -> bool {
+    WOOF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woof_just_quiet(#[string] name: String) -> bool {
+    WOOF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woof_enabled(#[string] name: String) -> bool {
+    WOOF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_howl_woof(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HowlWoof { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_hush_woof(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HushWoof { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_woof_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoofEnabled { name, enabled })
+    });
+}
+// ── Wool ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wool_warmth(#[string] name: String) -> f32 {
+    WOOL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wool_max_warmth(#[string] name: String) -> f32 {
+    WOOL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wool_insulate_rate(#[string] name: String) -> f32 {
+    WOOL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wool_just_warm(#[string] name: String) -> bool {
+    WOOL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wool_just_cold(#[string] name: String) -> bool {
+    WOOL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wool_enabled(#[string] name: String) -> bool {
+    WOOL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_insulate_wool(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InsulateWool { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_chill_wool(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChillWool { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wool_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoolEnabled { name, enabled })
+    });
+}
+// ── Woolly ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_woolly_fleece(#[string] name: String) -> f32 {
+    WOOLLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woolly_max_fleece(#[string] name: String) -> f32 {
+    WOOLLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woolly_grow_rate(#[string] name: String) -> f32 {
+    WOOLLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_woolly_just_shaggy(#[string] name: String) -> bool {
+    WOOLLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woolly_just_shorn(#[string] name: String) -> bool {
+    WOOLLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woolly_enabled(#[string] name: String) -> bool {
+    WOOLLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_grow_woolly(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::GrowWoolly { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_shear_woolly(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ShearWoolly { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_woolly_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoollyEnabled { name, enabled })
+    });
+}
+// ── Woozy ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_woozy_dizziness(#[string] name: String) -> f32 {
+    WOOZY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woozy_max_dizziness(#[string] name: String) -> f32 {
+    WOOZY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woozy_spin_rate(#[string] name: String) -> f32 {
+    WOOZY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_woozy_just_reeling(#[string] name: String) -> bool {
+    WOOZY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woozy_just_clear(#[string] name: String) -> bool {
+    WOOZY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woozy_enabled(#[string] name: String) -> bool {
+    WOOZY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_spin_woozy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SpinWoozy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_recover_woozy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RecoverWoozy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_woozy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoozyEnabled { name, enabled })
+    });
+}
+// ── Wordy ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wordy_verbosity(#[string] name: String) -> f32 {
+    WORDY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wordy_max_verbosity(#[string] name: String) -> f32 {
+    WORDY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wordy_ramble_rate(#[string] name: String) -> f32 {
+    WORDY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wordy_just_verbose(#[string] name: String) -> bool {
+    WORDY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wordy_just_terse(#[string] name: String) -> bool {
+    WORDY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wordy_enabled(#[string] name: String) -> bool {
+    WORDY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ramble_wordy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RambleWordy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_truncate_wordy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TruncateWordy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wordy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWordyEnabled { name, enabled })
+    });
+}
+// ── Wore ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wore_wear(#[string] name: String) -> f32 {
+    WORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wore_max_wear(#[string] name: String) -> f32 {
+    WORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wore_abrade_rate(#[string] name: String) -> f32 {
+    WORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wore_just_worn(#[string] name: String) -> bool {
+    WORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wore_just_fresh(#[string] name: String) -> bool {
+    WORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wore_enabled(#[string] name: String) -> bool {
+    WORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_abrade_wore(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AbradeWore { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_restore_wore(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestoreWore { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wore_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoreEnabled { name, enabled })
+    });
+}
+// ── Worm ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_worm_depth(#[string] name: String) -> f32 {
+    WORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worm_max_depth(#[string] name: String) -> f32 {
+    WORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worm_burrow_rate(#[string] name: String) -> f32 {
+    WORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_worm_just_burrowed(#[string] name: String) -> bool {
+    WORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worm_just_expelled(#[string] name: String) -> bool {
+    WORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worm_enabled(#[string] name: String) -> bool {
+    WORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_burrow_worm(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BurrowWorm { name }));
+}
+#[op2(fast)]
+pub fn bsengine_expel_worm(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExpelWorm { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_worm_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWormEnabled { name, enabled })
+    });
+}
+// ── Worn ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_worn_level(#[string] name: String) -> f32 {
+    WORN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worn_max_worn(#[string] name: String) -> f32 {
+    WORN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_worn_wear_rate(#[string] name: String) -> f32 {
+    WORN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_worn_just_wore(#[string] name: String) -> bool {
+    WORN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worn_just_broke(#[string] name: String) -> bool {
+    WORN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_worn_enabled(#[string] name: String) -> bool {
+    WORN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_degrade_worn(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DegradeWorn { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repair_worn(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RepairWorn { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_worn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWornEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -38645,6 +39117,78 @@ deno_core::extension!(
         bsengine_woo_wooer,
         bsengine_spurn_wooer,
         bsengine_set_wooer_enabled,
+        bsengine_get_woof_bark,
+        bsengine_get_woof_max_bark,
+        bsengine_get_woof_howl_rate,
+        bsengine_is_woof_just_howling,
+        bsengine_is_woof_just_quiet,
+        bsengine_is_woof_enabled,
+        bsengine_howl_woof,
+        bsengine_hush_woof,
+        bsengine_set_woof_enabled,
+        bsengine_get_wool_warmth,
+        bsengine_get_wool_max_warmth,
+        bsengine_get_wool_insulate_rate,
+        bsengine_is_wool_just_warm,
+        bsengine_is_wool_just_cold,
+        bsengine_is_wool_enabled,
+        bsengine_insulate_wool,
+        bsengine_chill_wool,
+        bsengine_set_wool_enabled,
+        bsengine_get_woolly_fleece,
+        bsengine_get_woolly_max_fleece,
+        bsengine_get_woolly_grow_rate,
+        bsengine_is_woolly_just_shaggy,
+        bsengine_is_woolly_just_shorn,
+        bsengine_is_woolly_enabled,
+        bsengine_grow_woolly,
+        bsengine_shear_woolly,
+        bsengine_set_woolly_enabled,
+        bsengine_get_woozy_dizziness,
+        bsengine_get_woozy_max_dizziness,
+        bsengine_get_woozy_spin_rate,
+        bsengine_is_woozy_just_reeling,
+        bsengine_is_woozy_just_clear,
+        bsengine_is_woozy_enabled,
+        bsengine_spin_woozy,
+        bsengine_recover_woozy,
+        bsengine_set_woozy_enabled,
+        bsengine_get_wordy_verbosity,
+        bsengine_get_wordy_max_verbosity,
+        bsengine_get_wordy_ramble_rate,
+        bsengine_is_wordy_just_verbose,
+        bsengine_is_wordy_just_terse,
+        bsengine_is_wordy_enabled,
+        bsengine_ramble_wordy,
+        bsengine_truncate_wordy,
+        bsengine_set_wordy_enabled,
+        bsengine_get_wore_wear,
+        bsengine_get_wore_max_wear,
+        bsengine_get_wore_abrade_rate,
+        bsengine_is_wore_just_worn,
+        bsengine_is_wore_just_fresh,
+        bsengine_is_wore_enabled,
+        bsengine_abrade_wore,
+        bsengine_restore_wore,
+        bsengine_set_wore_enabled,
+        bsengine_get_worm_depth,
+        bsengine_get_worm_max_depth,
+        bsengine_get_worm_burrow_rate,
+        bsengine_is_worm_just_burrowed,
+        bsengine_is_worm_just_expelled,
+        bsengine_is_worm_enabled,
+        bsengine_burrow_worm,
+        bsengine_expel_worm,
+        bsengine_set_worm_enabled,
+        bsengine_get_worn_level,
+        bsengine_get_worn_max_worn,
+        bsengine_get_worn_wear_rate,
+        bsengine_is_worn_just_wore,
+        bsengine_is_worn_just_broke,
+        bsengine_is_worn_enabled,
+        bsengine_degrade_worn,
+        bsengine_repair_worn,
+        bsengine_set_worn_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -43076,6 +43620,78 @@ const Bsengine = {
     wooWooer:                   (name, v)           => Deno.core.ops.bsengine_woo_wooer(name, v),
     spurnWooer:                 (name, v)           => Deno.core.ops.bsengine_spurn_wooer(name, v),
     setWooerEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wooer_enabled(name, v),
+    getWoofBark:                (name)              => Deno.core.ops.bsengine_get_woof_bark(name),
+    getWoofMaxBark:             (name)              => Deno.core.ops.bsengine_get_woof_max_bark(name),
+    getWoofHowlRate:            (name)              => Deno.core.ops.bsengine_get_woof_howl_rate(name),
+    isWoofJustHowling:          (name)              => Deno.core.ops.bsengine_is_woof_just_howling(name),
+    isWoofJustQuiet:            (name)              => Deno.core.ops.bsengine_is_woof_just_quiet(name),
+    isWoofEnabled:              (name)              => Deno.core.ops.bsengine_is_woof_enabled(name),
+    howlWoof:                   (name, v)           => Deno.core.ops.bsengine_howl_woof(name, v),
+    hushWoof:                   (name, v)           => Deno.core.ops.bsengine_hush_woof(name, v),
+    setWoofEnabled:             (name, v)           => Deno.core.ops.bsengine_set_woof_enabled(name, v),
+    getWoolWarmth:              (name)              => Deno.core.ops.bsengine_get_wool_warmth(name),
+    getWoolMaxWarmth:           (name)              => Deno.core.ops.bsengine_get_wool_max_warmth(name),
+    getWoolInsulateRate:        (name)              => Deno.core.ops.bsengine_get_wool_insulate_rate(name),
+    isWoolJustWarm:             (name)              => Deno.core.ops.bsengine_is_wool_just_warm(name),
+    isWoolJustCold:             (name)              => Deno.core.ops.bsengine_is_wool_just_cold(name),
+    isWoolEnabled:              (name)              => Deno.core.ops.bsengine_is_wool_enabled(name),
+    insulateWool:               (name, v)           => Deno.core.ops.bsengine_insulate_wool(name, v),
+    chillWool:                  (name, v)           => Deno.core.ops.bsengine_chill_wool(name, v),
+    setWoolEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wool_enabled(name, v),
+    getWoollyFleece:            (name)              => Deno.core.ops.bsengine_get_woolly_fleece(name),
+    getWoollyMaxFleece:         (name)              => Deno.core.ops.bsengine_get_woolly_max_fleece(name),
+    getWoollyGrowRate:          (name)              => Deno.core.ops.bsengine_get_woolly_grow_rate(name),
+    isWoollyJustShaggy:         (name)              => Deno.core.ops.bsengine_is_woolly_just_shaggy(name),
+    isWoollyJustShorn:          (name)              => Deno.core.ops.bsengine_is_woolly_just_shorn(name),
+    isWoollyEnabled:            (name)              => Deno.core.ops.bsengine_is_woolly_enabled(name),
+    growWoolly:                 (name, v)           => Deno.core.ops.bsengine_grow_woolly(name, v),
+    shearWoolly:                (name, v)           => Deno.core.ops.bsengine_shear_woolly(name, v),
+    setWoollyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_woolly_enabled(name, v),
+    getWoozyDizziness:          (name)              => Deno.core.ops.bsengine_get_woozy_dizziness(name),
+    getWoozyMaxDizziness:       (name)              => Deno.core.ops.bsengine_get_woozy_max_dizziness(name),
+    getWoozySpinRate:           (name)              => Deno.core.ops.bsengine_get_woozy_spin_rate(name),
+    isWoozyJustReeling:         (name)              => Deno.core.ops.bsengine_is_woozy_just_reeling(name),
+    isWoozyJustClear:           (name)              => Deno.core.ops.bsengine_is_woozy_just_clear(name),
+    isWoozyEnabled:             (name)              => Deno.core.ops.bsengine_is_woozy_enabled(name),
+    spinWoozy:                  (name, v)           => Deno.core.ops.bsengine_spin_woozy(name, v),
+    recoverWoozy:               (name, v)           => Deno.core.ops.bsengine_recover_woozy(name, v),
+    setWoozyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_woozy_enabled(name, v),
+    getWordyVerbosity:          (name)              => Deno.core.ops.bsengine_get_wordy_verbosity(name),
+    getWordyMaxVerbosity:       (name)              => Deno.core.ops.bsengine_get_wordy_max_verbosity(name),
+    getWordyRambleRate:         (name)              => Deno.core.ops.bsengine_get_wordy_ramble_rate(name),
+    isWordyJustVerbose:         (name)              => Deno.core.ops.bsengine_is_wordy_just_verbose(name),
+    isWordyJustTerse:           (name)              => Deno.core.ops.bsengine_is_wordy_just_terse(name),
+    isWordyEnabled:             (name)              => Deno.core.ops.bsengine_is_wordy_enabled(name),
+    rambleWordy:                (name, v)           => Deno.core.ops.bsengine_ramble_wordy(name, v),
+    truncateWordy:              (name, v)           => Deno.core.ops.bsengine_truncate_wordy(name, v),
+    setWordyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wordy_enabled(name, v),
+    getWoreWear:                (name)              => Deno.core.ops.bsengine_get_wore_wear(name),
+    getWoreMaxWear:             (name)              => Deno.core.ops.bsengine_get_wore_max_wear(name),
+    getWoreAbradeRate:          (name)              => Deno.core.ops.bsengine_get_wore_abrade_rate(name),
+    isWoreJustWorn:             (name)              => Deno.core.ops.bsengine_is_wore_just_worn(name),
+    isWoreJustFresh:            (name)              => Deno.core.ops.bsengine_is_wore_just_fresh(name),
+    isWoreEnabled:              (name)              => Deno.core.ops.bsengine_is_wore_enabled(name),
+    abradeWore:                 (name, v)           => Deno.core.ops.bsengine_abrade_wore(name, v),
+    restoreWore:                (name, v)           => Deno.core.ops.bsengine_restore_wore(name, v),
+    setWoreEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wore_enabled(name, v),
+    getWormDepth:               (name)              => Deno.core.ops.bsengine_get_worm_depth(name),
+    getWormMaxDepth:            (name)              => Deno.core.ops.bsengine_get_worm_max_depth(name),
+    getWormBurrowRate:          (name)              => Deno.core.ops.bsengine_get_worm_burrow_rate(name),
+    isWormJustBurrowed:         (name)              => Deno.core.ops.bsengine_is_worm_just_burrowed(name),
+    isWormJustExpelled:         (name)              => Deno.core.ops.bsengine_is_worm_just_expelled(name),
+    isWormEnabled:              (name)              => Deno.core.ops.bsengine_is_worm_enabled(name),
+    burrowWorm:                 (name)              => Deno.core.ops.bsengine_burrow_worm(name),
+    expelWorm:                  (name)              => Deno.core.ops.bsengine_expel_worm(name),
+    setWormEnabled:             (name, v)           => Deno.core.ops.bsengine_set_worm_enabled(name, v),
+    getWornLevel:               (name)              => Deno.core.ops.bsengine_get_worn_level(name),
+    getWornMaxWorn:             (name)              => Deno.core.ops.bsengine_get_worn_max_worn(name),
+    getWornWearRate:            (name)              => Deno.core.ops.bsengine_get_worn_wear_rate(name),
+    isWornJustWore:             (name)              => Deno.core.ops.bsengine_is_worn_just_wore(name),
+    isWornJustBroke:            (name)              => Deno.core.ops.bsengine_is_worn_just_broke(name),
+    isWornEnabled:              (name)              => Deno.core.ops.bsengine_is_worn_enabled(name),
+    degradeWorn:                (name, v)           => Deno.core.ops.bsengine_degrade_worn(name, v),
+    repairWorn:                 (name, v)           => Deno.core.ops.bsengine_repair_worn(name, v),
+    setWornEnabled:             (name, v)           => Deno.core.ops.bsengine_set_worn_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -71966,6 +72582,442 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WooWooer { name, amount } if name == "Charmer" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpurnWooer { name, amount } if name == "Charmer" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWooerEnabled { name, enabled } if name == "Charmer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woof_read_ops() {
+        super::WOOF_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Bark".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWoofBark("Bark"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoofMaxBark("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoofHowlRate("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoofJustHowling("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoofJustQuiet("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoofEnabled("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOOF_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woof_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.howlWoof("Bark", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.hushWoof("Bark", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoofEnabled("Bark", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HowlWoof { name, amount } if name == "Bark" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HushWoof { name, amount } if name == "Bark" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoofEnabled { name, enabled } if name == "Bark" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wool_read_ops() {
+        super::WOOL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fleece".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoolWarmth("Fleece"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoolMaxWarmth("Fleece"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoolInsulateRate("Fleece"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoolJustWarm("Fleece"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoolJustCold("Fleece"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoolEnabled("Fleece"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOOL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wool_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.insulateWool("Fleece", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.chillWool("Fleece", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoolEnabled("Fleece", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InsulateWool { name, amount } if name == "Fleece" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChillWool { name, amount } if name == "Fleece" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoolEnabled { name, enabled } if name == "Fleece" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woolly_read_ops() {
+        super::WOOLLY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shag".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoollyFleece("Shag"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoollyMaxFleece("Shag"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoollyGrowRate("Shag"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoollyJustShaggy("Shag"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoollyJustShorn("Shag"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoollyEnabled("Shag"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOOLLY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woolly_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.growWoolly("Shag", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shearWoolly("Shag", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoollyEnabled("Shag", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GrowWoolly { name, amount } if name == "Shag" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShearWoolly { name, amount } if name == "Shag" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoollyEnabled { name, enabled } if name == "Shag" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woozy_read_ops() {
+        super::WOOZY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dizzy".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoozyDizziness("Dizzy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoozyMaxDizziness("Dizzy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoozySpinRate("Dizzy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoozyJustReeling("Dizzy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoozyJustClear("Dizzy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoozyEnabled("Dizzy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOOZY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woozy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.spinWoozy("Dizzy", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.recoverWoozy("Dizzy", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoozyEnabled("Dizzy", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpinWoozy { name, amount } if name == "Dizzy" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RecoverWoozy { name, amount } if name == "Dizzy" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoozyEnabled { name, enabled } if name == "Dizzy" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wordy_read_ops() {
+        super::WORDY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Prose".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWordyVerbosity("Prose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWordyMaxVerbosity("Prose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWordyRambleRate("Prose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWordyJustVerbose("Prose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWordyJustTerse("Prose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWordyEnabled("Prose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORDY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wordy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.rambleWordy("Prose", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.truncateWordy("Prose", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWordyEnabled("Prose", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RambleWordy { name, amount } if name == "Prose" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TruncateWordy { name, amount } if name == "Prose" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWordyEnabled { name, enabled } if name == "Prose" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wore_read_ops() {
+        super::WORE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Tattered".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoreWear("Tattered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoreMaxWear("Tattered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoreAbradeRate("Tattered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoreJustWorn("Tattered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoreJustFresh("Tattered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoreEnabled("Tattered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wore_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.abradeWore("Tattered", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.restoreWore("Tattered", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoreEnabled("Tattered", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AbradeWore { name, amount } if name == "Tattered" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestoreWore { name, amount } if name == "Tattered" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoreEnabled { name, enabled } if name == "Tattered" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worm_read_ops() {
+        super::WORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Burrow".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWormDepth("Burrow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWormMaxDepth("Burrow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWormBurrowRate("Burrow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWormJustBurrowed("Burrow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWormJustExpelled("Burrow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWormEnabled("Burrow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worm_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.burrowWorm("Burrow");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.expelWorm("Burrow");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWormEnabled("Burrow", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BurrowWorm { name } if name == "Burrow")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExpelWorm { name } if name == "Burrow")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWormEnabled { name, enabled } if name == "Burrow" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worn_read_ops() {
+        super::WORN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Worn".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWornLevel("Worn"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWornMaxWorn("Worn"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWornWearRate("Worn"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWornJustWore("Worn"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWornJustBroke("Worn"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWornEnabled("Worn"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WORN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_worn_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.degradeWorn("Worn", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairWorn("Worn", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWornEnabled("Worn", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DegradeWorn { name, amount } if name == "Worn" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairWorn { name, amount } if name == "Worn" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWornEnabled { name, enabled } if name == "Worn" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

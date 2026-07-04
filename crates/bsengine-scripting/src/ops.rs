@@ -3043,6 +3043,323 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    BeginParry {
+        name: String,
+    },
+    NotifyParryHit {
+        name: String,
+    },
+    SetParryStartupDuration {
+        name: String,
+        duration: f32,
+    },
+    SetParryActiveDuration {
+        name: String,
+        duration: f32,
+    },
+    SetParryRecoveryDuration {
+        name: String,
+        duration: f32,
+    },
+    SetParryEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PatienceOnAttack {
+        name: String,
+    },
+    SetPatienceMaxPatience {
+        name: String,
+        max_patience: f32,
+    },
+    SetPatienceBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetPatienceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyPetrify {
+        name: String,
+        duration: f32,
+    },
+    ShatterPetrify {
+        name: String,
+    },
+    SetPetrifyArmorBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetPetrifyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivatePhase {
+        name: String,
+    },
+    CancelPhase {
+        name: String,
+    },
+    SetPhaseDuration {
+        name: String,
+        duration: f32,
+    },
+    SetPhaseCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetPhaseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PierceBeginAttack {
+        name: String,
+    },
+    SetPierceMax {
+        name: String,
+        max_pierce: u32,
+    },
+    SetPierceChance {
+        name: String,
+        chance: f32,
+    },
+    SetPierceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyPin {
+        name: String,
+        duration: f32,
+    },
+    FreePin {
+        name: String,
+    },
+    SetPinKnockbackImmune {
+        name: String,
+        immune: bool,
+    },
+    SetPinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    Plead {
+        name: String,
+        duration: f32,
+    },
+    SilencePlea {
+        name: String,
+    },
+    SetPleaAvoidanceChance {
+        name: String,
+        chance: f32,
+    },
+    SetPleaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    Feign {
+        name: String,
+        duration: f32,
+    },
+    DropPloy {
+        name: String,
+    },
+    SetPloyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    UpdatePluck {
+        name: String,
+        hp: f32,
+        max_hp: f32,
+    },
+    SetPluckHpThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetPluckCritBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetPluckEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DamagePoise {
+        name: String,
+        amount: f32,
+    },
+    BreakPoise {
+        name: String,
+    },
+    RestorePoise {
+        name: String,
+        amount: f32,
+    },
+    SetPoiseMax {
+        name: String,
+        max: f32,
+    },
+    SetPoiseRegenRate {
+        name: String,
+        rate: f32,
+    },
+    SetPoiseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PounceLeap {
+        name: String,
+        duration: f32,
+    },
+    PounceLand {
+        name: String,
+    },
+    SetPounceDamage {
+        name: String,
+        damage: f32,
+    },
+    SetPounceKnockdownDuration {
+        name: String,
+        duration: f32,
+    },
+    SetPounceMinRange {
+        name: String,
+        range: f32,
+    },
+    SetPounceMaxRange {
+        name: String,
+        range: f32,
+    },
+    SetPounceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FallProne {
+        name: String,
+    },
+    BeginStandUp {
+        name: String,
+    },
+    ForceStandUp {
+        name: String,
+    },
+    SetProneStandUpDuration {
+        name: String,
+        duration: f32,
+    },
+    SetProneMovementPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetProneAttackPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetProneEnabled {
+        name: String,
+        enabled: bool,
+    },
+    Guard {
+        name: String,
+        duration: f32,
+    },
+    ProtectStandDown {
+        name: String,
+    },
+    SetProtectGuardRadius {
+        name: String,
+        radius: f32,
+    },
+    SetProtectRedirectFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetProtectEnabled {
+        name: String,
+        enabled: bool,
+    },
+    UpdateProud {
+        name: String,
+        hp: f32,
+        max_hp: f32,
+    },
+    SetProudHpThreshold {
+        name: String,
+        threshold: f32,
+    },
+    SetProudDamageBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetProudEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivateProvoke {
+        name: String,
+        duration: f32,
+    },
+    DeactivateProvoke {
+        name: String,
+    },
+    SetProvokeAggroMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetProvokeRadius {
+        name: String,
+        radius: f32,
+    },
+    SetProvokeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyProwl {
+        name: String,
+        duration: f32,
+    },
+    ClearProwl {
+        name: String,
+    },
+    SetProwlSpeedBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetProwlAmbushMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetProwlEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivatePulse {
+        name: String,
+    },
+    DeactivatePulse {
+        name: String,
+    },
+    ResetPulse {
+        name: String,
+    },
+    SetPulseRadius {
+        name: String,
+        radius: f32,
+    },
+    SetPulseInterval {
+        name: String,
+        interval: f32,
+    },
+    SetPulseFalloff {
+        name: String,
+        falloff: f32,
+    },
+    SetPulseEnabled {
+        name: String,
+        enabled: bool,
+    },
     PlayAnimation {
         name: String,
         clip: String,
@@ -4172,6 +4489,74 @@ thread_local! {
     // entity name → (current, max_overshield, decay_rate, just_granted, just_depleted, enabled)
     pub(crate) static OVERSHIELD_SNAPSHOT: RefCell<
         HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (state_kind, startup_dur, active_dur, recovery_dur, timer, parry_count, just_opened, just_succeeded, just_missed, just_finished, enabled)
+    pub(crate) static PARRY_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, f32, f32, f32, u32, bool, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (patience_level, max_patience, patience_bonus, just_primed, just_spent, enabled)
+    pub(crate) static PATIENCE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, armor_bonus, just_petrified, just_unpetrified, enabled)
+    pub(crate) static PETRIFY_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (is_phased, duration, timer, cooldown, cooldown_timer, just_phased, just_unphased, enabled)
+    pub(crate) static PHASE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (max_pierce, pierce_chance, pierced_this_attack, just_pierced, enabled)
+    pub(crate) static PIERCE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, f32, u32, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (active, timer, duration, knockback_immune, just_pinned, just_freed, enabled)
+    pub(crate) static PIN_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, avoidance_chance, just_began, just_ended, enabled)
+    pub(crate) static PLEA_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (active, timer, just_began, just_ended, enabled)
+    pub(crate) static PLOY_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (hp_threshold, crit_bonus, pluck_active, just_triggered, just_recovered, enabled)
+    pub(crate) static PLUCK_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (current, max, regen_rate, broken, just_broken, just_restored, enabled)
+    pub(crate) static POISE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage, knockdown_duration, min_range, max_range, just_leaped, just_landed, enabled)
+    pub(crate) static POUNCE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (is_prone, stand_up_duration, stand_up_timer, movement_penalty, attack_penalty, just_fell_prone, just_stood_up, enabled)
+    pub(crate) static PRONE_SNAPSHOT: RefCell<
+        HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, guard_radius, redirect_fraction, just_began, just_ended, enabled)
+    pub(crate) static PROTECT_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (hp_threshold, damage_bonus, prideful, just_humbled, just_restored, enabled)
+    pub(crate) static PROUD_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, aggro_multiplier, radius, just_provoked, just_expired, enabled)
+    pub(crate) static PROVOKE_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (duration, timer, speed_bonus_fraction, ambush_damage_multiplier, ambush_consumed, just_prowling, just_faded, enabled)
+    pub(crate) static PROWL_SNAPSHOT: RefCell<
+        HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>,
+    > = RefCell::new(HashMap::new());
+    // entity name → (mode_kind, is_active, radius, max_radius, interval, timer, falloff, pulse_count, just_pulsed, enabled)
+    pub(crate) static PULSE_SNAPSHOT: RefCell<
+        HashMap<String, (u32, bool, f32, f32, f32, f32, f32, u32, bool, bool)>,
     > = RefCell::new(HashMap::new());
 }
 
@@ -20553,6 +20938,1046 @@ pub fn bsengine_set_overshield_enabled(#[string] name: String, enabled: bool) {
             .push(ScriptCommand::SetOvershieldEnabled { name, enabled })
     });
 }
+#[op2(fast)]
+pub fn bsengine_get_parry_state(#[string] name: String) -> u32 {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_parry_startup_duration(#[string] name: String) -> f32 {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_parry_active_duration(#[string] name: String) -> f32 {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_parry_recovery_duration(#[string] name: String) -> f32 {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_parry_timer(#[string] name: String) -> f32 {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_parry_count(#[string] name: String) -> u32 {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_parry_just_opened(#[string] name: String) -> bool {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_parry_just_succeeded(#[string] name: String) -> bool {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_parry_just_missed(#[string] name: String) -> bool {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_parry_just_finished(#[string] name: String) -> bool {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_parry_enabled(#[string] name: String) -> bool {
+    PARRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_parry(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginParry { name }));
+}
+#[op2(fast)]
+pub fn bsengine_notify_parry_hit(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::NotifyParryHit { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_parry_startup_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetParryStartupDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_parry_active_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetParryActiveDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_parry_recovery_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetParryRecoveryDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_parry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetParryEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_patience_level(#[string] name: String) -> f32 {
+    PATIENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_patience_max(#[string] name: String) -> f32 {
+    PATIENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_patience_bonus(#[string] name: String) -> f32 {
+    PATIENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_patience_just_primed(#[string] name: String) -> bool {
+    PATIENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_patience_just_spent(#[string] name: String) -> bool {
+    PATIENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_patience_enabled(#[string] name: String) -> bool {
+    PATIENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_patience_on_attack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PatienceOnAttack { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_patience_max(#[string] name: String, max_patience: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPatienceMaxPatience { name, max_patience })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_patience_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPatienceBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_patience_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPatienceEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_petrify_duration(#[string] name: String) -> f32 {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_petrify_timer(#[string] name: String) -> f32 {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_petrify_armor_bonus(#[string] name: String) -> f32 {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_petrified(#[string] name: String) -> bool {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_petrify_just_petrified(#[string] name: String) -> bool {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_petrify_just_unpetrified(#[string] name: String) -> bool {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_petrify_enabled(#[string] name: String) -> bool {
+    PETRIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_petrify(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyPetrify { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_shatter_petrify(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ShatterPetrify { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_petrify_armor_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPetrifyArmorBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_petrify_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPetrifyEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_is_phased(#[string] name: String) -> bool {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_phase_duration(#[string] name: String) -> f32 {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_phase_timer(#[string] name: String) -> f32 {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_phase_cooldown(#[string] name: String) -> f32 {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_phase_cooldown_timer(#[string] name: String) -> f32 {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_phase_just_phased(#[string] name: String) -> bool {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_phase_just_unphased(#[string] name: String) -> bool {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_phase_enabled(#[string] name: String) -> bool {
+    PHASE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_phase(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivatePhase { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cancel_phase(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CancelPhase { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_phase_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPhaseDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_phase_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPhaseCooldown { name, cooldown })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_phase_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPhaseEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_pierce_max(#[string] name: String) -> u32 {
+    PIERCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pierce_chance(#[string] name: String) -> f32 {
+    PIERCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pierce_count(#[string] name: String) -> u32 {
+    PIERCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_pierce_just_pierced(#[string] name: String) -> bool {
+    PIERCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pierce_enabled(#[string] name: String) -> bool {
+    PIERCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pierce_begin_attack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PierceBeginAttack { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pierce_max(#[string] name: String, max_pierce: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPierceMax { name, max_pierce })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pierce_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPierceChance { name, chance })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pierce_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPierceEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_is_pinned(#[string] name: String) -> bool {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_pin_timer(#[string] name: String) -> f32 {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pin_duration(#[string] name: String) -> f32 {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_pin_knockback_immune(#[string] name: String) -> bool {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pin_just_pinned(#[string] name: String) -> bool {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pin_just_freed(#[string] name: String) -> bool {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pin_enabled(#[string] name: String) -> bool {
+    PIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_pin(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyPin { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_free_pin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FreePin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_pin_knockback_immune(#[string] name: String, immune: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPinKnockbackImmune { name, immune })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPinEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_plea_duration(#[string] name: String) -> f32 {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_plea_timer(#[string] name: String) -> f32 {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_plea_avoidance_chance(#[string] name: String) -> f32 {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_plea_active(#[string] name: String) -> bool {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_plea_just_began(#[string] name: String) -> bool {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_plea_just_ended(#[string] name: String) -> bool {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_plea_enabled(#[string] name: String) -> bool {
+    PLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_plead(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Plead { name, duration }));
+}
+#[op2(fast)]
+pub fn bsengine_silence_plea(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SilencePlea { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_plea_avoidance_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPleaAvoidanceChance { name, chance })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_plea_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPleaEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_is_ploy_active(#[string] name: String) -> bool {
+    PLOY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_ploy_timer(#[string] name: String) -> f32 {
+    PLOY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ploy_just_began(#[string] name: String) -> bool {
+    PLOY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ploy_just_ended(#[string] name: String) -> bool {
+    PLOY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ploy_enabled(#[string] name: String) -> bool {
+    PLOY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_feign(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Feign { name, duration }));
+}
+#[op2(fast)]
+pub fn bsengine_drop_ploy(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DropPloy { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_ploy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPloyEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_pluck_hp_threshold(#[string] name: String) -> f32 {
+    PLUCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pluck_crit_bonus(#[string] name: String) -> f32 {
+    PLUCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_pluck_active(#[string] name: String) -> bool {
+    PLUCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pluck_just_triggered(#[string] name: String) -> bool {
+    PLUCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pluck_just_recovered(#[string] name: String) -> bool {
+    PLUCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pluck_enabled(#[string] name: String) -> bool {
+    PLUCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_update_pluck(#[string] name: String, hp: f32, max_hp: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UpdatePluck { name, hp, max_hp })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pluck_hp_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPluckHpThreshold { name, threshold })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pluck_crit_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPluckCritBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pluck_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPluckEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_poise(#[string] name: String) -> f32 {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_poise_max(#[string] name: String) -> f32 {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_poise_regen_rate(#[string] name: String) -> f32 {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_poise_broken(#[string] name: String) -> bool {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_poise_just_broken(#[string] name: String) -> bool {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_poise_just_restored(#[string] name: String) -> bool {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_poise_enabled(#[string] name: String) -> bool {
+    POISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_damage_poise(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DamagePoise { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_break_poise(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreakPoise { name }));
+}
+#[op2(fast)]
+pub fn bsengine_restore_poise(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestorePoise { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_poise_max(#[string] name: String, max: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoiseMax { name, max })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_poise_regen_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoiseRegenRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_poise_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPoiseEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_pounce_duration(#[string] name: String) -> f32 {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pounce_timer(#[string] name: String) -> f32 {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pounce_damage(#[string] name: String) -> f32 {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pounce_knockdown_duration(#[string] name: String) -> f32 {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pounce_min_range(#[string] name: String) -> f32 {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pounce_max_range(#[string] name: String) -> f32 {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_pounce_leaping(#[string] name: String) -> bool {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pounce_just_leaped(#[string] name: String) -> bool {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pounce_just_landed(#[string] name: String) -> bool {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pounce_enabled(#[string] name: String) -> bool {
+    POUNCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pounce_leap(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PounceLeap { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_pounce_land(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PounceLand { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_pounce_damage(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPounceDamage { name, damage })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pounce_knockdown_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPounceKnockdownDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pounce_min_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPounceMinRange { name, range })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pounce_max_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPounceMaxRange { name, range })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pounce_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPounceEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_is_prone(#[string] name: String) -> bool {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_prone_stand_up_duration(#[string] name: String) -> f32 {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_prone_stand_up_timer(#[string] name: String) -> f32 {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_prone_movement_penalty(#[string] name: String) -> f32 {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_prone_attack_penalty(#[string] name: String) -> f32 {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_prone_just_fell(#[string] name: String) -> bool {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_prone_just_stood_up(#[string] name: String) -> bool {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_prone_enabled(#[string] name: String) -> bool {
+    PRONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fall_prone(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FallProne { name }));
+}
+#[op2(fast)]
+pub fn bsengine_begin_stand_up(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginStandUp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_force_stand_up(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ForceStandUp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_prone_stand_up_duration(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProneStandUpDuration { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_prone_movement_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProneMovementPenalty { name, penalty })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_prone_attack_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProneAttackPenalty { name, penalty })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_prone_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProneEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_protect_duration(#[string] name: String) -> f32 {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_protect_timer(#[string] name: String) -> f32 {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_protect_guard_radius(#[string] name: String) -> f32 {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_protect_redirect_fraction(#[string] name: String) -> f32 {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_protect_active(#[string] name: String) -> bool {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_protect_just_began(#[string] name: String) -> bool {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_protect_just_ended(#[string] name: String) -> bool {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_protect_enabled(#[string] name: String) -> bool {
+    PROTECT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_guard(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Guard { name, duration }));
+}
+#[op2(fast)]
+pub fn bsengine_protect_stand_down(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ProtectStandDown { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_protect_guard_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProtectGuardRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_protect_redirect_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProtectRedirectFraction { name, fraction })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_protect_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProtectEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_proud_hp_threshold(#[string] name: String) -> f32 {
+    PROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_proud_damage_bonus(#[string] name: String) -> f32 {
+    PROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_prideful(#[string] name: String) -> bool {
+    PROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_proud_just_humbled(#[string] name: String) -> bool {
+    PROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_proud_just_restored(#[string] name: String) -> bool {
+    PROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_proud_enabled(#[string] name: String) -> bool {
+    PROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_update_proud(#[string] name: String, hp: f32, max_hp: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UpdateProud { name, hp, max_hp })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_proud_hp_threshold(#[string] name: String, threshold: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProudHpThreshold { name, threshold })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_proud_damage_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProudDamageBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_proud_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProudEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_provoke_duration(#[string] name: String) -> f32 {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_provoke_timer(#[string] name: String) -> f32 {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_provoke_aggro_multiplier(#[string] name: String) -> f32 {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_provoke_radius(#[string] name: String) -> f32 {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_provoke_active(#[string] name: String) -> bool {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_provoke_just_provoked(#[string] name: String) -> bool {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_provoke_just_expired(#[string] name: String) -> bool {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_provoke_enabled(#[string] name: String) -> bool {
+    PROVOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_provoke(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ActivateProvoke { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_provoke(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeactivateProvoke { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_provoke_aggro_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProvokeAggroMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_provoke_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProvokeRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_provoke_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProvokeEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_prowl_duration(#[string] name: String) -> f32 {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_prowl_timer(#[string] name: String) -> f32 {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_prowl_speed_bonus(#[string] name: String) -> f32 {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_prowl_ambush_multiplier(#[string] name: String) -> f32 {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_prowl_active(#[string] name: String) -> bool {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1 > 0.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_prowl_ambush_consumed(#[string] name: String) -> bool {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_prowl_just_prowling(#[string] name: String) -> bool {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_prowl_just_faded(#[string] name: String) -> bool {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_prowl_enabled(#[string] name: String) -> bool {
+    PROWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_prowl(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyProwl { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_prowl(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearProwl { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_prowl_speed_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProwlSpeedBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_prowl_ambush_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProwlAmbushMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_prowl_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetProwlEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_mode(#[string] name: String) -> u32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_pulse_active(#[string] name: String) -> bool {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_radius(#[string] name: String) -> f32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_max_radius(#[string] name: String) -> f32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_interval(#[string] name: String) -> f32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_timer(#[string] name: String) -> f32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_falloff(#[string] name: String) -> f32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_pulse_count(#[string] name: String) -> u32 {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_pulse_just_pulsed(#[string] name: String) -> bool {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_pulse_enabled(#[string] name: String) -> bool {
+    PULSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_pulse(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivatePulse { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_pulse(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeactivatePulse { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_pulse(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetPulse { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_pulse_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPulseRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pulse_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPulseInterval { name, interval })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pulse_falloff(#[string] name: String, falloff: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPulseFalloff { name, falloff })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_pulse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPulseEnabled { name, enabled })
+    });
+}
 
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
@@ -22924,6 +24349,218 @@ deno_core::extension!(
         bsengine_set_overshield_max,
         bsengine_set_overshield_decay_rate,
         bsengine_set_overshield_enabled,
+        bsengine_get_parry_state,
+        bsengine_get_parry_startup_duration,
+        bsengine_get_parry_active_duration,
+        bsengine_get_parry_recovery_duration,
+        bsengine_get_parry_timer,
+        bsengine_get_parry_count,
+        bsengine_is_parry_just_opened,
+        bsengine_is_parry_just_succeeded,
+        bsengine_is_parry_just_missed,
+        bsengine_is_parry_just_finished,
+        bsengine_is_parry_enabled,
+        bsengine_begin_parry,
+        bsengine_notify_parry_hit,
+        bsengine_set_parry_startup_duration,
+        bsengine_set_parry_active_duration,
+        bsengine_set_parry_recovery_duration,
+        bsengine_set_parry_enabled,
+        bsengine_get_patience_level,
+        bsengine_get_patience_max,
+        bsengine_get_patience_bonus,
+        bsengine_is_patience_just_primed,
+        bsengine_is_patience_just_spent,
+        bsengine_is_patience_enabled,
+        bsengine_patience_on_attack,
+        bsengine_set_patience_max,
+        bsengine_set_patience_bonus,
+        bsengine_set_patience_enabled,
+        bsengine_get_petrify_duration,
+        bsengine_get_petrify_timer,
+        bsengine_get_petrify_armor_bonus,
+        bsengine_is_petrified,
+        bsengine_is_petrify_just_petrified,
+        bsengine_is_petrify_just_unpetrified,
+        bsengine_is_petrify_enabled,
+        bsengine_apply_petrify,
+        bsengine_shatter_petrify,
+        bsengine_set_petrify_armor_bonus,
+        bsengine_set_petrify_enabled,
+        bsengine_is_phased,
+        bsengine_get_phase_duration,
+        bsengine_get_phase_timer,
+        bsengine_get_phase_cooldown,
+        bsengine_get_phase_cooldown_timer,
+        bsengine_is_phase_just_phased,
+        bsengine_is_phase_just_unphased,
+        bsengine_is_phase_enabled,
+        bsengine_activate_phase,
+        bsengine_cancel_phase,
+        bsengine_set_phase_duration,
+        bsengine_set_phase_cooldown,
+        bsengine_set_phase_enabled,
+        bsengine_get_pierce_max,
+        bsengine_get_pierce_chance,
+        bsengine_get_pierce_count,
+        bsengine_is_pierce_just_pierced,
+        bsengine_is_pierce_enabled,
+        bsengine_pierce_begin_attack,
+        bsengine_set_pierce_max,
+        bsengine_set_pierce_chance,
+        bsengine_set_pierce_enabled,
+        bsengine_is_pinned,
+        bsengine_get_pin_timer,
+        bsengine_get_pin_duration,
+        bsengine_is_pin_knockback_immune,
+        bsengine_is_pin_just_pinned,
+        bsengine_is_pin_just_freed,
+        bsengine_is_pin_enabled,
+        bsengine_apply_pin,
+        bsengine_free_pin,
+        bsengine_set_pin_knockback_immune,
+        bsengine_set_pin_enabled,
+        bsengine_get_plea_duration,
+        bsengine_get_plea_timer,
+        bsengine_get_plea_avoidance_chance,
+        bsengine_is_plea_active,
+        bsengine_is_plea_just_began,
+        bsengine_is_plea_just_ended,
+        bsengine_is_plea_enabled,
+        bsengine_plead,
+        bsengine_silence_plea,
+        bsengine_set_plea_avoidance_chance,
+        bsengine_set_plea_enabled,
+        bsengine_is_ploy_active,
+        bsengine_get_ploy_timer,
+        bsengine_is_ploy_just_began,
+        bsengine_is_ploy_just_ended,
+        bsengine_is_ploy_enabled,
+        bsengine_feign,
+        bsengine_drop_ploy,
+        bsengine_set_ploy_enabled,
+        bsengine_get_pluck_hp_threshold,
+        bsengine_get_pluck_crit_bonus,
+        bsengine_is_pluck_active,
+        bsengine_is_pluck_just_triggered,
+        bsengine_is_pluck_just_recovered,
+        bsengine_is_pluck_enabled,
+        bsengine_update_pluck,
+        bsengine_set_pluck_hp_threshold,
+        bsengine_set_pluck_crit_bonus,
+        bsengine_set_pluck_enabled,
+        bsengine_get_poise,
+        bsengine_get_poise_max,
+        bsengine_get_poise_regen_rate,
+        bsengine_is_poise_broken,
+        bsengine_is_poise_just_broken,
+        bsengine_is_poise_just_restored,
+        bsengine_is_poise_enabled,
+        bsengine_damage_poise,
+        bsengine_break_poise,
+        bsengine_restore_poise,
+        bsengine_set_poise_max,
+        bsengine_set_poise_regen_rate,
+        bsengine_set_poise_enabled,
+        bsengine_get_pounce_duration,
+        bsengine_get_pounce_timer,
+        bsengine_get_pounce_damage,
+        bsengine_get_pounce_knockdown_duration,
+        bsengine_get_pounce_min_range,
+        bsengine_get_pounce_max_range,
+        bsengine_is_pounce_leaping,
+        bsengine_is_pounce_just_leaped,
+        bsengine_is_pounce_just_landed,
+        bsengine_is_pounce_enabled,
+        bsengine_pounce_leap,
+        bsengine_pounce_land,
+        bsengine_set_pounce_damage,
+        bsengine_set_pounce_knockdown_duration,
+        bsengine_set_pounce_min_range,
+        bsengine_set_pounce_max_range,
+        bsengine_set_pounce_enabled,
+        bsengine_is_prone,
+        bsengine_get_prone_stand_up_duration,
+        bsengine_get_prone_stand_up_timer,
+        bsengine_get_prone_movement_penalty,
+        bsengine_get_prone_attack_penalty,
+        bsengine_is_prone_just_fell,
+        bsengine_is_prone_just_stood_up,
+        bsengine_is_prone_enabled,
+        bsengine_fall_prone,
+        bsengine_begin_stand_up,
+        bsengine_force_stand_up,
+        bsengine_set_prone_stand_up_duration,
+        bsengine_set_prone_movement_penalty,
+        bsengine_set_prone_attack_penalty,
+        bsengine_set_prone_enabled,
+        bsengine_get_protect_duration,
+        bsengine_get_protect_timer,
+        bsengine_get_protect_guard_radius,
+        bsengine_get_protect_redirect_fraction,
+        bsengine_is_protect_active,
+        bsengine_is_protect_just_began,
+        bsengine_is_protect_just_ended,
+        bsengine_is_protect_enabled,
+        bsengine_guard,
+        bsengine_protect_stand_down,
+        bsengine_set_protect_guard_radius,
+        bsengine_set_protect_redirect_fraction,
+        bsengine_set_protect_enabled,
+        bsengine_get_proud_hp_threshold,
+        bsengine_get_proud_damage_bonus,
+        bsengine_is_prideful,
+        bsengine_is_proud_just_humbled,
+        bsengine_is_proud_just_restored,
+        bsengine_is_proud_enabled,
+        bsengine_update_proud,
+        bsengine_set_proud_hp_threshold,
+        bsengine_set_proud_damage_bonus,
+        bsengine_set_proud_enabled,
+        bsengine_get_provoke_duration,
+        bsengine_get_provoke_timer,
+        bsengine_get_provoke_aggro_multiplier,
+        bsengine_get_provoke_radius,
+        bsengine_is_provoke_active,
+        bsengine_is_provoke_just_provoked,
+        bsengine_is_provoke_just_expired,
+        bsengine_is_provoke_enabled,
+        bsengine_activate_provoke,
+        bsengine_deactivate_provoke,
+        bsengine_set_provoke_aggro_multiplier,
+        bsengine_set_provoke_radius,
+        bsengine_set_provoke_enabled,
+        bsengine_get_prowl_duration,
+        bsengine_get_prowl_timer,
+        bsengine_get_prowl_speed_bonus,
+        bsengine_get_prowl_ambush_multiplier,
+        bsengine_is_prowl_active,
+        bsengine_is_prowl_ambush_consumed,
+        bsengine_is_prowl_just_prowling,
+        bsengine_is_prowl_just_faded,
+        bsengine_is_prowl_enabled,
+        bsengine_apply_prowl,
+        bsengine_clear_prowl,
+        bsengine_set_prowl_speed_bonus,
+        bsengine_set_prowl_ambush_multiplier,
+        bsengine_set_prowl_enabled,
+        bsengine_get_pulse_mode,
+        bsengine_is_pulse_active,
+        bsengine_get_pulse_radius,
+        bsengine_get_pulse_max_radius,
+        bsengine_get_pulse_interval,
+        bsengine_get_pulse_timer,
+        bsengine_get_pulse_falloff,
+        bsengine_get_pulse_count,
+        bsengine_is_pulse_just_pulsed,
+        bsengine_is_pulse_enabled,
+        bsengine_activate_pulse,
+        bsengine_deactivate_pulse,
+        bsengine_reset_pulse,
+        bsengine_set_pulse_radius,
+        bsengine_set_pulse_interval,
+        bsengine_set_pulse_falloff,
+        bsengine_set_pulse_enabled,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -25457,6 +27094,218 @@ const Bsengine = {
     setOvershieldMax:              (name, m)        => Deno.core.ops.bsengine_set_overshield_max(name, m),
     setOvershieldDecayRate:        (name, r)        => Deno.core.ops.bsengine_set_overshield_decay_rate(name, r),
     setOvershieldEnabled:          (name, en)       => Deno.core.ops.bsengine_set_overshield_enabled(name, en),
+    getParryState:                 (name)           => Deno.core.ops.bsengine_get_parry_state(name),
+    getParryStartupDuration:       (name)           => Deno.core.ops.bsengine_get_parry_startup_duration(name),
+    getParryActiveDuration:        (name)           => Deno.core.ops.bsengine_get_parry_active_duration(name),
+    getParryRecoveryDuration:      (name)           => Deno.core.ops.bsengine_get_parry_recovery_duration(name),
+    getParryTimer:                 (name)           => Deno.core.ops.bsengine_get_parry_timer(name),
+    getParryCount:                 (name)           => Deno.core.ops.bsengine_get_parry_count(name),
+    isParryJustOpened:             (name)           => Deno.core.ops.bsengine_is_parry_just_opened(name),
+    isParryJustSucceeded:          (name)           => Deno.core.ops.bsengine_is_parry_just_succeeded(name),
+    isParryJustMissed:             (name)           => Deno.core.ops.bsengine_is_parry_just_missed(name),
+    isParryJustFinished:           (name)           => Deno.core.ops.bsengine_is_parry_just_finished(name),
+    isParryEnabled:                (name)           => Deno.core.ops.bsengine_is_parry_enabled(name),
+    beginParry:                    (name)           => Deno.core.ops.bsengine_begin_parry(name),
+    notifyParryHit:                (name)           => Deno.core.ops.bsengine_notify_parry_hit(name),
+    setParryStartupDuration:       (name, d)        => Deno.core.ops.bsengine_set_parry_startup_duration(name, d),
+    setParryActiveDuration:        (name, d)        => Deno.core.ops.bsengine_set_parry_active_duration(name, d),
+    setParryRecoveryDuration:      (name, d)        => Deno.core.ops.bsengine_set_parry_recovery_duration(name, d),
+    setParryEnabled:               (name, en)       => Deno.core.ops.bsengine_set_parry_enabled(name, en),
+    getPatienceLevel:              (name)           => Deno.core.ops.bsengine_get_patience_level(name),
+    getPatienceMax:                (name)           => Deno.core.ops.bsengine_get_patience_max(name),
+    getPatienceBonus:              (name)           => Deno.core.ops.bsengine_get_patience_bonus(name),
+    isPatienceJustPrimed:          (name)           => Deno.core.ops.bsengine_is_patience_just_primed(name),
+    isPatienceJustSpent:           (name)           => Deno.core.ops.bsengine_is_patience_just_spent(name),
+    isPatienceEnabled:             (name)           => Deno.core.ops.bsengine_is_patience_enabled(name),
+    patienceOnAttack:              (name)           => Deno.core.ops.bsengine_patience_on_attack(name),
+    setPatienceMax:                (name, m)        => Deno.core.ops.bsengine_set_patience_max(name, m),
+    setPatienceBonus:              (name, b)        => Deno.core.ops.bsengine_set_patience_bonus(name, b),
+    setPatienceEnabled:            (name, en)       => Deno.core.ops.bsengine_set_patience_enabled(name, en),
+    getPetrifyDuration:            (name)           => Deno.core.ops.bsengine_get_petrify_duration(name),
+    getPetrifyTimer:               (name)           => Deno.core.ops.bsengine_get_petrify_timer(name),
+    getPetrifyArmorBonus:          (name)           => Deno.core.ops.bsengine_get_petrify_armor_bonus(name),
+    isPetrified:                   (name)           => Deno.core.ops.bsengine_is_petrified(name),
+    isPetrifyJustPetrified:        (name)           => Deno.core.ops.bsengine_is_petrify_just_petrified(name),
+    isPetrifyJustUnpetrified:      (name)           => Deno.core.ops.bsengine_is_petrify_just_unpetrified(name),
+    isPetrifyEnabled:              (name)           => Deno.core.ops.bsengine_is_petrify_enabled(name),
+    applyPetrify:                  (name, d)        => Deno.core.ops.bsengine_apply_petrify(name, d),
+    shatterPetrify:                (name)           => Deno.core.ops.bsengine_shatter_petrify(name),
+    setPetrifyArmorBonus:          (name, b)        => Deno.core.ops.bsengine_set_petrify_armor_bonus(name, b),
+    setPetrifyEnabled:             (name, en)       => Deno.core.ops.bsengine_set_petrify_enabled(name, en),
+    isPhased:                      (name)           => Deno.core.ops.bsengine_is_phased(name),
+    getPhaseDuration:              (name)           => Deno.core.ops.bsengine_get_phase_duration(name),
+    getPhaseTimer:                 (name)           => Deno.core.ops.bsengine_get_phase_timer(name),
+    getPhaseCooldown:              (name)           => Deno.core.ops.bsengine_get_phase_cooldown(name),
+    getPhaseCooldownTimer:         (name)           => Deno.core.ops.bsengine_get_phase_cooldown_timer(name),
+    isPhaseJustPhased:             (name)           => Deno.core.ops.bsengine_is_phase_just_phased(name),
+    isPhaseJustUnphased:           (name)           => Deno.core.ops.bsengine_is_phase_just_unphased(name),
+    isPhaseEnabled:                (name)           => Deno.core.ops.bsengine_is_phase_enabled(name),
+    activatePhase:                 (name)           => Deno.core.ops.bsengine_activate_phase(name),
+    cancelPhase:                   (name)           => Deno.core.ops.bsengine_cancel_phase(name),
+    setPhaseDuration:              (name, d)        => Deno.core.ops.bsengine_set_phase_duration(name, d),
+    setPhaseCooldown:              (name, c)        => Deno.core.ops.bsengine_set_phase_cooldown(name, c),
+    setPhaseEnabled:               (name, en)       => Deno.core.ops.bsengine_set_phase_enabled(name, en),
+    getPierceMax:                  (name)           => Deno.core.ops.bsengine_get_pierce_max(name),
+    getPierceChance:               (name)           => Deno.core.ops.bsengine_get_pierce_chance(name),
+    getPierceCount:                (name)           => Deno.core.ops.bsengine_get_pierce_count(name),
+    isPierceJustPierced:           (name)           => Deno.core.ops.bsengine_is_pierce_just_pierced(name),
+    isPierceEnabled:               (name)           => Deno.core.ops.bsengine_is_pierce_enabled(name),
+    pierceBeginAttack:             (name)           => Deno.core.ops.bsengine_pierce_begin_attack(name),
+    setPierceMax:                  (name, m)        => Deno.core.ops.bsengine_set_pierce_max(name, m),
+    setPierceChance:               (name, c)        => Deno.core.ops.bsengine_set_pierce_chance(name, c),
+    setPierceEnabled:              (name, en)       => Deno.core.ops.bsengine_set_pierce_enabled(name, en),
+    isPinned:                      (name)           => Deno.core.ops.bsengine_is_pinned(name),
+    getPinTimer:                   (name)           => Deno.core.ops.bsengine_get_pin_timer(name),
+    getPinDuration:                (name)           => Deno.core.ops.bsengine_get_pin_duration(name),
+    isPinKnockbackImmune:          (name)           => Deno.core.ops.bsengine_is_pin_knockback_immune(name),
+    isPinJustPinned:               (name)           => Deno.core.ops.bsengine_is_pin_just_pinned(name),
+    isPinJustFreed:                (name)           => Deno.core.ops.bsengine_is_pin_just_freed(name),
+    isPinEnabled:                  (name)           => Deno.core.ops.bsengine_is_pin_enabled(name),
+    applyPin:                      (name, d)        => Deno.core.ops.bsengine_apply_pin(name, d),
+    freePin:                       (name)           => Deno.core.ops.bsengine_free_pin(name),
+    setPinKnockbackImmune:         (name, im)       => Deno.core.ops.bsengine_set_pin_knockback_immune(name, im),
+    setPinEnabled:                 (name, en)       => Deno.core.ops.bsengine_set_pin_enabled(name, en),
+    getPleaDuration:               (name)           => Deno.core.ops.bsengine_get_plea_duration(name),
+    getPleaTimer:                  (name)           => Deno.core.ops.bsengine_get_plea_timer(name),
+    getPleaAvoidanceChance:        (name)           => Deno.core.ops.bsengine_get_plea_avoidance_chance(name),
+    isPleaActive:                  (name)           => Deno.core.ops.bsengine_is_plea_active(name),
+    isPleaJustBegan:               (name)           => Deno.core.ops.bsengine_is_plea_just_began(name),
+    isPleaJustEnded:               (name)           => Deno.core.ops.bsengine_is_plea_just_ended(name),
+    isPleaEnabled:                 (name)           => Deno.core.ops.bsengine_is_plea_enabled(name),
+    plead:                         (name, d)        => Deno.core.ops.bsengine_plead(name, d),
+    silencePlea:                   (name)           => Deno.core.ops.bsengine_silence_plea(name),
+    setPleaAvoidanceChance:        (name, c)        => Deno.core.ops.bsengine_set_plea_avoidance_chance(name, c),
+    setPleaEnabled:                (name, en)       => Deno.core.ops.bsengine_set_plea_enabled(name, en),
+    isPloyActive:                  (name)           => Deno.core.ops.bsengine_is_ploy_active(name),
+    getPloyTimer:                  (name)           => Deno.core.ops.bsengine_get_ploy_timer(name),
+    isPloyJustBegan:               (name)           => Deno.core.ops.bsengine_is_ploy_just_began(name),
+    isPloyJustEnded:               (name)           => Deno.core.ops.bsengine_is_ploy_just_ended(name),
+    isPloyEnabled:                 (name)           => Deno.core.ops.bsengine_is_ploy_enabled(name),
+    feign:                         (name, d)        => Deno.core.ops.bsengine_feign(name, d),
+    dropPloy:                      (name)           => Deno.core.ops.bsengine_drop_ploy(name),
+    setPloyEnabled:                (name, en)       => Deno.core.ops.bsengine_set_ploy_enabled(name, en),
+    getPluckHpThreshold:           (name)           => Deno.core.ops.bsengine_get_pluck_hp_threshold(name),
+    getPluckCritBonus:             (name)           => Deno.core.ops.bsengine_get_pluck_crit_bonus(name),
+    isPluckActive:                 (name)           => Deno.core.ops.bsengine_is_pluck_active(name),
+    isPluckJustTriggered:          (name)           => Deno.core.ops.bsengine_is_pluck_just_triggered(name),
+    isPluckJustRecovered:          (name)           => Deno.core.ops.bsengine_is_pluck_just_recovered(name),
+    isPluckEnabled:                (name)           => Deno.core.ops.bsengine_is_pluck_enabled(name),
+    updatePluck:                   (name, hp, mhp)  => Deno.core.ops.bsengine_update_pluck(name, hp, mhp),
+    setPluckHpThreshold:           (name, t)        => Deno.core.ops.bsengine_set_pluck_hp_threshold(name, t),
+    setPluckCritBonus:             (name, b)        => Deno.core.ops.bsengine_set_pluck_crit_bonus(name, b),
+    setPluckEnabled:               (name, en)       => Deno.core.ops.bsengine_set_pluck_enabled(name, en),
+    getPoise:                      (name)           => Deno.core.ops.bsengine_get_poise(name),
+    getPoiseMax:                   (name)           => Deno.core.ops.bsengine_get_poise_max(name),
+    getPoiseRegenRate:             (name)           => Deno.core.ops.bsengine_get_poise_regen_rate(name),
+    isPoiseBroken:                 (name)           => Deno.core.ops.bsengine_is_poise_broken(name),
+    isPoiseJustBroken:             (name)           => Deno.core.ops.bsengine_is_poise_just_broken(name),
+    isPoiseJustRestored:           (name)           => Deno.core.ops.bsengine_is_poise_just_restored(name),
+    isPoiseEnabled:                (name)           => Deno.core.ops.bsengine_is_poise_enabled(name),
+    damagePoise:                   (name, a)        => Deno.core.ops.bsengine_damage_poise(name, a),
+    breakPoise:                    (name)           => Deno.core.ops.bsengine_break_poise(name),
+    restorePoise:                  (name, a)        => Deno.core.ops.bsengine_restore_poise(name, a),
+    setPoiseMax:                   (name, m)        => Deno.core.ops.bsengine_set_poise_max(name, m),
+    setPoiseRegenRate:             (name, r)        => Deno.core.ops.bsengine_set_poise_regen_rate(name, r),
+    setPoiseEnabled:               (name, en)       => Deno.core.ops.bsengine_set_poise_enabled(name, en),
+    getPounceDuration:             (name)           => Deno.core.ops.bsengine_get_pounce_duration(name),
+    getPounceTimer:                (name)           => Deno.core.ops.bsengine_get_pounce_timer(name),
+    getPounceDamage:               (name)           => Deno.core.ops.bsengine_get_pounce_damage(name),
+    getPounceKnockdownDuration:    (name)           => Deno.core.ops.bsengine_get_pounce_knockdown_duration(name),
+    getPounceMinRange:             (name)           => Deno.core.ops.bsengine_get_pounce_min_range(name),
+    getPounceMaxRange:             (name)           => Deno.core.ops.bsengine_get_pounce_max_range(name),
+    isPounceLeaping:               (name)           => Deno.core.ops.bsengine_is_pounce_leaping(name),
+    isPounceJustLeaped:            (name)           => Deno.core.ops.bsengine_is_pounce_just_leaped(name),
+    isPounceJustLanded:            (name)           => Deno.core.ops.bsengine_is_pounce_just_landed(name),
+    isPounceEnabled:               (name)           => Deno.core.ops.bsengine_is_pounce_enabled(name),
+    pounceLeap:                    (name, d)        => Deno.core.ops.bsengine_pounce_leap(name, d),
+    pounceLand:                    (name)           => Deno.core.ops.bsengine_pounce_land(name),
+    setPounceDamage:               (name, d)        => Deno.core.ops.bsengine_set_pounce_damage(name, d),
+    setPounceKnockdownDuration:    (name, d)        => Deno.core.ops.bsengine_set_pounce_knockdown_duration(name, d),
+    setPounceMinRange:             (name, r)        => Deno.core.ops.bsengine_set_pounce_min_range(name, r),
+    setPounceMaxRange:             (name, r)        => Deno.core.ops.bsengine_set_pounce_max_range(name, r),
+    setPounceEnabled:              (name, en)       => Deno.core.ops.bsengine_set_pounce_enabled(name, en),
+    isProne:                       (name)           => Deno.core.ops.bsengine_is_prone(name),
+    getProneStandUpDuration:       (name)           => Deno.core.ops.bsengine_get_prone_stand_up_duration(name),
+    getProneStandUpTimer:          (name)           => Deno.core.ops.bsengine_get_prone_stand_up_timer(name),
+    getProneMovementPenalty:       (name)           => Deno.core.ops.bsengine_get_prone_movement_penalty(name),
+    getProneAttackPenalty:         (name)           => Deno.core.ops.bsengine_get_prone_attack_penalty(name),
+    isProneJustFell:               (name)           => Deno.core.ops.bsengine_is_prone_just_fell(name),
+    isProneJustStoodUp:            (name)           => Deno.core.ops.bsengine_is_prone_just_stood_up(name),
+    isProneEnabled:                (name)           => Deno.core.ops.bsengine_is_prone_enabled(name),
+    fallProne:                     (name)           => Deno.core.ops.bsengine_fall_prone(name),
+    beginStandUp:                  (name)           => Deno.core.ops.bsengine_begin_stand_up(name),
+    forceStandUp:                  (name)           => Deno.core.ops.bsengine_force_stand_up(name),
+    setProneStandUpDuration:       (name, d)        => Deno.core.ops.bsengine_set_prone_stand_up_duration(name, d),
+    setProneMovementPenalty:       (name, p)        => Deno.core.ops.bsengine_set_prone_movement_penalty(name, p),
+    setProneAttackPenalty:         (name, p)        => Deno.core.ops.bsengine_set_prone_attack_penalty(name, p),
+    setProneEnabled:               (name, en)       => Deno.core.ops.bsengine_set_prone_enabled(name, en),
+    getProtectDuration:            (name)           => Deno.core.ops.bsengine_get_protect_duration(name),
+    getProtectTimer:               (name)           => Deno.core.ops.bsengine_get_protect_timer(name),
+    getProtectGuardRadius:         (name)           => Deno.core.ops.bsengine_get_protect_guard_radius(name),
+    getProtectRedirectFraction:    (name)           => Deno.core.ops.bsengine_get_protect_redirect_fraction(name),
+    isProtectActive:               (name)           => Deno.core.ops.bsengine_is_protect_active(name),
+    isProtectJustBegan:            (name)           => Deno.core.ops.bsengine_is_protect_just_began(name),
+    isProtectJustEnded:            (name)           => Deno.core.ops.bsengine_is_protect_just_ended(name),
+    isProtectEnabled:              (name)           => Deno.core.ops.bsengine_is_protect_enabled(name),
+    guard:                         (name, d)        => Deno.core.ops.bsengine_guard(name, d),
+    protectStandDown:              (name)           => Deno.core.ops.bsengine_protect_stand_down(name),
+    setProtectGuardRadius:         (name, r)        => Deno.core.ops.bsengine_set_protect_guard_radius(name, r),
+    setProtectRedirectFraction:    (name, f)        => Deno.core.ops.bsengine_set_protect_redirect_fraction(name, f),
+    setProtectEnabled:             (name, en)       => Deno.core.ops.bsengine_set_protect_enabled(name, en),
+    getProudHpThreshold:           (name)           => Deno.core.ops.bsengine_get_proud_hp_threshold(name),
+    getProudDamageBonus:           (name)           => Deno.core.ops.bsengine_get_proud_damage_bonus(name),
+    isPrideful:                    (name)           => Deno.core.ops.bsengine_is_prideful(name),
+    isProudJustHumbled:            (name)           => Deno.core.ops.bsengine_is_proud_just_humbled(name),
+    isProudJustRestored:           (name)           => Deno.core.ops.bsengine_is_proud_just_restored(name),
+    isProudEnabled:                (name)           => Deno.core.ops.bsengine_is_proud_enabled(name),
+    updateProud:                   (name, hp, mhp)  => Deno.core.ops.bsengine_update_proud(name, hp, mhp),
+    setProudHpThreshold:           (name, t)        => Deno.core.ops.bsengine_set_proud_hp_threshold(name, t),
+    setProudDamageBonus:           (name, b)        => Deno.core.ops.bsengine_set_proud_damage_bonus(name, b),
+    setProudEnabled:               (name, en)       => Deno.core.ops.bsengine_set_proud_enabled(name, en),
+    getProvokeDuration:            (name)           => Deno.core.ops.bsengine_get_provoke_duration(name),
+    getProvokeTimer:               (name)           => Deno.core.ops.bsengine_get_provoke_timer(name),
+    getProvokeAggroMultiplier:     (name)           => Deno.core.ops.bsengine_get_provoke_aggro_multiplier(name),
+    getProvokeRadius:              (name)           => Deno.core.ops.bsengine_get_provoke_radius(name),
+    isProvokeActive:               (name)           => Deno.core.ops.bsengine_is_provoke_active(name),
+    isProvokeJustProvoked:         (name)           => Deno.core.ops.bsengine_is_provoke_just_provoked(name),
+    isProvokeJustExpired:          (name)           => Deno.core.ops.bsengine_is_provoke_just_expired(name),
+    isProvokeEnabled:              (name)           => Deno.core.ops.bsengine_is_provoke_enabled(name),
+    activateProvoke:               (name, d)        => Deno.core.ops.bsengine_activate_provoke(name, d),
+    deactivateProvoke:             (name)           => Deno.core.ops.bsengine_deactivate_provoke(name),
+    setProvokeAggroMultiplier:     (name, m)        => Deno.core.ops.bsengine_set_provoke_aggro_multiplier(name, m),
+    setProvokeRadius:              (name, r)        => Deno.core.ops.bsengine_set_provoke_radius(name, r),
+    setProvokeEnabled:             (name, en)       => Deno.core.ops.bsengine_set_provoke_enabled(name, en),
+    getProwlDuration:              (name)           => Deno.core.ops.bsengine_get_prowl_duration(name),
+    getProwlTimer:                 (name)           => Deno.core.ops.bsengine_get_prowl_timer(name),
+    getProwlSpeedBonus:            (name)           => Deno.core.ops.bsengine_get_prowl_speed_bonus(name),
+    getProwlAmbushMultiplier:      (name)           => Deno.core.ops.bsengine_get_prowl_ambush_multiplier(name),
+    isProwlActive:                 (name)           => Deno.core.ops.bsengine_is_prowl_active(name),
+    isProwlAmbushConsumed:         (name)           => Deno.core.ops.bsengine_is_prowl_ambush_consumed(name),
+    isProwlJustProwling:           (name)           => Deno.core.ops.bsengine_is_prowl_just_prowling(name),
+    isProwlJustFaded:              (name)           => Deno.core.ops.bsengine_is_prowl_just_faded(name),
+    isProwlEnabled:                (name)           => Deno.core.ops.bsengine_is_prowl_enabled(name),
+    applyProwl:                    (name, d)        => Deno.core.ops.bsengine_apply_prowl(name, d),
+    clearProwl:                    (name)           => Deno.core.ops.bsengine_clear_prowl(name),
+    setProwlSpeedBonus:            (name, b)        => Deno.core.ops.bsengine_set_prowl_speed_bonus(name, b),
+    setProwlAmbushMultiplier:      (name, m)        => Deno.core.ops.bsengine_set_prowl_ambush_multiplier(name, m),
+    setProwlEnabled:               (name, en)       => Deno.core.ops.bsengine_set_prowl_enabled(name, en),
+    getPulseMode:                  (name)           => Deno.core.ops.bsengine_get_pulse_mode(name),
+    isPulseActive:                 (name)           => Deno.core.ops.bsengine_is_pulse_active(name),
+    getPulseRadius:                (name)           => Deno.core.ops.bsengine_get_pulse_radius(name),
+    getPulseMaxRadius:             (name)           => Deno.core.ops.bsengine_get_pulse_max_radius(name),
+    getPulseInterval:              (name)           => Deno.core.ops.bsengine_get_pulse_interval(name),
+    getPulseTimer:                 (name)           => Deno.core.ops.bsengine_get_pulse_timer(name),
+    getPulseFalloff:               (name)           => Deno.core.ops.bsengine_get_pulse_falloff(name),
+    getPulseCount:                 (name)           => Deno.core.ops.bsengine_get_pulse_count(name),
+    isPulseJustPulsed:             (name)           => Deno.core.ops.bsengine_is_pulse_just_pulsed(name),
+    isPulseEnabled:                (name)           => Deno.core.ops.bsengine_is_pulse_enabled(name),
+    activatePulse:                 (name)           => Deno.core.ops.bsengine_activate_pulse(name),
+    deactivatePulse:               (name)           => Deno.core.ops.bsengine_deactivate_pulse(name),
+    resetPulse:                    (name)           => Deno.core.ops.bsengine_reset_pulse(name),
+    setPulseRadius:                (name, r)        => Deno.core.ops.bsengine_set_pulse_radius(name, r),
+    setPulseInterval:              (name, i)        => Deno.core.ops.bsengine_set_pulse_interval(name, i),
+    setPulseFalloff:               (name, f)        => Deno.core.ops.bsengine_set_pulse_falloff(name, f),
+    setPulseEnabled:               (name, en)       => Deno.core.ops.bsengine_set_pulse_enabled(name, en),
 
     lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
 
@@ -39972,6 +41821,1055 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOvershieldMax { name, max_overshield } if name == "Guardian" && (*max_overshield - 8.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOvershieldDecayRate { name, rate } if name == "Guardian" && (*rate - 0.25).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetOvershieldEnabled { name, enabled } if name == "Guardian" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_parry_read_ops() {
+        super::PARRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Knight".to_string(),
+                (
+                    1u32, 0.25f32, 0.5f32, 0.75f32, 0.25f32, 3u32, true, false, false, false, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getParryState("Knight")"#).unwrap(), "1");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getParryStartupDuration("Knight")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getParryActiveDuration("Knight")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getParryRecoveryDuration("Knight")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getParryTimer("Knight")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getParryCount("Knight")"#).unwrap(), "3");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isParryJustOpened("Knight")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isParryJustSucceeded("Knight")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isParryEnabled("Knight")"#).unwrap(),
+            "true"
+        );
+        super::PARRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_parry_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.beginParry("Knight");"#).unwrap();
+        rt.eval(r#"Bsengine.setParryStartupDuration("Knight", 0.15);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setParryEnabled("Knight", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginParry { name } if name == "Knight")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetParryStartupDuration { name, duration } if name == "Knight" && (*duration - 0.15).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetParryEnabled { name, enabled } if name == "Knight" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_patience_read_ops() {
+        super::PATIENCE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Monk".to_string(),
+                (5.0f32, 10.0f32, 2.0f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPatienceLevel("Monk")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(rt.eval(r#"Bsengine.getPatienceMax("Monk")"#).unwrap(), "10");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPatienceBonus("Monk")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPatienceJustPrimed("Monk")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPatienceJustSpent("Monk")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPatienceEnabled("Monk")"#).unwrap(),
+            "true"
+        );
+        super::PATIENCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_patience_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.patienceOnAttack("Monk");"#).unwrap();
+        rt.eval(r#"Bsengine.setPatienceMax("Monk", 20.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPatienceEnabled("Monk", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PatienceOnAttack { name } if name == "Monk")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPatienceMaxPatience { name, max_patience } if name == "Monk" && (*max_patience - 20.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPatienceEnabled { name, enabled } if name == "Monk" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_petrify_read_ops() {
+        super::PETRIFY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gorgon".to_string(),
+                (3.0f32, 2.0f32, 5.0f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPetrifyDuration("Gorgon")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPetrifyTimer("Gorgon")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPetrifyArmorBonus("Gorgon")"#)
+                .unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPetrifyJustPetrified("Gorgon")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPetrifyJustUnpetrified("Gorgon")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPetrifyEnabled("Gorgon")"#).unwrap(),
+            "true"
+        );
+        super::PETRIFY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_petrify_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyPetrify("Gorgon", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.shatterPetrify("Gorgon");"#).unwrap();
+        rt.eval(r#"Bsengine.setPetrifyEnabled("Gorgon", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyPetrify { name, duration } if name == "Gorgon" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShatterPetrify { name } if name == "Gorgon")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPetrifyEnabled { name, enabled } if name == "Gorgon" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_phase_read_ops() {
+        super::PHASE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ghost".to_string(),
+                (true, 2.0f32, 1.5f32, 5.0f32, 3.0f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isPhased("Ghost")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPhaseDuration("Ghost")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPhaseTimer("Ghost")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPhaseCooldown("Ghost")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPhaseCooldownTimer("Ghost")"#)
+                .unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPhaseJustPhased("Ghost")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPhaseJustUnphased("Ghost")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPhaseEnabled("Ghost")"#).unwrap(),
+            "true"
+        );
+        super::PHASE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_phase_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.activatePhase("Ghost");"#).unwrap();
+        rt.eval(r#"Bsengine.setPhaseCooldown("Ghost", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPhaseEnabled("Ghost", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivatePhase { name } if name == "Ghost")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPhaseCooldown { name, cooldown } if name == "Ghost" && (*cooldown - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPhaseEnabled { name, enabled } if name == "Ghost" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pierce_read_ops() {
+        super::PIERCE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Archer".to_string(), (3u32, 0.75f32, 1u32, true, true))
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getPierceMax("Archer")"#).unwrap(), "3");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPierceChance("Archer")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPierceCount("Archer")"#).unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPierceJustPierced("Archer")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPierceEnabled("Archer")"#).unwrap(),
+            "true"
+        );
+        super::PIERCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pierce_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.pierceBeginAttack("Archer");"#).unwrap();
+        rt.eval(r#"Bsengine.setPierceMax("Archer", 5);"#).unwrap();
+        rt.eval(r#"Bsengine.setPierceEnabled("Archer", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PierceBeginAttack { name } if name == "Archer")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPierceMax { name, max_pierce } if name == "Archer" && *max_pierce == 5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPierceEnabled { name, enabled } if name == "Archer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pin_read_ops() {
+        super::PIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Spider".to_string(),
+                (true, 1.5f32, 2.0f32, true, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isPinned("Spider")"#).unwrap(), "true");
+        assert_eq!(rt.eval(r#"Bsengine.getPinTimer("Spider")"#).unwrap(), "1.5");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPinDuration("Spider")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPinKnockbackImmune("Spider")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPinJustPinned("Spider")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPinJustFreed("Spider")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPinEnabled("Spider")"#).unwrap(),
+            "true"
+        );
+        super::PIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pin_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyPin("Spider", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.freePin("Spider");"#).unwrap();
+        rt.eval(r#"Bsengine.setPinEnabled("Spider", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyPin { name, duration } if name == "Spider" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FreePin { name } if name == "Spider")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPinEnabled { name, enabled } if name == "Spider" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_plea_read_ops() {
+        super::PLEA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pacifist".to_string(),
+                (4.0f32, 2.5f32, 0.25f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPleaDuration("Pacifist")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPleaTimer("Pacifist")"#).unwrap(),
+            "2.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPleaAvoidanceChance("Pacifist")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPleaActive("Pacifist")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPleaJustBegan("Pacifist")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPleaJustEnded("Pacifist")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPleaEnabled("Pacifist")"#).unwrap(),
+            "true"
+        );
+        super::PLEA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_plea_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.plead("Pacifist", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.silencePlea("Pacifist");"#).unwrap();
+        rt.eval(r#"Bsengine.setPleaEnabled("Pacifist", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::Plead { name, duration } if name == "Pacifist" && (*duration - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SilencePlea { name } if name == "Pacifist")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPleaEnabled { name, enabled } if name == "Pacifist" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ploy_read_ops() {
+        super::PLOY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Trickster".to_string(), (true, 2.0f32, true, false, true))
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPloyActive("Trickster")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPloyTimer("Trickster")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPloyJustBegan("Trickster")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPloyJustEnded("Trickster")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPloyEnabled("Trickster")"#).unwrap(),
+            "true"
+        );
+        super::PLOY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_ploy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.feign("Trickster", 3.0);"#).unwrap();
+        rt.eval(r#"Bsengine.dropPloy("Trickster");"#).unwrap();
+        rt.eval(r#"Bsengine.setPloyEnabled("Trickster", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::Feign { name, duration } if name == "Trickster" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DropPloy { name } if name == "Trickster")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPloyEnabled { name, enabled } if name == "Trickster" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pluck_read_ops() {
+        super::PLUCK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Berserker".to_string(),
+                (0.25f32, 1.5f32, true, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPluckHpThreshold("Berserker")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPluckCritBonus("Berserker")"#)
+                .unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPluckActive("Berserker")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPluckJustTriggered("Berserker")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPluckJustRecovered("Berserker")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPluckEnabled("Berserker")"#).unwrap(),
+            "true"
+        );
+        super::PLUCK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pluck_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.updatePluck("Berserker", 20.0, 100.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPluckCritBonus("Berserker", 2.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPluckEnabled("Berserker", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UpdatePluck { name, hp, max_hp } if name == "Berserker" && (*hp - 20.0).abs() < 1e-5 && (*max_hp - 100.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPluckCritBonus { name, bonus } if name == "Berserker" && (*bonus - 2.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPluckEnabled { name, enabled } if name == "Berserker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_poise_read_ops() {
+        super::POISE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sentinel".to_string(),
+                (80.0f32, 100.0f32, 20.0f32, false, false, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getPoise("Sentinel")"#).unwrap(), "80");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPoiseMax("Sentinel")"#).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPoiseRegenRate("Sentinel")"#)
+                .unwrap(),
+            "20"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoiseBroken("Sentinel")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoiseJustBroken("Sentinel")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoiseJustRestored("Sentinel")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPoiseEnabled("Sentinel")"#).unwrap(),
+            "true"
+        );
+        super::POISE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_poise_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.damagePoise("Sentinel", 30.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.restorePoise("Sentinel", 10.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPoiseEnabled("Sentinel", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DamagePoise { name, amount } if name == "Sentinel" && (*amount - 30.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestorePoise { name, amount } if name == "Sentinel" && (*amount - 10.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPoiseEnabled { name, enabled } if name == "Sentinel" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pounce_read_ops() {
+        super::POUNCE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Panther".to_string(),
+                (
+                    0.5f32, 0.25f32, 25.0f32, 1.0f32, 2.0f32, 8.0f32, true, false, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPounceDuration("Panther")"#).unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPounceTimer("Panther")"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPounceDamage("Panther")"#).unwrap(),
+            "25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPounceKnockdownDuration("Panther")"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPounceMinRange("Panther")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPounceMaxRange("Panther")"#).unwrap(),
+            "8"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPounceJustLeaped("Panther")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPounceJustLanded("Panther")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPounceEnabled("Panther")"#).unwrap(),
+            "true"
+        );
+        super::POUNCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pounce_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.pounceLeap("Panther", 0.6);"#).unwrap();
+        rt.eval(r#"Bsengine.setPounceDamage("Panther", 40.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPounceEnabled("Panther", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PounceLeap { name, duration } if name == "Panther" && (*duration - 0.6).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPounceDamage { name, damage } if name == "Panther" && (*damage - 40.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPounceEnabled { name, enabled } if name == "Panther" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_prone_read_ops() {
+        super::PRONE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Downed".to_string(),
+                (true, 0.75f32, 0.5f32, 0.0f32, 0.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.isProne("Downed")"#).unwrap(), "true");
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProneStandUpDuration("Downed")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProneStandUpTimer("Downed")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProneMovementPenalty("Downed")"#)
+                .unwrap(),
+            "0"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProneAttackPenalty("Downed")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProneJustFell("Downed")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProneJustStoodUp("Downed")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProneEnabled("Downed")"#).unwrap(),
+            "true"
+        );
+        super::PRONE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_prone_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.fallProne("Downed");"#).unwrap();
+        rt.eval(r#"Bsengine.beginStandUp("Downed");"#).unwrap();
+        rt.eval(r#"Bsengine.setProneEnabled("Downed", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FallProne { name } if name == "Downed")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginStandUp { name } if name == "Downed")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProneEnabled { name, enabled } if name == "Downed" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_protect_read_ops() {
+        super::PROTECT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shield".to_string(),
+                (3.0f32, 2.0f32, 5.0f32, 0.5f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProtectDuration("Shield")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProtectTimer("Shield")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProtectGuardRadius("Shield")"#)
+                .unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProtectRedirectFraction("Shield")"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProtectActive("Shield")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProtectJustBegan("Shield")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProtectJustEnded("Shield")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProtectEnabled("Shield")"#).unwrap(),
+            "true"
+        );
+        super::PROTECT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_protect_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.guard("Shield", 4.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setProtectGuardRadius("Shield", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setProtectEnabled("Shield", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::Guard { name, duration } if name == "Shield" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProtectGuardRadius { name, radius } if name == "Shield" && (*radius - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProtectEnabled { name, enabled } if name == "Shield" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_proud_read_ops() {
+        super::PROUD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Champion".to_string(),
+                (0.75f32, 10.0f32, true, false, true, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProudHpThreshold("Champion")"#)
+                .unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProudDamageBonus("Champion")"#)
+                .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPrideful("Champion")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProudJustHumbled("Champion")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProudJustRestored("Champion")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProudEnabled("Champion")"#).unwrap(),
+            "true"
+        );
+        super::PROUD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_proud_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.updateProud("Champion", 90.0, 100.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setProudDamageBonus("Champion", 15.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setProudEnabled("Champion", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UpdateProud { name, hp, max_hp } if name == "Champion" && (*hp - 90.0).abs() < 1e-5 && (*max_hp - 100.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProudDamageBonus { name, bonus } if name == "Champion" && (*bonus - 15.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProudEnabled { name, enabled } if name == "Champion" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_provoke_read_ops() {
+        super::PROVOKE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Taunter".to_string(),
+                (5.0f32, 3.0f32, 3.0f32, 15.0f32, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProvokeDuration("Taunter")"#)
+                .unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProvokeTimer("Taunter")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProvokeAggroMultiplier("Taunter")"#)
+                .unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProvokeRadius("Taunter")"#).unwrap(),
+            "15"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProvokeActive("Taunter")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProvokeJustProvoked("Taunter")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProvokeJustExpired("Taunter")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProvokeEnabled("Taunter")"#).unwrap(),
+            "true"
+        );
+        super::PROVOKE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_provoke_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.activateProvoke("Taunter", 6.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setProvokeRadius("Taunter", 20.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setProvokeEnabled("Taunter", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateProvoke { name, duration } if name == "Taunter" && (*duration - 6.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProvokeRadius { name, radius } if name == "Taunter" && (*radius - 20.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProvokeEnabled { name, enabled } if name == "Taunter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_prowl_read_ops() {
+        super::PROWL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Predator".to_string(),
+                (3.0f32, 2.0f32, 0.25f32, 2.0f32, false, true, false, true),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProwlDuration("Predator")"#).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProwlTimer("Predator")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProwlSpeedBonus("Predator")"#)
+                .unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getProwlAmbushMultiplier("Predator")"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProwlActive("Predator")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProwlAmbushConsumed("Predator")"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProwlJustProwling("Predator")"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProwlJustFaded("Predator")"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isProwlEnabled("Predator")"#).unwrap(),
+            "true"
+        );
+        super::PROWL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_prowl_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.applyProwl("Predator", 5.0);"#).unwrap();
+        rt.eval(r#"Bsengine.setProwlSpeedBonus("Predator", 0.5);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setProwlEnabled("Predator", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyProwl { name, duration } if name == "Predator" && (*duration - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProwlSpeedBonus { name, bonus } if name == "Predator" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetProwlEnabled { name, enabled } if name == "Predator" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pulse_read_ops() {
+        super::PULSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Emitter".to_string(),
+                (
+                    1u32, true, 5.0f32, 10.0f32, 2.0f32, 1.5f32, 0.75f32, 4u32, true, true,
+                ),
+            )
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        assert_eq!(rt.eval(r#"Bsengine.getPulseMode("Emitter")"#).unwrap(), "1");
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPulseActive("Emitter")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPulseRadius("Emitter")"#).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPulseMaxRadius("Emitter")"#).unwrap(),
+            "10"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPulseInterval("Emitter")"#).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPulseTimer("Emitter")"#).unwrap(),
+            "1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPulseFalloff("Emitter")"#).unwrap(),
+            "0.75"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.getPulseCount("Emitter")"#).unwrap(),
+            "4"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPulseJustPulsed("Emitter")"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"Bsengine.isPulseEnabled("Emitter")"#).unwrap(),
+            "true"
+        );
+        super::PULSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_pulse_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.activatePulse("Emitter");"#).unwrap();
+        rt.eval(r#"Bsengine.setPulseRadius("Emitter", 8.0);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setPulseEnabled("Emitter", false);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivatePulse { name } if name == "Emitter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPulseRadius { name, radius } if name == "Emitter" && (*radius - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetPulseEnabled { name, enabled } if name == "Emitter" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

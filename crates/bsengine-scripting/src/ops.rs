@@ -3360,6 +3360,208 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Scald ────────────────────────────────────────────────────────────────
+    ApplyScald {
+        name: String,
+        count: u32,
+    },
+    SetScaldAmplifyPerStack {
+        name: String,
+        amplify_per_stack: f32,
+    },
+    SetScaldStackDuration {
+        name: String,
+        stack_duration: f32,
+    },
+    SetScaldEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Scan ─────────────────────────────────────────────────────────────────
+    TriggerScan {
+        name: String,
+    },
+    SetScanRadius {
+        name: String,
+        radius: f32,
+    },
+    SetScanInterval {
+        name: String,
+        interval: f32,
+    },
+    SetScanEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Scar ─────────────────────────────────────────────────────────────────
+    InflictScar {
+        name: String,
+    },
+    CleanseScar {
+        name: String,
+        count: u32,
+    },
+    SetScarRegenPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetScarEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Scatter ──────────────────────────────────────────────────────────────
+    ApplyScatter {
+        name: String,
+        duration: f32,
+    },
+    ClearScatter {
+        name: String,
+    },
+    SetScatterSpreadMultiplier {
+        name: String,
+        multiplier: f32,
+    },
+    SetScatterExtraPellets {
+        name: String,
+        count: u32,
+    },
+    SetScatterEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Scope ────────────────────────────────────────────────────────────────
+    ScopeIn {
+        name: String,
+    },
+    ScopeOut {
+        name: String,
+    },
+    SetScopeAccuracyBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetScopeRangeBonus {
+        name: String,
+        bonus: f32,
+    },
+    SetScopeMoveSpeedPenalty {
+        name: String,
+        penalty: f32,
+    },
+    SetScopeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Scorch ───────────────────────────────────────────────────────────────
+    ApplyScorch {
+        name: String,
+        duration: f32,
+    },
+    ClearScorch {
+        name: String,
+    },
+    SetScorchFireAmplify {
+        name: String,
+        amplify: f32,
+    },
+    SetScorchDotRate {
+        name: String,
+        rate: f32,
+    },
+    SetScorchEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Shear ────────────────────────────────────────────────────────────────
+    SetShearArmorPenetration {
+        name: String,
+        penetration: f32,
+    },
+    SetShearFlatPenetration {
+        name: String,
+        flat: f32,
+    },
+    SetShearEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Shock ────────────────────────────────────────────────────────────────
+    ApplyShock {
+        name: String,
+        duration: f32,
+    },
+    ClearShock {
+        name: String,
+    },
+    SetShockDamagePerSecond {
+        name: String,
+        damage: f32,
+    },
+    SetShockInterruptChance {
+        name: String,
+        chance: f32,
+    },
+    SetShockEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Shrivel ──────────────────────────────────────────────────────────────
+    AfflictShrivel {
+        name: String,
+    },
+    CleanseShrivel {
+        name: String,
+    },
+    SetShrivelRate {
+        name: String,
+        rate: f32,
+    },
+    SetShrivelRecoveryRate {
+        name: String,
+        rate: f32,
+    },
+    SetShrivelFactor {
+        name: String,
+        factor: f32,
+    },
+    SetShrivelEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Shroud ───────────────────────────────────────────────────────────────
+    SetShroudCharges {
+        name: String,
+        charges: u32,
+    },
+    SetShroudSaveHealthFraction {
+        name: String,
+        fraction: f32,
+    },
+    SetShroudCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetShroudEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Shunt ────────────────────────────────────────────────────────────────
+    TryShunt {
+        name: String,
+        magnitude: f32,
+    },
+    SetShuntResistance {
+        name: String,
+        resistance: f32,
+    },
+    SetShuntCooldown {
+        name: String,
+        cooldown: f32,
+    },
+    SetShuntEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -4309,6 +4511,39 @@ thread_local! {
     pub(crate) static MOVE_SPEED_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
 
+    // entity name → (heat_stacks, max_stacks, amplify_per_stack, stack_duration, just_scalded, just_cooled, enabled)
+    pub(crate) static SCALD_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (radius, interval, timer, just_pulsed, enabled)
+    pub(crate) static SCAN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (scars, max_scars, regen_penalty_per_scar, just_scarred, just_cleansed, enabled)
+    pub(crate) static SCAR_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, spread_multiplier, extra_pellets, just_scattered, just_cleared, enabled)
+    pub(crate) static SCATTER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (active, accuracy_bonus, range_bonus, move_speed_penalty, just_scoped, just_unscoped, enabled)
+    pub(crate) static SCOPE_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, fire_amplify, dot_rate, just_scorched, just_healed, enabled)
+    pub(crate) static SCORCH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (armor_penetration, flat_penetration, enabled)
+    pub(crate) static SHEAR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage_per_second, interrupt_chance, just_shocked, just_discharged, enabled)
+    pub(crate) static SHOCK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (shrivel_fraction, shrivel_rate, recovery_rate, shrivel_factor, shriveled, just_afflicted, just_recovered, enabled)
+    pub(crate) static SHRIVEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (charges, save_health_fraction, cooldown, cooldown_timer, just_saved, just_exhausted, enabled)
+    pub(crate) static SHROUD_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (shunt_resistance, last_shunt_magnitude, shunts_received, cooldown_timer, cooldown, just_shunted, enabled)
+    pub(crate) static SHUNT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
@@ -6166,6 +6401,628 @@ pub fn bsengine_set_max_shield(#[string] name: String, value: f32) {
     });
 }
 
+// ── Scald ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_scald_heat_stacks(#[string] name: String) -> u32 {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scald_max_stacks(#[string] name: String) -> u32 {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scald_amplify_per_stack(#[string] name: String) -> f32 {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scald_stack_duration(#[string] name: String) -> f32 {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scalded(#[string] name: String) -> bool {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scald_cooled(#[string] name: String) -> bool {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_scald_enabled(#[string] name: String) -> bool {
+    SCALD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_scald(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyScald { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scald_amplify_per_stack(#[string] name: String, amplify_per_stack: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetScaldAmplifyPerStack {
+            name,
+            amplify_per_stack,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scald_stack_duration(#[string] name: String, stack_duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetScaldStackDuration {
+            name,
+            stack_duration,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scald_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScaldEnabled { name, enabled })
+    });
+}
+// ── Scan ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_scan_radius(#[string] name: String) -> f32 {
+    SCAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scan_interval(#[string] name: String) -> f32 {
+    SCAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scan_timer(#[string] name: String) -> f32 {
+    SCAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scan_pulsed(#[string] name: String) -> bool {
+    SCAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_scan_enabled(#[string] name: String) -> bool {
+    SCAN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_trigger_scan(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TriggerScan { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_scan_radius(#[string] name: String, radius: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScanRadius { name, radius })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scan_interval(#[string] name: String, interval: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScanInterval { name, interval })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scan_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScanEnabled { name, enabled })
+    });
+}
+// ── Scar ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_scar_count(#[string] name: String) -> u32 {
+    SCAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scar_max_scars(#[string] name: String) -> u32 {
+    SCAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scar_regen_penalty(#[string] name: String) -> f32 {
+    SCAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scarred(#[string] name: String) -> bool {
+    SCAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scar_cleansed(#[string] name: String) -> bool {
+    SCAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_scar_enabled(#[string] name: String) -> bool {
+    SCAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_inflict_scar(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::InflictScar { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_scar(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CleanseScar { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scar_regen_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScarRegenPenalty { name, penalty })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scar_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScarEnabled { name, enabled })
+    });
+}
+// ── Scatter ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_scatter_duration(#[string] name: String) -> f32 {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scatter_timer(#[string] name: String) -> f32 {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scatter_spread_multiplier(#[string] name: String) -> f32 {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scatter_extra_pellets(#[string] name: String) -> u32 {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scattered(#[string] name: String) -> bool {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scatter_cleared(#[string] name: String) -> bool {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_scatter_enabled(#[string] name: String) -> bool {
+    SCATTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_scatter(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyScatter { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_scatter(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearScatter { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_scatter_spread_multiplier(#[string] name: String, multiplier: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScatterSpreadMultiplier { name, multiplier })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scatter_extra_pellets(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScatterExtraPellets { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scatter_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScatterEnabled { name, enabled })
+    });
+}
+// ── Scope ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_scope_active(#[string] name: String) -> bool {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_scope_accuracy_bonus(#[string] name: String) -> f32 {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scope_range_bonus(#[string] name: String) -> f32 {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scope_move_speed_penalty(#[string] name: String) -> f32 {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scoped(#[string] name: String) -> bool {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_unscoped(#[string] name: String) -> bool {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_scope_enabled(#[string] name: String) -> bool {
+    SCOPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_scope_in(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ScopeIn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_scope_out(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ScopeOut { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_scope_accuracy_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScopeAccuracyBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scope_range_bonus(#[string] name: String, bonus: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScopeRangeBonus { name, bonus })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scope_move_speed_penalty(#[string] name: String, penalty: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScopeMoveSpeedPenalty { name, penalty })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scope_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScopeEnabled { name, enabled })
+    });
+}
+// ── Scorch ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_scorch_duration(#[string] name: String) -> f32 {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scorch_timer(#[string] name: String) -> f32 {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scorch_fire_amplify(#[string] name: String) -> f32 {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_scorch_dot_rate(#[string] name: String) -> f32 {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scorched(#[string] name: String) -> bool {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_scorch_healed(#[string] name: String) -> bool {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_scorch_enabled(#[string] name: String) -> bool {
+    SCORCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_scorch(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyScorch { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_scorch(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearScorch { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_scorch_fire_amplify(#[string] name: String, amplify: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScorchFireAmplify { name, amplify })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scorch_dot_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScorchDotRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_scorch_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetScorchEnabled { name, enabled })
+    });
+}
+// ── Shear ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_shear_armor_penetration(#[string] name: String) -> f32 {
+    SHEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shear_flat_penetration(#[string] name: String) -> f32 {
+    SHEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_shear_enabled(#[string] name: String) -> bool {
+    SHEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_shear_armor_penetration(#[string] name: String, penetration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShearArmorPenetration { name, penetration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shear_flat_penetration(#[string] name: String, flat: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShearFlatPenetration { name, flat })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shear_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShearEnabled { name, enabled })
+    });
+}
+// ── Shock ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_shock_duration(#[string] name: String) -> f32 {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shock_timer(#[string] name: String) -> f32 {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shock_damage_per_second(#[string] name: String) -> f32 {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shock_interrupt_chance(#[string] name: String) -> f32 {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shocked(#[string] name: String) -> bool {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shock_discharged(#[string] name: String) -> bool {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_shock_enabled(#[string] name: String) -> bool {
+    SHOCK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_shock(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyShock { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_shock(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearShock { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_shock_damage_per_second(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShockDamagePerSecond { name, damage })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shock_interrupt_chance(#[string] name: String, chance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShockInterruptChance { name, chance })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shock_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShockEnabled { name, enabled })
+    });
+}
+// ── Shrivel ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_shrivel_fraction(#[string] name: String) -> f32 {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shrivel_rate(#[string] name: String) -> f32 {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shrivel_recovery_rate(#[string] name: String) -> f32 {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shrivel_factor(#[string] name: String) -> f32 {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_shriveled(#[string] name: String) -> bool {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shrivel_afflicted(#[string] name: String) -> bool {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shrivel_recovered(#[string] name: String) -> bool {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_shrivel_enabled(#[string] name: String) -> bool {
+    SHRIVEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_afflict_shrivel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AfflictShrivel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_shrivel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CleanseShrivel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_shrivel_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShrivelRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shrivel_recovery_rate(#[string] name: String, rate: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShrivelRecoveryRate { name, rate })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shrivel_factor(#[string] name: String, factor: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShrivelFactor { name, factor })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shrivel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShrivelEnabled { name, enabled })
+    });
+}
+// ── Shroud ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_shroud_charges(#[string] name: String) -> u32 {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shroud_save_health_fraction(#[string] name: String) -> f32 {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shroud_cooldown(#[string] name: String) -> f32 {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shroud_cooldown_timer(#[string] name: String) -> f32 {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shroud_saved(#[string] name: String) -> bool {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shroud_exhausted(#[string] name: String) -> bool {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_shroud_enabled(#[string] name: String) -> bool {
+    SHROUD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_shroud_charges(#[string] name: String, charges: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShroudCharges { name, charges })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shroud_save_health_fraction(#[string] name: String, fraction: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShroudSaveHealthFraction { name, fraction })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shroud_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShroudCooldown { name, cooldown })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shroud_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShroudEnabled { name, enabled })
+    });
+}
+// ── Shunt ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_shunt_resistance(#[string] name: String) -> f32 {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_last_shunt_magnitude(#[string] name: String) -> f32 {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shunts_received(#[string] name: String) -> u32 {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shunt_cooldown_timer(#[string] name: String) -> f32 {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_shunt_cooldown(#[string] name: String) -> f32 {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_shunted(#[string] name: String) -> bool {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_shunt_enabled(#[string] name: String) -> bool {
+    SHUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_try_shunt(#[string] name: String, magnitude: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TryShunt { name, magnitude })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shunt_resistance(#[string] name: String, resistance: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShuntResistance { name, resistance })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shunt_cooldown(#[string] name: String, cooldown: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShuntCooldown { name, cooldown })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_shunt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetShuntEnabled { name, enabled })
+    });
+}
 #[op2(fast)]
 pub fn bsengine_get_shield(#[string] name: String) -> f32 {
     SHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(cur, _)| *cur).unwrap_or(0.0))
@@ -24794,6 +25651,127 @@ deno_core::extension!(
         bsengine_scale_move_speed,
         bsengine_get_move_speed,
         bsengine_get_move_speed_base,
+        bsengine_get_scald_heat_stacks,
+        bsengine_get_scald_max_stacks,
+        bsengine_get_scald_amplify_per_stack,
+        bsengine_get_scald_stack_duration,
+        bsengine_is_just_scalded,
+        bsengine_is_just_scald_cooled,
+        bsengine_is_scald_enabled,
+        bsengine_apply_scald,
+        bsengine_set_scald_amplify_per_stack,
+        bsengine_set_scald_stack_duration,
+        bsengine_set_scald_enabled,
+        bsengine_get_scan_radius,
+        bsengine_get_scan_interval,
+        bsengine_get_scan_timer,
+        bsengine_is_just_scan_pulsed,
+        bsengine_is_scan_enabled,
+        bsengine_trigger_scan,
+        bsengine_set_scan_radius,
+        bsengine_set_scan_interval,
+        bsengine_set_scan_enabled,
+        bsengine_get_scar_count,
+        bsengine_get_scar_max_scars,
+        bsengine_get_scar_regen_penalty,
+        bsengine_is_just_scarred,
+        bsengine_is_just_scar_cleansed,
+        bsengine_is_scar_enabled,
+        bsengine_inflict_scar,
+        bsengine_cleanse_scar,
+        bsengine_set_scar_regen_penalty,
+        bsengine_set_scar_enabled,
+        bsengine_get_scatter_duration,
+        bsengine_get_scatter_timer,
+        bsengine_get_scatter_spread_multiplier,
+        bsengine_get_scatter_extra_pellets,
+        bsengine_is_just_scattered,
+        bsengine_is_just_scatter_cleared,
+        bsengine_is_scatter_enabled,
+        bsengine_apply_scatter,
+        bsengine_clear_scatter,
+        bsengine_set_scatter_spread_multiplier,
+        bsengine_set_scatter_extra_pellets,
+        bsengine_set_scatter_enabled,
+        bsengine_is_scope_active,
+        bsengine_get_scope_accuracy_bonus,
+        bsengine_get_scope_range_bonus,
+        bsengine_get_scope_move_speed_penalty,
+        bsengine_is_just_scoped,
+        bsengine_is_just_unscoped,
+        bsengine_is_scope_enabled,
+        bsengine_scope_in,
+        bsengine_scope_out,
+        bsengine_set_scope_accuracy_bonus,
+        bsengine_set_scope_range_bonus,
+        bsengine_set_scope_move_speed_penalty,
+        bsengine_set_scope_enabled,
+        bsengine_get_scorch_duration,
+        bsengine_get_scorch_timer,
+        bsengine_get_scorch_fire_amplify,
+        bsengine_get_scorch_dot_rate,
+        bsengine_is_just_scorched,
+        bsengine_is_just_scorch_healed,
+        bsengine_is_scorch_enabled,
+        bsengine_apply_scorch,
+        bsengine_clear_scorch,
+        bsengine_set_scorch_fire_amplify,
+        bsengine_set_scorch_dot_rate,
+        bsengine_set_scorch_enabled,
+        bsengine_get_shear_armor_penetration,
+        bsengine_get_shear_flat_penetration,
+        bsengine_is_shear_enabled,
+        bsengine_set_shear_armor_penetration,
+        bsengine_set_shear_flat_penetration,
+        bsengine_set_shear_enabled,
+        bsengine_get_shock_duration,
+        bsengine_get_shock_timer,
+        bsengine_get_shock_damage_per_second,
+        bsengine_get_shock_interrupt_chance,
+        bsengine_is_just_shocked,
+        bsengine_is_just_shock_discharged,
+        bsengine_is_shock_enabled,
+        bsengine_apply_shock,
+        bsengine_clear_shock,
+        bsengine_set_shock_damage_per_second,
+        bsengine_set_shock_interrupt_chance,
+        bsengine_set_shock_enabled,
+        bsengine_get_shrivel_fraction,
+        bsengine_get_shrivel_rate,
+        bsengine_get_shrivel_recovery_rate,
+        bsengine_get_shrivel_factor,
+        bsengine_is_shriveled,
+        bsengine_is_just_shrivel_afflicted,
+        bsengine_is_just_shrivel_recovered,
+        bsengine_is_shrivel_enabled,
+        bsengine_afflict_shrivel,
+        bsengine_cleanse_shrivel,
+        bsengine_set_shrivel_rate,
+        bsengine_set_shrivel_recovery_rate,
+        bsengine_set_shrivel_factor,
+        bsengine_set_shrivel_enabled,
+        bsengine_get_shroud_charges,
+        bsengine_get_shroud_save_health_fraction,
+        bsengine_get_shroud_cooldown,
+        bsengine_get_shroud_cooldown_timer,
+        bsengine_is_just_shroud_saved,
+        bsengine_is_just_shroud_exhausted,
+        bsengine_is_shroud_enabled,
+        bsengine_set_shroud_charges,
+        bsengine_set_shroud_save_health_fraction,
+        bsengine_set_shroud_cooldown,
+        bsengine_set_shroud_enabled,
+        bsengine_get_shunt_resistance,
+        bsengine_get_last_shunt_magnitude,
+        bsengine_get_shunts_received,
+        bsengine_get_shunt_cooldown_timer,
+        bsengine_get_shunt_cooldown,
+        bsengine_is_just_shunted,
+        bsengine_is_shunt_enabled,
+        bsengine_try_shunt,
+        bsengine_set_shunt_resistance,
+        bsengine_set_shunt_cooldown,
+        bsengine_set_shunt_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -27373,6 +28351,127 @@ const Bsengine = {
     scaleMoveSpeed:         (name, factor)  => Deno.core.ops.bsengine_scale_move_speed(name, factor),
     getMoveSpeed:           (name)          => Deno.core.ops.bsengine_get_move_speed(name),
     getMoveSpeedBase:       (name)          => Deno.core.ops.bsengine_get_move_speed_base(name),
+    getScaldHeatStacks:         (name)              => Deno.core.ops.bsengine_get_scald_heat_stacks(name),
+    getScaldMaxStacks:          (name)              => Deno.core.ops.bsengine_get_scald_max_stacks(name),
+    getScaldAmplifyPerStack:    (name)              => Deno.core.ops.bsengine_get_scald_amplify_per_stack(name),
+    getScaldStackDuration:      (name)              => Deno.core.ops.bsengine_get_scald_stack_duration(name),
+    isJustScalded:              (name)              => Deno.core.ops.bsengine_is_just_scalded(name),
+    isJustScaldCooled:          (name)              => Deno.core.ops.bsengine_is_just_scald_cooled(name),
+    isScaldEnabled:             (name)              => Deno.core.ops.bsengine_is_scald_enabled(name),
+    applyScald:                 (name, count)       => Deno.core.ops.bsengine_apply_scald(name, count),
+    setScaldAmplifyPerStack:    (name, v)           => Deno.core.ops.bsengine_set_scald_amplify_per_stack(name, v),
+    setScaldStackDuration:      (name, v)           => Deno.core.ops.bsengine_set_scald_stack_duration(name, v),
+    setScaldEnabled:            (name, v)           => Deno.core.ops.bsengine_set_scald_enabled(name, v),
+    getScanRadius:              (name)              => Deno.core.ops.bsengine_get_scan_radius(name),
+    getScanInterval:            (name)              => Deno.core.ops.bsengine_get_scan_interval(name),
+    getScanTimer:               (name)              => Deno.core.ops.bsengine_get_scan_timer(name),
+    isJustScanPulsed:           (name)              => Deno.core.ops.bsengine_is_just_scan_pulsed(name),
+    isScanEnabled:              (name)              => Deno.core.ops.bsengine_is_scan_enabled(name),
+    triggerScan:                (name)              => Deno.core.ops.bsengine_trigger_scan(name),
+    setScanRadius:              (name, v)           => Deno.core.ops.bsengine_set_scan_radius(name, v),
+    setScanInterval:            (name, v)           => Deno.core.ops.bsengine_set_scan_interval(name, v),
+    setScanEnabled:             (name, v)           => Deno.core.ops.bsengine_set_scan_enabled(name, v),
+    getScarCount:               (name)              => Deno.core.ops.bsengine_get_scar_count(name),
+    getScarMaxScars:            (name)              => Deno.core.ops.bsengine_get_scar_max_scars(name),
+    getScarRegenPenalty:        (name)              => Deno.core.ops.bsengine_get_scar_regen_penalty(name),
+    isJustScarred:              (name)              => Deno.core.ops.bsengine_is_just_scarred(name),
+    isJustScarCleansed:         (name)              => Deno.core.ops.bsengine_is_just_scar_cleansed(name),
+    isScarEnabled:              (name)              => Deno.core.ops.bsengine_is_scar_enabled(name),
+    inflictScar:                (name)              => Deno.core.ops.bsengine_inflict_scar(name),
+    cleanseScar:                (name, count)       => Deno.core.ops.bsengine_cleanse_scar(name, count),
+    setScarRegenPenalty:        (name, v)           => Deno.core.ops.bsengine_set_scar_regen_penalty(name, v),
+    setScarEnabled:             (name, v)           => Deno.core.ops.bsengine_set_scar_enabled(name, v),
+    getScatterDuration:         (name)              => Deno.core.ops.bsengine_get_scatter_duration(name),
+    getScatterTimer:            (name)              => Deno.core.ops.bsengine_get_scatter_timer(name),
+    getScatterSpreadMultiplier: (name)              => Deno.core.ops.bsengine_get_scatter_spread_multiplier(name),
+    getScatterExtraPellets:     (name)              => Deno.core.ops.bsengine_get_scatter_extra_pellets(name),
+    isJustScattered:            (name)              => Deno.core.ops.bsengine_is_just_scattered(name),
+    isJustScatterCleared:       (name)              => Deno.core.ops.bsengine_is_just_scatter_cleared(name),
+    isScatterEnabled:           (name)              => Deno.core.ops.bsengine_is_scatter_enabled(name),
+    applyScatter:               (name, duration)    => Deno.core.ops.bsengine_apply_scatter(name, duration),
+    clearScatter:               (name)              => Deno.core.ops.bsengine_clear_scatter(name),
+    setScatterSpreadMultiplier: (name, v)           => Deno.core.ops.bsengine_set_scatter_spread_multiplier(name, v),
+    setScatterExtraPellets:     (name, count)       => Deno.core.ops.bsengine_set_scatter_extra_pellets(name, count),
+    setScatterEnabled:          (name, v)           => Deno.core.ops.bsengine_set_scatter_enabled(name, v),
+    isScopeActive:              (name)              => Deno.core.ops.bsengine_is_scope_active(name),
+    getScopeAccuracyBonus:      (name)              => Deno.core.ops.bsengine_get_scope_accuracy_bonus(name),
+    getScopeRangeBonus:         (name)              => Deno.core.ops.bsengine_get_scope_range_bonus(name),
+    getScopeMoveSpeedPenalty:   (name)              => Deno.core.ops.bsengine_get_scope_move_speed_penalty(name),
+    isJustScoped:               (name)              => Deno.core.ops.bsengine_is_just_scoped(name),
+    isJustUnscoped:             (name)              => Deno.core.ops.bsengine_is_just_unscoped(name),
+    isScopeEnabled:             (name)              => Deno.core.ops.bsengine_is_scope_enabled(name),
+    scopeIn:                    (name)              => Deno.core.ops.bsengine_scope_in(name),
+    scopeOut:                   (name)              => Deno.core.ops.bsengine_scope_out(name),
+    setScopeAccuracyBonus:      (name, v)           => Deno.core.ops.bsengine_set_scope_accuracy_bonus(name, v),
+    setScopeRangeBonus:         (name, v)           => Deno.core.ops.bsengine_set_scope_range_bonus(name, v),
+    setScopeMoveSpeedPenalty:   (name, v)           => Deno.core.ops.bsengine_set_scope_move_speed_penalty(name, v),
+    setScopeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_scope_enabled(name, v),
+    getScorchDuration:          (name)              => Deno.core.ops.bsengine_get_scorch_duration(name),
+    getScorchTimer:             (name)              => Deno.core.ops.bsengine_get_scorch_timer(name),
+    getScorchFireAmplify:       (name)              => Deno.core.ops.bsengine_get_scorch_fire_amplify(name),
+    getScorchDotRate:           (name)              => Deno.core.ops.bsengine_get_scorch_dot_rate(name),
+    isJustScorched:             (name)              => Deno.core.ops.bsengine_is_just_scorched(name),
+    isJustScorchHealed:         (name)              => Deno.core.ops.bsengine_is_just_scorch_healed(name),
+    isScorchEnabled:            (name)              => Deno.core.ops.bsengine_is_scorch_enabled(name),
+    applyScorch:                (name, duration)    => Deno.core.ops.bsengine_apply_scorch(name, duration),
+    clearScorch:                (name)              => Deno.core.ops.bsengine_clear_scorch(name),
+    setScorchFireAmplify:       (name, v)           => Deno.core.ops.bsengine_set_scorch_fire_amplify(name, v),
+    setScorchDotRate:           (name, v)           => Deno.core.ops.bsengine_set_scorch_dot_rate(name, v),
+    setScorchEnabled:           (name, v)           => Deno.core.ops.bsengine_set_scorch_enabled(name, v),
+    getShearArmorPenetration:   (name)              => Deno.core.ops.bsengine_get_shear_armor_penetration(name),
+    getShearFlatPenetration:    (name)              => Deno.core.ops.bsengine_get_shear_flat_penetration(name),
+    isShearEnabled:             (name)              => Deno.core.ops.bsengine_is_shear_enabled(name),
+    setShearArmorPenetration:   (name, v)           => Deno.core.ops.bsengine_set_shear_armor_penetration(name, v),
+    setShearFlatPenetration:    (name, v)           => Deno.core.ops.bsengine_set_shear_flat_penetration(name, v),
+    setShearEnabled:            (name, v)           => Deno.core.ops.bsengine_set_shear_enabled(name, v),
+    getShockDuration:           (name)              => Deno.core.ops.bsengine_get_shock_duration(name),
+    getShockTimer:              (name)              => Deno.core.ops.bsengine_get_shock_timer(name),
+    getShockDamagePerSecond:    (name)              => Deno.core.ops.bsengine_get_shock_damage_per_second(name),
+    getShockInterruptChance:    (name)              => Deno.core.ops.bsengine_get_shock_interrupt_chance(name),
+    isJustShocked:              (name)              => Deno.core.ops.bsengine_is_just_shocked(name),
+    isJustShockDischarged:      (name)              => Deno.core.ops.bsengine_is_just_shock_discharged(name),
+    isShockEnabled:             (name)              => Deno.core.ops.bsengine_is_shock_enabled(name),
+    applyShock:                 (name, duration)    => Deno.core.ops.bsengine_apply_shock(name, duration),
+    clearShock:                 (name)              => Deno.core.ops.bsengine_clear_shock(name),
+    setShockDamagePerSecond:    (name, v)           => Deno.core.ops.bsengine_set_shock_damage_per_second(name, v),
+    setShockInterruptChance:    (name, v)           => Deno.core.ops.bsengine_set_shock_interrupt_chance(name, v),
+    setShockEnabled:            (name, v)           => Deno.core.ops.bsengine_set_shock_enabled(name, v),
+    getShrivelFraction:         (name)              => Deno.core.ops.bsengine_get_shrivel_fraction(name),
+    getShrivelRate:             (name)              => Deno.core.ops.bsengine_get_shrivel_rate(name),
+    getShrivelRecoveryRate:     (name)              => Deno.core.ops.bsengine_get_shrivel_recovery_rate(name),
+    getShrivelFactor:           (name)              => Deno.core.ops.bsengine_get_shrivel_factor(name),
+    isShriveled:                (name)              => Deno.core.ops.bsengine_is_shriveled(name),
+    isJustShrivelAfflicted:     (name)              => Deno.core.ops.bsengine_is_just_shrivel_afflicted(name),
+    isJustShrivelRecovered:     (name)              => Deno.core.ops.bsengine_is_just_shrivel_recovered(name),
+    isShrivelEnabled:           (name)              => Deno.core.ops.bsengine_is_shrivel_enabled(name),
+    afflictShrivel:             (name)              => Deno.core.ops.bsengine_afflict_shrivel(name),
+    cleanseShrivel:             (name)              => Deno.core.ops.bsengine_cleanse_shrivel(name),
+    setShrivelRate:             (name, v)           => Deno.core.ops.bsengine_set_shrivel_rate(name, v),
+    setShrivelRecoveryRate:     (name, v)           => Deno.core.ops.bsengine_set_shrivel_recovery_rate(name, v),
+    setShrivelFactor:           (name, v)           => Deno.core.ops.bsengine_set_shrivel_factor(name, v),
+    setShrivelEnabled:          (name, v)           => Deno.core.ops.bsengine_set_shrivel_enabled(name, v),
+    getShroudCharges:           (name)              => Deno.core.ops.bsengine_get_shroud_charges(name),
+    getShroudSaveHealthFraction:(name)              => Deno.core.ops.bsengine_get_shroud_save_health_fraction(name),
+    getShroudCooldown:          (name)              => Deno.core.ops.bsengine_get_shroud_cooldown(name),
+    getShroudCooldownTimer:     (name)              => Deno.core.ops.bsengine_get_shroud_cooldown_timer(name),
+    isJustShroudSaved:          (name)              => Deno.core.ops.bsengine_is_just_shroud_saved(name),
+    isJustShroudExhausted:      (name)              => Deno.core.ops.bsengine_is_just_shroud_exhausted(name),
+    isShroudEnabled:            (name)              => Deno.core.ops.bsengine_is_shroud_enabled(name),
+    setShroudCharges:           (name, v)           => Deno.core.ops.bsengine_set_shroud_charges(name, v),
+    setShroudSaveHealthFraction:(name, v)           => Deno.core.ops.bsengine_set_shroud_save_health_fraction(name, v),
+    setShroudCooldown:          (name, v)           => Deno.core.ops.bsengine_set_shroud_cooldown(name, v),
+    setShroudEnabled:           (name, v)           => Deno.core.ops.bsengine_set_shroud_enabled(name, v),
+    getShuntResistance:         (name)              => Deno.core.ops.bsengine_get_shunt_resistance(name),
+    getLastShuntMagnitude:      (name)              => Deno.core.ops.bsengine_get_last_shunt_magnitude(name),
+    getShuntsReceived:          (name)              => Deno.core.ops.bsengine_get_shunts_received(name),
+    getShuntCooldownTimer:      (name)              => Deno.core.ops.bsengine_get_shunt_cooldown_timer(name),
+    getShuntCooldown:           (name)              => Deno.core.ops.bsengine_get_shunt_cooldown(name),
+    isJustShunted:              (name)              => Deno.core.ops.bsengine_is_just_shunted(name),
+    isShuntEnabled:             (name)              => Deno.core.ops.bsengine_is_shunt_enabled(name),
+    tryShunt:                   (name, magnitude)   => Deno.core.ops.bsengine_try_shunt(name, magnitude),
+    setShuntResistance:         (name, v)           => Deno.core.ops.bsengine_set_shunt_resistance(name, v),
+    setShuntCooldown:           (name, v)           => Deno.core.ops.bsengine_set_shunt_cooldown(name, v),
+    setShuntEnabled:            (name, v)           => Deno.core.ops.bsengine_set_shunt_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -45400,6 +46499,703 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
+    #[test]
+    fn test_scald_read_ops() {
+        super::SCALD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Target".to_string(),
+                (3u32, 8u32, 0.25f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getScaldHeatStacks("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getScaldMaxStacks("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getScaldAmplifyPerStack("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getScaldStackDuration("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScalded("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScaldCooled("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isScaldEnabled("Target"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SCALD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scald_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyScald("Target", 2);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setScaldAmplifyPerStack("Target", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setScaldStackDuration("Target", 4.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setScaldEnabled("Target", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyScald { name, count } if name == "Target" && *count == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScaldAmplifyPerStack { name, amplify_per_stack } if name == "Target" && (*amplify_per_stack - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScaldStackDuration { name, stack_duration } if name == "Target" && (*stack_duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScaldEnabled { name, enabled } if name == "Target" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scan_read_ops() {
+        super::SCAN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Scout".to_string(), (16.0f32, 1.0f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getScanRadius("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "16");
+        let r = rt
+            .eval(r#"String(Bsengine.getScanInterval("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getScanTimer("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScanPulsed("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isScanEnabled("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SCAN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scan_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.triggerScan("Scout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScanRadius("Scout", 8.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScanInterval("Scout", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScanEnabled("Scout", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerScan { name } if name == "Scout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScanRadius { name, radius } if name == "Scout" && (*radius - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScanInterval { name, interval } if name == "Scout" && (*interval - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScanEnabled { name, enabled } if name == "Scout" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scar_read_ops() {
+        super::SCAR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Warrior".to_string(),
+                (2u32, 5u32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getScarCount("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getScarMaxScars("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getScarRegenPenalty("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScarred("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScarCleansed("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isScarEnabled("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SCAR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scar_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.inflictScar("Warrior");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cleanseScar("Warrior", 1);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScarRegenPenalty("Warrior", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScarEnabled("Warrior", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InflictScar { name } if name == "Warrior")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseScar { name, count } if name == "Warrior" && *count == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScarRegenPenalty { name, penalty } if name == "Warrior" && (*penalty - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScarEnabled { name, enabled } if name == "Warrior" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scatter_read_ops() {
+        super::SCATTER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gunner".to_string(),
+                (2.0f32, 1.0f32, 1.5f32, 3u32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getScatterDuration("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getScatterTimer("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getScatterSpreadMultiplier("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getScatterExtraPellets("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScattered("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScatterCleared("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isScatterEnabled("Gunner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SCATTER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scatter_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyScatter("Gunner", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearScatter("Gunner");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setScatterSpreadMultiplier("Gunner", 2.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setScatterExtraPellets("Gunner", 4);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScatterEnabled("Gunner", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyScatter { name, duration } if name == "Gunner" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearScatter { name } if name == "Gunner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScatterSpreadMultiplier { name, multiplier } if name == "Gunner" && (*multiplier - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScatterExtraPellets { name, count } if name == "Gunner" && *count == 4)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScatterEnabled { name, enabled } if name == "Gunner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scope_read_ops() {
+        super::SCOPE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sniper".to_string(),
+                (true, 0.25f32, 8.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isScopeActive("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getScopeAccuracyBonus("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getScopeRangeBonus("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getScopeMoveSpeedPenalty("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScoped("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustUnscoped("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isScopeEnabled("Sniper"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SCOPE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scope_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.scopeIn("Sniper");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.scopeOut("Sniper");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setScopeAccuracyBonus("Sniper", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setScopeRangeBonus("Sniper", 4.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setScopeMoveSpeedPenalty("Sniper", 0.25);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setScopeEnabled("Sniper", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ScopeIn { name } if name == "Sniper")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ScopeOut { name } if name == "Sniper")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScopeAccuracyBonus { name, bonus } if name == "Sniper" && (*bonus - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScopeRangeBonus { name, bonus } if name == "Sniper" && (*bonus - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScopeMoveSpeedPenalty { name, penalty } if name == "Sniper" && (*penalty - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScopeEnabled { name, enabled } if name == "Sniper" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scorch_read_ops() {
+        super::SCORCH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Flamer".to_string(),
+                (4.0f32, 2.0f32, 1.5f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getScorchDuration("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getScorchTimer("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getScorchFireAmplify("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getScorchDotRate("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScorched("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustScorchHealed("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isScorchEnabled("Flamer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SCORCH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_scorch_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyScorch("Flamer", 4.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearScorch("Flamer");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScorchFireAmplify("Flamer", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScorchDotRate("Flamer", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setScorchEnabled("Flamer", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyScorch { name, duration } if name == "Flamer" && (*duration - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearScorch { name } if name == "Flamer")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScorchFireAmplify { name, amplify } if name == "Flamer" && (*amplify - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScorchDotRate { name, rate } if name == "Flamer" && (*rate - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetScorchEnabled { name, enabled } if name == "Flamer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shear_read_ops() {
+        super::SHEAR_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Blade".to_string(), (0.25f32, 4.0f32, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getShearArmorPenetration("Blade"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getShearFlatPenetration("Blade"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isShearEnabled("Blade"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SHEAR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shear_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShearArmorPenetration("Blade", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShearFlatPenetration("Blade", 8.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setShearEnabled("Blade", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShearArmorPenetration { name, penetration } if name == "Blade" && (*penetration - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShearFlatPenetration { name, flat } if name == "Blade" && (*flat - 8.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShearEnabled { name, enabled } if name == "Blade" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shock_read_ops() {
+        super::SHOCK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Volt".to_string(),
+                (2.0f32, 1.0f32, 8.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getShockDuration("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getShockTimer("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getShockDamagePerSecond("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getShockInterruptChance("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShocked("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShockDischarged("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isShockEnabled("Volt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SHOCK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shock_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyShock("Volt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearShock("Volt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShockDamagePerSecond("Volt", 16.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShockInterruptChance("Volt", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setShockEnabled("Volt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyShock { name, duration } if name == "Volt" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearShock { name } if name == "Volt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShockDamagePerSecond { name, damage } if name == "Volt" && (*damage - 16.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShockInterruptChance { name, chance } if name == "Volt" && (*chance - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShockEnabled { name, enabled } if name == "Volt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shrivel_read_ops() {
+        super::SHRIVEL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Withered".to_string(),
+                (0.5f32, 0.25f32, 0.125f32, 0.75f32, true, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getShrivelFraction("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getShrivelRate("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getShrivelRecoveryRate("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.getShrivelFactor("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isShriveled("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShrivelAfflicted("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShrivelRecovered("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isShrivelEnabled("Withered"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SHRIVEL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shrivel_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.afflictShrivel("Withered");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cleanseShrivel("Withered");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setShrivelRate("Withered", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShrivelRecoveryRate("Withered", 0.25);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setShrivelFactor("Withered", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShrivelEnabled("Withered", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AfflictShrivel { name } if name == "Withered")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseShrivel { name } if name == "Withered")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShrivelRate { name, rate } if name == "Withered" && (*rate - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShrivelRecoveryRate { name, rate } if name == "Withered" && (*rate - 0.25).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShrivelFactor { name, factor } if name == "Withered" && (*factor - 1.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShrivelEnabled { name, enabled } if name == "Withered" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shroud_read_ops() {
+        super::SHROUD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Guardian".to_string(),
+                (2u32, 0.25f32, 8.0f32, 4.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getShroudCharges("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getShroudSaveHealthFraction("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getShroudCooldown("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getShroudCooldownTimer("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShroudSaved("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShroudExhausted("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isShroudEnabled("Guardian"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SHROUD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shroud_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setShroudCharges("Guardian", 3);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setShroudSaveHealthFraction("Guardian", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setShroudCooldown("Guardian", 16.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setShroudEnabled("Guardian", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShroudCharges { name, charges } if name == "Guardian" && *charges == 3)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShroudSaveHealthFraction { name, fraction } if name == "Guardian" && (*fraction - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShroudCooldown { name, cooldown } if name == "Guardian" && (*cooldown - 16.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShroudEnabled { name, enabled } if name == "Guardian" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shunt_read_ops() {
+        super::SHUNT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Tank".to_string(),
+                (0.5f32, 4.0f32, 2u32, 1.0f32, 8.0f32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getShuntResistance("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getLastShuntMagnitude("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getShuntsReceived("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getShuntCooldownTimer("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getShuntCooldown("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustShunted("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isShuntEnabled("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SHUNT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_shunt_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.tryShunt("Tank", 4.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setShuntResistance("Tank", 0.75);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setShuntCooldown("Tank", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setShuntEnabled("Tank", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TryShunt { name, magnitude } if name == "Tank" && (*magnitude - 4.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShuntResistance { name, resistance } if name == "Tank" && (*resistance - 0.75).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShuntCooldown { name, cooldown } if name == "Tank" && (*cooldown - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShuntEnabled { name, enabled } if name == "Tank" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
     #[test]
     fn test_quest_read_ops() {
         super::QUEST_SNAPSHOT.with(|s| {

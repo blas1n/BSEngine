@@ -60,8 +60,10 @@ use crate::ops::{
     RECKLESS_SNAPSHOT, RECLUSE_SNAPSHOT, RECOIL_SNAPSHOT, REFLECT_SNAPSHOT, REFLEX_SNAPSHOT,
     REGEN_SNAPSHOT, REPEL_SNAPSHOT, REPOSE_SNAPSHOT, RESPAWN_SNAPSHOT, RESTITUTION_SNAPSHOT,
     RETALIATE_SNAPSHOT, REVEAL_SNAPSHOT, REVENGE_SNAPSHOT, REVIVE_SNAPSHOT, RICOCHET_SNAPSHOT,
-    RIFLE_SNAPSHOT, ROOT_SNAPSHOT, ROT_SNAPSHOT, ROUT_SNAPSHOT, RUPTURE_SNAPSHOT,
-    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_BREAK_SNAPSHOT, SHIELD_SNAPSHOT,
+    RIFLE_SNAPSHOT, ROOT_SNAPSHOT, ROT_SNAPSHOT, ROUT_SNAPSHOT, RUPTURE_SNAPSHOT, SCALD_SNAPSHOT,
+    SCAN_SNAPSHOT, SCAR_SNAPSHOT, SCATTER_SNAPSHOT, SCOPE_SNAPSHOT, SCORCH_SNAPSHOT,
+    SCREEN_SHAKE_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHEAR_SNAPSHOT, SHIELD_BREAK_SNAPSHOT,
+    SHIELD_SNAPSHOT, SHOCK_SNAPSHOT, SHRIVEL_SNAPSHOT, SHROUD_SNAPSHOT, SHUNT_SNAPSHOT,
     SLEEP_SNAPSHOT, SLOW_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
     SPAWN_POINT_SNAPSHOT, SPRING_SNAPSHOT, SPRINT_SNAPSHOT, STAMINA_SNAPSHOT,
     STATUS_EFFECT_SNAPSHOT, STUN_SNAPSHOT, TAG_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
@@ -740,6 +742,210 @@ fn run_scripts(world: &mut World) {
             ms_map.insert(name.0.clone(), (ms.base, ms.effective()));
         }
         MOVE_SPEED_SNAPSHOT.with(|s| *s.borrow_mut() = ms_map);
+    }
+    {
+        use bsengine_core::Scald;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scald)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.heat_stacks,
+                    sc.max_stacks,
+                    sc.amplify_per_stack,
+                    sc.stack_duration,
+                    sc.just_scalded,
+                    sc.just_cooled,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCALD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scan;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scan)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (sc.radius, sc.interval, sc.timer, sc.just_pulsed, sc.enabled),
+            );
+        }
+        SCAN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scar;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scar)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.scars,
+                    sc.max_scars,
+                    sc.regen_penalty_per_scar,
+                    sc.just_scarred,
+                    sc.just_cleansed,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scatter;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scatter)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.duration,
+                    sc.timer,
+                    sc.spread_multiplier,
+                    sc.extra_pellets,
+                    sc.just_scattered,
+                    sc.just_cleared,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCATTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scope;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scope)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.active,
+                    sc.accuracy_bonus,
+                    sc.range_bonus,
+                    sc.move_speed_penalty,
+                    sc.just_scoped,
+                    sc.just_unscoped,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCOPE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scorch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scorch)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.duration,
+                    sc.timer,
+                    sc.fire_amplify,
+                    sc.dot_rate,
+                    sc.just_scorched,
+                    sc.just_healed,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCORCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shear;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shear)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (sh.armor_penetration, sh.flat_penetration, sh.enabled),
+            );
+        }
+        SHEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shock;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shock)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.duration,
+                    sh.timer,
+                    sh.damage_per_second,
+                    sh.interrupt_chance,
+                    sh.just_shocked,
+                    sh.just_discharged,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHOCK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shrivel;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shrivel)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.shrivel_fraction,
+                    sh.shrivel_rate,
+                    sh.recovery_rate,
+                    sh.shrivel_factor,
+                    sh.shriveled,
+                    sh.just_afflicted,
+                    sh.just_recovered,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHRIVEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shroud;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shroud)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.charges,
+                    sh.save_health_fraction,
+                    sh.cooldown,
+                    sh.cooldown_timer,
+                    sh.just_saved,
+                    sh.just_exhausted,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHROUD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shunt;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shunt)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.shunt_resistance,
+                    sh.last_shunt_magnitude,
+                    sh.shunts_received,
+                    sh.cooldown_timer,
+                    sh.cooldown,
+                    sh.just_shunted,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -16522,6 +16728,562 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut rup) = world.get_mut::<Rupture>(e) {
                         rup.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyScald { name, count } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scald>(e) {
+                        sc.apply_stack(count);
+                    }
+                }
+            }
+            ScriptCommand::SetScaldAmplifyPerStack {
+                name,
+                amplify_per_stack,
+            } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scald>(e) {
+                        sc.amplify_per_stack = amplify_per_stack;
+                    }
+                }
+            }
+            ScriptCommand::SetScaldStackDuration {
+                name,
+                stack_duration,
+            } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scald>(e) {
+                        sc.stack_duration = stack_duration;
+                    }
+                }
+            }
+            ScriptCommand::SetScaldEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scald>(e) {
+                        sc.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TriggerScan { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scan>(e) {
+                        sc.trigger();
+                    }
+                }
+            }
+            ScriptCommand::SetScanRadius { name, radius } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scan>(e) {
+                        sc.set_radius(radius);
+                    }
+                }
+            }
+            ScriptCommand::SetScanInterval { name, interval } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scan>(e) {
+                        sc.interval = interval;
+                    }
+                }
+            }
+            ScriptCommand::SetScanEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scan>(e) {
+                        sc.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InflictScar { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scar>(e) {
+                        sc.inflict();
+                    }
+                }
+            }
+            ScriptCommand::CleanseScar { name, count } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scar>(e) {
+                        sc.cleanse(count);
+                    }
+                }
+            }
+            ScriptCommand::SetScarRegenPenalty { name, penalty } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scar>(e) {
+                        sc.regen_penalty_per_scar = penalty;
+                    }
+                }
+            }
+            ScriptCommand::SetScarEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scar>(e) {
+                        sc.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyScatter { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scatter>(e) {
+                        sc.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearScatter { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scatter>(e) {
+                        sc.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetScatterSpreadMultiplier { name, multiplier } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scatter>(e) {
+                        sc.spread_multiplier = multiplier;
+                    }
+                }
+            }
+            ScriptCommand::SetScatterExtraPellets { name, count } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scatter>(e) {
+                        sc.extra_pellets = count;
+                    }
+                }
+            }
+            ScriptCommand::SetScatterEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scatter>(e) {
+                        sc.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ScopeIn { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scope>(e) {
+                        sc.scope_in();
+                    }
+                }
+            }
+            ScriptCommand::ScopeOut { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scope>(e) {
+                        sc.scope_out();
+                    }
+                }
+            }
+            ScriptCommand::SetScopeAccuracyBonus { name, bonus } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scope>(e) {
+                        sc.accuracy_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetScopeRangeBonus { name, bonus } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scope>(e) {
+                        sc.range_bonus = bonus;
+                    }
+                }
+            }
+            ScriptCommand::SetScopeMoveSpeedPenalty { name, penalty } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scope>(e) {
+                        sc.move_speed_penalty = penalty;
+                    }
+                }
+            }
+            ScriptCommand::SetScopeEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scope>(e) {
+                        sc.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyScorch { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scorch>(e) {
+                        sc.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearScorch { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scorch>(e) {
+                        sc.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetScorchFireAmplify { name, amplify } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scorch>(e) {
+                        sc.fire_amplify = amplify;
+                    }
+                }
+            }
+            ScriptCommand::SetScorchDotRate { name, rate } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scorch>(e) {
+                        sc.dot_rate = rate;
+                    }
+                }
+            }
+            ScriptCommand::SetScorchEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sc) = world.get_mut::<bsengine_core::Scorch>(e) {
+                        sc.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetShearArmorPenetration { name, penetration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shear>(e) {
+                        sh.armor_penetration = penetration;
+                    }
+                }
+            }
+            ScriptCommand::SetShearFlatPenetration { name, flat } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shear>(e) {
+                        sh.flat_penetration = flat;
+                    }
+                }
+            }
+            ScriptCommand::SetShearEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shear>(e) {
+                        sh.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyShock { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shock>(e) {
+                        sh.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearShock { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shock>(e) {
+                        sh.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetShockDamagePerSecond { name, damage } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shock>(e) {
+                        sh.damage_per_second = damage;
+                    }
+                }
+            }
+            ScriptCommand::SetShockInterruptChance { name, chance } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shock>(e) {
+                        sh.interrupt_chance = chance;
+                    }
+                }
+            }
+            ScriptCommand::SetShockEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shock>(e) {
+                        sh.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AfflictShrivel { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shrivel>(e) {
+                        sh.afflict();
+                    }
+                }
+            }
+            ScriptCommand::CleanseShrivel { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shrivel>(e) {
+                        sh.cleanse();
+                    }
+                }
+            }
+            ScriptCommand::SetShrivelRate { name, rate } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shrivel>(e) {
+                        sh.shrivel_rate = rate;
+                    }
+                }
+            }
+            ScriptCommand::SetShrivelRecoveryRate { name, rate } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shrivel>(e) {
+                        sh.recovery_rate = rate;
+                    }
+                }
+            }
+            ScriptCommand::SetShrivelFactor { name, factor } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shrivel>(e) {
+                        sh.shrivel_factor = factor;
+                    }
+                }
+            }
+            ScriptCommand::SetShrivelEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shrivel>(e) {
+                        sh.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetShroudCharges { name, charges } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shroud>(e) {
+                        sh.charges = charges;
+                    }
+                }
+            }
+            ScriptCommand::SetShroudSaveHealthFraction { name, fraction } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shroud>(e) {
+                        sh.save_health_fraction = fraction;
+                    }
+                }
+            }
+            ScriptCommand::SetShroudCooldown { name, cooldown } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shroud>(e) {
+                        sh.cooldown = cooldown;
+                    }
+                }
+            }
+            ScriptCommand::SetShroudEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shroud>(e) {
+                        sh.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TryShunt { name, magnitude } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shunt>(e) {
+                        sh.try_shunt(magnitude);
+                    }
+                }
+            }
+            ScriptCommand::SetShuntResistance { name, resistance } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shunt>(e) {
+                        sh.shunt_resistance = resistance;
+                    }
+                }
+            }
+            ScriptCommand::SetShuntCooldown { name, cooldown } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shunt>(e) {
+                        sh.cooldown = cooldown;
+                    }
+                }
+            }
+            ScriptCommand::SetShuntEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sh) = world.get_mut::<bsengine_core::Shunt>(e) {
+                        sh.enabled = enabled;
                     }
                 }
             }

@@ -6295,6 +6295,71 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    UnrollYarn {
+        name: String,
+    },
+    RewindYarn {
+        name: String,
+    },
+    SetYarnEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RotateYaw {
+        name: String,
+    },
+    SetYawEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ToggleYawl {
+        name: String,
+    },
+    SetYawlEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WakeYawn {
+        name: String,
+    },
+    SetYawnEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CryYawp {
+        name: String,
+    },
+    HushYawp {
+        name: String,
+    },
+    SetYawpEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CheerYay {
+        name: String,
+    },
+    SetYayEnabled {
+        name: String,
+        enabled: bool,
+    },
+    VoteYea {
+        name: String,
+    },
+    RevokeYea {
+        name: String,
+    },
+    SetYeaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AdvanceYear {
+        name: String,
+    },
+    SetYearEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7784,6 +7849,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // readiness, max_readiness, recovery_rate, just_primed, just_exhausted, enabled
     pub(crate) static YARE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yarn: length, max_length, just_snagged, just_rewound, enabled
+    pub(crate) static YARN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yaw: heading, turn_rate, just_rotated, enabled
+    pub(crate) static YAW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yawl: phase, cycle_count, just_toggled, just_cycled, enabled
+    pub(crate) static YAWL_SNAPSHOT: RefCell<HashMap<String, (bool, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yawn: yawn_threshold, idle_time, just_yawned, is_drowsy, enabled
+    pub(crate) static YAWN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yawp: volume, max_volume, decay_rate, just_shrieked, just_silenced, enabled
+    pub(crate) static YAWP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yay: elation, max_elation, decay_rate, just_peaked, just_faded, enabled
+    pub(crate) static YAY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yea: count, required, just_passed, just_revoked, enabled
+    pub(crate) static YEA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // year: elapsed, period, just_cycled, just_new_season, enabled
+    pub(crate) static YEAR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -20171,6 +20260,270 @@ pub fn bsengine_set_yare_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetYareEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yarn_length(#[string] name: String) -> f32 {
+    YARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yarn_max_length(#[string] name: String) -> f32 {
+    YARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yarn_just_snagged(#[string] name: String) -> bool {
+    YARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yarn_just_rewound(#[string] name: String) -> bool {
+    YARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yarn_enabled(#[string] name: String) -> bool {
+    YARN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_unroll_yarn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UnrollYarn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_rewind_yarn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RewindYarn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yarn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYarnEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yaw_heading(#[string] name: String) -> f32 {
+    YAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yaw_turn_rate(#[string] name: String) -> f32 {
+    YAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yaw_just_rotated(#[string] name: String) -> bool {
+    YAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yaw_enabled(#[string] name: String) -> bool {
+    YAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rotate_yaw(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RotateYaw { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yaw_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYawEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_is_yawl_phase(#[string] name: String) -> bool {
+    YAWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_yawl_cycle_count(#[string] name: String) -> f32 {
+    YAWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawl_just_toggled(#[string] name: String) -> bool {
+    YAWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawl_just_cycled(#[string] name: String) -> bool {
+    YAWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawl_enabled(#[string] name: String) -> bool {
+    YAWL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_toggle_yawl(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ToggleYawl { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yawl_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYawlEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yawn_threshold(#[string] name: String) -> f32 {
+    YAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yawn_idle_time(#[string] name: String) -> f32 {
+    YAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawn_just_yawned(#[string] name: String) -> bool {
+    YAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawn_drowsy(#[string] name: String) -> bool {
+    YAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawn_enabled(#[string] name: String) -> bool {
+    YAWN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_wake_yawn(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WakeYawn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yawn_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYawnEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yawp_volume(#[string] name: String) -> f32 {
+    YAWP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yawp_max_volume(#[string] name: String) -> f32 {
+    YAWP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yawp_decay_rate(#[string] name: String) -> f32 {
+    YAWP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawp_just_shrieked(#[string] name: String) -> bool {
+    YAWP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawp_just_silenced(#[string] name: String) -> bool {
+    YAWP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yawp_enabled(#[string] name: String) -> bool {
+    YAWP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_cry_yawp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CryYawp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_hush_yawp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HushYawp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yawp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYawpEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yay_elation(#[string] name: String) -> f32 {
+    YAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yay_max_elation(#[string] name: String) -> f32 {
+    YAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yay_decay_rate(#[string] name: String) -> f32 {
+    YAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yay_just_peaked(#[string] name: String) -> bool {
+    YAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yay_just_faded(#[string] name: String) -> bool {
+    YAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yay_enabled(#[string] name: String) -> bool {
+    YAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_cheer_yay(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CheerYay { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yay_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYayEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yea_count(#[string] name: String) -> f32 {
+    YEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yea_required(#[string] name: String) -> f32 {
+    YEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yea_just_passed(#[string] name: String) -> bool {
+    YEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yea_just_revoked(#[string] name: String) -> bool {
+    YEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yea_enabled(#[string] name: String) -> bool {
+    YEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_vote_yea(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::VoteYea { name }));
+}
+#[op2(fast)]
+pub fn bsengine_revoke_yea(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RevokeYea { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yea_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYeaEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_year_elapsed(#[string] name: String) -> f32 {
+    YEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_year_period(#[string] name: String) -> f32 {
+    YEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_year_just_cycled(#[string] name: String) -> bool {
+    YEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_year_just_new_season(#[string] name: String) -> bool {
+    YEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_year_enabled(#[string] name: String) -> bool {
+    YEAR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_advance_year(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AdvanceYear { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_year_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYearEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -41600,6 +41953,66 @@ deno_core::extension!(
         bsengine_prime_yare,
         bsengine_exert_yare,
         bsengine_set_yare_enabled,
+        bsengine_get_yarn_length,
+        bsengine_get_yarn_max_length,
+        bsengine_is_yarn_just_snagged,
+        bsengine_is_yarn_just_rewound,
+        bsengine_is_yarn_enabled,
+        bsengine_unroll_yarn,
+        bsengine_rewind_yarn,
+        bsengine_set_yarn_enabled,
+        bsengine_get_yaw_heading,
+        bsengine_get_yaw_turn_rate,
+        bsengine_is_yaw_just_rotated,
+        bsengine_is_yaw_enabled,
+        bsengine_rotate_yaw,
+        bsengine_set_yaw_enabled,
+        bsengine_is_yawl_phase,
+        bsengine_get_yawl_cycle_count,
+        bsengine_is_yawl_just_toggled,
+        bsengine_is_yawl_just_cycled,
+        bsengine_is_yawl_enabled,
+        bsengine_toggle_yawl,
+        bsengine_set_yawl_enabled,
+        bsengine_get_yawn_threshold,
+        bsengine_get_yawn_idle_time,
+        bsengine_is_yawn_just_yawned,
+        bsengine_is_yawn_drowsy,
+        bsengine_is_yawn_enabled,
+        bsengine_wake_yawn,
+        bsengine_set_yawn_enabled,
+        bsengine_get_yawp_volume,
+        bsengine_get_yawp_max_volume,
+        bsengine_get_yawp_decay_rate,
+        bsengine_is_yawp_just_shrieked,
+        bsengine_is_yawp_just_silenced,
+        bsengine_is_yawp_enabled,
+        bsengine_cry_yawp,
+        bsengine_hush_yawp,
+        bsengine_set_yawp_enabled,
+        bsengine_get_yay_elation,
+        bsengine_get_yay_max_elation,
+        bsengine_get_yay_decay_rate,
+        bsengine_is_yay_just_peaked,
+        bsengine_is_yay_just_faded,
+        bsengine_is_yay_enabled,
+        bsengine_cheer_yay,
+        bsengine_set_yay_enabled,
+        bsengine_get_yea_count,
+        bsengine_get_yea_required,
+        bsengine_is_yea_just_passed,
+        bsengine_is_yea_just_revoked,
+        bsengine_is_yea_enabled,
+        bsengine_vote_yea,
+        bsengine_revoke_yea,
+        bsengine_set_yea_enabled,
+        bsengine_get_year_elapsed,
+        bsengine_get_year_period,
+        bsengine_is_year_just_cycled,
+        bsengine_is_year_just_new_season,
+        bsengine_is_year_enabled,
+        bsengine_advance_year,
+        bsengine_set_year_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -46441,6 +46854,66 @@ const Bsengine = {
     primeYare:                  (name)              => Deno.core.ops.bsengine_prime_yare(name),
     exertYare:                  (name)              => Deno.core.ops.bsengine_exert_yare(name),
     setYareEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yare_enabled(name, v),
+    getYarnLength:              (name)              => Deno.core.ops.bsengine_get_yarn_length(name),
+    getYarnMaxLength:           (name)              => Deno.core.ops.bsengine_get_yarn_max_length(name),
+    isYarnJustSnagged:          (name)              => Deno.core.ops.bsengine_is_yarn_just_snagged(name),
+    isYarnJustRewound:          (name)              => Deno.core.ops.bsengine_is_yarn_just_rewound(name),
+    isYarnEnabled:              (name)              => Deno.core.ops.bsengine_is_yarn_enabled(name),
+    unrollYarn:                 (name)              => Deno.core.ops.bsengine_unroll_yarn(name),
+    rewindYarn:                 (name)              => Deno.core.ops.bsengine_rewind_yarn(name),
+    setYarnEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yarn_enabled(name, v),
+    getYawHeading:              (name)              => Deno.core.ops.bsengine_get_yaw_heading(name),
+    getYawTurnRate:             (name)              => Deno.core.ops.bsengine_get_yaw_turn_rate(name),
+    isYawJustRotated:           (name)              => Deno.core.ops.bsengine_is_yaw_just_rotated(name),
+    isYawEnabled:               (name)              => Deno.core.ops.bsengine_is_yaw_enabled(name),
+    rotateYaw:                  (name)              => Deno.core.ops.bsengine_rotate_yaw(name),
+    setYawEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yaw_enabled(name, v),
+    isYawlPhase:                (name)              => Deno.core.ops.bsengine_is_yawl_phase(name),
+    getYawlCycleCount:          (name)              => Deno.core.ops.bsengine_get_yawl_cycle_count(name),
+    isYawlJustToggled:          (name)              => Deno.core.ops.bsengine_is_yawl_just_toggled(name),
+    isYawlJustCycled:           (name)              => Deno.core.ops.bsengine_is_yawl_just_cycled(name),
+    isYawlEnabled:              (name)              => Deno.core.ops.bsengine_is_yawl_enabled(name),
+    toggleYawl:                 (name)              => Deno.core.ops.bsengine_toggle_yawl(name),
+    setYawlEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yawl_enabled(name, v),
+    getYawnThreshold:           (name)              => Deno.core.ops.bsengine_get_yawn_threshold(name),
+    getYawnIdleTime:            (name)              => Deno.core.ops.bsengine_get_yawn_idle_time(name),
+    isYawnJustYawned:           (name)              => Deno.core.ops.bsengine_is_yawn_just_yawned(name),
+    isYawnDrowsy:               (name)              => Deno.core.ops.bsengine_is_yawn_drowsy(name),
+    isYawnEnabled:              (name)              => Deno.core.ops.bsengine_is_yawn_enabled(name),
+    wakeYawn:                   (name)              => Deno.core.ops.bsengine_wake_yawn(name),
+    setYawnEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yawn_enabled(name, v),
+    getYawpVolume:              (name)              => Deno.core.ops.bsengine_get_yawp_volume(name),
+    getYawpMaxVolume:           (name)              => Deno.core.ops.bsengine_get_yawp_max_volume(name),
+    getYawpDecayRate:           (name)              => Deno.core.ops.bsengine_get_yawp_decay_rate(name),
+    isYawpJustShrieked:         (name)              => Deno.core.ops.bsengine_is_yawp_just_shrieked(name),
+    isYawpJustSilenced:         (name)              => Deno.core.ops.bsengine_is_yawp_just_silenced(name),
+    isYawpEnabled:              (name)              => Deno.core.ops.bsengine_is_yawp_enabled(name),
+    cryYawp:                    (name)              => Deno.core.ops.bsengine_cry_yawp(name),
+    hushYawp:                   (name)              => Deno.core.ops.bsengine_hush_yawp(name),
+    setYawpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yawp_enabled(name, v),
+    getYayElation:              (name)              => Deno.core.ops.bsengine_get_yay_elation(name),
+    getYayMaxElation:           (name)              => Deno.core.ops.bsengine_get_yay_max_elation(name),
+    getYayDecayRate:            (name)              => Deno.core.ops.bsengine_get_yay_decay_rate(name),
+    isYayJustPeaked:            (name)              => Deno.core.ops.bsengine_is_yay_just_peaked(name),
+    isYayJustFaded:             (name)              => Deno.core.ops.bsengine_is_yay_just_faded(name),
+    isYayEnabled:               (name)              => Deno.core.ops.bsengine_is_yay_enabled(name),
+    cheerYay:                   (name)              => Deno.core.ops.bsengine_cheer_yay(name),
+    setYayEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yay_enabled(name, v),
+    getYeaCount:                (name)              => Deno.core.ops.bsengine_get_yea_count(name),
+    getYeaRequired:             (name)              => Deno.core.ops.bsengine_get_yea_required(name),
+    isYeaJustPassed:            (name)              => Deno.core.ops.bsengine_is_yea_just_passed(name),
+    isYeaJustRevoked:           (name)              => Deno.core.ops.bsengine_is_yea_just_revoked(name),
+    isYeaEnabled:               (name)              => Deno.core.ops.bsengine_is_yea_enabled(name),
+    voteYea:                    (name)              => Deno.core.ops.bsengine_vote_yea(name),
+    revokeYea:                  (name)              => Deno.core.ops.bsengine_revoke_yea(name),
+    setYeaEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yea_enabled(name, v),
+    getYearElapsed:             (name)              => Deno.core.ops.bsengine_get_year_elapsed(name),
+    getYearPeriod:              (name)              => Deno.core.ops.bsengine_get_year_period(name),
+    isYearJustCycled:           (name)              => Deno.core.ops.bsengine_is_year_just_cycled(name),
+    isYearJustNewSeason:        (name)              => Deno.core.ops.bsengine_is_year_just_new_season(name),
+    isYearEnabled:              (name)              => Deno.core.ops.bsengine_is_year_enabled(name),
+    advanceYear:                (name)              => Deno.core.ops.bsengine_advance_year(name),
+    setYearEnabled:             (name, v)           => Deno.core.ops.bsengine_set_year_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -77830,6 +78303,385 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PrimeYare { name } if name == "Ready")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExertYare { name } if name == "Ready")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYareEnabled { name, enabled } if name == "Ready" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yarn_read_ops() {
+        super::YARN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Thread".to_string(), (3.0f32, 10.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYarnLength("Thread"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getYarnMaxLength("Thread"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYarnJustSnagged("Thread"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYarnJustRewound("Thread"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYarnEnabled("Thread"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YARN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yarn_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.unrollYarn("Thread");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.rewindYarn("Thread");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYarnEnabled("Thread", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnrollYarn { name } if name == "Thread")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RewindYarn { name } if name == "Thread")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYarnEnabled { name, enabled } if name == "Thread" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yaw_read_ops() {
+        super::YAW_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Compass".to_string(), (90.0f32, 45.0f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYawHeading("Compass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "90");
+        let r = rt
+            .eval(r#"String(Bsengine.getYawTurnRate("Compass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "45");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawJustRotated("Compass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawEnabled("Compass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yaw_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.rotateYaw("Compass");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYawEnabled("Compass", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RotateYaw { name } if name == "Compass")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYawEnabled { name, enabled } if name == "Compass" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yawl_read_ops() {
+        super::YAWL_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Flip".to_string(), (true, 5.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.isYawlPhase("Flip"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getYawlCycleCount("Flip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawlJustToggled("Flip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawlJustCycled("Flip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawlEnabled("Flip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAWL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yawl_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.toggleYawl("Flip");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYawlEnabled("Flip", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ToggleYawl { name } if name == "Flip")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYawlEnabled { name, enabled } if name == "Flip" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yawn_read_ops() {
+        super::YAWN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Drowsy".to_string(), (5.0f32, 3.0f32, true, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYawnThreshold("Drowsy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYawnIdleTime("Drowsy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawnJustYawned("Drowsy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawnDrowsy("Drowsy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawnEnabled("Drowsy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAWN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yawn_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.wakeYawn("Drowsy");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYawnEnabled("Drowsy", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WakeYawn { name } if name == "Drowsy")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYawnEnabled { name, enabled } if name == "Drowsy" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yawp_read_ops() {
+        super::YAWP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Shout".to_string(),
+                (8.0f32, 10.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYawpVolume("Shout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getYawpMaxVolume("Shout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getYawpDecayRate("Shout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawpJustShrieked("Shout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawpJustSilenced("Shout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYawpEnabled("Shout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAWP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yawp_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.cryYawp("Shout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.hushYawp("Shout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYawpEnabled("Shout", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CryYawp { name } if name == "Shout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HushYawp { name } if name == "Shout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYawpEnabled { name, enabled } if name == "Shout" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yay_read_ops() {
+        super::YAY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cheer".to_string(),
+                (6.0f32, 10.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYayElation("Cheer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.getYayMaxElation("Cheer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getYayDecayRate("Cheer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYayJustPeaked("Cheer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYayJustFaded("Cheer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYayEnabled("Cheer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YAY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yay_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.cheerYay("Cheer");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYayEnabled("Cheer", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CheerYay { name } if name == "Cheer")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYayEnabled { name, enabled } if name == "Cheer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yea_read_ops() {
+        super::YEA_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Vote".to_string(), (3.0f32, 5.0f32, false, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getYeaCount("Vote"))"#).unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getYeaRequired("Vote"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeaJustPassed("Vote"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYeaJustRevoked("Vote"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isYeaEnabled("Vote"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yea_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.voteYea("Vote");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.revokeYea("Vote");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYeaEnabled("Vote", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VoteYea { name } if name == "Vote")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RevokeYea { name } if name == "Vote")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYeaEnabled { name, enabled } if name == "Vote" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_year_read_ops() {
+        super::YEAR_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Season".to_string(), (0.5f32, 4.0f32, false, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYearElapsed("Season"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYearPeriod("Season"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isYearJustCycled("Season"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYearJustNewSeason("Season"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYearEnabled("Season"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YEAR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_year_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.advanceYear("Season");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYearEnabled("Season", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdvanceYear { name } if name == "Season")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYearEnabled { name, enabled } if name == "Season" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

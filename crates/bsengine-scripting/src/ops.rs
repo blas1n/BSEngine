@@ -6662,6 +6662,83 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    GiveZakat {
+        name: String,
+    },
+    DisburseZakat {
+        name: String,
+    },
+    SetZakatEnabled {
+        name: String,
+        enabled: bool,
+    },
+    UnfurlZamia {
+        name: String,
+    },
+    CurlZamia {
+        name: String,
+    },
+    SetZamiaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    JestZanily {
+        name: String,
+    },
+    DullZanily {
+        name: String,
+    },
+    SetZanilyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FrolicZaniness {
+        name: String,
+    },
+    SoberZaniness {
+        name: String,
+    },
+    SetZaninessEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SparkZany {
+        name: String,
+    },
+    CalmZany {
+        name: String,
+    },
+    SetZanyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FireZap {
+        name: String,
+    },
+    SetZapEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ZapZapper {
+        name: String,
+    },
+    DepleteZapper {
+        name: String,
+    },
+    SetZapperEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnergizeZappy {
+        name: String,
+    },
+    FizzleZappy {
+        name: String,
+    },
+    SetZappyEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8271,6 +8348,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zaibatsu: reach, max_reach, consolidate_rate, just_dominant, just_dissolved, enabled
     pub(crate) static ZAIBATSU_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zakat: tithe, max_tithe, accrue_rate, just_fulfilled, just_discharged, enabled
+    pub(crate) static ZAKAT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zamia: frond, max_frond, grow_rate, just_spread, just_crozier, enabled
+    pub(crate) static ZAMIA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zanily: verve, max_verve, jest_rate, just_capered, just_deadpan, enabled
+    pub(crate) static ZANILY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zaniness: mirth, max_mirth, caprice_rate, just_clowned, just_sobered, enabled
+    pub(crate) static ZANINESS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zany: whimsy, max_whimsy, fade_rate, just_unhinged, just_sane, enabled
+    pub(crate) static ZANY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zap: zap_power, zap_range, cooldown_duration, cooldown_timer, just_zapped, enabled
+    pub(crate) static ZAP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zapper: charge, max_charge, charge_rate, just_zapped, just_discharged, enabled
+    pub(crate) static ZAPPER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zappy: vitality, max_vitality, spark_rate, just_sparked, just_fizzled, enabled
+    pub(crate) static ZAPPY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -22157,6 +22258,322 @@ pub fn bsengine_set_zaibatsu_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZaibatsuEnabled { name, enabled })
+    });
+}
+// ── Zakat ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zakat_tithe(#[string] name: String) -> f32 {
+    ZAKAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zakat_max_tithe(#[string] name: String) -> f32 {
+    ZAKAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zakat_accrue_rate(#[string] name: String) -> f32 {
+    ZAKAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zakat_just_fulfilled(#[string] name: String) -> bool {
+    ZAKAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zakat_just_discharged(#[string] name: String) -> bool {
+    ZAKAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zakat_enabled(#[string] name: String) -> bool {
+    ZAKAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_give_zakat(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::GiveZakat { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disburse_zakat(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisburseZakat { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zakat_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZakatEnabled { name, enabled })
+    });
+}
+// ── Zamia ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zamia_frond(#[string] name: String) -> f32 {
+    ZAMIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zamia_max_frond(#[string] name: String) -> f32 {
+    ZAMIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zamia_grow_rate(#[string] name: String) -> f32 {
+    ZAMIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zamia_just_spread(#[string] name: String) -> bool {
+    ZAMIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zamia_just_crozier(#[string] name: String) -> bool {
+    ZAMIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zamia_enabled(#[string] name: String) -> bool {
+    ZAMIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_unfurl_zamia(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UnfurlZamia { name }));
+}
+#[op2(fast)]
+pub fn bsengine_curl_zamia(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CurlZamia { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zamia_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZamiaEnabled { name, enabled })
+    });
+}
+// ── Zanily ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zanily_verve(#[string] name: String) -> f32 {
+    ZANILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zanily_max_verve(#[string] name: String) -> f32 {
+    ZANILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zanily_jest_rate(#[string] name: String) -> f32 {
+    ZANILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zanily_just_capered(#[string] name: String) -> bool {
+    ZANILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zanily_just_deadpan(#[string] name: String) -> bool {
+    ZANILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zanily_enabled(#[string] name: String) -> bool {
+    ZANILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_jest_zanily(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::JestZanily { name }));
+}
+#[op2(fast)]
+pub fn bsengine_dull_zanily(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DullZanily { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zanily_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZanilyEnabled { name, enabled })
+    });
+}
+// ── Zaniness ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zaniness_mirth(#[string] name: String) -> f32 {
+    ZANINESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zaniness_max_mirth(#[string] name: String) -> f32 {
+    ZANINESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zaniness_caprice_rate(#[string] name: String) -> f32 {
+    ZANINESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zaniness_just_clowned(#[string] name: String) -> bool {
+    ZANINESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zaniness_just_sobered(#[string] name: String) -> bool {
+    ZANINESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zaniness_enabled(#[string] name: String) -> bool {
+    ZANINESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_frolic_zaniness(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FrolicZaniness { name }));
+}
+#[op2(fast)]
+pub fn bsengine_sober_zaniness(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SoberZaniness { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zaniness_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZaninessEnabled { name, enabled })
+    });
+}
+// ── Zany ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zany_whimsy(#[string] name: String) -> f32 {
+    ZANY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zany_max_whimsy(#[string] name: String) -> f32 {
+    ZANY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zany_fade_rate(#[string] name: String) -> f32 {
+    ZANY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zany_just_unhinged(#[string] name: String) -> bool {
+    ZANY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zany_just_sane(#[string] name: String) -> bool {
+    ZANY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zany_enabled(#[string] name: String) -> bool {
+    ZANY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_spark_zany(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SparkZany { name }));
+}
+#[op2(fast)]
+pub fn bsengine_calm_zany(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CalmZany { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zany_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZanyEnabled { name, enabled })
+    });
+}
+// ── Zap ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zap_power(#[string] name: String) -> f32 {
+    ZAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zap_range(#[string] name: String) -> f32 {
+    ZAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zap_cooldown_duration(#[string] name: String) -> f32 {
+    ZAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zap_cooldown_timer(#[string] name: String) -> f32 {
+    ZAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zap_just_zapped(#[string] name: String) -> bool {
+    ZAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zap_enabled(#[string] name: String) -> bool {
+    ZAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fire_zap(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FireZap { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zap_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZapEnabled { name, enabled })
+    });
+}
+// ── Zapper ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zapper_charge(#[string] name: String) -> f32 {
+    ZAPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zapper_max_charge(#[string] name: String) -> f32 {
+    ZAPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zapper_charge_rate(#[string] name: String) -> f32 {
+    ZAPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zapper_just_zapped(#[string] name: String) -> bool {
+    ZAPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zapper_just_discharged(#[string] name: String) -> bool {
+    ZAPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zapper_enabled(#[string] name: String) -> bool {
+    ZAPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_zap_zapper(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ZapZapper { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deplete_zapper(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DepleteZapper { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zapper_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZapperEnabled { name, enabled })
+    });
+}
+// ── Zappy ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zappy_vitality(#[string] name: String) -> f32 {
+    ZAPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zappy_max_vitality(#[string] name: String) -> f32 {
+    ZAPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zappy_spark_rate(#[string] name: String) -> f32 {
+    ZAPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zappy_just_sparked(#[string] name: String) -> bool {
+    ZAPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zappy_just_fizzled(#[string] name: String) -> bool {
+    ZAPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zappy_enabled(#[string] name: String) -> bool {
+    ZAPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_energize_zappy(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnergizeZappy { name }));
+}
+#[op2(fast)]
+pub fn bsengine_fizzle_zappy(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FizzleZappy { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zappy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZappyEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -43928,6 +44345,77 @@ deno_core::extension!(
         bsengine_acquire_zaibatsu,
         bsengine_divest_zaibatsu,
         bsengine_set_zaibatsu_enabled,
+        bsengine_get_zakat_tithe,
+        bsengine_get_zakat_max_tithe,
+        bsengine_get_zakat_accrue_rate,
+        bsengine_is_zakat_just_fulfilled,
+        bsengine_is_zakat_just_discharged,
+        bsengine_is_zakat_enabled,
+        bsengine_give_zakat,
+        bsengine_disburse_zakat,
+        bsengine_set_zakat_enabled,
+        bsengine_get_zamia_frond,
+        bsengine_get_zamia_max_frond,
+        bsengine_get_zamia_grow_rate,
+        bsengine_is_zamia_just_spread,
+        bsengine_is_zamia_just_crozier,
+        bsengine_is_zamia_enabled,
+        bsengine_unfurl_zamia,
+        bsengine_curl_zamia,
+        bsengine_set_zamia_enabled,
+        bsengine_get_zanily_verve,
+        bsengine_get_zanily_max_verve,
+        bsengine_get_zanily_jest_rate,
+        bsengine_is_zanily_just_capered,
+        bsengine_is_zanily_just_deadpan,
+        bsengine_is_zanily_enabled,
+        bsengine_jest_zanily,
+        bsengine_dull_zanily,
+        bsengine_set_zanily_enabled,
+        bsengine_get_zaniness_mirth,
+        bsengine_get_zaniness_max_mirth,
+        bsengine_get_zaniness_caprice_rate,
+        bsengine_is_zaniness_just_clowned,
+        bsengine_is_zaniness_just_sobered,
+        bsengine_is_zaniness_enabled,
+        bsengine_frolic_zaniness,
+        bsengine_sober_zaniness,
+        bsengine_set_zaniness_enabled,
+        bsengine_get_zany_whimsy,
+        bsengine_get_zany_max_whimsy,
+        bsengine_get_zany_fade_rate,
+        bsengine_is_zany_just_unhinged,
+        bsengine_is_zany_just_sane,
+        bsengine_is_zany_enabled,
+        bsengine_spark_zany,
+        bsengine_calm_zany,
+        bsengine_set_zany_enabled,
+        bsengine_get_zap_power,
+        bsengine_get_zap_range,
+        bsengine_get_zap_cooldown_duration,
+        bsengine_get_zap_cooldown_timer,
+        bsengine_is_zap_just_zapped,
+        bsengine_is_zap_enabled,
+        bsengine_fire_zap,
+        bsengine_set_zap_enabled,
+        bsengine_get_zapper_charge,
+        bsengine_get_zapper_max_charge,
+        bsengine_get_zapper_charge_rate,
+        bsengine_is_zapper_just_zapped,
+        bsengine_is_zapper_just_discharged,
+        bsengine_is_zapper_enabled,
+        bsengine_zap_zapper,
+        bsengine_deplete_zapper,
+        bsengine_set_zapper_enabled,
+        bsengine_get_zappy_vitality,
+        bsengine_get_zappy_max_vitality,
+        bsengine_get_zappy_spark_rate,
+        bsengine_is_zappy_just_sparked,
+        bsengine_is_zappy_just_fizzled,
+        bsengine_is_zappy_enabled,
+        bsengine_energize_zappy,
+        bsengine_fizzle_zappy,
+        bsengine_set_zappy_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -49111,6 +49599,77 @@ const Bsengine = {
     acquireZaibatsu:            (name)              => Deno.core.ops.bsengine_acquire_zaibatsu(name),
     divestZaibatsu:             (name)              => Deno.core.ops.bsengine_divest_zaibatsu(name),
     setZaibatsuEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zaibatsu_enabled(name, v),
+    getZakatTithe:              (name)              => Deno.core.ops.bsengine_get_zakat_tithe(name),
+    getZakatMaxTithe:           (name)              => Deno.core.ops.bsengine_get_zakat_max_tithe(name),
+    getZakatAccrueRate:         (name)              => Deno.core.ops.bsengine_get_zakat_accrue_rate(name),
+    isZakatJustFulfilled:       (name)              => Deno.core.ops.bsengine_is_zakat_just_fulfilled(name),
+    isZakatJustDischarged:      (name)              => Deno.core.ops.bsengine_is_zakat_just_discharged(name),
+    isZakatEnabled:             (name)              => Deno.core.ops.bsengine_is_zakat_enabled(name),
+    giveZakat:                  (name)              => Deno.core.ops.bsengine_give_zakat(name),
+    disburseZakat:              (name)              => Deno.core.ops.bsengine_disburse_zakat(name),
+    setZakatEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zakat_enabled(name, v),
+    getZamiaFrond:              (name)              => Deno.core.ops.bsengine_get_zamia_frond(name),
+    getZamiaMaxFrond:           (name)              => Deno.core.ops.bsengine_get_zamia_max_frond(name),
+    getZamiaGrowRate:           (name)              => Deno.core.ops.bsengine_get_zamia_grow_rate(name),
+    isZamiaJustSpread:          (name)              => Deno.core.ops.bsengine_is_zamia_just_spread(name),
+    isZamiaJustCrozier:         (name)              => Deno.core.ops.bsengine_is_zamia_just_crozier(name),
+    isZamiaEnabled:             (name)              => Deno.core.ops.bsengine_is_zamia_enabled(name),
+    unfurlZamia:                (name)              => Deno.core.ops.bsengine_unfurl_zamia(name),
+    curlZamia:                  (name)              => Deno.core.ops.bsengine_curl_zamia(name),
+    setZamiaEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zamia_enabled(name, v),
+    getZanilyVerve:             (name)              => Deno.core.ops.bsengine_get_zanily_verve(name),
+    getZanilyMaxVerve:          (name)              => Deno.core.ops.bsengine_get_zanily_max_verve(name),
+    getZanilyJestRate:          (name)              => Deno.core.ops.bsengine_get_zanily_jest_rate(name),
+    isZanilyJustCapered:        (name)              => Deno.core.ops.bsengine_is_zanily_just_capered(name),
+    isZanilyJustDeadpan:        (name)              => Deno.core.ops.bsengine_is_zanily_just_deadpan(name),
+    isZanilyEnabled:            (name)              => Deno.core.ops.bsengine_is_zanily_enabled(name),
+    jestZanily:                 (name)              => Deno.core.ops.bsengine_jest_zanily(name),
+    dullZanily:                 (name)              => Deno.core.ops.bsengine_dull_zanily(name),
+    setZanilyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zanily_enabled(name, v),
+    getZainessMirth:            (name)              => Deno.core.ops.bsengine_get_zaniness_mirth(name),
+    getZainessMaxMirth:         (name)              => Deno.core.ops.bsengine_get_zaniness_max_mirth(name),
+    getZainessCapriceRate:      (name)              => Deno.core.ops.bsengine_get_zaniness_caprice_rate(name),
+    isZainessJustClowned:       (name)              => Deno.core.ops.bsengine_is_zaniness_just_clowned(name),
+    isZainessJustSobered:       (name)              => Deno.core.ops.bsengine_is_zaniness_just_sobered(name),
+    isZainessEnabled:           (name)              => Deno.core.ops.bsengine_is_zaniness_enabled(name),
+    frolicZaniness:             (name)              => Deno.core.ops.bsengine_frolic_zaniness(name),
+    soberZaniness:              (name)              => Deno.core.ops.bsengine_sober_zaniness(name),
+    setZainessEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zaniness_enabled(name, v),
+    getZanyWhimsy:              (name)              => Deno.core.ops.bsengine_get_zany_whimsy(name),
+    getZanyMaxWhimsy:           (name)              => Deno.core.ops.bsengine_get_zany_max_whimsy(name),
+    getZanyFadeRate:            (name)              => Deno.core.ops.bsengine_get_zany_fade_rate(name),
+    isZanyJustUnhinged:         (name)              => Deno.core.ops.bsengine_is_zany_just_unhinged(name),
+    isZanyJustSane:             (name)              => Deno.core.ops.bsengine_is_zany_just_sane(name),
+    isZanyEnabled:              (name)              => Deno.core.ops.bsengine_is_zany_enabled(name),
+    sparkZany:                  (name)              => Deno.core.ops.bsengine_spark_zany(name),
+    calmZany:                   (name)              => Deno.core.ops.bsengine_calm_zany(name),
+    setZanyEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zany_enabled(name, v),
+    getZapPower:                (name)              => Deno.core.ops.bsengine_get_zap_power(name),
+    getZapRange:                (name)              => Deno.core.ops.bsengine_get_zap_range(name),
+    getZapCooldownDuration:     (name)              => Deno.core.ops.bsengine_get_zap_cooldown_duration(name),
+    getZapCooldownTimer:        (name)              => Deno.core.ops.bsengine_get_zap_cooldown_timer(name),
+    isZapJustZapped:            (name)              => Deno.core.ops.bsengine_is_zap_just_zapped(name),
+    isZapEnabled:               (name)              => Deno.core.ops.bsengine_is_zap_enabled(name),
+    fireZap:                    (name)              => Deno.core.ops.bsengine_fire_zap(name),
+    setZapEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zap_enabled(name, v),
+    getZapperCharge:            (name)              => Deno.core.ops.bsengine_get_zapper_charge(name),
+    getZapperMaxCharge:         (name)              => Deno.core.ops.bsengine_get_zapper_max_charge(name),
+    getZapperChargeRate:        (name)              => Deno.core.ops.bsengine_get_zapper_charge_rate(name),
+    isZapperJustZapped:         (name)              => Deno.core.ops.bsengine_is_zapper_just_zapped(name),
+    isZapperJustDischarged:     (name)              => Deno.core.ops.bsengine_is_zapper_just_discharged(name),
+    isZapperEnabled:            (name)              => Deno.core.ops.bsengine_is_zapper_enabled(name),
+    zapZapper:                  (name)              => Deno.core.ops.bsengine_zap_zapper(name),
+    depleteZapper:              (name)              => Deno.core.ops.bsengine_deplete_zapper(name),
+    setZapperEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zapper_enabled(name, v),
+    getZappyVitality:           (name)              => Deno.core.ops.bsengine_get_zappy_vitality(name),
+    getZappyMaxVitality:        (name)              => Deno.core.ops.bsengine_get_zappy_max_vitality(name),
+    getZappySparkRate:          (name)              => Deno.core.ops.bsengine_get_zappy_spark_rate(name),
+    isZappyJustSparked:         (name)              => Deno.core.ops.bsengine_is_zappy_just_sparked(name),
+    isZappyJustFizzled:         (name)              => Deno.core.ops.bsengine_is_zappy_just_fizzled(name),
+    isZappyEnabled:             (name)              => Deno.core.ops.bsengine_is_zappy_enabled(name),
+    energizeZappy:              (name)              => Deno.core.ops.bsengine_energize_zappy(name),
+    fizzleZappy:                (name)              => Deno.core.ops.bsengine_fizzle_zappy(name),
+    setZappyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zappy_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -82493,6 +83052,437 @@ JSON.stringify(received)
             assert!(buf.iter().any(
                 |cmd| matches!(cmd, super::ScriptCommand::SetZaibatsuEnabled { name, enabled } if name == "Corp" && !enabled)
             ));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zakat_read_ops() {
+        super::ZAKAT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Alms".to_string(),
+                (5.0f32, 10.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZakatTithe("Alms"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getZakatMaxTithe("Alms"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZakatAccrueRate("Alms"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZakatJustFulfilled("Alms"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZakatJustDischarged("Alms"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZakatEnabled("Alms"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAKAT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zakat_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.giveZakat("Alms");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disburseZakat("Alms");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZakatEnabled("Alms", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GiveZakat { name } if name == "Alms")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisburseZakat { name } if name == "Alms")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZakatEnabled { name, enabled } if name == "Alms" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zamia_read_ops() {
+        super::ZAMIA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fern".to_string(),
+                (3.0f32, 6.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZamiaFrond("Fern"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getZamiaMaxFrond("Fern"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.getZamiaGrowRate("Fern"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZamiaJustSpread("Fern"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZamiaJustCrozier("Fern"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZamiaEnabled("Fern"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAMIA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zamia_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.unfurlZamia("Fern");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.curlZamia("Fern");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZamiaEnabled("Fern", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnfurlZamia { name } if name == "Fern")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CurlZamia { name } if name == "Fern")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZamiaEnabled { name, enabled } if name == "Fern" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zanily_read_ops() {
+        super::ZANILY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Jester".to_string(),
+                (4.0f32, 8.0f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZanilyVerve("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getZanilyMaxVerve("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.getZanilyJestRate("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isZanilyJustCapered("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZanilyJustDeadpan("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZanilyEnabled("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZANILY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zanily_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.jestZanily("Jester");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dullZanily("Jester");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZanilyEnabled("Jester", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::JestZanily { name } if name == "Jester")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DullZanily { name } if name == "Jester")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZanilyEnabled { name, enabled } if name == "Jester" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zaniness_read_ops() {
+        super::ZANINESS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Clown".to_string(),
+                (2.0f32, 4.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZainessMirth("Clown"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getZainessMaxMirth("Clown"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getZainessCapriceRate("Clown"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isZainessJustClowned("Clown"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZainessJustSobered("Clown"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZainessEnabled("Clown"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZANINESS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zaniness_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.frolicZaniness("Clown");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.soberZaniness("Clown");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZainessEnabled("Clown", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FrolicZaniness { name } if name == "Clown")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SoberZaniness { name } if name == "Clown")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZaninessEnabled { name, enabled } if name == "Clown" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zany_read_ops() {
+        super::ZANY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Whim".to_string(),
+                (7.0f32, 14.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZanyWhimsy("Whim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt
+            .eval(r#"String(Bsengine.getZanyMaxWhimsy("Whim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "14");
+        let r = rt
+            .eval(r#"String(Bsengine.getZanyFadeRate("Whim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZanyJustUnhinged("Whim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZanyJustSane("Whim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZanyEnabled("Whim"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZANY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zany_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.sparkZany("Whim");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmZany("Whim");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZanyEnabled("Whim", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SparkZany { name } if name == "Whim")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmZany { name } if name == "Whim")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZanyEnabled { name, enabled } if name == "Whim" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zap_read_ops() {
+        super::ZAP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Bolt".to_string(),
+                (10.0f32, 5.0f32, 2.0f32, 0.5f32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getZapPower("Bolt"))"#).unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt.eval(r#"String(Bsengine.getZapRange("Bolt"))"#).unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getZapCooldownDuration("Bolt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getZapCooldownTimer("Bolt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZapJustZapped("Bolt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isZapEnabled("Bolt"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zap_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fireZap("Bolt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZapEnabled("Bolt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FireZap { name } if name == "Bolt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZapEnabled { name, enabled } if name == "Bolt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zapper_read_ops() {
+        super::ZAPPER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gun".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZapperCharge("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZapperMaxCharge("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZapperChargeRate("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZapperJustZapped("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZapperJustDischarged("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZapperEnabled("Gun"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAPPER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zapper_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.zapZapper("Gun");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.depleteZapper("Gun");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZapperEnabled("Gun", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ZapZapper { name } if name == "Gun")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepleteZapper { name } if name == "Gun")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZapperEnabled { name, enabled } if name == "Gun" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zappy_read_ops() {
+        super::ZAPPY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Spark".to_string(),
+                (30.0f32, 60.0f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZappyVitality("Spark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getZappyMaxVitality("Spark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZappySparkRate("Spark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZappyJustSparked("Spark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZappyJustFizzled("Spark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZappyEnabled("Spark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAPPY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zappy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.energizeZappy("Spark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.fizzleZappy("Spark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZappyEnabled("Spark", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnergizeZappy { name } if name == "Spark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FizzleZappy { name } if name == "Spark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZappyEnabled { name, enabled } if name == "Spark" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

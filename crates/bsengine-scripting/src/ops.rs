@@ -5414,6 +5414,97 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ConnectWire {
+        name: String,
+    },
+    SeverWire {
+        name: String,
+    },
+    SetWireEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ObserveWise {
+        name: String,
+        amount: f32,
+    },
+    ConfoundWise {
+        name: String,
+        amount: f32,
+    },
+    SetWiseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    YearnWish {
+        name: String,
+        amount: f32,
+    },
+    ContentWish {
+        name: String,
+        amount: f32,
+    },
+    SetWishEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivateWisp {
+        name: String,
+    },
+    DeactivateWisp {
+        name: String,
+    },
+    SetWispEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DriftWispy {
+        name: String,
+        amount: f32,
+    },
+    CondenseWispy {
+        name: String,
+        amount: f32,
+    },
+    SetWispyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    YearnWist {
+        name: String,
+        amount: f32,
+    },
+    ReleaseWist {
+        name: String,
+    },
+    SetWistEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PineWistful {
+        name: String,
+        amount: f32,
+    },
+    ConsoleWistful {
+        name: String,
+        amount: f32,
+    },
+    SetWistfulEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SharpenWit {
+        name: String,
+        amount: f32,
+    },
+    DullWit {
+        name: String,
+        amount: f32,
+    },
+    SetWitEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6737,6 +6828,22 @@ thread_local! {
     pub(crate) static WINSOME_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WINTRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIRE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WISE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WISH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WISP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WISPY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WISTFUL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -15764,6 +15871,356 @@ pub fn bsengine_set_wintry_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWintryEnabled { name, enabled })
+    });
+}
+// ── Wire ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wire_count(#[string] name: String) -> f32 {
+    WIRE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wire_max_wires(#[string] name: String) -> f32 {
+    WIRE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wire_wire_fraction(#[string] name: String) -> f32 {
+    WIRE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wire_just_connected(#[string] name: String) -> bool {
+    WIRE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wire_just_severed(#[string] name: String) -> bool {
+    WIRE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wire_enabled(#[string] name: String) -> bool {
+    WIRE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_connect_wire(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConnectWire { name }));
+}
+#[op2(fast)]
+pub fn bsengine_sever_wire(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SeverWire { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wire_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWireEnabled { name, enabled })
+    });
+}
+// ── Wise ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wise_insight(#[string] name: String) -> f32 {
+    WISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wise_max_insight(#[string] name: String) -> f32 {
+    WISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wise_discern_rate(#[string] name: String) -> f32 {
+    WISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wise_just_wise(#[string] name: String) -> bool {
+    WISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wise_just_clouded(#[string] name: String) -> bool {
+    WISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wise_enabled(#[string] name: String) -> bool {
+    WISE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_observe_wise(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ObserveWise { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_confound_wise(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConfoundWise { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wise_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWiseEnabled { name, enabled })
+    });
+}
+// ── Wish ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wish_longing(#[string] name: String) -> f32 {
+    WISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wish_max_longing(#[string] name: String) -> f32 {
+    WISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wish_yearn_rate(#[string] name: String) -> f32 {
+    WISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wish_just_yearning(#[string] name: String) -> bool {
+    WISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wish_just_content(#[string] name: String) -> bool {
+    WISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wish_enabled(#[string] name: String) -> bool {
+    WISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yearn_wish(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::YearnWish { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_content_wish(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ContentWish { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wish_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWishEnabled { name, enabled })
+    });
+}
+// ── Wisp ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wisp_orbit_timer(#[string] name: String) -> f32 {
+    WISP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wisp_orbit_period(#[string] name: String) -> f32 {
+    WISP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wisp_heal_per_pulse(#[string] name: String) -> f32 {
+    WISP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wisp_active(#[string] name: String) -> bool {
+    WISP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wisp_just_pulsed(#[string] name: String) -> bool {
+    WISP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wisp_enabled(#[string] name: String) -> bool {
+    WISP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_wisp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateWisp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_wisp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeactivateWisp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wisp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWispEnabled { name, enabled })
+    });
+}
+// ── Wispy ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wispy_ethereal(#[string] name: String) -> f32 {
+    WISPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wispy_max_ethereal(#[string] name: String) -> f32 {
+    WISPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wispy_drift_rate(#[string] name: String) -> f32 {
+    WISPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wispy_just_vaporous(#[string] name: String) -> bool {
+    WISPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wispy_just_solid(#[string] name: String) -> bool {
+    WISPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wispy_enabled(#[string] name: String) -> bool {
+    WISPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_drift_wispy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DriftWispy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_condense_wispy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CondenseWispy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wispy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWispyEnabled { name, enabled })
+    });
+}
+// ── Wist ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wist_level(#[string] name: String) -> f32 {
+    WIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wist_max_wist(#[string] name: String) -> f32 {
+    WIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wist_wist_fraction(#[string] name: String) -> f32 {
+    WIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wist_just_yearned(#[string] name: String) -> bool {
+    WIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wist_just_peaked(#[string] name: String) -> bool {
+    WIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wist_enabled(#[string] name: String) -> bool {
+    WIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yearn_wist(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::YearnWist { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_wist(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseWist { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wist_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWistEnabled { name, enabled })
+    });
+}
+// ── Wistful ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wistful_longing(#[string] name: String) -> f32 {
+    WISTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wistful_max_longing(#[string] name: String) -> f32 {
+    WISTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wistful_pine_rate(#[string] name: String) -> f32 {
+    WISTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wistful_just_pining(#[string] name: String) -> bool {
+    WISTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wistful_just_content(#[string] name: String) -> bool {
+    WISTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wistful_enabled(#[string] name: String) -> bool {
+    WISTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pine_wistful(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PineWistful { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_console_wistful(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConsoleWistful { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wistful_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWistfulEnabled { name, enabled })
+    });
+}
+// ── Wit ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wit_acuity(#[string] name: String) -> f32 {
+    WIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wit_max_acuity(#[string] name: String) -> f32 {
+    WIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wit_quick_rate(#[string] name: String) -> f32 {
+    WIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wit_just_sharp(#[string] name: String) -> bool {
+    WIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wit_just_dulled(#[string] name: String) -> bool {
+    WIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wit_enabled(#[string] name: String) -> bool {
+    WIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_sharpen_wit(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SharpenWit { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dull_wit(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DullWit { name, amount }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wit_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWitEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -36495,6 +36952,78 @@ deno_core::extension!(
         bsengine_chill_wintry,
         bsengine_thaw_wintry,
         bsengine_set_wintry_enabled,
+        bsengine_get_wire_count,
+        bsengine_get_wire_max_wires,
+        bsengine_get_wire_wire_fraction,
+        bsengine_is_wire_just_connected,
+        bsengine_is_wire_just_severed,
+        bsengine_is_wire_enabled,
+        bsengine_connect_wire,
+        bsengine_sever_wire,
+        bsengine_set_wire_enabled,
+        bsengine_get_wise_insight,
+        bsengine_get_wise_max_insight,
+        bsengine_get_wise_discern_rate,
+        bsengine_is_wise_just_wise,
+        bsengine_is_wise_just_clouded,
+        bsengine_is_wise_enabled,
+        bsengine_observe_wise,
+        bsengine_confound_wise,
+        bsengine_set_wise_enabled,
+        bsengine_get_wish_longing,
+        bsengine_get_wish_max_longing,
+        bsengine_get_wish_yearn_rate,
+        bsengine_is_wish_just_yearning,
+        bsengine_is_wish_just_content,
+        bsengine_is_wish_enabled,
+        bsengine_yearn_wish,
+        bsengine_content_wish,
+        bsengine_set_wish_enabled,
+        bsengine_get_wisp_orbit_timer,
+        bsengine_get_wisp_orbit_period,
+        bsengine_get_wisp_heal_per_pulse,
+        bsengine_is_wisp_active,
+        bsengine_is_wisp_just_pulsed,
+        bsengine_is_wisp_enabled,
+        bsengine_activate_wisp,
+        bsengine_deactivate_wisp,
+        bsengine_set_wisp_enabled,
+        bsengine_get_wispy_ethereal,
+        bsengine_get_wispy_max_ethereal,
+        bsengine_get_wispy_drift_rate,
+        bsengine_is_wispy_just_vaporous,
+        bsengine_is_wispy_just_solid,
+        bsengine_is_wispy_enabled,
+        bsengine_drift_wispy,
+        bsengine_condense_wispy,
+        bsengine_set_wispy_enabled,
+        bsengine_get_wist_level,
+        bsengine_get_wist_max_wist,
+        bsengine_get_wist_wist_fraction,
+        bsengine_is_wist_just_yearned,
+        bsengine_is_wist_just_peaked,
+        bsengine_is_wist_enabled,
+        bsengine_yearn_wist,
+        bsengine_release_wist,
+        bsengine_set_wist_enabled,
+        bsengine_get_wistful_longing,
+        bsengine_get_wistful_max_longing,
+        bsengine_get_wistful_pine_rate,
+        bsengine_is_wistful_just_pining,
+        bsengine_is_wistful_just_content,
+        bsengine_is_wistful_enabled,
+        bsengine_pine_wistful,
+        bsengine_console_wistful,
+        bsengine_set_wistful_enabled,
+        bsengine_get_wit_acuity,
+        bsengine_get_wit_max_acuity,
+        bsengine_get_wit_quick_rate,
+        bsengine_is_wit_just_sharp,
+        bsengine_is_wit_just_dulled,
+        bsengine_is_wit_enabled,
+        bsengine_sharpen_wit,
+        bsengine_dull_wit,
+        bsengine_set_wit_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -40638,6 +41167,78 @@ const Bsengine = {
     chillWintry:                (name, amount)      => Deno.core.ops.bsengine_chill_wintry(name, amount),
     thawWintry:                 (name, amount)      => Deno.core.ops.bsengine_thaw_wintry(name, amount),
     setWintryEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wintry_enabled(name, v),
+    getWireCount:               (name)              => Deno.core.ops.bsengine_get_wire_count(name),
+    getWireMaxWires:            (name)              => Deno.core.ops.bsengine_get_wire_max_wires(name),
+    getWireWireFraction:        (name)              => Deno.core.ops.bsengine_get_wire_wire_fraction(name),
+    isWireJustConnected:        (name)              => Deno.core.ops.bsengine_is_wire_just_connected(name),
+    isWireJustSevered:          (name)              => Deno.core.ops.bsengine_is_wire_just_severed(name),
+    isWireEnabled:              (name)              => Deno.core.ops.bsengine_is_wire_enabled(name),
+    connectWire:                (name)              => Deno.core.ops.bsengine_connect_wire(name),
+    severWire:                  (name)              => Deno.core.ops.bsengine_sever_wire(name),
+    setWireEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wire_enabled(name, v),
+    getWiseInsight:             (name)              => Deno.core.ops.bsengine_get_wise_insight(name),
+    getWiseMaxInsight:          (name)              => Deno.core.ops.bsengine_get_wise_max_insight(name),
+    getWiseDiscernRate:         (name)              => Deno.core.ops.bsengine_get_wise_discern_rate(name),
+    isWiseJustWise:             (name)              => Deno.core.ops.bsengine_is_wise_just_wise(name),
+    isWiseJustClouded:          (name)              => Deno.core.ops.bsengine_is_wise_just_clouded(name),
+    isWiseEnabled:              (name)              => Deno.core.ops.bsengine_is_wise_enabled(name),
+    observeWise:                (name, amount)      => Deno.core.ops.bsengine_observe_wise(name, amount),
+    confoundWise:               (name, amount)      => Deno.core.ops.bsengine_confound_wise(name, amount),
+    setWiseEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wise_enabled(name, v),
+    getWishLonging:             (name)              => Deno.core.ops.bsengine_get_wish_longing(name),
+    getWishMaxLonging:          (name)              => Deno.core.ops.bsengine_get_wish_max_longing(name),
+    getWishYearnRate:           (name)              => Deno.core.ops.bsengine_get_wish_yearn_rate(name),
+    isWishJustYearning:         (name)              => Deno.core.ops.bsengine_is_wish_just_yearning(name),
+    isWishJustContent:          (name)              => Deno.core.ops.bsengine_is_wish_just_content(name),
+    isWishEnabled:              (name)              => Deno.core.ops.bsengine_is_wish_enabled(name),
+    yearnWish:                  (name, amount)      => Deno.core.ops.bsengine_yearn_wish(name, amount),
+    contentWish:                (name, amount)      => Deno.core.ops.bsengine_content_wish(name, amount),
+    setWishEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wish_enabled(name, v),
+    getWispOrbitTimer:          (name)              => Deno.core.ops.bsengine_get_wisp_orbit_timer(name),
+    getWispOrbitPeriod:         (name)              => Deno.core.ops.bsengine_get_wisp_orbit_period(name),
+    getWispHealPerPulse:        (name)              => Deno.core.ops.bsengine_get_wisp_heal_per_pulse(name),
+    isWispActive:               (name)              => Deno.core.ops.bsengine_is_wisp_active(name),
+    isWispJustPulsed:           (name)              => Deno.core.ops.bsengine_is_wisp_just_pulsed(name),
+    isWispEnabled:              (name)              => Deno.core.ops.bsengine_is_wisp_enabled(name),
+    activateWisp:               (name)              => Deno.core.ops.bsengine_activate_wisp(name),
+    deactivateWisp:             (name)              => Deno.core.ops.bsengine_deactivate_wisp(name),
+    setWispEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wisp_enabled(name, v),
+    getWispyEthereal:           (name)              => Deno.core.ops.bsengine_get_wispy_ethereal(name),
+    getWispyMaxEthereal:        (name)              => Deno.core.ops.bsengine_get_wispy_max_ethereal(name),
+    getWispyDriftRate:          (name)              => Deno.core.ops.bsengine_get_wispy_drift_rate(name),
+    isWispyJustVaporous:        (name)              => Deno.core.ops.bsengine_is_wispy_just_vaporous(name),
+    isWispyJustSolid:           (name)              => Deno.core.ops.bsengine_is_wispy_just_solid(name),
+    isWispyEnabled:             (name)              => Deno.core.ops.bsengine_is_wispy_enabled(name),
+    driftWispy:                 (name, amount)      => Deno.core.ops.bsengine_drift_wispy(name, amount),
+    condenseWispy:              (name, amount)      => Deno.core.ops.bsengine_condense_wispy(name, amount),
+    setWispyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wispy_enabled(name, v),
+    getWistLevel:               (name)              => Deno.core.ops.bsengine_get_wist_level(name),
+    getWistMaxWist:             (name)              => Deno.core.ops.bsengine_get_wist_max_wist(name),
+    getWistWistFraction:        (name)              => Deno.core.ops.bsengine_get_wist_wist_fraction(name),
+    isWistJustYearned:          (name)              => Deno.core.ops.bsengine_is_wist_just_yearned(name),
+    isWistJustPeaked:           (name)              => Deno.core.ops.bsengine_is_wist_just_peaked(name),
+    isWistEnabled:              (name)              => Deno.core.ops.bsengine_is_wist_enabled(name),
+    yearnWist:                  (name, amount)      => Deno.core.ops.bsengine_yearn_wist(name, amount),
+    releaseWist:                (name)              => Deno.core.ops.bsengine_release_wist(name),
+    setWistEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wist_enabled(name, v),
+    getWistfulLonging:          (name)              => Deno.core.ops.bsengine_get_wistful_longing(name),
+    getWistfulMaxLonging:       (name)              => Deno.core.ops.bsengine_get_wistful_max_longing(name),
+    getWistfulPineRate:         (name)              => Deno.core.ops.bsengine_get_wistful_pine_rate(name),
+    isWistfulJustPining:        (name)              => Deno.core.ops.bsengine_is_wistful_just_pining(name),
+    isWistfulJustContent:       (name)              => Deno.core.ops.bsengine_is_wistful_just_content(name),
+    isWistfulEnabled:           (name)              => Deno.core.ops.bsengine_is_wistful_enabled(name),
+    pineWistful:                (name, amount)      => Deno.core.ops.bsengine_pine_wistful(name, amount),
+    consoleWistful:             (name, amount)      => Deno.core.ops.bsengine_console_wistful(name, amount),
+    setWistfulEnabled:          (name, v)           => Deno.core.ops.bsengine_set_wistful_enabled(name, v),
+    getWitAcuity:               (name)              => Deno.core.ops.bsengine_get_wit_acuity(name),
+    getWitMaxAcuity:            (name)              => Deno.core.ops.bsengine_get_wit_max_acuity(name),
+    getWitQuickRate:            (name)              => Deno.core.ops.bsengine_get_wit_quick_rate(name),
+    isWitJustSharp:             (name)              => Deno.core.ops.bsengine_is_wit_just_sharp(name),
+    isWitJustDulled:            (name)              => Deno.core.ops.bsengine_is_wit_just_dulled(name),
+    isWitEnabled:               (name)              => Deno.core.ops.bsengine_is_wit_enabled(name),
+    sharpenWit:                 (name, amount)      => Deno.core.ops.bsengine_sharpen_wit(name, amount),
+    dullWit:                    (name, amount)      => Deno.core.ops.bsengine_dull_wit(name, amount),
+    setWitEnabled:              (name, v)           => Deno.core.ops.bsengine_set_wit_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -67825,6 +68426,428 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChillWintry { name, amount } if name == "Frost" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ThawWintry { name, amount } if name == "Frost" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWintryEnabled { name, enabled } if name == "Frost" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wire_read_ops() {
+        super::WIRE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cable".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWireCount("Cable"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWireMaxWires("Cable"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWireWireFraction("Cable"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWireJustConnected("Cable"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWireJustSevered("Cable"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWireEnabled("Cable"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIRE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wire_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.connectWire("Cable");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.severWire("Cable");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWireEnabled("Cable", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConnectWire { name } if name == "Cable")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SeverWire { name } if name == "Cable")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWireEnabled { name, enabled } if name == "Cable" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wise_read_ops() {
+        super::WISE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sage".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWiseInsight("Sage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWiseMaxInsight("Sage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWiseDiscernRate("Sage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWiseJustWise("Sage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWiseJustClouded("Sage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWiseEnabled("Sage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WISE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wise_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.observeWise("Sage", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.confoundWise("Sage", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWiseEnabled("Sage", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObserveWise { name, amount } if name == "Sage" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConfoundWise { name, amount } if name == "Sage" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWiseEnabled { name, enabled } if name == "Sage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wish_read_ops() {
+        super::WISH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Star".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWishLonging("Star"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWishMaxLonging("Star"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWishYearnRate("Star"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWishJustYearning("Star"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWishJustContent("Star"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWishEnabled("Star"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WISH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wish_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yearnWish("Star", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.contentWish("Star", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWishEnabled("Star", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YearnWish { name, amount } if name == "Star" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ContentWish { name, amount } if name == "Star" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWishEnabled { name, enabled } if name == "Star" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wisp_read_ops() {
+        super::WISP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Orb".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWispOrbitTimer("Orb"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWispOrbitPeriod("Orb"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWispHealPerPulse("Orb"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isWispActive("Orb"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWispJustPulsed("Orb"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWispEnabled("Orb"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WISP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wisp_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.activateWisp("Orb");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deactivateWisp("Orb");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWispEnabled("Orb", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateWisp { name } if name == "Orb")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateWisp { name } if name == "Orb")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWispEnabled { name, enabled } if name == "Orb" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wispy_read_ops() {
+        super::WISPY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mist".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWispyEthereal("Mist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWispyMaxEthereal("Mist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWispyDriftRate("Mist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWispyJustVaporous("Mist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWispyJustSolid("Mist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWispyEnabled("Mist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WISPY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wispy_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.driftWispy("Mist", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.condenseWispy("Mist", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWispyEnabled("Mist", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DriftWispy { name, amount } if name == "Mist" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CondenseWispy { name, amount } if name == "Mist" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWispyEnabled { name, enabled } if name == "Mist" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wist_read_ops() {
+        super::WIST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ache".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWistLevel("Ache"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWistMaxWist("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWistWistFraction("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWistJustYearned("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWistJustPeaked("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWistEnabled("Ache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wist_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yearnWist("Ache", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseWist("Ache");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWistEnabled("Ache", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YearnWist { name, amount } if name == "Ache" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseWist { name } if name == "Ache")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWistEnabled { name, enabled } if name == "Ache" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wistful_read_ops() {
+        super::WISTFUL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pine".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWistfulLonging("Pine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWistfulMaxLonging("Pine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWistfulPineRate("Pine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWistfulJustPining("Pine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWistfulJustContent("Pine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWistfulEnabled("Pine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WISTFUL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wistful_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pineWistful("Pine", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.consoleWistful("Pine", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWistfulEnabled("Pine", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PineWistful { name, amount } if name == "Pine" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsoleWistful { name, amount } if name == "Pine" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWistfulEnabled { name, enabled } if name == "Pine" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wit_read_ops() {
+        super::WIT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Quip".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWitAcuity("Quip"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWitMaxAcuity("Quip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWitQuickRate("Quip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWitJustSharp("Quip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWitJustDulled("Quip"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWitEnabled("Quip"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wit_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.sharpenWit("Quip", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dullWit("Quip", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWitEnabled("Quip", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SharpenWit { name, amount } if name == "Quip" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DullWit { name, amount } if name == "Quip" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWitEnabled { name, enabled } if name == "Quip" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

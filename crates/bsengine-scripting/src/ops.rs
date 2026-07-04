@@ -4302,6 +4302,125 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Vibrate ──────────────────────────────────────────────────────────────
+    TriggerVibrate {
+        name: String,
+        amplitude: f32,
+        frequency: f32,
+        duration: f32,
+    },
+    StopVibrate {
+        name: String,
+    },
+    SetVibrateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Viewport ─────────────────────────────────────────────────────────────
+    SetViewportRect {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    // ── Vision ───────────────────────────────────────────────────────────────
+    SetVisionRange {
+        name: String,
+        range: f32,
+    },
+    SetVisionFov {
+        name: String,
+        fov: f32,
+    },
+    SetVisionMask {
+        name: String,
+        mask: u32,
+    },
+    ResetVisionTimer {
+        name: String,
+    },
+    SetVisionEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── VolumetricLight ──────────────────────────────────────────────────────
+    SetVolumetricScattering {
+        name: String,
+        value: f32,
+    },
+    SetVolumetricAbsorption {
+        name: String,
+        value: f32,
+    },
+    SetVolumetricAnisotropy {
+        name: String,
+        value: f32,
+    },
+    SetVolumetricStepCount {
+        name: String,
+        count: u32,
+    },
+    SetVolumetricMaxDistance {
+        name: String,
+        value: f32,
+    },
+    SetVolumetricLightEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Volley ────────────────────────────────────────────────────────────────
+    LoadVolley {
+        name: String,
+        amount: f32,
+    },
+    ReleaseVolley {
+        name: String,
+        amount: f32,
+    },
+    SetVolleyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vortex ───────────────────────────────────────────────────────────────
+    WindVortex {
+        name: String,
+        amount: f32,
+    },
+    DissipateVortex {
+        name: String,
+        amount: f32,
+    },
+    SetVortexEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vow ──────────────────────────────────────────────────────────────────
+    SwearVow {
+        name: String,
+        amount: f32,
+    },
+    RenounceVow {
+        name: String,
+        amount: f32,
+    },
+    SetVowEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vulnerable ───────────────────────────────────────────────────────────
+    WeakenVulnerable {
+        name: String,
+        amount: f32,
+    },
+    FortifyVulnerable {
+        name: String,
+        amount: f32,
+    },
+    SetVulnerableEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5449,6 +5568,22 @@ thread_local! {
     pub(crate) static VISIT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static VISTA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIBRATE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIEWPORT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VISION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VOLUMETRIC_LIGHT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VOLLEY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VORTEX_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VOW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VULNERABLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -10431,6 +10566,414 @@ pub fn bsengine_set_vista_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetVistaEnabled { name, enabled })
+    });
+}
+// ── Vibrate ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vibrate_amplitude(#[string] name: String) -> f32 {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vibrate_frequency(#[string] name: String) -> f32 {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vibrate_duration(#[string] name: String) -> f32 {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vibrate_elapsed(#[string] name: String) -> f32 {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vibrate_decay_rate(#[string] name: String) -> f32 {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vibrate_just_started(#[string] name: String) -> bool {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vibrate_just_stopped(#[string] name: String) -> bool {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vibrate_enabled(#[string] name: String) -> bool {
+    VIBRATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_trigger_vibrate(
+    #[string] name: String,
+    amplitude: f32,
+    frequency: f32,
+    duration: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::TriggerVibrate {
+            name,
+            amplitude,
+            frequency,
+            duration,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stop_vibrate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopVibrate { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_vibrate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVibrateEnabled { name, enabled })
+    });
+}
+// ── Viewport ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_viewport_x(#[string] name: String) -> f32 {
+    VIEWPORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_viewport_y(#[string] name: String) -> f32 {
+    VIEWPORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_viewport_width(#[string] name: String) -> f32 {
+    VIEWPORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(1.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_viewport_height(#[string] name: String) -> f32 {
+    VIEWPORT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(1.0))
+}
+#[op2(fast)]
+pub fn bsengine_set_viewport_rect(#[string] name: String, x: f32, y: f32, width: f32, height: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetViewportRect {
+            name,
+            x,
+            y,
+            width,
+            height,
+        })
+    });
+}
+// ── Vision ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vision_range(#[string] name: String) -> f32 {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vision_fov(#[string] name: String) -> f32 {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vision_mask(#[string] name: String) -> u32 {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vision_in_view_duration(#[string] name: String) -> f32 {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vision_detection_delay(#[string] name: String) -> f32 {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vision_los_blocked(#[string] name: String) -> bool {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_vision_has_target(#[string] name: String) -> bool {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vision_enabled(#[string] name: String) -> bool {
+    VISION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_vision_range(#[string] name: String, range: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVisionRange { name, range })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vision_fov(#[string] name: String, fov: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVisionFov { name, fov })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vision_mask(#[string] name: String, mask: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVisionMask { name, mask })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_reset_vision_timer(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ResetVisionTimer { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vision_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVisionEnabled { name, enabled })
+    });
+}
+// ── VolumetricLight ──────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_volumetric_scattering(#[string] name: String) -> f32 {
+    VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_volumetric_absorption(#[string] name: String) -> f32 {
+    VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_volumetric_anisotropy(#[string] name: String) -> f32 {
+    VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_volumetric_step_count(#[string] name: String) -> u32 {
+    VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_volumetric_max_distance(#[string] name: String) -> f32 {
+    VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_volumetric_light_enabled(#[string] name: String) -> bool {
+    VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_volumetric_scattering(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolumetricScattering { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_volumetric_absorption(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolumetricAbsorption { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_volumetric_anisotropy(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolumetricAnisotropy { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_volumetric_step_count(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolumetricStepCount { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_volumetric_max_distance(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolumetricMaxDistance { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_volumetric_light_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolumetricLightEnabled { name, enabled })
+    });
+}
+// ── Volley ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_volley_charge(#[string] name: String) -> f32 {
+    VOLLEY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_volley_max_charge(#[string] name: String) -> f32 {
+    VOLLEY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_volley_draw_rate(#[string] name: String) -> f32 {
+    VOLLEY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_volley_just_vollied(#[string] name: String) -> bool {
+    VOLLEY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_volley_just_spent(#[string] name: String) -> bool {
+    VOLLEY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_volley_enabled(#[string] name: String) -> bool {
+    VOLLEY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_load_volley(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LoadVolley { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_volley(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ReleaseVolley { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_volley_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVolleyEnabled { name, enabled })
+    });
+}
+// ── Vortex ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vortex_spin(#[string] name: String) -> f32 {
+    VORTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vortex_max_spin(#[string] name: String) -> f32 {
+    VORTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vortex_spiral_rate(#[string] name: String) -> f32 {
+    VORTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vortex_just_formed(#[string] name: String) -> bool {
+    VORTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vortex_just_calm(#[string] name: String) -> bool {
+    VORTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vortex_enabled(#[string] name: String) -> bool {
+    VORTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_wind_vortex(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WindVortex { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dissipate_vortex(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DissipateVortex { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vortex_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVortexEnabled { name, enabled })
+    });
+}
+// ── Vow ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vow_pledge(#[string] name: String) -> f32 {
+    VOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vow_max_pledge(#[string] name: String) -> f32 {
+    VOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vow_devotion_rate(#[string] name: String) -> f32 {
+    VOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vow_just_bound(#[string] name: String) -> bool {
+    VOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vow_just_broken(#[string] name: String) -> bool {
+    VOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vow_enabled(#[string] name: String) -> bool {
+    VOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_swear_vow(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SwearVow { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_renounce_vow(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RenounceVow { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vow_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVowEnabled { name, enabled })
+    });
+}
+// ── Vulnerable ───────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vulnerable_exposure(#[string] name: String) -> f32 {
+    VULNERABLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vulnerable_max_exposure(#[string] name: String) -> f32 {
+    VULNERABLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vulnerable_breach_rate(#[string] name: String) -> f32 {
+    VULNERABLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vulnerable_just_exposed(#[string] name: String) -> bool {
+    VULNERABLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vulnerable_just_hardened(#[string] name: String) -> bool {
+    VULNERABLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vulnerable_enabled(#[string] name: String) -> bool {
+    VULNERABLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_weaken_vulnerable(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WeakenVulnerable { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_fortify_vulnerable(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FortifyVulnerable { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vulnerable_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVulnerableEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -30363,6 +30906,83 @@ deno_core::extension!(
         bsengine_illuminate_vista,
         bsengine_obscure_vista,
         bsengine_set_vista_enabled,
+        bsengine_get_vibrate_amplitude,
+        bsengine_get_vibrate_frequency,
+        bsengine_get_vibrate_duration,
+        bsengine_get_vibrate_elapsed,
+        bsengine_get_vibrate_decay_rate,
+        bsengine_is_vibrate_just_started,
+        bsengine_is_vibrate_just_stopped,
+        bsengine_is_vibrate_enabled,
+        bsengine_trigger_vibrate,
+        bsengine_stop_vibrate,
+        bsengine_set_vibrate_enabled,
+        bsengine_get_viewport_x,
+        bsengine_get_viewport_y,
+        bsengine_get_viewport_width,
+        bsengine_get_viewport_height,
+        bsengine_set_viewport_rect,
+        bsengine_get_vision_range,
+        bsengine_get_vision_fov,
+        bsengine_get_vision_mask,
+        bsengine_get_vision_in_view_duration,
+        bsengine_get_vision_detection_delay,
+        bsengine_is_vision_los_blocked,
+        bsengine_vision_has_target,
+        bsengine_is_vision_enabled,
+        bsengine_set_vision_range,
+        bsengine_set_vision_fov,
+        bsengine_set_vision_mask,
+        bsengine_reset_vision_timer,
+        bsengine_set_vision_enabled,
+        bsengine_get_volumetric_scattering,
+        bsengine_get_volumetric_absorption,
+        bsengine_get_volumetric_anisotropy,
+        bsengine_get_volumetric_step_count,
+        bsengine_get_volumetric_max_distance,
+        bsengine_is_volumetric_light_enabled,
+        bsengine_set_volumetric_scattering,
+        bsengine_set_volumetric_absorption,
+        bsengine_set_volumetric_anisotropy,
+        bsengine_set_volumetric_step_count,
+        bsengine_set_volumetric_max_distance,
+        bsengine_set_volumetric_light_enabled,
+        bsengine_get_volley_charge,
+        bsengine_get_volley_max_charge,
+        bsengine_get_volley_draw_rate,
+        bsengine_is_volley_just_vollied,
+        bsengine_is_volley_just_spent,
+        bsengine_is_volley_enabled,
+        bsengine_load_volley,
+        bsengine_release_volley,
+        bsengine_set_volley_enabled,
+        bsengine_get_vortex_spin,
+        bsengine_get_vortex_max_spin,
+        bsengine_get_vortex_spiral_rate,
+        bsengine_is_vortex_just_formed,
+        bsengine_is_vortex_just_calm,
+        bsengine_is_vortex_enabled,
+        bsengine_wind_vortex,
+        bsengine_dissipate_vortex,
+        bsengine_set_vortex_enabled,
+        bsengine_get_vow_pledge,
+        bsengine_get_vow_max_pledge,
+        bsengine_get_vow_devotion_rate,
+        bsengine_is_vow_just_bound,
+        bsengine_is_vow_just_broken,
+        bsengine_is_vow_enabled,
+        bsengine_swear_vow,
+        bsengine_renounce_vow,
+        bsengine_set_vow_enabled,
+        bsengine_get_vulnerable_exposure,
+        bsengine_get_vulnerable_max_exposure,
+        bsengine_get_vulnerable_breach_rate,
+        bsengine_is_vulnerable_just_exposed,
+        bsengine_is_vulnerable_just_hardened,
+        bsengine_is_vulnerable_enabled,
+        bsengine_weaken_vulnerable,
+        bsengine_fortify_vulnerable,
+        bsengine_set_vulnerable_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -33707,6 +34327,83 @@ const Bsengine = {
     illuminateVista:            (name, amount)      => Deno.core.ops.bsengine_illuminate_vista(name, amount),
     obscureVista:               (name, amount)      => Deno.core.ops.bsengine_obscure_vista(name, amount),
     setVistaEnabled:            (name, v)           => Deno.core.ops.bsengine_set_vista_enabled(name, v),
+    getVibrateAmplitude:        (name)              => Deno.core.ops.bsengine_get_vibrate_amplitude(name),
+    getVibrateFrequency:        (name)              => Deno.core.ops.bsengine_get_vibrate_frequency(name),
+    getVibrateDuration:         (name)              => Deno.core.ops.bsengine_get_vibrate_duration(name),
+    getVibrateElapsed:          (name)              => Deno.core.ops.bsengine_get_vibrate_elapsed(name),
+    getVibrateDecayRate:        (name)              => Deno.core.ops.bsengine_get_vibrate_decay_rate(name),
+    isVibrateJustStarted:       (name)              => Deno.core.ops.bsengine_is_vibrate_just_started(name),
+    isVibrateJustStopped:       (name)              => Deno.core.ops.bsengine_is_vibrate_just_stopped(name),
+    isVibrateEnabled:           (name)              => Deno.core.ops.bsengine_is_vibrate_enabled(name),
+    triggerVibrate:             (name, a, f, d)     => Deno.core.ops.bsengine_trigger_vibrate(name, a, f, d),
+    stopVibrate:                (name)              => Deno.core.ops.bsengine_stop_vibrate(name),
+    setVibrateEnabled:          (name, v)           => Deno.core.ops.bsengine_set_vibrate_enabled(name, v),
+    getViewportX:               (name)              => Deno.core.ops.bsengine_get_viewport_x(name),
+    getViewportY:               (name)              => Deno.core.ops.bsengine_get_viewport_y(name),
+    getViewportWidth:           (name)              => Deno.core.ops.bsengine_get_viewport_width(name),
+    getViewportHeight:          (name)              => Deno.core.ops.bsengine_get_viewport_height(name),
+    setViewportRect:            (name, x, y, w, h)  => Deno.core.ops.bsengine_set_viewport_rect(name, x, y, w, h),
+    getVisionRange:             (name)              => Deno.core.ops.bsengine_get_vision_range(name),
+    getVisionFov:               (name)              => Deno.core.ops.bsengine_get_vision_fov(name),
+    getVisionMask:              (name)              => Deno.core.ops.bsengine_get_vision_mask(name),
+    getVisionInViewDuration:    (name)              => Deno.core.ops.bsengine_get_vision_in_view_duration(name),
+    getVisionDetectionDelay:    (name)              => Deno.core.ops.bsengine_get_vision_detection_delay(name),
+    isVisionLosBlocked:         (name)              => Deno.core.ops.bsengine_is_vision_los_blocked(name),
+    visionHasTarget:            (name)              => Deno.core.ops.bsengine_vision_has_target(name),
+    isVisionEnabled:            (name)              => Deno.core.ops.bsengine_is_vision_enabled(name),
+    setVisionRange:             (name, v)           => Deno.core.ops.bsengine_set_vision_range(name, v),
+    setVisionFov:               (name, v)           => Deno.core.ops.bsengine_set_vision_fov(name, v),
+    setVisionMask:              (name, v)           => Deno.core.ops.bsengine_set_vision_mask(name, v),
+    resetVisionTimer:           (name)              => Deno.core.ops.bsengine_reset_vision_timer(name),
+    setVisionEnabled:           (name, v)           => Deno.core.ops.bsengine_set_vision_enabled(name, v),
+    getVolumetricScattering:    (name)              => Deno.core.ops.bsengine_get_volumetric_scattering(name),
+    getVolumetricAbsorption:    (name)              => Deno.core.ops.bsengine_get_volumetric_absorption(name),
+    getVolumetricAnisotropy:    (name)              => Deno.core.ops.bsengine_get_volumetric_anisotropy(name),
+    getVolumetricStepCount:     (name)              => Deno.core.ops.bsengine_get_volumetric_step_count(name),
+    getVolumetricMaxDistance:   (name)              => Deno.core.ops.bsengine_get_volumetric_max_distance(name),
+    isVolumetricLightEnabled:   (name)              => Deno.core.ops.bsengine_is_volumetric_light_enabled(name),
+    setVolumetricScattering:    (name, v)           => Deno.core.ops.bsengine_set_volumetric_scattering(name, v),
+    setVolumetricAbsorption:    (name, v)           => Deno.core.ops.bsengine_set_volumetric_absorption(name, v),
+    setVolumetricAnisotropy:    (name, v)           => Deno.core.ops.bsengine_set_volumetric_anisotropy(name, v),
+    setVolumetricStepCount:     (name, v)           => Deno.core.ops.bsengine_set_volumetric_step_count(name, v),
+    setVolumetricMaxDistance:   (name, v)           => Deno.core.ops.bsengine_set_volumetric_max_distance(name, v),
+    setVolumetricLightEnabled:  (name, v)           => Deno.core.ops.bsengine_set_volumetric_light_enabled(name, v),
+    getVolleyCharge:            (name)              => Deno.core.ops.bsengine_get_volley_charge(name),
+    getVolleyMaxCharge:         (name)              => Deno.core.ops.bsengine_get_volley_max_charge(name),
+    getVolleyDrawRate:          (name)              => Deno.core.ops.bsengine_get_volley_draw_rate(name),
+    isVolleyJustVollied:        (name)              => Deno.core.ops.bsengine_is_volley_just_vollied(name),
+    isVolleyJustSpent:          (name)              => Deno.core.ops.bsengine_is_volley_just_spent(name),
+    isVolleyEnabled:            (name)              => Deno.core.ops.bsengine_is_volley_enabled(name),
+    loadVolley:                 (name, amount)      => Deno.core.ops.bsengine_load_volley(name, amount),
+    releaseVolley:              (name, amount)      => Deno.core.ops.bsengine_release_volley(name, amount),
+    setVolleyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_volley_enabled(name, v),
+    getVortexSpin:              (name)              => Deno.core.ops.bsengine_get_vortex_spin(name),
+    getVortexMaxSpin:           (name)              => Deno.core.ops.bsengine_get_vortex_max_spin(name),
+    getVortexSpiralRate:        (name)              => Deno.core.ops.bsengine_get_vortex_spiral_rate(name),
+    isVortexJustFormed:         (name)              => Deno.core.ops.bsengine_is_vortex_just_formed(name),
+    isVortexJustCalm:           (name)              => Deno.core.ops.bsengine_is_vortex_just_calm(name),
+    isVortexEnabled:            (name)              => Deno.core.ops.bsengine_is_vortex_enabled(name),
+    windVortex:                 (name, amount)      => Deno.core.ops.bsengine_wind_vortex(name, amount),
+    dissipateVortex:            (name, amount)      => Deno.core.ops.bsengine_dissipate_vortex(name, amount),
+    setVortexEnabled:           (name, v)           => Deno.core.ops.bsengine_set_vortex_enabled(name, v),
+    getVowPledge:               (name)              => Deno.core.ops.bsengine_get_vow_pledge(name),
+    getVowMaxPledge:            (name)              => Deno.core.ops.bsengine_get_vow_max_pledge(name),
+    getVowDevotionRate:         (name)              => Deno.core.ops.bsengine_get_vow_devotion_rate(name),
+    isVowJustBound:             (name)              => Deno.core.ops.bsengine_is_vow_just_bound(name),
+    isVowJustBroken:            (name)              => Deno.core.ops.bsengine_is_vow_just_broken(name),
+    isVowEnabled:               (name)              => Deno.core.ops.bsengine_is_vow_enabled(name),
+    swearVow:                   (name, amount)      => Deno.core.ops.bsengine_swear_vow(name, amount),
+    renounceVow:                (name, amount)      => Deno.core.ops.bsengine_renounce_vow(name, amount),
+    setVowEnabled:              (name, v)           => Deno.core.ops.bsengine_set_vow_enabled(name, v),
+    getVulnerableExposure:      (name)              => Deno.core.ops.bsengine_get_vulnerable_exposure(name),
+    getVulnerableMaxExposure:   (name)              => Deno.core.ops.bsengine_get_vulnerable_max_exposure(name),
+    getVulnerableBreachRate:    (name)              => Deno.core.ops.bsengine_get_vulnerable_breach_rate(name),
+    isVulnerableJustExposed:    (name)              => Deno.core.ops.bsengine_is_vulnerable_just_exposed(name),
+    isVulnerableJustHardened:   (name)              => Deno.core.ops.bsengine_is_vulnerable_just_hardened(name),
+    isVulnerableEnabled:        (name)              => Deno.core.ops.bsengine_is_vulnerable_enabled(name),
+    weakenVulnerable:           (name, amount)      => Deno.core.ops.bsengine_weaken_vulnerable(name, amount),
+    fortifyVulnerable:          (name, amount)      => Deno.core.ops.bsengine_fortify_vulnerable(name, amount),
+    setVulnerableEnabled:       (name, v)           => Deno.core.ops.bsengine_set_vulnerable_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -56154,6 +56851,471 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IlluminateVista { name, amount } if name == "Grunt" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObscureVista { name, amount } if name == "Grunt" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVistaEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vibrate_read_ops() {
+        super::VIBRATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    0.5f32, 0.25f32, 1.0f32, 0.25f32, 0.125f32, true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVibrateAmplitude("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVibrateFrequency("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getVibrateDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVibrateElapsed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getVibrateDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.isVibrateJustStarted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVibrateJustStopped("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVibrateEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VIBRATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vibrate_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"Bsengine.triggerVibrate("Grunt", 0.5, 0.25, 1.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.stopVibrate("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVibrateEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerVibrate { name, amplitude, frequency, duration } if name == "Grunt" && *amplitude == 0.5 && *frequency == 0.25 && *duration == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopVibrate { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVibrateEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_viewport_read_ops() {
+        super::VIEWPORT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.25f32, 0.5f32, 0.75f32, 1.0f32));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getViewportX("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.getViewportY("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getViewportWidth("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getViewportHeight("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        super::VIEWPORT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_viewport_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"Bsengine.setViewportRect("Grunt", 0.25, 0.5, 0.75, 1.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetViewportRect { name, x, y, width, height } if name == "Grunt" && *x == 0.25 && *y == 0.5 && *width == 0.75 && *height == 1.0)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vision_read_ops() {
+        super::VISION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (
+                    10.0f32, 0.5f32, 255u32, 0.25f32, 0.125f32, true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVisionRange("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt.eval(r#"String(Bsengine.getVisionFov("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVisionMask("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "255");
+        let r = rt
+            .eval(r#"String(Bsengine.getVisionInViewDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getVisionDetectionDelay("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.isVisionLosBlocked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.visionHasTarget("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVisionEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VISION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vision_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setVisionRange("Grunt", 10.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVisionFov("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVisionMask("Grunt", 255);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetVisionTimer("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVisionEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVisionRange { name, range } if name == "Grunt" && *range == 10.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVisionFov { name, fov } if name == "Grunt" && *fov == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVisionMask { name, mask } if name == "Grunt" && *mask == 255)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetVisionTimer { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVisionEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_volumetric_light_read_ops() {
+        super::VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 0.25f32, 0.125f32, 16u32, 25.0f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVolumetricScattering("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVolumetricAbsorption("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getVolumetricAnisotropy("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.getVolumetricStepCount("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "16");
+        let r = rt
+            .eval(r#"String(Bsengine.getVolumetricMaxDistance("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVolumetricLightEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_volumetric_light_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"Bsengine.setVolumetricScattering("Grunt", 0.5);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setVolumetricAbsorption("Grunt", 0.25);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setVolumetricAnisotropy("Grunt", 0.125);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setVolumetricStepCount("Grunt", 16);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setVolumetricMaxDistance("Grunt", 25.0);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setVolumetricLightEnabled("Grunt", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolumetricScattering { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolumetricAbsorption { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolumetricAnisotropy { name, value } if name == "Grunt" && *value == 0.125)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolumetricStepCount { name, count } if name == "Grunt" && *count == 16)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolumetricMaxDistance { name, value } if name == "Grunt" && *value == 25.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolumetricLightEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_volley_read_ops() {
+        super::VOLLEY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVolleyCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVolleyMaxCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVolleyDrawRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVolleyJustVollied("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVolleyJustSpent("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVolleyEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VOLLEY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_volley_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.loadVolley("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseVolley("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVolleyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LoadVolley { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseVolley { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVolleyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vortex_read_ops() {
+        super::VORTEX_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVortexSpin("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVortexMaxSpin("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVortexSpiralRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVortexJustFormed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVortexJustCalm("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVortexEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VORTEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vortex_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.windVortex("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissipateVortex("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVortexEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WindVortex { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissipateVortex { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVortexEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vow_read_ops() {
+        super::VOW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getVowPledge("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVowMaxPledge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVowDevotionRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVowJustBound("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVowJustBroken("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isVowEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vow_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.swearVow("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.renounceVow("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVowEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SwearVow { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RenounceVow { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVowEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vulnerable_read_ops() {
+        super::VULNERABLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVulnerableExposure("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVulnerableMaxExposure("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVulnerableBreachRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVulnerableJustExposed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVulnerableJustHardened("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVulnerableEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VULNERABLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vulnerable_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.weakenVulnerable("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.fortifyVulnerable("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setVulnerableEnabled("Grunt", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WeakenVulnerable { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FortifyVulnerable { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVulnerableEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

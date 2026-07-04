@@ -6145,6 +6145,83 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Writhe ───────────────────────────────────────────────────────────────
+    SquirmWrithe {
+        name: String,
+    },
+    StillWrithe {
+        name: String,
+    },
+    SetWritheEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wrong ────────────────────────────────────────────────────────────────
+    ErrWrong {
+        name: String,
+    },
+    CorrectWrong {
+        name: String,
+    },
+    SetWrongEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wrongly ──────────────────────────────────────────────────────────────
+    DeviateWrongly {
+        name: String,
+    },
+    CorrectWrongly {
+        name: String,
+    },
+    SetWronglyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wrote ────────────────────────────────────────────────────────────────
+    ComposeWrote {
+        name: String,
+    },
+    DeleteWrote {
+        name: String,
+    },
+    SetWroteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wroth ────────────────────────────────────────────────────────────────
+    SeetheWroth {
+        name: String,
+    },
+    PacifyWroth {
+        name: String,
+    },
+    SetWrothEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wrung ────────────────────────────────────────────────────────────────
+    CoilWrung {
+        name: String,
+    },
+    UncoilWrung {
+        name: String,
+    },
+    SetWrungEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wry ──────────────────────────────────────────────────────────────────
+    QuipWry {
+        name: String,
+    },
+    SincereWry {
+        name: String,
+    },
+    SetWryEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7596,6 +7673,20 @@ thread_local! {
     pub(crate) static WRIST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WRITE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRITHE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRONG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRONGLY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WROTE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WROTH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRUNG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -19431,6 +19522,286 @@ pub fn bsengine_set_write_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWriteEnabled { name, enabled })
+    });
+}
+// ── Writhe ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_writhe_contortion(#[string] name: String) -> f32 {
+    WRITHE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_writhe_max_contortion(#[string] name: String) -> f32 {
+    WRITHE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_writhe_squirm_rate(#[string] name: String) -> f32 {
+    WRITHE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_writhe_just_contorted(#[string] name: String) -> bool {
+    WRITHE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_writhe_just_still(#[string] name: String) -> bool {
+    WRITHE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_writhe_enabled(#[string] name: String) -> bool {
+    WRITHE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_squirm_writhe(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SquirmWrithe { name }));
+}
+#[op2(fast)]
+pub fn bsengine_still_writhe(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StillWrithe { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_writhe_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWritheEnabled { name, enabled })
+    });
+}
+// ── Wrong ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrong_faults(#[string] name: String) -> f32 {
+    WRONG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrong_max_faults(#[string] name: String) -> f32 {
+    WRONG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrong_err_rate(#[string] name: String) -> f32 {
+    WRONG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrong_just_wrong(#[string] name: String) -> bool {
+    WRONG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrong_just_right(#[string] name: String) -> bool {
+    WRONG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrong_enabled(#[string] name: String) -> bool {
+    WRONG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_err_wrong(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ErrWrong { name }));
+}
+#[op2(fast)]
+pub fn bsengine_correct_wrong(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CorrectWrong { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrong_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrongEnabled { name, enabled })
+    });
+}
+// ── Wrongly ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrongly_error(#[string] name: String) -> f32 {
+    WRONGLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrongly_max_error(#[string] name: String) -> f32 {
+    WRONGLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrongly_deviate_rate(#[string] name: String) -> f32 {
+    WRONGLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrongly_just_mistaken(#[string] name: String) -> bool {
+    WRONGLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrongly_just_corrected(#[string] name: String) -> bool {
+    WRONGLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrongly_enabled(#[string] name: String) -> bool {
+    WRONGLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_deviate_wrongly(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeviateWrongly { name }));
+}
+#[op2(fast)]
+pub fn bsengine_correct_wrongly(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CorrectWrongly { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrongly_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWronglyEnabled { name, enabled })
+    });
+}
+// ── Wrote ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrote_legacy(#[string] name: String) -> f32 {
+    WROTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrote_max_legacy(#[string] name: String) -> f32 {
+    WROTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrote_prose_rate(#[string] name: String) -> f32 {
+    WROTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrote_just_authored(#[string] name: String) -> bool {
+    WROTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrote_just_erased(#[string] name: String) -> bool {
+    WROTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrote_enabled(#[string] name: String) -> bool {
+    WROTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_compose_wrote(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ComposeWrote { name }));
+}
+#[op2(fast)]
+pub fn bsengine_delete_wrote(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeleteWrote { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrote_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWroteEnabled { name, enabled })
+    });
+}
+// ── Wroth ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wroth_wrath(#[string] name: String) -> f32 {
+    WROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wroth_max_wrath(#[string] name: String) -> f32 {
+    WROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wroth_fury_rate(#[string] name: String) -> f32 {
+    WROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wroth_just_wroth(#[string] name: String) -> bool {
+    WROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wroth_just_calm(#[string] name: String) -> bool {
+    WROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wroth_enabled(#[string] name: String) -> bool {
+    WROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_seethe_wroth(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SeetheWroth { name }));
+}
+#[op2(fast)]
+pub fn bsengine_pacify_wroth(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PacifyWroth { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wroth_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrothEnabled { name, enabled })
+    });
+}
+// ── Wrung ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrung_tension(#[string] name: String) -> f32 {
+    WRUNG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrung_max_tension(#[string] name: String) -> f32 {
+    WRUNG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrung_twist_rate(#[string] name: String) -> f32 {
+    WRUNG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrung_just_wrung(#[string] name: String) -> bool {
+    WRUNG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrung_just_slack(#[string] name: String) -> bool {
+    WRUNG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrung_enabled(#[string] name: String) -> bool {
+    WRUNG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_coil_wrung(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CoilWrung { name }));
+}
+#[op2(fast)]
+pub fn bsengine_uncoil_wrung(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UncoilWrung { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrung_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrungEnabled { name, enabled })
+    });
+}
+// ── Wry ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wry_irony(#[string] name: String) -> f32 {
+    WRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wry_max_irony(#[string] name: String) -> f32 {
+    WRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wry_twist_rate(#[string] name: String) -> f32 {
+    WRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wry_just_wry(#[string] name: String) -> bool {
+    WRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wry_just_earnest(#[string] name: String) -> bool {
+    WRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wry_enabled(#[string] name: String) -> bool {
+    WRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_quip_wry(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::QuipWry { name }));
+}
+#[op2(fast)]
+pub fn bsengine_sincere_wry(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SincereWry { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWryEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -40737,6 +41108,69 @@ deno_core::extension!(
         bsengine_inscribe_write,
         bsengine_erase_write,
         bsengine_set_write_enabled,
+        bsengine_get_writhe_contortion,
+        bsengine_get_writhe_max_contortion,
+        bsengine_get_writhe_squirm_rate,
+        bsengine_is_writhe_just_contorted,
+        bsengine_is_writhe_just_still,
+        bsengine_is_writhe_enabled,
+        bsengine_squirm_writhe,
+        bsengine_still_writhe,
+        bsengine_set_writhe_enabled,
+        bsengine_get_wrong_faults,
+        bsengine_get_wrong_max_faults,
+        bsengine_get_wrong_err_rate,
+        bsengine_is_wrong_just_wrong,
+        bsengine_is_wrong_just_right,
+        bsengine_is_wrong_enabled,
+        bsengine_err_wrong,
+        bsengine_correct_wrong,
+        bsengine_set_wrong_enabled,
+        bsengine_get_wrongly_error,
+        bsengine_get_wrongly_max_error,
+        bsengine_get_wrongly_deviate_rate,
+        bsengine_is_wrongly_just_mistaken,
+        bsengine_is_wrongly_just_corrected,
+        bsengine_is_wrongly_enabled,
+        bsengine_deviate_wrongly,
+        bsengine_correct_wrongly,
+        bsengine_set_wrongly_enabled,
+        bsengine_get_wrote_legacy,
+        bsengine_get_wrote_max_legacy,
+        bsengine_get_wrote_prose_rate,
+        bsengine_is_wrote_just_authored,
+        bsengine_is_wrote_just_erased,
+        bsengine_is_wrote_enabled,
+        bsengine_compose_wrote,
+        bsengine_delete_wrote,
+        bsengine_set_wrote_enabled,
+        bsengine_get_wroth_wrath,
+        bsengine_get_wroth_max_wrath,
+        bsengine_get_wroth_fury_rate,
+        bsengine_is_wroth_just_wroth,
+        bsengine_is_wroth_just_calm,
+        bsengine_is_wroth_enabled,
+        bsengine_seethe_wroth,
+        bsengine_pacify_wroth,
+        bsengine_set_wroth_enabled,
+        bsengine_get_wrung_tension,
+        bsengine_get_wrung_max_tension,
+        bsengine_get_wrung_twist_rate,
+        bsengine_is_wrung_just_wrung,
+        bsengine_is_wrung_just_slack,
+        bsengine_is_wrung_enabled,
+        bsengine_coil_wrung,
+        bsengine_uncoil_wrung,
+        bsengine_set_wrung_enabled,
+        bsengine_get_wry_irony,
+        bsengine_get_wry_max_irony,
+        bsengine_get_wry_twist_rate,
+        bsengine_is_wry_just_wry,
+        bsengine_is_wry_just_earnest,
+        bsengine_is_wry_enabled,
+        bsengine_quip_wry,
+        bsengine_sincere_wry,
+        bsengine_set_wry_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -45455,6 +45889,69 @@ const Bsengine = {
     inscribeWrite:              (name)              => Deno.core.ops.bsengine_inscribe_write(name),
     eraseWrite:                 (name)              => Deno.core.ops.bsengine_erase_write(name),
     setWriteEnabled:            (name, v)           => Deno.core.ops.bsengine_set_write_enabled(name, v),
+    getWritheContortion:        (name)              => Deno.core.ops.bsengine_get_writhe_contortion(name),
+    getWritheMaxContortion:     (name)              => Deno.core.ops.bsengine_get_writhe_max_contortion(name),
+    getWritheSquirmRate:        (name)              => Deno.core.ops.bsengine_get_writhe_squirm_rate(name),
+    isWritheJustContorted:      (name)              => Deno.core.ops.bsengine_is_writhe_just_contorted(name),
+    isWritheJustStill:          (name)              => Deno.core.ops.bsengine_is_writhe_just_still(name),
+    isWritheEnabled:            (name)              => Deno.core.ops.bsengine_is_writhe_enabled(name),
+    squirmWrithe:               (name)              => Deno.core.ops.bsengine_squirm_writhe(name),
+    stillWrithe:                (name)              => Deno.core.ops.bsengine_still_writhe(name),
+    setWritheEnabled:           (name, v)           => Deno.core.ops.bsengine_set_writhe_enabled(name, v),
+    getWrongFaults:             (name)              => Deno.core.ops.bsengine_get_wrong_faults(name),
+    getWrongMaxFaults:          (name)              => Deno.core.ops.bsengine_get_wrong_max_faults(name),
+    getWrongErrRate:            (name)              => Deno.core.ops.bsengine_get_wrong_err_rate(name),
+    isWrongJustWrong:           (name)              => Deno.core.ops.bsengine_is_wrong_just_wrong(name),
+    isWrongJustRight:           (name)              => Deno.core.ops.bsengine_is_wrong_just_right(name),
+    isWrongEnabled:             (name)              => Deno.core.ops.bsengine_is_wrong_enabled(name),
+    errWrong:                   (name)              => Deno.core.ops.bsengine_err_wrong(name),
+    correctWrong:               (name)              => Deno.core.ops.bsengine_correct_wrong(name),
+    setWrongEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wrong_enabled(name, v),
+    getWronglyError:            (name)              => Deno.core.ops.bsengine_get_wrongly_error(name),
+    getWronglyMaxError:         (name)              => Deno.core.ops.bsengine_get_wrongly_max_error(name),
+    getWronglyDeviateRate:      (name)              => Deno.core.ops.bsengine_get_wrongly_deviate_rate(name),
+    isWronglyJustMistaken:      (name)              => Deno.core.ops.bsengine_is_wrongly_just_mistaken(name),
+    isWronglyJustCorrected:     (name)              => Deno.core.ops.bsengine_is_wrongly_just_corrected(name),
+    isWronglyEnabled:           (name)              => Deno.core.ops.bsengine_is_wrongly_enabled(name),
+    deviateWrongly:             (name)              => Deno.core.ops.bsengine_deviate_wrongly(name),
+    correctWrongly:             (name)              => Deno.core.ops.bsengine_correct_wrongly(name),
+    setWronglyEnabled:          (name, v)           => Deno.core.ops.bsengine_set_wrongly_enabled(name, v),
+    getWroteLegacy:             (name)              => Deno.core.ops.bsengine_get_wrote_legacy(name),
+    getWroteMaxLegacy:          (name)              => Deno.core.ops.bsengine_get_wrote_max_legacy(name),
+    getWroteProseRate:          (name)              => Deno.core.ops.bsengine_get_wrote_prose_rate(name),
+    isWroteJustAuthored:        (name)              => Deno.core.ops.bsengine_is_wrote_just_authored(name),
+    isWroteJustErased:          (name)              => Deno.core.ops.bsengine_is_wrote_just_erased(name),
+    isWroteEnabled:             (name)              => Deno.core.ops.bsengine_is_wrote_enabled(name),
+    composeWrote:               (name)              => Deno.core.ops.bsengine_compose_wrote(name),
+    deleteWrote:                (name)              => Deno.core.ops.bsengine_delete_wrote(name),
+    setWroteEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wrote_enabled(name, v),
+    getWrothWrath:              (name)              => Deno.core.ops.bsengine_get_wroth_wrath(name),
+    getWrothMaxWrath:           (name)              => Deno.core.ops.bsengine_get_wroth_max_wrath(name),
+    getWrothFuryRate:           (name)              => Deno.core.ops.bsengine_get_wroth_fury_rate(name),
+    isWrothJustWroth:           (name)              => Deno.core.ops.bsengine_is_wroth_just_wroth(name),
+    isWrothJustCalm:            (name)              => Deno.core.ops.bsengine_is_wroth_just_calm(name),
+    isWrothEnabled:             (name)              => Deno.core.ops.bsengine_is_wroth_enabled(name),
+    seetheWroth:                (name)              => Deno.core.ops.bsengine_seethe_wroth(name),
+    pacifyWroth:                (name)              => Deno.core.ops.bsengine_pacify_wroth(name),
+    setWrothEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wroth_enabled(name, v),
+    getWrungTension:            (name)              => Deno.core.ops.bsengine_get_wrung_tension(name),
+    getWrungMaxTension:         (name)              => Deno.core.ops.bsengine_get_wrung_max_tension(name),
+    getWrungTwistRate:          (name)              => Deno.core.ops.bsengine_get_wrung_twist_rate(name),
+    isWrungJustWrung:           (name)              => Deno.core.ops.bsengine_is_wrung_just_wrung(name),
+    isWrungJustSlack:           (name)              => Deno.core.ops.bsengine_is_wrung_just_slack(name),
+    isWrungEnabled:             (name)              => Deno.core.ops.bsengine_is_wrung_enabled(name),
+    coilWrung:                  (name)              => Deno.core.ops.bsengine_coil_wrung(name),
+    uncoilWrung:                (name)              => Deno.core.ops.bsengine_uncoil_wrung(name),
+    setWrungEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wrung_enabled(name, v),
+    getWryIrony:                (name)              => Deno.core.ops.bsengine_get_wry_irony(name),
+    getWryMaxIrony:             (name)              => Deno.core.ops.bsengine_get_wry_max_irony(name),
+    getWryTwistRate:            (name)              => Deno.core.ops.bsengine_get_wry_twist_rate(name),
+    isWryJustWry:               (name)              => Deno.core.ops.bsengine_is_wry_just_wry(name),
+    isWryJustEarnest:           (name)              => Deno.core.ops.bsengine_is_wry_just_earnest(name),
+    isWryEnabled:               (name)              => Deno.core.ops.bsengine_is_wry_enabled(name),
+    quipWry:                    (name)              => Deno.core.ops.bsengine_quip_wry(name),
+    sincereWry:                 (name)              => Deno.core.ops.bsengine_sincere_wry(name),
+    setWryEnabled:              (name, v)           => Deno.core.ops.bsengine_set_wry_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -76094,6 +76591,385 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InscribeWrite { name } if name == "Quill")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EraseWrite { name } if name == "Quill")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWriteEnabled { name, enabled } if name == "Quill" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_writhe_read_ops() {
+        super::WRITHE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Torment".to_string(),
+                (55.0f32, 100.0f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWritheContortion("Torment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "55");
+        let r = rt
+            .eval(r#"String(Bsengine.getWritheMaxContortion("Torment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWritheSquirmRate("Torment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isWritheJustContorted("Torment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWritheJustStill("Torment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWritheEnabled("Torment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRITHE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_writhe_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.squirmWrithe("Torment");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stillWrithe("Torment");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWritheEnabled("Torment", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SquirmWrithe { name } if name == "Torment")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StillWrithe { name } if name == "Torment")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWritheEnabled { name, enabled } if name == "Torment" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrong_read_ops() {
+        super::WRONG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fault".to_string(),
+                (40.0f32, 100.0f32, 1.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrongFaults("Fault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrongMaxFaults("Fault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrongErrRate("Fault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrongJustWrong("Fault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrongJustRight("Fault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrongEnabled("Fault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRONG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrong_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.errWrong("Fault");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.correctWrong("Fault");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrongEnabled("Fault", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ErrWrong { name } if name == "Fault")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorrectWrong { name } if name == "Fault")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrongEnabled { name, enabled } if name == "Fault" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrongly_read_ops() {
+        super::WRONGLY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mistake".to_string(),
+                (30.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWronglyError("Mistake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getWronglyMaxError("Mistake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWronglyDeviateRate("Mistake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isWronglyJustMistaken("Mistake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWronglyJustCorrected("Mistake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWronglyEnabled("Mistake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRONGLY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrongly_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.deviateWrongly("Mistake");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.correctWrongly("Mistake");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWronglyEnabled("Mistake", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeviateWrongly { name } if name == "Mistake")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorrectWrongly { name } if name == "Mistake")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWronglyEnabled { name, enabled } if name == "Mistake" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrote_read_ops() {
+        super::WROTE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Scroll".to_string(),
+                (75.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWroteLegacy("Scroll"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getWroteMaxLegacy("Scroll"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWroteProseRate("Scroll"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isWroteJustAuthored("Scroll"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWroteJustErased("Scroll"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWroteEnabled("Scroll"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WROTE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrote_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.composeWrote("Scroll");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deleteWrote("Scroll");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWroteEnabled("Scroll", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ComposeWrote { name } if name == "Scroll")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeleteWrote { name } if name == "Scroll")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWroteEnabled { name, enabled } if name == "Scroll" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wroth_read_ops() {
+        super::WROTH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fury".to_string(),
+                (80.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrothWrath("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrothMaxWrath("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrothFuryRate("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrothJustWroth("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrothJustCalm("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrothEnabled("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WROTH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wroth_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.seetheWroth("Fury");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.pacifyWroth("Fury");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrothEnabled("Fury", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SeetheWroth { name } if name == "Fury")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PacifyWroth { name } if name == "Fury")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrothEnabled { name, enabled } if name == "Fury" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrung_read_ops() {
+        super::WRUNG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Spring".to_string(),
+                (60.0f32, 100.0f32, 1.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrungTension("Spring"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrungMaxTension("Spring"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrungTwistRate("Spring"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrungJustWrung("Spring"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrungJustSlack("Spring"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrungEnabled("Spring"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRUNG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrung_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.coilWrung("Spring");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.uncoilWrung("Spring");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrungEnabled("Spring", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CoilWrung { name } if name == "Spring")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UncoilWrung { name } if name == "Spring")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrungEnabled { name, enabled } if name == "Spring" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wry_read_ops() {
+        super::WRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Jest".to_string(),
+                (45.0f32, 100.0f32, 1.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWryIrony("Jest"))"#).unwrap();
+        assert_eq!(r.as_str(), "45");
+        let r = rt
+            .eval(r#"String(Bsengine.getWryMaxIrony("Jest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getWryTwistRate("Jest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt.eval(r#"String(Bsengine.isWryJustWry("Jest"))"#).unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWryJustEarnest("Jest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isWryEnabled("Jest"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wry_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.quipWry("Jest");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.sincereWry("Jest");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWryEnabled("Jest", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuipWry { name } if name == "Jest")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SincereWry { name } if name == "Jest")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWryEnabled { name, enabled } if name == "Jest" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -3674,6 +3674,438 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Spike ────────────────────────────────────────────────────────────────
+    ExtendSpike {
+        name: String,
+        duration: f32,
+    },
+    RetractSpike {
+        name: String,
+    },
+    SetSpikeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Splinter ─────────────────────────────────────────────────────────────
+    SetSplinterEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stagger ──────────────────────────────────────────────────────────────
+    ApplyStagger {
+        name: String,
+        force: f32,
+    },
+    ResetStagger {
+        name: String,
+    },
+    SetStaggerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stake ────────────────────────────────────────────────────────────────
+    SetStakeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stalk ────────────────────────────────────────────────────────────────
+    BeginStalk {
+        name: String,
+    },
+    SetStalkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stance ───────────────────────────────────────────────────────────────
+    SetStance {
+        name: String,
+        kind: u32,
+    },
+    SetStanceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stat ─────────────────────────────────────────────────────────────────
+    AddStatBonus {
+        name: String,
+        amount: f32,
+    },
+    RemoveStatBonus {
+        name: String,
+        amount: f32,
+    },
+    // ── Stealth ──────────────────────────────────────────────────────────────
+    StartSneaking {
+        name: String,
+    },
+    StopSneaking {
+        name: String,
+    },
+    AddNoise {
+        name: String,
+        amount: f32,
+    },
+    SetStealthEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stomp ────────────────────────────────────────────────────────────────
+    TriggerStomp {
+        name: String,
+    },
+    SetStompEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stride ───────────────────────────────────────────────────────────────
+    StepStride {
+        name: String,
+    },
+    BreakStride {
+        name: String,
+    },
+    SetStrideEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Strife ───────────────────────────────────────────────────────────────
+    HitStrife {
+        name: String,
+    },
+    SetStrifeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Stumble ──────────────────────────────────────────────────────────────
+    TriggerStumble {
+        name: String,
+    },
+    SetStumbleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Sulk ─────────────────────────────────────────────────────────────────
+    BeginSulk {
+        name: String,
+    },
+    EndSulk {
+        name: String,
+    },
+    SetSulkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Sunder ───────────────────────────────────────────────────────────────
+    ApplySunder {
+        name: String,
+        count: u32,
+    },
+    RepairSunder {
+        name: String,
+        count: u32,
+    },
+    RepairAllSunder {
+        name: String,
+    },
+    SetSunderEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Suppress ─────────────────────────────────────────────────────────────
+    ApplySuppress {
+        name: String,
+        duration: f32,
+    },
+    ClearSuppress {
+        name: String,
+    },
+    SetSuppressEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Surge ────────────────────────────────────────────────────────────────
+    ApplySurge {
+        name: String,
+        duration: f32,
+    },
+    ClearSurge {
+        name: String,
+    },
+    SetSurgeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Surround ─────────────────────────────────────────────────────────────
+    UpdateSurround {
+        name: String,
+        count: u32,
+    },
+    SetSurroundEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Survive ──────────────────────────────────────────────────────────────
+    AddSurviveCharge {
+        name: String,
+    },
+    SetSurviveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Swim ─────────────────────────────────────────────────────────────────
+    EnterWater {
+        name: String,
+    },
+    ExitWater {
+        name: String,
+    },
+    SetWantsDive {
+        name: String,
+        wants: bool,
+    },
+    SetWantsSurface {
+        name: String,
+        wants: bool,
+    },
+    SetSwimEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyTaint {
+        name: String,
+        duration: f32,
+    },
+    ClearTaint {
+        name: String,
+    },
+    SetTaintEnabled {
+        name: String,
+        enabled: bool,
+    },
+    IncrementTally {
+        name: String,
+        amount: u32,
+    },
+    ResetTally {
+        name: String,
+    },
+    SetTallyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetGripping {
+        name: String,
+        gripping: bool,
+    },
+    SetTalonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EngageTaper {
+        name: String,
+    },
+    DisengageTaper {
+        name: String,
+    },
+    SetTaperEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivateTaunt {
+        name: String,
+    },
+    DeactivateTaunt {
+        name: String,
+    },
+    SetTauntEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyFreeze {
+        name: String,
+        intensity: f32,
+    },
+    SetThawEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StartTrample {
+        name: String,
+        duration: f32,
+    },
+    StopTrample {
+        name: String,
+    },
+    SetTrampleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyTrance {
+        name: String,
+        duration: f32,
+    },
+    ClearTrance {
+        name: String,
+    },
+    SetTranceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnterTranquil {
+        name: String,
+        duration: f32,
+    },
+    InterruptTranquil {
+        name: String,
+    },
+    SetTranquilEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FixTransfix {
+        name: String,
+        duration: f32,
+    },
+    BreakTransfix {
+        name: String,
+    },
+    SetTransfixEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyTremble {
+        name: String,
+        duration: f32,
+    },
+    ClearTremble {
+        name: String,
+    },
+    SetTrembleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivateTremor {
+        name: String,
+    },
+    DeactivateTremor {
+        name: String,
+    },
+    SetTremorEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddTroveValue {
+        name: String,
+        amount: f32,
+    },
+    ConsumeTrove {
+        name: String,
+    },
+    SetTroveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ChargeTusk {
+        name: String,
+        dist: f32,
+    },
+    ImpactTusk {
+        name: String,
+    },
+    ResetTusk {
+        name: String,
+    },
+    SetTuskEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AgitateUnrest {
+        name: String,
+        amount: f32,
+    },
+    CalmUnrest {
+        name: String,
+        amount: f32,
+    },
+    SetUnrestEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PayUpkeep {
+        name: String,
+        amount: f32,
+    },
+    SetUpkeepEnabled {
+        name: String,
+        enabled: bool,
+    },
+    UrgeOn {
+        name: String,
+    },
+    UrgeOff {
+        name: String,
+    },
+    SetUrgeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyVenom {
+        name: String,
+    },
+    ApplyVenomN {
+        name: String,
+        n: u32,
+    },
+    ClearVenom {
+        name: String,
+    },
+    SetVenomEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddVexStack {
+        name: String,
+    },
+    RemoveVexStack {
+        name: String,
+    },
+    ClearVex {
+        name: String,
+    },
+    SetVexEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyVigor {
+        name: String,
+        duration: f32,
+    },
+    SetVigorEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyVile {
+        name: String,
+        duration: f32,
+    },
+    CleanseVile {
+        name: String,
+    },
+    SetVileEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DrainVoid {
+        name: String,
+        damage: f32,
+    },
+    ReleaseVoid {
+        name: String,
+    },
+    SetVoidEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -4688,6 +5120,107 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (soak_level, decay_rate, fire_resistance, lightning_amplify, just_soaked, just_dried, enabled)
     pub(crate) static SOAK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, damage, push_force, just_extended, just_retracted, enabled)
+    pub(crate) static SPIKE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (threshold, radius, damage_fraction, cooldown, cooldown_timer, just_splintered, enabled)
+    pub(crate) static SPLINTER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (phase, stagger_threshold, stagger_duration, stagger_timer, recovery_duration, recovery_timer, stagger_count, resist, just_staggered, enabled)
+    pub(crate) static STAGGER_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, u32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (active, hold_timer, min_hold, damage_bonus, just_staked, just_broke, enabled)
+    pub(crate) static STAKE_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (active, damage_multiplier, just_began, just_consumed, enabled)
+    pub(crate) static STALK_SNAPSHOT: RefCell<HashMap<String, (bool, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (current, offense_bonus, defense_reduction, just_changed, enabled)
+    pub(crate) static STANCE_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (base, bonus, multiplier, min, max)
+    pub(crate) static STAT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (base_visibility, visibility_modifier, noise_level, noise_decay_rate, sneaking, sneak_visibility_scale, enabled)
+    pub(crate) static STEALTH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (magnitude, impact_radius, damage_per_unit, just_stomped, enabled)
+    pub(crate) static STOMP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (stride_count, max_strides, speed_bonus, just_peaked, just_broke, enabled)
+    pub(crate) static STRIDE_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (strife, max_strife, gain_per_hit, decay_rate, just_peaked, enabled)
+    pub(crate) static STRIFE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (stumble_timer, stumble_duration, vulnerability_factor, move_penalty, stumble_count, stumbling, just_stumbled, just_recovered, enabled)
+    pub(crate) static STUMBLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, u32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (sulk_depth, sulk_rate, recovery_rate, support_penalty, sulking, just_sulked, just_snapped_out, enabled)
+    pub(crate) static SULK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (shards, max_shards, damage_reduction_per_shard, just_sundered, enabled)
+    pub(crate) static SUNDER_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, potency_fraction, blocks_ultimates, just_suppressed, just_lifted, enabled)
+    pub(crate) static SUPPRESS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, multiplier, just_surged, just_expired, enabled)
+    pub(crate) static SURGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (adjacent_count, encircle_threshold, defense_bonus, just_encircled, just_cleared, enabled)
+    pub(crate) static SURROUND_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (charges, max_charges, just_survived, enabled)
+    pub(crate) static SURVIVE_SNAPSHOT: RefCell<HashMap<String, (u32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (state, swim_speed, dive_speed, ascent_speed, breath_remaining, max_breath, breath_drain_rate, breath_regen_rate, depth, submerge_depth, wants_dive, wants_surface, enabled)
+    pub(crate) static SWIM_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TAINT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TALLY_SNAPSHOT: RefCell<HashMap<String, (u32, u32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TALON_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TAPER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TAUNT_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static THAW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRAMPLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRANCE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRANQUIL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRANSFIX_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TREMBLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TREMOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TROVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TUSK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static UNREST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static UPKEEP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static URGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VENOM_SNAPSHOT: RefCell<HashMap<String, (f32, u32, u32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VEX_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIGOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VOID_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -7166,6 +7699,1803 @@ pub fn bsengine_set_shunt_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetShuntEnabled { name, enabled })
+    });
+}
+// ── Spike ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_spike_duration(#[string] name: String) -> f32 {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_spike_timer(#[string] name: String) -> f32 {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_spike_damage(#[string] name: String) -> f32 {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_spike_push_force(#[string] name: String) -> f32 {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_spike_just_extended(#[string] name: String) -> bool {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_spike_just_retracted(#[string] name: String) -> bool {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_spike_enabled(#[string] name: String) -> bool {
+    SPIKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_extend_spike(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExtendSpike { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_retract_spike(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RetractSpike { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_spike_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSpikeEnabled { name, enabled })
+    });
+}
+// ── Splinter ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_splinter_threshold(#[string] name: String) -> f32 {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_splinter_radius(#[string] name: String) -> f32 {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_splinter_damage_fraction(#[string] name: String) -> f32 {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_splinter_cooldown(#[string] name: String) -> f32 {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_splinter_cooldown_timer(#[string] name: String) -> f32 {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_splintered(#[string] name: String) -> bool {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_splinter_enabled(#[string] name: String) -> bool {
+    SPLINTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_splinter_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSplinterEnabled { name, enabled })
+    });
+}
+// ── Stagger ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stagger_phase(#[string] name: String) -> u32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_threshold(#[string] name: String) -> f32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_duration(#[string] name: String) -> f32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_timer(#[string] name: String) -> f32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_recovery_duration(#[string] name: String) -> f32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_recovery_timer(#[string] name: String) -> f32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_count(#[string] name: String) -> u32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stagger_resist(#[string] name: String) -> f32 {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_staggered(#[string] name: String) -> bool {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stagger_enabled(#[string] name: String) -> bool {
+    STAGGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_stagger(#[string] name: String, force: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyStagger { name, force })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_reset_stagger(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetStagger { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_stagger_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStaggerEnabled { name, enabled })
+    });
+}
+// ── Stake ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_stake_active(#[string] name: String) -> bool {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_stake_hold_timer(#[string] name: String) -> f32 {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stake_min_hold(#[string] name: String) -> f32 {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stake_damage_bonus(#[string] name: String) -> f32 {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_stake_just_staked(#[string] name: String) -> bool {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stake_just_broke(#[string] name: String) -> bool {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stake_enabled(#[string] name: String) -> bool {
+    STAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_stake_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStakeEnabled { name, enabled })
+    });
+}
+// ── Stalk ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_stalk_active(#[string] name: String) -> bool {
+    STALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_stalk_damage_multiplier(#[string] name: String) -> f32 {
+    STALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_stalk_just_began(#[string] name: String) -> bool {
+    STALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stalk_just_consumed(#[string] name: String) -> bool {
+    STALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stalk_enabled(#[string] name: String) -> bool {
+    STALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_stalk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginStalk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_stalk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStalkEnabled { name, enabled })
+    });
+}
+// ── Stance ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stance_current(#[string] name: String) -> u32 {
+    STANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stance_offense_bonus(#[string] name: String) -> f32 {
+    STANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stance_defense_reduction(#[string] name: String) -> f32 {
+    STANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_stance_just_changed(#[string] name: String) -> bool {
+    STANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stance_enabled(#[string] name: String) -> bool {
+    STANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_stance(#[string] name: String, kind: u32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetStance { name, kind }));
+}
+#[op2(fast)]
+pub fn bsengine_set_stance_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStanceEnabled { name, enabled })
+    });
+}
+// ── Stat ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stat_base(#[string] name: String) -> f32 {
+    STAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stat_bonus(#[string] name: String) -> f32 {
+    STAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stat_multiplier(#[string] name: String) -> f32 {
+    STAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stat_min(#[string] name: String) -> f32 {
+    STAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stat_max(#[string] name: String) -> f32 {
+    STAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_add_stat_bonus(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddStatBonus { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_remove_stat_bonus(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RemoveStatBonus { name, amount })
+    });
+}
+// ── Stealth ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stealth_base_visibility(#[string] name: String) -> f32 {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stealth_visibility_modifier(#[string] name: String) -> f32 {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stealth_noise_level(#[string] name: String) -> f32 {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stealth_noise_decay_rate(#[string] name: String) -> f32 {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_sneaking(#[string] name: String) -> bool {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_stealth_sneak_visibility_scale(#[string] name: String) -> f32 {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_stealth_enabled(#[string] name: String) -> bool {
+    STEALTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_start_sneaking(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StartSneaking { name }));
+}
+#[op2(fast)]
+pub fn bsengine_stop_sneaking(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopSneaking { name }));
+}
+#[op2(fast)]
+pub fn bsengine_add_noise(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddNoise { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_stealth_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStealthEnabled { name, enabled })
+    });
+}
+// ── Stomp ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stomp_magnitude(#[string] name: String) -> f32 {
+    STOMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stomp_impact_radius(#[string] name: String) -> f32 {
+    STOMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stomp_damage_per_unit(#[string] name: String) -> f32 {
+    STOMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_stomped(#[string] name: String) -> bool {
+    STOMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stomp_enabled(#[string] name: String) -> bool {
+    STOMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_trigger_stomp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TriggerStomp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_stomp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStompEnabled { name, enabled })
+    });
+}
+// ── Stride ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stride_count(#[string] name: String) -> u32 {
+    STRIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stride_max_strides(#[string] name: String) -> u32 {
+    STRIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stride_speed_bonus(#[string] name: String) -> f32 {
+    STRIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_stride_just_peaked(#[string] name: String) -> bool {
+    STRIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stride_just_broke(#[string] name: String) -> bool {
+    STRIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stride_enabled(#[string] name: String) -> bool {
+    STRIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_step_stride(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StepStride { name }));
+}
+#[op2(fast)]
+pub fn bsengine_break_stride(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreakStride { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_stride_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStrideEnabled { name, enabled })
+    });
+}
+// ── Strife ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_strife_value(#[string] name: String) -> f32 {
+    STRIFE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_strife_max(#[string] name: String) -> f32 {
+    STRIFE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_strife_gain_per_hit(#[string] name: String) -> f32 {
+    STRIFE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_strife_decay_rate(#[string] name: String) -> f32 {
+    STRIFE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_strife_just_peaked(#[string] name: String) -> bool {
+    STRIFE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_strife_enabled(#[string] name: String) -> bool {
+    STRIFE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_hit_strife(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HitStrife { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_strife_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStrifeEnabled { name, enabled })
+    });
+}
+// ── Stumble ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_stumble_timer(#[string] name: String) -> f32 {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stumble_duration(#[string] name: String) -> f32 {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stumble_vulnerability_factor(#[string] name: String) -> f32 {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stumble_move_penalty(#[string] name: String) -> f32 {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_stumble_count(#[string] name: String) -> u32 {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_stumbling(#[string] name: String) -> bool {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_stumbled(#[string] name: String) -> bool {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_stumble_recovered(#[string] name: String) -> bool {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_stumble_enabled(#[string] name: String) -> bool {
+    STUMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_trigger_stumble(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TriggerStumble { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_stumble_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetStumbleEnabled { name, enabled })
+    });
+}
+// ── Sulk ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_sulk_depth(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sulk_rate(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sulk_recovery_rate(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sulk_support_penalty(#[string] name: String) -> f32 {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_sulking(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_sulked(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_snapped_out(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_sulk_enabled(#[string] name: String) -> bool {
+    SULK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_sulk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginSulk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_end_sulk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EndSulk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_sulk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSulkEnabled { name, enabled })
+    });
+}
+// ── Sunder ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_sunder_shards(#[string] name: String) -> u32 {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sunder_max_shards(#[string] name: String) -> u32 {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_sunder_damage_reduction_per_shard(#[string] name: String) -> f32 {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_sundered(#[string] name: String) -> bool {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_sunder_enabled(#[string] name: String) -> bool {
+    SUNDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_sunder(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySunder { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repair_sunder(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RepairSunder { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repair_all_sunder(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RepairAllSunder { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_sunder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSunderEnabled { name, enabled })
+    });
+}
+// ── Suppress ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_suppress_duration(#[string] name: String) -> f32 {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_suppress_timer(#[string] name: String) -> f32 {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_suppress_potency_fraction(#[string] name: String) -> f32 {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_suppress_blocks_ultimates(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_suppressed(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_suppress_lifted(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_suppress_enabled(#[string] name: String) -> bool {
+    SUPPRESS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_suppress(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySuppress { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_suppress(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearSuppress { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_suppress_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSuppressEnabled { name, enabled })
+    });
+}
+// ── Surge ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_surge_duration(#[string] name: String) -> f32 {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surge_timer(#[string] name: String) -> f32 {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surge_multiplier(#[string] name: String) -> f32 {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_surged(#[string] name: String) -> bool {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_surge_expired(#[string] name: String) -> bool {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_surge_enabled(#[string] name: String) -> bool {
+    SURGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_surge(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySurge { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_surge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearSurge { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_surge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSurgeEnabled { name, enabled })
+    });
+}
+// ── Surround ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_surround_adjacent_count(#[string] name: String) -> u32 {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surround_encircle_threshold(#[string] name: String) -> u32 {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_surround_defense_bonus(#[string] name: String) -> f32 {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_encircled(#[string] name: String) -> bool {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_surround_cleared(#[string] name: String) -> bool {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_surround_enabled(#[string] name: String) -> bool {
+    SURROUND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_update_surround(#[string] name: String, count: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UpdateSurround { name, count })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_surround_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSurroundEnabled { name, enabled })
+    });
+}
+// ── Survive ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_survive_charges(#[string] name: String) -> u32 {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_survive_max_charges(#[string] name: String) -> u32 {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_survived(#[string] name: String) -> bool {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_survive_enabled(#[string] name: String) -> bool {
+    SURVIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_survive_charge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddSurviveCharge { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_survive_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSurviveEnabled { name, enabled })
+    });
+}
+// ── Swim ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_swim_state(#[string] name: String) -> u32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_swim_speed(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_dive_speed(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ascent_speed(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_breath_remaining(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_breath(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_breath_drain_rate(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_breath_regen_rate(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_swim_depth(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_submerge_depth(#[string] name: String) -> f32 {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wants_dive(#[string] name: String) -> bool {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wants_surface(#[string] name: String) -> bool {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_swim_enabled(#[string] name: String) -> bool {
+    SWIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.12).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enter_water(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnterWater { name }));
+}
+#[op2(fast)]
+pub fn bsengine_exit_water(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExitWater { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wants_dive(#[string] name: String, wants: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWantsDive { name, wants })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wants_surface(#[string] name: String, wants: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWantsSurface { name, wants })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_swim_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSwimEnabled { name, enabled })
+    });
+}
+// ── Taint ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_taint_duration(#[string] name: String) -> f32 {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taint_timer(#[string] name: String) -> f32 {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taint_healing_reduction(#[string] name: String) -> f32 {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tainted(#[string] name: String) -> bool {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_cleansed(#[string] name: String) -> bool {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_taint_enabled(#[string] name: String) -> bool {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_taint(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyTaint { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_taint(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTaint { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_taint_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTaintEnabled { name, enabled })
+    });
+}
+// ── Tally ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tally_count(#[string] name: String) -> u32 {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tally_goal(#[string] name: String) -> u32 {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_incremented(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tally_completed(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tally_reset(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tally_enabled(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_increment_tally(#[string] name: String, amount: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::IncrementTally { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_reset_tally(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTally { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_tally_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTallyEnabled { name, enabled })
+    });
+}
+// ── Talon ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_talon_active(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_talon_grip_bonus(#[string] name: String) -> f32 {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_talon_slip_resistance(#[string] name: String) -> f32 {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_gripped(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_released(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_talon_enabled(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_gripping(#[string] name: String, gripping: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGripping { name, gripping })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_talon_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTalonEnabled { name, enabled })
+    });
+}
+// ── Taper ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_taper_elapsed_time(#[string] name: String) -> f32 {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taper_max_reduction_time(#[string] name: String) -> f32 {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taper_damage_reduction(#[string] name: String) -> f32 {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_taper_in_combat(#[string] name: String) -> bool {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_taper_peaked(#[string] name: String) -> bool {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_taper_enabled(#[string] name: String) -> bool {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_engage_taper(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EngageTaper { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disengage_taper(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisengageTaper { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_taper_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTaperEnabled { name, enabled })
+    });
+}
+// ── Taunt ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_taunt_active(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_radius(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_threat_boost(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_duration(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_timer(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_taunt_activated(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_taunt_expired(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_taunt_enabled(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_taunt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateTaunt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_taunt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeactivateTaunt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_taunt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTauntEnabled { name, enabled })
+    });
+}
+// ── Thaw ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_thaw_fraction(#[string] name: String) -> f32 {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(1.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_thaw_rate(#[string] name: String) -> f32 {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_thaw_freeze_penalty(#[string] name: String) -> f32 {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_thawed(#[string] name: String) -> bool {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_frozen(#[string] name: String) -> bool {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_thaw_enabled(#[string] name: String) -> bool {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_freeze(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyFreeze { name, intensity })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_thaw_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetThawEnabled { name, enabled })
+    });
+}
+// ── Trample ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_trample_duration(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_timer(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_damage(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_push_force(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_radius(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trample_started(#[string] name: String) -> bool {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trample_ended(#[string] name: String) -> bool {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_trample_enabled(#[string] name: String) -> bool {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_start_trample(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StartTrample { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stop_trample(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopTrample { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_trample_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTrampleEnabled { name, enabled })
+    });
+}
+// ── Trance ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_trance_duration(#[string] name: String) -> f32 {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trance_timer(#[string] name: String) -> f32 {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trance_regen_multiplier(#[string] name: String) -> f32 {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trance_entered(#[string] name: String) -> bool {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trance_exited(#[string] name: String) -> bool {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_trance_enabled(#[string] name: String) -> bool {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_trance(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyTrance { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_trance(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTrance { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_trance_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTranceEnabled { name, enabled })
+    });
+}
+// ── Tranquil ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tranquil_duration(#[string] name: String) -> f32 {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tranquil_timer(#[string] name: String) -> f32 {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tranquil_regen_multiplier(#[string] name: String) -> f32 {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tranquil_entered(#[string] name: String) -> bool {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tranquil_exited(#[string] name: String) -> bool {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tranquil_enabled(#[string] name: String) -> bool {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enter_tranquil(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EnterTranquil { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_interrupt_tranquil(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InterruptTranquil { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_tranquil_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTranquilEnabled { name, enabled })
+    });
+}
+// ── Transfix ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_transfix_active(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_transfix_timer(#[string] name: String) -> f32 {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_transfix_lock_range(#[string] name: String) -> f32 {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_transfix_locked(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_transfix_broken(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_transfix_enabled(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fix_transfix(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FixTransfix { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_break_transfix(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreakTransfix { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_transfix_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTransfixEnabled { name, enabled })
+    });
+}
+// ── Tremble ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tremble_duration(#[string] name: String) -> f32 {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremble_timer(#[string] name: String) -> f32 {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremble_intensity(#[string] name: String) -> f32 {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trembling(#[string] name: String) -> bool {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremble_just_stopped(#[string] name: String) -> bool {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremble_enabled(#[string] name: String) -> bool {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_tremble(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyTremble { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_tremble(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTremble { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_tremble_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTrembleEnabled { name, enabled })
+    });
+}
+// ── Tremor ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tremor_pulse_interval(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremor_pulse_timer(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremor_radius(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremor_stagger_strength(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremor_active(#[string] name: String) -> bool {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremor_just_pulsed(#[string] name: String) -> bool {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremor_enabled(#[string] name: String) -> bool {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_tremor(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateTremor { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_tremor(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeactivateTremor { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_tremor_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTremorEnabled { name, enabled })
+    });
+}
+// ── Trove ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_trove_value(#[string] name: String) -> f32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trove_threshold(#[string] name: String) -> f32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trove_reward_multiplier(#[string] name: String) -> f32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trove_count(#[string] name: String) -> u32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_trove_just_activated(#[string] name: String) -> bool {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_trove_enabled(#[string] name: String) -> bool {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_trove_value(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddTroveValue { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_consume_trove(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConsumeTrove { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_trove_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTroveEnabled { name, enabled })
+    });
+}
+// ── Tusk ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tusk_current_charge(#[string] name: String) -> f32 {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tusk_full_charge_dist(#[string] name: String) -> f32 {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tusk_max_bonus(#[string] name: String) -> f32 {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_tusk_just_hit(#[string] name: String) -> bool {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tusk_enabled(#[string] name: String) -> bool {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_tusk(#[string] name: String, dist: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChargeTusk { name, dist })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_impact_tusk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ImpactTusk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_tusk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTusk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_tusk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTuskEnabled { name, enabled })
+    });
+}
+// ── Unrest ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_unrest_level(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_max(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_threshold(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_decay_rate(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_penalty(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_became_restless(#[string] name: String) -> bool {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_unrest_calmed(#[string] name: String) -> bool {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_unrest_enabled(#[string] name: String) -> bool {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_agitate_unrest(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AgitateUnrest { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_unrest(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalmUnrest { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_unrest_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUnrestEnabled { name, enabled })
+    });
+}
+// ── Upkeep ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_upkeep_deficit(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_upkeep_max_deficit(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_upkeep_cost_per_second(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_upkeep_penalty(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_upkeep_just_defaulted(#[string] name: String) -> bool {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_upkeep_just_cleared(#[string] name: String) -> bool {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_upkeep_enabled(#[string] name: String) -> bool {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pay_upkeep(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PayUpkeep { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_upkeep_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUpkeepEnabled { name, enabled })
+    });
+}
+// ── Urge ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_urge_level(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_max(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_build_rate(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_decay_rate(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_drive_bonus(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_urged(#[string] name: String) -> bool {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_urge_just_peaked(#[string] name: String) -> bool {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_urge_enabled(#[string] name: String) -> bool {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_urge_on(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UrgeOn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_urge_off(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UrgeOff { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_urge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUrgeEnabled { name, enabled })
+    });
+}
+// ── Venom ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_venom_damage_per_stack(#[string] name: String) -> f32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_stacks(#[string] name: String) -> u32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_max_stacks(#[string] name: String) -> u32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_duration(#[string] name: String) -> f32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_timer(#[string] name: String) -> f32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_venom_just_applied(#[string] name: String) -> bool {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_venom_just_expired(#[string] name: String) -> bool {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_venom_enabled(#[string] name: String) -> bool {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_venom(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyVenom { name }));
+}
+#[op2(fast)]
+pub fn bsengine_apply_venom_n(#[string] name: String, n: u32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyVenomN { name, n }));
+}
+#[op2(fast)]
+pub fn bsengine_clear_venom(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearVenom { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_venom_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVenomEnabled { name, enabled })
+    });
+}
+// ── Vex ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vex_stacks(#[string] name: String) -> u32 {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vex_max_stacks(#[string] name: String) -> u32 {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vex_cc_amplify(#[string] name: String) -> f32 {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vex_just_vexed(#[string] name: String) -> bool {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vex_just_cleared(#[string] name: String) -> bool {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vex_enabled(#[string] name: String) -> bool {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_vex_stack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AddVexStack { name }));
+}
+#[op2(fast)]
+pub fn bsengine_remove_vex_stack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RemoveVexStack { name }));
+}
+#[op2(fast)]
+pub fn bsengine_clear_vex(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearVex { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_vex_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVexEnabled { name, enabled })
+    });
+}
+// ── Vigor ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vigor_duration(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vigor_timer(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vigor_health_regen(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vigor_max_health_bonus(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_invigorated(#[string] name: String) -> bool {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vigor_just_faded(#[string] name: String) -> bool {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vigor_enabled(#[string] name: String) -> bool {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_vigor(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyVigor { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vigor_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVigorEnabled { name, enabled })
+    });
+}
+// ── Vile ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vile_duration(#[string] name: String) -> f32 {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vile_timer(#[string] name: String) -> f32 {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vile_heal_reduction(#[string] name: String) -> f32 {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vile_just_applied(#[string] name: String) -> bool {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vile_just_cleared(#[string] name: String) -> bool {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vile_enabled(#[string] name: String) -> bool {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_vile(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyVile { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_vile(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CleanseVile { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_vile_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVileEnabled { name, enabled })
+    });
+}
+// ── Void ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_void_charge(#[string] name: String) -> f32 {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_void_max_charge(#[string] name: String) -> f32 {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_void_drain_fraction(#[string] name: String) -> f32 {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_void_just_peaked(#[string] name: String) -> bool {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_void_enabled(#[string] name: String) -> bool {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_drain_void(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DrainVoid { name, damage })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_void(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseVoid { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_void_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVoidEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -26571,6 +28901,391 @@ deno_core::extension!(
         bsengine_is_soak_enabled,
         bsengine_absorb_soak,
         bsengine_set_soak_enabled,
+        bsengine_get_spike_duration,
+        bsengine_get_spike_timer,
+        bsengine_get_spike_damage,
+        bsengine_get_spike_push_force,
+        bsengine_is_spike_just_extended,
+        bsengine_is_spike_just_retracted,
+        bsengine_is_spike_enabled,
+        bsengine_extend_spike,
+        bsengine_retract_spike,
+        bsengine_set_spike_enabled,
+        bsengine_get_splinter_threshold,
+        bsengine_get_splinter_radius,
+        bsengine_get_splinter_damage_fraction,
+        bsengine_get_splinter_cooldown,
+        bsengine_get_splinter_cooldown_timer,
+        bsengine_is_just_splintered,
+        bsengine_is_splinter_enabled,
+        bsengine_set_splinter_enabled,
+        bsengine_get_stagger_phase,
+        bsengine_get_stagger_threshold,
+        bsengine_get_stagger_duration,
+        bsengine_get_stagger_timer,
+        bsengine_get_stagger_recovery_duration,
+        bsengine_get_stagger_recovery_timer,
+        bsengine_get_stagger_count,
+        bsengine_get_stagger_resist,
+        bsengine_is_just_staggered,
+        bsengine_is_stagger_enabled,
+        bsengine_apply_stagger,
+        bsengine_reset_stagger,
+        bsengine_set_stagger_enabled,
+        bsengine_is_stake_active,
+        bsengine_get_stake_hold_timer,
+        bsengine_get_stake_min_hold,
+        bsengine_get_stake_damage_bonus,
+        bsengine_is_stake_just_staked,
+        bsengine_is_stake_just_broke,
+        bsengine_is_stake_enabled,
+        bsengine_set_stake_enabled,
+        bsengine_is_stalk_active,
+        bsengine_get_stalk_damage_multiplier,
+        bsengine_is_stalk_just_began,
+        bsengine_is_stalk_just_consumed,
+        bsengine_is_stalk_enabled,
+        bsengine_begin_stalk,
+        bsengine_set_stalk_enabled,
+        bsengine_get_stance_current,
+        bsengine_get_stance_offense_bonus,
+        bsengine_get_stance_defense_reduction,
+        bsengine_is_stance_just_changed,
+        bsengine_is_stance_enabled,
+        bsengine_set_stance,
+        bsengine_set_stance_enabled,
+        bsengine_get_stat_base,
+        bsengine_get_stat_bonus,
+        bsengine_get_stat_multiplier,
+        bsengine_get_stat_min,
+        bsengine_get_stat_max,
+        bsengine_add_stat_bonus,
+        bsengine_remove_stat_bonus,
+        bsengine_get_stealth_base_visibility,
+        bsengine_get_stealth_visibility_modifier,
+        bsengine_get_stealth_noise_level,
+        bsengine_get_stealth_noise_decay_rate,
+        bsengine_is_sneaking,
+        bsengine_get_stealth_sneak_visibility_scale,
+        bsengine_is_stealth_enabled,
+        bsengine_start_sneaking,
+        bsengine_stop_sneaking,
+        bsengine_add_noise,
+        bsengine_set_stealth_enabled,
+        bsengine_get_stomp_magnitude,
+        bsengine_get_stomp_impact_radius,
+        bsengine_get_stomp_damage_per_unit,
+        bsengine_is_just_stomped,
+        bsengine_is_stomp_enabled,
+        bsengine_trigger_stomp,
+        bsengine_set_stomp_enabled,
+        bsengine_get_stride_count,
+        bsengine_get_stride_max_strides,
+        bsengine_get_stride_speed_bonus,
+        bsengine_is_stride_just_peaked,
+        bsengine_is_stride_just_broke,
+        bsengine_is_stride_enabled,
+        bsengine_step_stride,
+        bsengine_break_stride,
+        bsengine_set_stride_enabled,
+        bsengine_get_strife_value,
+        bsengine_get_strife_max,
+        bsengine_get_strife_gain_per_hit,
+        bsengine_get_strife_decay_rate,
+        bsengine_is_strife_just_peaked,
+        bsengine_is_strife_enabled,
+        bsengine_hit_strife,
+        bsengine_set_strife_enabled,
+        bsengine_get_stumble_timer,
+        bsengine_get_stumble_duration,
+        bsengine_get_stumble_vulnerability_factor,
+        bsengine_get_stumble_move_penalty,
+        bsengine_get_stumble_count,
+        bsengine_is_stumbling,
+        bsengine_is_just_stumbled,
+        bsengine_is_just_stumble_recovered,
+        bsengine_is_stumble_enabled,
+        bsengine_trigger_stumble,
+        bsengine_set_stumble_enabled,
+        bsengine_get_sulk_depth,
+        bsengine_get_sulk_rate,
+        bsengine_get_sulk_recovery_rate,
+        bsengine_get_sulk_support_penalty,
+        bsengine_is_sulking,
+        bsengine_is_just_sulked,
+        bsengine_is_just_snapped_out,
+        bsengine_is_sulk_enabled,
+        bsengine_begin_sulk,
+        bsengine_end_sulk,
+        bsengine_set_sulk_enabled,
+        bsengine_get_sunder_shards,
+        bsengine_get_sunder_max_shards,
+        bsengine_get_sunder_damage_reduction_per_shard,
+        bsengine_is_just_sundered,
+        bsengine_is_sunder_enabled,
+        bsengine_apply_sunder,
+        bsengine_repair_sunder,
+        bsengine_repair_all_sunder,
+        bsengine_set_sunder_enabled,
+        bsengine_get_suppress_duration,
+        bsengine_get_suppress_timer,
+        bsengine_get_suppress_potency_fraction,
+        bsengine_is_suppress_blocks_ultimates,
+        bsengine_is_just_suppressed,
+        bsengine_is_just_suppress_lifted,
+        bsengine_is_suppress_enabled,
+        bsengine_apply_suppress,
+        bsengine_clear_suppress,
+        bsengine_set_suppress_enabled,
+        bsengine_get_surge_duration,
+        bsengine_get_surge_timer,
+        bsengine_get_surge_multiplier,
+        bsengine_is_just_surged,
+        bsengine_is_just_surge_expired,
+        bsengine_is_surge_enabled,
+        bsengine_apply_surge,
+        bsengine_clear_surge,
+        bsengine_set_surge_enabled,
+        bsengine_get_surround_adjacent_count,
+        bsengine_get_surround_encircle_threshold,
+        bsengine_get_surround_defense_bonus,
+        bsengine_is_just_encircled,
+        bsengine_is_just_surround_cleared,
+        bsengine_is_surround_enabled,
+        bsengine_update_surround,
+        bsengine_set_surround_enabled,
+        bsengine_get_survive_charges,
+        bsengine_get_survive_max_charges,
+        bsengine_is_just_survived,
+        bsengine_is_survive_enabled,
+        bsengine_add_survive_charge,
+        bsengine_set_survive_enabled,
+        bsengine_get_swim_state,
+        bsengine_get_swim_speed,
+        bsengine_get_dive_speed,
+        bsengine_get_ascent_speed,
+        bsengine_get_breath_remaining,
+        bsengine_get_max_breath,
+        bsengine_get_breath_drain_rate,
+        bsengine_get_breath_regen_rate,
+        bsengine_get_swim_depth,
+        bsengine_get_submerge_depth,
+        bsengine_is_wants_dive,
+        bsengine_is_wants_surface,
+        bsengine_is_swim_enabled,
+        bsengine_enter_water,
+        bsengine_exit_water,
+        bsengine_set_wants_dive,
+        bsengine_set_wants_surface,
+        bsengine_set_swim_enabled,
+        bsengine_get_taint_duration,
+        bsengine_get_taint_timer,
+        bsengine_get_taint_healing_reduction,
+        bsengine_is_just_tainted,
+        bsengine_is_just_cleansed,
+        bsengine_is_taint_enabled,
+        bsengine_apply_taint,
+        bsengine_clear_taint,
+        bsengine_set_taint_enabled,
+        bsengine_get_tally_count,
+        bsengine_get_tally_goal,
+        bsengine_is_just_incremented,
+        bsengine_is_just_tally_completed,
+        bsengine_is_just_tally_reset,
+        bsengine_is_tally_enabled,
+        bsengine_increment_tally,
+        bsengine_reset_tally,
+        bsengine_set_tally_enabled,
+        bsengine_is_talon_active,
+        bsengine_get_talon_grip_bonus,
+        bsengine_get_talon_slip_resistance,
+        bsengine_is_just_gripped,
+        bsengine_is_just_released,
+        bsengine_is_talon_enabled,
+        bsengine_set_gripping,
+        bsengine_set_talon_enabled,
+        bsengine_get_taper_elapsed_time,
+        bsengine_get_taper_max_reduction_time,
+        bsengine_get_taper_damage_reduction,
+        bsengine_is_taper_in_combat,
+        bsengine_is_just_taper_peaked,
+        bsengine_is_taper_enabled,
+        bsengine_engage_taper,
+        bsengine_disengage_taper,
+        bsengine_set_taper_enabled,
+        bsengine_is_taunt_active,
+        bsengine_get_taunt_radius,
+        bsengine_get_taunt_threat_boost,
+        bsengine_get_taunt_duration,
+        bsengine_get_taunt_timer,
+        bsengine_is_just_taunt_activated,
+        bsengine_is_just_taunt_expired,
+        bsengine_is_taunt_enabled,
+        bsengine_activate_taunt,
+        bsengine_deactivate_taunt,
+        bsengine_set_taunt_enabled,
+        bsengine_get_thaw_fraction,
+        bsengine_get_thaw_rate,
+        bsengine_get_thaw_freeze_penalty,
+        bsengine_is_just_thawed,
+        bsengine_is_just_frozen,
+        bsengine_is_thaw_enabled,
+        bsengine_apply_freeze,
+        bsengine_set_thaw_enabled,
+        bsengine_get_trample_duration,
+        bsengine_get_trample_timer,
+        bsengine_get_trample_damage,
+        bsengine_get_trample_push_force,
+        bsengine_get_trample_radius,
+        bsengine_is_just_trample_started,
+        bsengine_is_just_trample_ended,
+        bsengine_is_trample_enabled,
+        bsengine_start_trample,
+        bsengine_stop_trample,
+        bsengine_set_trample_enabled,
+        bsengine_get_trance_duration,
+        bsengine_get_trance_timer,
+        bsengine_get_trance_regen_multiplier,
+        bsengine_is_just_trance_entered,
+        bsengine_is_just_trance_exited,
+        bsengine_is_trance_enabled,
+        bsengine_apply_trance,
+        bsengine_clear_trance,
+        bsengine_set_trance_enabled,
+        bsengine_get_tranquil_duration,
+        bsengine_get_tranquil_timer,
+        bsengine_get_tranquil_regen_multiplier,
+        bsengine_is_just_tranquil_entered,
+        bsengine_is_just_tranquil_exited,
+        bsengine_is_tranquil_enabled,
+        bsengine_enter_tranquil,
+        bsengine_interrupt_tranquil,
+        bsengine_set_tranquil_enabled,
+        bsengine_is_transfix_active,
+        bsengine_get_transfix_timer,
+        bsengine_get_transfix_lock_range,
+        bsengine_is_just_transfix_locked,
+        bsengine_is_just_transfix_broken,
+        bsengine_is_transfix_enabled,
+        bsengine_fix_transfix,
+        bsengine_break_transfix,
+        bsengine_set_transfix_enabled,
+        bsengine_get_tremble_duration,
+        bsengine_get_tremble_timer,
+        bsengine_get_tremble_intensity,
+        bsengine_is_just_trembling,
+        bsengine_is_tremble_just_stopped,
+        bsengine_is_tremble_enabled,
+        bsengine_apply_tremble,
+        bsengine_clear_tremble,
+        bsengine_set_tremble_enabled,
+        bsengine_get_tremor_pulse_interval,
+        bsengine_get_tremor_pulse_timer,
+        bsengine_get_tremor_radius,
+        bsengine_get_tremor_stagger_strength,
+        bsengine_is_tremor_active,
+        bsengine_is_tremor_just_pulsed,
+        bsengine_is_tremor_enabled,
+        bsengine_activate_tremor,
+        bsengine_deactivate_tremor,
+        bsengine_set_tremor_enabled,
+        bsengine_get_trove_value,
+        bsengine_get_trove_threshold,
+        bsengine_get_trove_reward_multiplier,
+        bsengine_get_trove_count,
+        bsengine_is_trove_just_activated,
+        bsengine_is_trove_enabled,
+        bsengine_add_trove_value,
+        bsengine_consume_trove,
+        bsengine_set_trove_enabled,
+        bsengine_get_tusk_current_charge,
+        bsengine_get_tusk_full_charge_dist,
+        bsengine_get_tusk_max_bonus,
+        bsengine_is_tusk_just_hit,
+        bsengine_is_tusk_enabled,
+        bsengine_charge_tusk,
+        bsengine_impact_tusk,
+        bsengine_reset_tusk,
+        bsengine_set_tusk_enabled,
+        bsengine_get_unrest_level,
+        bsengine_get_unrest_max,
+        bsengine_get_unrest_threshold,
+        bsengine_get_unrest_decay_rate,
+        bsengine_get_unrest_penalty,
+        bsengine_is_just_became_restless,
+        bsengine_is_just_unrest_calmed,
+        bsengine_is_unrest_enabled,
+        bsengine_agitate_unrest,
+        bsengine_calm_unrest,
+        bsengine_set_unrest_enabled,
+        bsengine_get_upkeep_deficit,
+        bsengine_get_upkeep_max_deficit,
+        bsengine_get_upkeep_cost_per_second,
+        bsengine_get_upkeep_penalty,
+        bsengine_is_upkeep_just_defaulted,
+        bsengine_is_upkeep_just_cleared,
+        bsengine_is_upkeep_enabled,
+        bsengine_pay_upkeep,
+        bsengine_set_upkeep_enabled,
+        bsengine_get_urge_level,
+        bsengine_get_urge_max,
+        bsengine_get_urge_build_rate,
+        bsengine_get_urge_decay_rate,
+        bsengine_get_urge_drive_bonus,
+        bsengine_is_urged,
+        bsengine_is_urge_just_peaked,
+        bsengine_is_urge_enabled,
+        bsengine_urge_on,
+        bsengine_urge_off,
+        bsengine_set_urge_enabled,
+        bsengine_get_venom_damage_per_stack,
+        bsengine_get_venom_stacks,
+        bsengine_get_venom_max_stacks,
+        bsengine_get_venom_duration,
+        bsengine_get_venom_timer,
+        bsengine_is_venom_just_applied,
+        bsengine_is_venom_just_expired,
+        bsengine_is_venom_enabled,
+        bsengine_apply_venom,
+        bsengine_apply_venom_n,
+        bsengine_clear_venom,
+        bsengine_set_venom_enabled,
+        bsengine_get_vex_stacks,
+        bsengine_get_vex_max_stacks,
+        bsengine_get_vex_cc_amplify,
+        bsengine_is_vex_just_vexed,
+        bsengine_is_vex_just_cleared,
+        bsengine_is_vex_enabled,
+        bsengine_add_vex_stack,
+        bsengine_remove_vex_stack,
+        bsengine_clear_vex,
+        bsengine_set_vex_enabled,
+        bsengine_get_vigor_duration,
+        bsengine_get_vigor_timer,
+        bsengine_get_vigor_health_regen,
+        bsengine_get_vigor_max_health_bonus,
+        bsengine_is_just_invigorated,
+        bsengine_is_vigor_just_faded,
+        bsengine_is_vigor_enabled,
+        bsengine_apply_vigor,
+        bsengine_set_vigor_enabled,
+        bsengine_get_vile_duration,
+        bsengine_get_vile_timer,
+        bsengine_get_vile_heal_reduction,
+        bsengine_is_vile_just_applied,
+        bsengine_is_vile_just_cleared,
+        bsengine_is_vile_enabled,
+        bsengine_apply_vile,
+        bsengine_cleanse_vile,
+        bsengine_set_vile_enabled,
+        bsengine_get_void_charge,
+        bsengine_get_void_max_charge,
+        bsengine_get_void_drain_fraction,
+        bsengine_is_void_just_peaked,
+        bsengine_is_void_enabled,
+        bsengine_drain_void,
+        bsengine_release_void,
+        bsengine_set_void_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -29388,6 +32103,391 @@ const Bsengine = {
     isSoakEnabled:              (name)              => Deno.core.ops.bsengine_is_soak_enabled(name),
     absorbSoak:                 (name, amount)      => Deno.core.ops.bsengine_absorb_soak(name, amount),
     setSoakEnabled:             (name, v)           => Deno.core.ops.bsengine_set_soak_enabled(name, v),
+    getSpikeDuration:           (name)              => Deno.core.ops.bsengine_get_spike_duration(name),
+    getSpikeTimer:              (name)              => Deno.core.ops.bsengine_get_spike_timer(name),
+    getSpikeDamage:             (name)              => Deno.core.ops.bsengine_get_spike_damage(name),
+    getSpikePushForce:          (name)              => Deno.core.ops.bsengine_get_spike_push_force(name),
+    isSpikeJustExtended:        (name)              => Deno.core.ops.bsengine_is_spike_just_extended(name),
+    isSpikeJustRetracted:       (name)              => Deno.core.ops.bsengine_is_spike_just_retracted(name),
+    isSpikeEnabled:             (name)              => Deno.core.ops.bsengine_is_spike_enabled(name),
+    extendSpike:                (name, duration)    => Deno.core.ops.bsengine_extend_spike(name, duration),
+    retractSpike:               (name)              => Deno.core.ops.bsengine_retract_spike(name),
+    setSpikeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_spike_enabled(name, v),
+    getSplinterThreshold:       (name)              => Deno.core.ops.bsengine_get_splinter_threshold(name),
+    getSplinterRadius:          (name)              => Deno.core.ops.bsengine_get_splinter_radius(name),
+    getSplinterDamageFraction:  (name)              => Deno.core.ops.bsengine_get_splinter_damage_fraction(name),
+    getSplinterCooldown:        (name)              => Deno.core.ops.bsengine_get_splinter_cooldown(name),
+    getSplinterCooldownTimer:   (name)              => Deno.core.ops.bsengine_get_splinter_cooldown_timer(name),
+    isJustSplintered:           (name)              => Deno.core.ops.bsengine_is_just_splintered(name),
+    isSplinterEnabled:          (name)              => Deno.core.ops.bsengine_is_splinter_enabled(name),
+    setSplinterEnabled:         (name, v)           => Deno.core.ops.bsengine_set_splinter_enabled(name, v),
+    getStaggerPhase:            (name)              => Deno.core.ops.bsengine_get_stagger_phase(name),
+    getStaggerThreshold:        (name)              => Deno.core.ops.bsengine_get_stagger_threshold(name),
+    getStaggerDuration:         (name)              => Deno.core.ops.bsengine_get_stagger_duration(name),
+    getStaggerTimer:            (name)              => Deno.core.ops.bsengine_get_stagger_timer(name),
+    getStaggerRecoveryDuration: (name)              => Deno.core.ops.bsengine_get_stagger_recovery_duration(name),
+    getStaggerRecoveryTimer:    (name)              => Deno.core.ops.bsengine_get_stagger_recovery_timer(name),
+    getStaggerCount:            (name)              => Deno.core.ops.bsengine_get_stagger_count(name),
+    getStaggerResist:           (name)              => Deno.core.ops.bsengine_get_stagger_resist(name),
+    isJustStaggered:            (name)              => Deno.core.ops.bsengine_is_just_staggered(name),
+    isStaggerEnabled:           (name)              => Deno.core.ops.bsengine_is_stagger_enabled(name),
+    applyStagger:               (name, force)       => Deno.core.ops.bsengine_apply_stagger(name, force),
+    resetStagger:               (name)              => Deno.core.ops.bsengine_reset_stagger(name),
+    setStaggerEnabled:          (name, v)           => Deno.core.ops.bsengine_set_stagger_enabled(name, v),
+    isStakeActive:              (name)              => Deno.core.ops.bsengine_is_stake_active(name),
+    getStakeHoldTimer:          (name)              => Deno.core.ops.bsengine_get_stake_hold_timer(name),
+    getStakeMinHold:            (name)              => Deno.core.ops.bsengine_get_stake_min_hold(name),
+    getStakeDamageBonus:        (name)              => Deno.core.ops.bsengine_get_stake_damage_bonus(name),
+    isStakeJustStaked:          (name)              => Deno.core.ops.bsengine_is_stake_just_staked(name),
+    isStakeJustBroke:           (name)              => Deno.core.ops.bsengine_is_stake_just_broke(name),
+    isStakeEnabled:             (name)              => Deno.core.ops.bsengine_is_stake_enabled(name),
+    setStakeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_stake_enabled(name, v),
+    isStalkActive:              (name)              => Deno.core.ops.bsengine_is_stalk_active(name),
+    getStalkDamageMultiplier:   (name)              => Deno.core.ops.bsengine_get_stalk_damage_multiplier(name),
+    isStalkJustBegan:           (name)              => Deno.core.ops.bsengine_is_stalk_just_began(name),
+    isStalkJustConsumed:        (name)              => Deno.core.ops.bsengine_is_stalk_just_consumed(name),
+    isStalkEnabled:             (name)              => Deno.core.ops.bsengine_is_stalk_enabled(name),
+    beginStalk:                 (name)              => Deno.core.ops.bsengine_begin_stalk(name),
+    setStalkEnabled:            (name, v)           => Deno.core.ops.bsengine_set_stalk_enabled(name, v),
+    getStanceCurrent:           (name)              => Deno.core.ops.bsengine_get_stance_current(name),
+    getStanceOffenseBonus:      (name)              => Deno.core.ops.bsengine_get_stance_offense_bonus(name),
+    getStanceDefenseReduction:  (name)              => Deno.core.ops.bsengine_get_stance_defense_reduction(name),
+    isStanceJustChanged:        (name)              => Deno.core.ops.bsengine_is_stance_just_changed(name),
+    isStanceEnabled:            (name)              => Deno.core.ops.bsengine_is_stance_enabled(name),
+    setStance:                  (name, kind)        => Deno.core.ops.bsengine_set_stance(name, kind),
+    setStanceEnabled:           (name, v)           => Deno.core.ops.bsengine_set_stance_enabled(name, v),
+    getStatBase:                (name)              => Deno.core.ops.bsengine_get_stat_base(name),
+    getStatBonus:               (name)              => Deno.core.ops.bsengine_get_stat_bonus(name),
+    getStatMultiplier:          (name)              => Deno.core.ops.bsengine_get_stat_multiplier(name),
+    getStatMin:                 (name)              => Deno.core.ops.bsengine_get_stat_min(name),
+    getStatMax:                 (name)              => Deno.core.ops.bsengine_get_stat_max(name),
+    addStatBonus:               (name, amount)      => Deno.core.ops.bsengine_add_stat_bonus(name, amount),
+    removeStatBonus:            (name, amount)      => Deno.core.ops.bsengine_remove_stat_bonus(name, amount),
+    getStealthBaseVisibility:   (name)              => Deno.core.ops.bsengine_get_stealth_base_visibility(name),
+    getStealthVisibilityMod:    (name)              => Deno.core.ops.bsengine_get_stealth_visibility_modifier(name),
+    getStealthNoiseLevel:       (name)              => Deno.core.ops.bsengine_get_stealth_noise_level(name),
+    getStealthNoiseDecayRate:   (name)              => Deno.core.ops.bsengine_get_stealth_noise_decay_rate(name),
+    isSneaking:                 (name)              => Deno.core.ops.bsengine_is_sneaking(name),
+    getStealthSneakVisScale:    (name)              => Deno.core.ops.bsengine_get_stealth_sneak_visibility_scale(name),
+    isStealthEnabled:           (name)              => Deno.core.ops.bsengine_is_stealth_enabled(name),
+    startSneaking:              (name)              => Deno.core.ops.bsengine_start_sneaking(name),
+    stopSneaking:               (name)              => Deno.core.ops.bsengine_stop_sneaking(name),
+    addNoise:                   (name, amount)      => Deno.core.ops.bsengine_add_noise(name, amount),
+    setStealthEnabled:          (name, v)           => Deno.core.ops.bsengine_set_stealth_enabled(name, v),
+    getStompMagnitude:          (name)              => Deno.core.ops.bsengine_get_stomp_magnitude(name),
+    getStompImpactRadius:       (name)              => Deno.core.ops.bsengine_get_stomp_impact_radius(name),
+    getStompDamagePerUnit:      (name)              => Deno.core.ops.bsengine_get_stomp_damage_per_unit(name),
+    isJustStomped:              (name)              => Deno.core.ops.bsengine_is_just_stomped(name),
+    isStompEnabled:             (name)              => Deno.core.ops.bsengine_is_stomp_enabled(name),
+    triggerStomp:               (name)              => Deno.core.ops.bsengine_trigger_stomp(name),
+    setStompEnabled:            (name, v)           => Deno.core.ops.bsengine_set_stomp_enabled(name, v),
+    getStrideCount:             (name)              => Deno.core.ops.bsengine_get_stride_count(name),
+    getStrideMaxStrides:        (name)              => Deno.core.ops.bsengine_get_stride_max_strides(name),
+    getStrideSpeedBonus:        (name)              => Deno.core.ops.bsengine_get_stride_speed_bonus(name),
+    isStrideJustPeaked:         (name)              => Deno.core.ops.bsengine_is_stride_just_peaked(name),
+    isStrideJustBroke:          (name)              => Deno.core.ops.bsengine_is_stride_just_broke(name),
+    isStrideEnabled:            (name)              => Deno.core.ops.bsengine_is_stride_enabled(name),
+    stepStride:                 (name)              => Deno.core.ops.bsengine_step_stride(name),
+    breakStride:                (name)              => Deno.core.ops.bsengine_break_stride(name),
+    setStrideEnabled:           (name, v)           => Deno.core.ops.bsengine_set_stride_enabled(name, v),
+    getStrifeValue:             (name)              => Deno.core.ops.bsengine_get_strife_value(name),
+    getStrifeMax:               (name)              => Deno.core.ops.bsengine_get_strife_max(name),
+    getStrifeGainPerHit:        (name)              => Deno.core.ops.bsengine_get_strife_gain_per_hit(name),
+    getStrifeDecayRate:         (name)              => Deno.core.ops.bsengine_get_strife_decay_rate(name),
+    isStrifeJustPeaked:         (name)              => Deno.core.ops.bsengine_is_strife_just_peaked(name),
+    isStrifeEnabled:            (name)              => Deno.core.ops.bsengine_is_strife_enabled(name),
+    hitStrife:                  (name)              => Deno.core.ops.bsengine_hit_strife(name),
+    setStrifeEnabled:           (name, v)           => Deno.core.ops.bsengine_set_strife_enabled(name, v),
+    getStumbleTimer:            (name)              => Deno.core.ops.bsengine_get_stumble_timer(name),
+    getStumbleDuration:         (name)              => Deno.core.ops.bsengine_get_stumble_duration(name),
+    getStumbleVulnerabilityFactor: (name)           => Deno.core.ops.bsengine_get_stumble_vulnerability_factor(name),
+    getStumbleMovePenalty:      (name)              => Deno.core.ops.bsengine_get_stumble_move_penalty(name),
+    getStumbleCount:            (name)              => Deno.core.ops.bsengine_get_stumble_count(name),
+    isStumbling:                (name)              => Deno.core.ops.bsengine_is_stumbling(name),
+    isJustStumbled:             (name)              => Deno.core.ops.bsengine_is_just_stumbled(name),
+    isJustStumbleRecovered:     (name)              => Deno.core.ops.bsengine_is_just_stumble_recovered(name),
+    isStumbleEnabled:           (name)              => Deno.core.ops.bsengine_is_stumble_enabled(name),
+    triggerStumble:             (name)              => Deno.core.ops.bsengine_trigger_stumble(name),
+    setStumbleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_stumble_enabled(name, v),
+    getSulkDepth:               (name)              => Deno.core.ops.bsengine_get_sulk_depth(name),
+    getSulkRate:                (name)              => Deno.core.ops.bsengine_get_sulk_rate(name),
+    getSulkRecoveryRate:        (name)              => Deno.core.ops.bsengine_get_sulk_recovery_rate(name),
+    getSulkSupportPenalty:      (name)              => Deno.core.ops.bsengine_get_sulk_support_penalty(name),
+    isSulking:                  (name)              => Deno.core.ops.bsengine_is_sulking(name),
+    isJustSulked:               (name)              => Deno.core.ops.bsengine_is_just_sulked(name),
+    isJustSnappedOut:           (name)              => Deno.core.ops.bsengine_is_just_snapped_out(name),
+    isSulkEnabled:              (name)              => Deno.core.ops.bsengine_is_sulk_enabled(name),
+    beginSulk:                  (name)              => Deno.core.ops.bsengine_begin_sulk(name),
+    endSulk:                    (name)              => Deno.core.ops.bsengine_end_sulk(name),
+    setSulkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_sulk_enabled(name, v),
+    getSunderShards:            (name)              => Deno.core.ops.bsengine_get_sunder_shards(name),
+    getSunderMaxShards:         (name)              => Deno.core.ops.bsengine_get_sunder_max_shards(name),
+    getSunderDrPerShard:        (name)              => Deno.core.ops.bsengine_get_sunder_damage_reduction_per_shard(name),
+    isJustSundered:             (name)              => Deno.core.ops.bsengine_is_just_sundered(name),
+    isSunderEnabled:            (name)              => Deno.core.ops.bsengine_is_sunder_enabled(name),
+    applySunder:                (name, count)       => Deno.core.ops.bsengine_apply_sunder(name, count),
+    repairSunder:               (name, count)       => Deno.core.ops.bsengine_repair_sunder(name, count),
+    repairAllSunder:            (name)              => Deno.core.ops.bsengine_repair_all_sunder(name),
+    setSunderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_sunder_enabled(name, v),
+    getSuppressDuration:        (name)              => Deno.core.ops.bsengine_get_suppress_duration(name),
+    getSuppressTimer:           (name)              => Deno.core.ops.bsengine_get_suppress_timer(name),
+    getSuppressPotencyFraction: (name)              => Deno.core.ops.bsengine_get_suppress_potency_fraction(name),
+    isSuppressBlocksUltimates:  (name)              => Deno.core.ops.bsengine_is_suppress_blocks_ultimates(name),
+    isJustSuppressed:           (name)              => Deno.core.ops.bsengine_is_just_suppressed(name),
+    isJustSuppressLifted:       (name)              => Deno.core.ops.bsengine_is_just_suppress_lifted(name),
+    isSuppressEnabled:          (name)              => Deno.core.ops.bsengine_is_suppress_enabled(name),
+    applySuppress:              (name, duration)    => Deno.core.ops.bsengine_apply_suppress(name, duration),
+    clearSuppress:              (name)              => Deno.core.ops.bsengine_clear_suppress(name),
+    setSuppressEnabled:         (name, v)           => Deno.core.ops.bsengine_set_suppress_enabled(name, v),
+    getSurgeDuration:           (name)              => Deno.core.ops.bsengine_get_surge_duration(name),
+    getSurgeTimer:              (name)              => Deno.core.ops.bsengine_get_surge_timer(name),
+    getSurgeMultiplier:         (name)              => Deno.core.ops.bsengine_get_surge_multiplier(name),
+    isJustSurged:               (name)              => Deno.core.ops.bsengine_is_just_surged(name),
+    isJustSurgeExpired:         (name)              => Deno.core.ops.bsengine_is_just_surge_expired(name),
+    isSurgeEnabled:             (name)              => Deno.core.ops.bsengine_is_surge_enabled(name),
+    applySurge:                 (name, duration)    => Deno.core.ops.bsengine_apply_surge(name, duration),
+    clearSurge:                 (name)              => Deno.core.ops.bsengine_clear_surge(name),
+    setSurgeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_surge_enabled(name, v),
+    getSurroundAdjacentCount:   (name)              => Deno.core.ops.bsengine_get_surround_adjacent_count(name),
+    getSurroundThreshold:       (name)              => Deno.core.ops.bsengine_get_surround_encircle_threshold(name),
+    getSurroundDefenseBonus:    (name)              => Deno.core.ops.bsengine_get_surround_defense_bonus(name),
+    isJustEncircled:            (name)              => Deno.core.ops.bsengine_is_just_encircled(name),
+    isJustSurroundCleared:      (name)              => Deno.core.ops.bsengine_is_just_surround_cleared(name),
+    isSurroundEnabled:          (name)              => Deno.core.ops.bsengine_is_surround_enabled(name),
+    updateSurround:             (name, count)       => Deno.core.ops.bsengine_update_surround(name, count),
+    setSurroundEnabled:         (name, v)           => Deno.core.ops.bsengine_set_surround_enabled(name, v),
+    getSurviveCharges:          (name)              => Deno.core.ops.bsengine_get_survive_charges(name),
+    getSurviveMaxCharges:       (name)              => Deno.core.ops.bsengine_get_survive_max_charges(name),
+    isJustSurvived:             (name)              => Deno.core.ops.bsengine_is_just_survived(name),
+    isSurviveEnabled:           (name)              => Deno.core.ops.bsengine_is_survive_enabled(name),
+    addSurviveCharge:           (name)              => Deno.core.ops.bsengine_add_survive_charge(name),
+    setSurviveEnabled:          (name, v)           => Deno.core.ops.bsengine_set_survive_enabled(name, v),
+    getSwimState:               (name)              => Deno.core.ops.bsengine_get_swim_state(name),
+    getSwimSpeed:               (name)              => Deno.core.ops.bsengine_get_swim_speed(name),
+    getDiveSpeed:               (name)              => Deno.core.ops.bsengine_get_dive_speed(name),
+    getAscentSpeed:             (name)              => Deno.core.ops.bsengine_get_ascent_speed(name),
+    getBreathRemaining:         (name)              => Deno.core.ops.bsengine_get_breath_remaining(name),
+    getMaxBreath:               (name)              => Deno.core.ops.bsengine_get_max_breath(name),
+    getBreathDrainRate:         (name)              => Deno.core.ops.bsengine_get_breath_drain_rate(name),
+    getBreathRegenRate:         (name)              => Deno.core.ops.bsengine_get_breath_regen_rate(name),
+    getSwimDepth:               (name)              => Deno.core.ops.bsengine_get_swim_depth(name),
+    getSubmergeDepth:           (name)              => Deno.core.ops.bsengine_get_submerge_depth(name),
+    isWantsDive:                (name)              => Deno.core.ops.bsengine_is_wants_dive(name),
+    isWantsSurface:             (name)              => Deno.core.ops.bsengine_is_wants_surface(name),
+    isSwimEnabled:              (name)              => Deno.core.ops.bsengine_is_swim_enabled(name),
+    enterWater:                 (name)              => Deno.core.ops.bsengine_enter_water(name),
+    exitWater:                  (name)              => Deno.core.ops.bsengine_exit_water(name),
+    setWantsDive:               (name, v)           => Deno.core.ops.bsengine_set_wants_dive(name, v),
+    setWantsSurface:            (name, v)           => Deno.core.ops.bsengine_set_wants_surface(name, v),
+    setSwimEnabled:             (name, v)           => Deno.core.ops.bsengine_set_swim_enabled(name, v),
+    getTaintDuration:           (name)              => Deno.core.ops.bsengine_get_taint_duration(name),
+    getTaintTimer:              (name)              => Deno.core.ops.bsengine_get_taint_timer(name),
+    getTaintHealingReduction:   (name)              => Deno.core.ops.bsengine_get_taint_healing_reduction(name),
+    isJustTainted:              (name)              => Deno.core.ops.bsengine_is_just_tainted(name),
+    isJustCleansed:             (name)              => Deno.core.ops.bsengine_is_just_cleansed(name),
+    isTaintEnabled:             (name)              => Deno.core.ops.bsengine_is_taint_enabled(name),
+    applyTaint:                 (name, duration)    => Deno.core.ops.bsengine_apply_taint(name, duration),
+    clearTaint:                 (name)              => Deno.core.ops.bsengine_clear_taint(name),
+    setTaintEnabled:            (name, v)           => Deno.core.ops.bsengine_set_taint_enabled(name, v),
+    getTallyCount:              (name)              => Deno.core.ops.bsengine_get_tally_count(name),
+    getTallyGoal:               (name)              => Deno.core.ops.bsengine_get_tally_goal(name),
+    isJustIncremented:          (name)              => Deno.core.ops.bsengine_is_just_incremented(name),
+    isJustTallyCompleted:       (name)              => Deno.core.ops.bsengine_is_just_tally_completed(name),
+    isJustTallyReset:           (name)              => Deno.core.ops.bsengine_is_just_tally_reset(name),
+    isTallyEnabled:             (name)              => Deno.core.ops.bsengine_is_tally_enabled(name),
+    incrementTally:             (name, amount)      => Deno.core.ops.bsengine_increment_tally(name, amount),
+    resetTally:                 (name)              => Deno.core.ops.bsengine_reset_tally(name),
+    setTallyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_tally_enabled(name, v),
+    isTalonActive:              (name)              => Deno.core.ops.bsengine_is_talon_active(name),
+    getTalonGripBonus:          (name)              => Deno.core.ops.bsengine_get_talon_grip_bonus(name),
+    getTalonSlipResistance:     (name)              => Deno.core.ops.bsengine_get_talon_slip_resistance(name),
+    isJustGripped:              (name)              => Deno.core.ops.bsengine_is_just_gripped(name),
+    isJustReleased:             (name)              => Deno.core.ops.bsengine_is_just_released(name),
+    isTalonEnabled:             (name)              => Deno.core.ops.bsengine_is_talon_enabled(name),
+    setGripping:                (name, v)           => Deno.core.ops.bsengine_set_gripping(name, v),
+    setTalonEnabled:            (name, v)           => Deno.core.ops.bsengine_set_talon_enabled(name, v),
+    getTaperElapsedTime:        (name)              => Deno.core.ops.bsengine_get_taper_elapsed_time(name),
+    getTaperMaxReductionTime:   (name)              => Deno.core.ops.bsengine_get_taper_max_reduction_time(name),
+    getTaperDamageReduction:    (name)              => Deno.core.ops.bsengine_get_taper_damage_reduction(name),
+    isTaperInCombat:            (name)              => Deno.core.ops.bsengine_is_taper_in_combat(name),
+    isJustTaperPeaked:          (name)              => Deno.core.ops.bsengine_is_just_taper_peaked(name),
+    isTaperEnabled:             (name)              => Deno.core.ops.bsengine_is_taper_enabled(name),
+    engageTaper:                (name)              => Deno.core.ops.bsengine_engage_taper(name),
+    disengageTaper:             (name)              => Deno.core.ops.bsengine_disengage_taper(name),
+    setTaperEnabled:            (name, v)           => Deno.core.ops.bsengine_set_taper_enabled(name, v),
+    isTauntActive:              (name)              => Deno.core.ops.bsengine_is_taunt_active(name),
+    getTauntRadius:             (name)              => Deno.core.ops.bsengine_get_taunt_radius(name),
+    getTauntThreatBoost:        (name)              => Deno.core.ops.bsengine_get_taunt_threat_boost(name),
+    getTauntDuration:           (name)              => Deno.core.ops.bsengine_get_taunt_duration(name),
+    getTauntTimer:              (name)              => Deno.core.ops.bsengine_get_taunt_timer(name),
+    isJustTauntActivated:       (name)              => Deno.core.ops.bsengine_is_just_taunt_activated(name),
+    isJustTauntExpired:         (name)              => Deno.core.ops.bsengine_is_just_taunt_expired(name),
+    isTauntEnabled:             (name)              => Deno.core.ops.bsengine_is_taunt_enabled(name),
+    activateTaunt:              (name)              => Deno.core.ops.bsengine_activate_taunt(name),
+    deactivateTaunt:            (name)              => Deno.core.ops.bsengine_deactivate_taunt(name),
+    setTauntEnabled:            (name, v)           => Deno.core.ops.bsengine_set_taunt_enabled(name, v),
+    getThawFraction:            (name)              => Deno.core.ops.bsengine_get_thaw_fraction(name),
+    getThawRate:                (name)              => Deno.core.ops.bsengine_get_thaw_rate(name),
+    getThawFreezePenalty:       (name)              => Deno.core.ops.bsengine_get_thaw_freeze_penalty(name),
+    isJustThawed:               (name)              => Deno.core.ops.bsengine_is_just_thawed(name),
+    isJustFrozen:               (name)              => Deno.core.ops.bsengine_is_just_frozen(name),
+    isThawEnabled:              (name)              => Deno.core.ops.bsengine_is_thaw_enabled(name),
+    applyFreeze:                (name, intensity)   => Deno.core.ops.bsengine_apply_freeze(name, intensity),
+    setThawEnabled:             (name, v)           => Deno.core.ops.bsengine_set_thaw_enabled(name, v),
+    getTrampleDuration:         (name)              => Deno.core.ops.bsengine_get_trample_duration(name),
+    getTrampleTimer:            (name)              => Deno.core.ops.bsengine_get_trample_timer(name),
+    getTrampleDamage:           (name)              => Deno.core.ops.bsengine_get_trample_damage(name),
+    getTramplePushForce:        (name)              => Deno.core.ops.bsengine_get_trample_push_force(name),
+    getTrampleRadius:           (name)              => Deno.core.ops.bsengine_get_trample_radius(name),
+    isJustTrampleStarted:       (name)              => Deno.core.ops.bsengine_is_just_trample_started(name),
+    isJustTrampleEnded:         (name)              => Deno.core.ops.bsengine_is_just_trample_ended(name),
+    isTrampleEnabled:           (name)              => Deno.core.ops.bsengine_is_trample_enabled(name),
+    startTrample:               (name, duration)    => Deno.core.ops.bsengine_start_trample(name, duration),
+    stopTrample:                (name)              => Deno.core.ops.bsengine_stop_trample(name),
+    setTrampleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_trample_enabled(name, v),
+    getTranceDuration:          (name)              => Deno.core.ops.bsengine_get_trance_duration(name),
+    getTranceTimer:             (name)              => Deno.core.ops.bsengine_get_trance_timer(name),
+    getTranceRegenMultiplier:   (name)              => Deno.core.ops.bsengine_get_trance_regen_multiplier(name),
+    isJustTranceEntered:        (name)              => Deno.core.ops.bsengine_is_just_trance_entered(name),
+    isJustTranceExited:         (name)              => Deno.core.ops.bsengine_is_just_trance_exited(name),
+    isTranceEnabled:            (name)              => Deno.core.ops.bsengine_is_trance_enabled(name),
+    applyTrance:                (name, duration)    => Deno.core.ops.bsengine_apply_trance(name, duration),
+    clearTrance:                (name)              => Deno.core.ops.bsengine_clear_trance(name),
+    setTranceEnabled:           (name, v)           => Deno.core.ops.bsengine_set_trance_enabled(name, v),
+    getTranquilDuration:        (name)              => Deno.core.ops.bsengine_get_tranquil_duration(name),
+    getTranquilTimer:           (name)              => Deno.core.ops.bsengine_get_tranquil_timer(name),
+    getTranquilRegenMultiplier: (name)              => Deno.core.ops.bsengine_get_tranquil_regen_multiplier(name),
+    isJustTranquilEntered:      (name)              => Deno.core.ops.bsengine_is_just_tranquil_entered(name),
+    isJustTranquilExited:       (name)              => Deno.core.ops.bsengine_is_just_tranquil_exited(name),
+    isTranquilEnabled:          (name)              => Deno.core.ops.bsengine_is_tranquil_enabled(name),
+    enterTranquil:              (name, duration)    => Deno.core.ops.bsengine_enter_tranquil(name, duration),
+    interruptTranquil:          (name)              => Deno.core.ops.bsengine_interrupt_tranquil(name),
+    setTranquilEnabled:         (name, v)           => Deno.core.ops.bsengine_set_tranquil_enabled(name, v),
+    isTransfixActive:           (name)              => Deno.core.ops.bsengine_is_transfix_active(name),
+    getTransfixTimer:           (name)              => Deno.core.ops.bsengine_get_transfix_timer(name),
+    getTransfixLockRange:       (name)              => Deno.core.ops.bsengine_get_transfix_lock_range(name),
+    isJustTransfixLocked:       (name)              => Deno.core.ops.bsengine_is_just_transfix_locked(name),
+    isJustTransfixBroken:       (name)              => Deno.core.ops.bsengine_is_just_transfix_broken(name),
+    isTransfixEnabled:          (name)              => Deno.core.ops.bsengine_is_transfix_enabled(name),
+    fixTransfix:                (name, duration)    => Deno.core.ops.bsengine_fix_transfix(name, duration),
+    breakTransfix:              (name)              => Deno.core.ops.bsengine_break_transfix(name),
+    setTransfixEnabled:         (name, v)           => Deno.core.ops.bsengine_set_transfix_enabled(name, v),
+    getTrembleDuration:         (name)              => Deno.core.ops.bsengine_get_tremble_duration(name),
+    getTrembleTimer:            (name)              => Deno.core.ops.bsengine_get_tremble_timer(name),
+    getTrembleIntensity:        (name)              => Deno.core.ops.bsengine_get_tremble_intensity(name),
+    isJustTrembling:            (name)              => Deno.core.ops.bsengine_is_just_trembling(name),
+    isTrembleJustStopped:       (name)              => Deno.core.ops.bsengine_is_tremble_just_stopped(name),
+    isTrembleEnabled:           (name)              => Deno.core.ops.bsengine_is_tremble_enabled(name),
+    applyTremble:               (name, duration)    => Deno.core.ops.bsengine_apply_tremble(name, duration),
+    clearTremble:               (name)              => Deno.core.ops.bsengine_clear_tremble(name),
+    setTrembleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_tremble_enabled(name, v),
+    getTremorPulseInterval:     (name)              => Deno.core.ops.bsengine_get_tremor_pulse_interval(name),
+    getTremorPulseTimer:        (name)              => Deno.core.ops.bsengine_get_tremor_pulse_timer(name),
+    getTremorRadius:            (name)              => Deno.core.ops.bsengine_get_tremor_radius(name),
+    getTremorStaggerStrength:   (name)              => Deno.core.ops.bsengine_get_tremor_stagger_strength(name),
+    isTremorActive:             (name)              => Deno.core.ops.bsengine_is_tremor_active(name),
+    isTremorJustPulsed:         (name)              => Deno.core.ops.bsengine_is_tremor_just_pulsed(name),
+    isTremorEnabled:            (name)              => Deno.core.ops.bsengine_is_tremor_enabled(name),
+    activateTremor:             (name)              => Deno.core.ops.bsengine_activate_tremor(name),
+    deactivateTremor:           (name)              => Deno.core.ops.bsengine_deactivate_tremor(name),
+    setTremorEnabled:           (name, v)           => Deno.core.ops.bsengine_set_tremor_enabled(name, v),
+    getTroveValue:              (name)              => Deno.core.ops.bsengine_get_trove_value(name),
+    getTroveThreshold:          (name)              => Deno.core.ops.bsengine_get_trove_threshold(name),
+    getTroveRewardMultiplier:   (name)              => Deno.core.ops.bsengine_get_trove_reward_multiplier(name),
+    getTroveCount:              (name)              => Deno.core.ops.bsengine_get_trove_count(name),
+    isTroveJustActivated:       (name)              => Deno.core.ops.bsengine_is_trove_just_activated(name),
+    isTroveEnabled:             (name)              => Deno.core.ops.bsengine_is_trove_enabled(name),
+    addTroveValue:              (name, amount)      => Deno.core.ops.bsengine_add_trove_value(name, amount),
+    consumeTrove:               (name)              => Deno.core.ops.bsengine_consume_trove(name),
+    setTroveEnabled:            (name, v)           => Deno.core.ops.bsengine_set_trove_enabled(name, v),
+    getTuskCurrentCharge:       (name)              => Deno.core.ops.bsengine_get_tusk_current_charge(name),
+    getTuskFullChargeDist:      (name)              => Deno.core.ops.bsengine_get_tusk_full_charge_dist(name),
+    getTuskMaxBonus:            (name)              => Deno.core.ops.bsengine_get_tusk_max_bonus(name),
+    isTuskJustHit:              (name)              => Deno.core.ops.bsengine_is_tusk_just_hit(name),
+    isTuskEnabled:              (name)              => Deno.core.ops.bsengine_is_tusk_enabled(name),
+    chargeTusk:                 (name, dist)        => Deno.core.ops.bsengine_charge_tusk(name, dist),
+    impactTusk:                 (name)              => Deno.core.ops.bsengine_impact_tusk(name),
+    resetTusk:                  (name)              => Deno.core.ops.bsengine_reset_tusk(name),
+    setTuskEnabled:             (name, v)           => Deno.core.ops.bsengine_set_tusk_enabled(name, v),
+    getUnrestLevel:             (name)              => Deno.core.ops.bsengine_get_unrest_level(name),
+    getUnrestMax:               (name)              => Deno.core.ops.bsengine_get_unrest_max(name),
+    getUnrestThreshold:         (name)              => Deno.core.ops.bsengine_get_unrest_threshold(name),
+    getUnrestDecayRate:         (name)              => Deno.core.ops.bsengine_get_unrest_decay_rate(name),
+    getUnrestPenalty:           (name)              => Deno.core.ops.bsengine_get_unrest_penalty(name),
+    isJustBecameRestless:       (name)              => Deno.core.ops.bsengine_is_just_became_restless(name),
+    isJustUnrestCalmed:         (name)              => Deno.core.ops.bsengine_is_just_unrest_calmed(name),
+    isUnrestEnabled:            (name)              => Deno.core.ops.bsengine_is_unrest_enabled(name),
+    agitateUnrest:              (name, amount)      => Deno.core.ops.bsengine_agitate_unrest(name, amount),
+    calmUnrest:                 (name, amount)      => Deno.core.ops.bsengine_calm_unrest(name, amount),
+    setUnrestEnabled:           (name, v)           => Deno.core.ops.bsengine_set_unrest_enabled(name, v),
+    getUpkeepDeficit:           (name)              => Deno.core.ops.bsengine_get_upkeep_deficit(name),
+    getUpkeepMaxDeficit:        (name)              => Deno.core.ops.bsengine_get_upkeep_max_deficit(name),
+    getUpkeepCostPerSecond:     (name)              => Deno.core.ops.bsengine_get_upkeep_cost_per_second(name),
+    getUpkeepPenalty:           (name)              => Deno.core.ops.bsengine_get_upkeep_penalty(name),
+    isUpkeepJustDefaulted:      (name)              => Deno.core.ops.bsengine_is_upkeep_just_defaulted(name),
+    isUpkeepJustCleared:        (name)              => Deno.core.ops.bsengine_is_upkeep_just_cleared(name),
+    isUpkeepEnabled:            (name)              => Deno.core.ops.bsengine_is_upkeep_enabled(name),
+    payUpkeep:                  (name, amount)      => Deno.core.ops.bsengine_pay_upkeep(name, amount),
+    setUpkeepEnabled:           (name, v)           => Deno.core.ops.bsengine_set_upkeep_enabled(name, v),
+    getUrgeLevel:               (name)              => Deno.core.ops.bsengine_get_urge_level(name),
+    getUrgeMax:                 (name)              => Deno.core.ops.bsengine_get_urge_max(name),
+    getUrgeBuildRate:           (name)              => Deno.core.ops.bsengine_get_urge_build_rate(name),
+    getUrgeDecayRate:           (name)              => Deno.core.ops.bsengine_get_urge_decay_rate(name),
+    getUrgeDriveBonus:          (name)              => Deno.core.ops.bsengine_get_urge_drive_bonus(name),
+    isUrged:                    (name)              => Deno.core.ops.bsengine_is_urged(name),
+    isUrgeJustPeaked:           (name)              => Deno.core.ops.bsengine_is_urge_just_peaked(name),
+    isUrgeEnabled:              (name)              => Deno.core.ops.bsengine_is_urge_enabled(name),
+    urgeOn:                     (name)              => Deno.core.ops.bsengine_urge_on(name),
+    urgeOff:                    (name)              => Deno.core.ops.bsengine_urge_off(name),
+    setUrgeEnabled:             (name, v)           => Deno.core.ops.bsengine_set_urge_enabled(name, v),
+    getVenomDamagePerStack:     (name)              => Deno.core.ops.bsengine_get_venom_damage_per_stack(name),
+    getVenomStacks:             (name)              => Deno.core.ops.bsengine_get_venom_stacks(name),
+    getVenomMaxStacks:          (name)              => Deno.core.ops.bsengine_get_venom_max_stacks(name),
+    getVenomDuration:           (name)              => Deno.core.ops.bsengine_get_venom_duration(name),
+    getVenomTimer:              (name)              => Deno.core.ops.bsengine_get_venom_timer(name),
+    isVenomJustApplied:         (name)              => Deno.core.ops.bsengine_is_venom_just_applied(name),
+    isVenomJustExpired:         (name)              => Deno.core.ops.bsengine_is_venom_just_expired(name),
+    isVenomEnabled:             (name)              => Deno.core.ops.bsengine_is_venom_enabled(name),
+    applyVenom:                 (name)              => Deno.core.ops.bsengine_apply_venom(name),
+    applyVenomN:                (name, n)           => Deno.core.ops.bsengine_apply_venom_n(name, n),
+    clearVenom:                 (name)              => Deno.core.ops.bsengine_clear_venom(name),
+    setVenomEnabled:            (name, v)           => Deno.core.ops.bsengine_set_venom_enabled(name, v),
+    getVexStacks:               (name)              => Deno.core.ops.bsengine_get_vex_stacks(name),
+    getVexMaxStacks:            (name)              => Deno.core.ops.bsengine_get_vex_max_stacks(name),
+    getVexCcAmplify:            (name)              => Deno.core.ops.bsengine_get_vex_cc_amplify(name),
+    isVexJustVexed:             (name)              => Deno.core.ops.bsengine_is_vex_just_vexed(name),
+    isVexJustCleared:           (name)              => Deno.core.ops.bsengine_is_vex_just_cleared(name),
+    isVexEnabled:               (name)              => Deno.core.ops.bsengine_is_vex_enabled(name),
+    addVexStack:                (name)              => Deno.core.ops.bsengine_add_vex_stack(name),
+    removeVexStack:             (name)              => Deno.core.ops.bsengine_remove_vex_stack(name),
+    clearVex:                   (name)              => Deno.core.ops.bsengine_clear_vex(name),
+    setVexEnabled:              (name, v)           => Deno.core.ops.bsengine_set_vex_enabled(name, v),
+    getVigorDuration:           (name)              => Deno.core.ops.bsengine_get_vigor_duration(name),
+    getVigorTimer:              (name)              => Deno.core.ops.bsengine_get_vigor_timer(name),
+    getVigorHealthRegen:        (name)              => Deno.core.ops.bsengine_get_vigor_health_regen(name),
+    getVigorMaxHealthBonus:     (name)              => Deno.core.ops.bsengine_get_vigor_max_health_bonus(name),
+    isJustInvigorated:          (name)              => Deno.core.ops.bsengine_is_just_invigorated(name),
+    isVigorJustFaded:           (name)              => Deno.core.ops.bsengine_is_vigor_just_faded(name),
+    isVigorEnabled:             (name)              => Deno.core.ops.bsengine_is_vigor_enabled(name),
+    applyVigor:                 (name, duration)    => Deno.core.ops.bsengine_apply_vigor(name, duration),
+    setVigorEnabled:            (name, v)           => Deno.core.ops.bsengine_set_vigor_enabled(name, v),
+    getVileDuration:            (name)              => Deno.core.ops.bsengine_get_vile_duration(name),
+    getVileTimer:               (name)              => Deno.core.ops.bsengine_get_vile_timer(name),
+    getVileHealReduction:       (name)              => Deno.core.ops.bsengine_get_vile_heal_reduction(name),
+    isVileJustApplied:          (name)              => Deno.core.ops.bsengine_is_vile_just_applied(name),
+    isVileJustCleared:          (name)              => Deno.core.ops.bsengine_is_vile_just_cleared(name),
+    isVileEnabled:              (name)              => Deno.core.ops.bsengine_is_vile_enabled(name),
+    applyVile:                  (name, duration)    => Deno.core.ops.bsengine_apply_vile(name, duration),
+    cleanseVile:                (name)              => Deno.core.ops.bsengine_cleanse_vile(name),
+    setVileEnabled:             (name, v)           => Deno.core.ops.bsengine_set_vile_enabled(name, v),
+    getVoidCharge:              (name)              => Deno.core.ops.bsengine_get_void_charge(name),
+    getVoidMaxCharge:           (name)              => Deno.core.ops.bsengine_get_void_max_charge(name),
+    getVoidDrainFraction:       (name)              => Deno.core.ops.bsengine_get_void_drain_fraction(name),
+    isVoidJustPeaked:           (name)              => Deno.core.ops.bsengine_is_void_just_peaked(name),
+    isVoidEnabled:              (name)              => Deno.core.ops.bsengine_is_void_enabled(name),
+    drainVoid:                  (name, damage)      => Deno.core.ops.bsengine_drain_void(name, damage),
+    releaseVoid:                (name)              => Deno.core.ops.bsengine_release_void(name),
+    setVoidEnabled:             (name, v)           => Deno.core.ops.bsengine_set_void_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -48772,6 +51872,2249 @@ JSON.stringify(received)
             let buf = c.borrow();
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AbsorbSoak { name, amount } if name == "Wet" && (*amount - 0.5).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSoakEnabled { name, enabled } if name == "Wet" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_spike_read_ops() {
+        super::SPIKE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hedgehog".to_string(),
+                (2.0f32, 0.5f32, 3.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSpikeDuration("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSpikeTimer("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSpikeDamage("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSpikePushForce("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isSpikeJustExtended("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSpikeJustRetracted("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSpikeEnabled("Hedgehog"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SPIKE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_spike_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.extendSpike("Hedgehog", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.retractSpike("Hedgehog");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSpikeEnabled("Hedgehog", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExtendSpike { name, duration } if name == "Hedgehog" && (*duration - 1.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetractSpike { name } if name == "Hedgehog")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSpikeEnabled { name, enabled } if name == "Hedgehog" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_splinter_read_ops() {
+        super::SPLINTER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Glass".to_string(),
+                (10.0f32, 2.0f32, 0.5f32, 1.0f32, 0.25f32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSplinterThreshold("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getSplinterRadius("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSplinterDamageFraction("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSplinterCooldown("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSplinterCooldownTimer("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSplintered("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSplinterEnabled("Glass"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SPLINTER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_splinter_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setSplinterEnabled("Glass", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSplinterEnabled { name, enabled } if name == "Glass" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stagger_read_ops() {
+        super::STAGGER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Boss".to_string(),
+                (
+                    1u32, 20.0f32, 0.5f32, 0.25f32, 1.0f32, 0.75f32, 3u32, 0.5f32, true, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerPhase("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerThreshold("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerDuration("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerTimer("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerRecoveryDuration("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerRecoveryTimer("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerCount("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getStaggerResist("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustStaggered("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStaggerEnabled("Boss"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STAGGER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stagger_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyStagger("Boss", 15.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetStagger("Boss");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStaggerEnabled("Boss", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyStagger { name, force } if name == "Boss" && (*force - 15.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetStagger { name } if name == "Boss")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStaggerEnabled { name, enabled } if name == "Boss" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stake_read_ops() {
+        super::STAKE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Knight".to_string(),
+                (true, 0.5f32, 0.25f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isStakeActive("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getStakeHoldTimer("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getStakeMinHold("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getStakeDamageBonus("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isStakeJustStaked("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStakeJustBroke("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isStakeEnabled("Knight"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STAKE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stake_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setStakeEnabled("Knight", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStakeEnabled { name, enabled } if name == "Knight" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stalk_read_ops() {
+        super::STALK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Predator".to_string(), (true, 2.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isStalkActive("Predator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getStalkDamageMultiplier("Predator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isStalkJustBegan("Predator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStalkJustConsumed("Predator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isStalkEnabled("Predator"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STALK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stalk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginStalk("Predator");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStalkEnabled("Predator", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginStalk { name } if name == "Predator")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStalkEnabled { name, enabled } if name == "Predator" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stance_read_ops() {
+        super::STANCE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Fighter".to_string(), (1u32, 0.25f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStanceCurrent("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getStanceOffenseBonus("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getStanceDefenseReduction("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isStanceJustChanged("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStanceEnabled("Fighter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STANCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stance_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setStance("Fighter", 2);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStanceEnabled("Fighter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStance { name, kind } if name == "Fighter" && *kind == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStanceEnabled { name, enabled } if name == "Fighter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stat_read_ops() {
+        super::STAT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (10.0f32, 2.0f32, 1.5f32, 0.0f32, 20.0f32),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getStatBase("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt.eval(r#"String(Bsengine.getStatBonus("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getStatMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt.eval(r#"String(Bsengine.getStatMin("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt.eval(r#"String(Bsengine.getStatMax("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "20");
+        super::STAT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stat_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addStatBonus("Hero", 5.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.removeStatBonus("Hero", 2.0);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddStatBonus { name, amount } if name == "Hero" && (*amount - 5.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RemoveStatBonus { name, amount } if name == "Hero" && (*amount - 2.0).abs() < 1e-5)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stealth_read_ops() {
+        super::STEALTH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rogue".to_string(),
+                (0.5f32, 0.25f32, 0.75f32, 1.0f32, true, 0.5f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStealthBaseVisibility("Rogue"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getStealthVisibilityMod("Rogue"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getStealthNoiseLevel("Rogue"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getStealthNoiseDecayRate("Rogue"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt.eval(r#"String(Bsengine.isSneaking("Rogue"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getStealthSneakVisScale("Rogue"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isStealthEnabled("Rogue"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STEALTH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stealth_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startSneaking("Rogue");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stopSneaking("Rogue");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.addNoise("Rogue", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStealthEnabled("Rogue", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartSneaking { name } if name == "Rogue")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopSneaking { name } if name == "Rogue")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddNoise { name, amount } if name == "Rogue" && (*amount - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStealthEnabled { name, enabled } if name == "Rogue" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stomp_read_ops() {
+        super::STOMP_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Giant".to_string(), (4.0f32, 2.0f32, 1.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStompMagnitude("Giant"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getStompImpactRadius("Giant"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getStompDamagePerUnit("Giant"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustStomped("Giant"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStompEnabled("Giant"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STOMP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stomp_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.triggerStomp("Giant");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStompEnabled("Giant", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerStomp { name } if name == "Giant")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStompEnabled { name, enabled } if name == "Giant" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stride_read_ops() {
+        super::STRIDE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Runner".to_string(),
+                (5u32, 10u32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStrideCount("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getStrideMaxStrides("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getStrideSpeedBonus("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isStrideJustPeaked("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStrideJustBroke("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isStrideEnabled("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STRIDE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stride_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.stepStride("Runner");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.breakStride("Runner");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStrideEnabled("Runner", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StepStride { name } if name == "Runner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BreakStride { name } if name == "Runner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStrideEnabled { name, enabled } if name == "Runner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_strife_read_ops() {
+        super::STRIFE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Berserker".to_string(),
+                (0.75f32, 1.0f32, 0.25f32, 0.5f32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStrifeValue("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getStrifeMax("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getStrifeGainPerHit("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getStrifeDecayRate("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isStrifeJustPeaked("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isStrifeEnabled("Berserker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STRIFE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_strife_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.hitStrife("Berserker");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setStrifeEnabled("Berserker", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HitStrife { name } if name == "Berserker")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStrifeEnabled { name, enabled } if name == "Berserker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stumble_read_ops() {
+        super::STUMBLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (
+                    0.5f32, 1.0f32, 1.5f32, 0.25f32, 2u32, true, true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getStumbleTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getStumbleDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getStumbleVulnerabilityFactor("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getStumbleMovePenalty("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getStumbleCount("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt.eval(r#"String(Bsengine.isStumbling("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustStumbled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustStumbleRecovered("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isStumbleEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::STUMBLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_stumble_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.triggerStumble("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setStumbleEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TriggerStumble { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetStumbleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sulk_read_ops() {
+        super::SULK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (0.5f32, 1.0f32, 1.5f32, 0.25f32, true, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSulkDepth("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getSulkRate("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSulkRecoveryRate("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSulkSupportPenalty("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isSulking("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSulked("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSnappedOut("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSulkEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SULK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sulk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginSulk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.endSulk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSulkEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginSulk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EndSulk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSulkEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sunder_read_ops() {
+        super::SUNDER_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (3u32, 5u32, 0.25f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSunderShards("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSunderMaxShards("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSunderDrPerShard("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSundered("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSunderEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SUNDER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_sunder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySunder("Grunt", 2);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairSunder("Grunt", 1);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairAllSunder("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSunderEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySunder { name, count } if name == "Grunt" && *count == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairSunder { name, count } if name == "Grunt" && *count == 1)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairAllSunder { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSunderEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_suppress_read_ops() {
+        super::SUPPRESS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (2.0f32, 0.5f32, 0.75f32, true, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSuppressDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSuppressTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSuppressPotencyFraction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isSuppressBlocksUltimates("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSuppressed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSuppressLifted("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSuppressEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SUPPRESS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_suppress_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySuppress("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearSuppress("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSuppressEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySuppress { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearSuppress { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSuppressEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surge_read_ops() {
+        super::SURGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (3.0f32, 1.5f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSurgeDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurgeTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurgeMultiplier("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurged("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurgeExpired("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSurgeEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SURGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surge_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySurge("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearSurge("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSurgeEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySurge { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearSurge { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSurgeEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surround_read_ops() {
+        super::SURROUND_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (4u32, 3u32, 0.5f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSurroundAdjacentCount("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurroundThreshold("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurroundDefenseBonus("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustEncircled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurroundCleared("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSurroundEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SURROUND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_surround_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.updateSurround("Grunt", 4);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSurroundEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UpdateSurround { name, count } if name == "Grunt" && *count == 4)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSurroundEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_survive_read_ops() {
+        super::SURVIVE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (2u32, 3u32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSurviveCharges("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSurviveMaxCharges("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSurvived("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSurviveEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SURVIVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_survive_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addSurviveCharge("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSurviveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddSurviveCharge { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSurviveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_swim_read_ops() {
+        super::SWIM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (
+                    1u32, 2.0f32, 1.5f32, 1.0f32, 0.75f32, 1.0f32, 0.25f32, 0.5f32, 3.0f32, 2.0f32,
+                    true, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSwimState("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSwimSpeed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getDiveSpeed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getAscentSpeed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getBreathRemaining("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxBreath("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getBreathDrainRate("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getBreathRegenRate("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSwimDepth("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSubmergeDepth("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt.eval(r#"String(Bsengine.isWantsDive("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWantsSurface("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSwimEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SWIM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_swim_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.enterWater("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exitWater("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWantsDive("Grunt", true);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWantsSurface("Grunt", false);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSwimEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterWater { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExitWater { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantsDive { name, wants } if name == "Grunt" && *wants)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantsSurface { name, wants } if name == "Grunt" && !wants)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSwimEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taint_read_ops() {
+        super::TAINT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (0.5f32, 0.25f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTaintDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaintTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaintHealingReduction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTainted("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustCleansed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTaintEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TAINT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taint_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyTaint("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearTaint("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTaintEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyTaint { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearTaint { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTaintEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tally_read_ops() {
+        super::TALLY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (3u32, 5u32, true, false, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTallyCount("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getTallyGoal("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustIncremented("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTallyCompleted("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTallyReset("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTallyEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TALLY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tally_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.incrementTally("Grunt", 2);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetTally("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTallyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IncrementTally { name, amount } if name == "Grunt" && *amount == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetTally { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTallyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_talon_read_ops() {
+        super::TALON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (true, 0.5f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isTalonActive("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getTalonGripBonus("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTalonSlipResistance("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustGripped("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustReleased("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTalonEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TALON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_talon_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setGripping("Grunt", true);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTalonEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetGripping { name, gripping } if name == "Grunt" && *gripping)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTalonEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taper_read_ops() {
+        super::TAPER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTaperElapsedTime("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaperMaxReductionTime("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaperDamageReduction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isTaperInCombat("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTaperPeaked("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTaperEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TAPER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taper_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.engageTaper("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disengageTaper("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTaperEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EngageTaper { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisengageTaper { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTaperEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taunt_read_ops() {
+        super::TAUNT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (true, 3.0f32, 1.5f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isTauntActive("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntRadius("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntThreatBoost("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTauntActivated("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTauntExpired("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTauntEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TAUNT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taunt_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.activateTaunt("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deactivateTaunt("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTauntEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateTaunt { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateTaunt { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTauntEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_thaw_read_ops() {
+        super::THAW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (0.75f32, 1.0f32, 0.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getThawFraction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt.eval(r#"String(Bsengine.getThawRate("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getThawFreezePenalty("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustThawed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustFrozen("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isThawEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::THAW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_thaw_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyFreeze("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setThawEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyFreeze { name, intensity } if name == "Grunt" && *intensity == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetThawEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trample_read_ops() {
+        super::TRAMPLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 10.0f32, 5.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleDamage("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getTramplePushForce("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleRadius("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTrampleStarted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTrampleEnded("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTrampleEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRAMPLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trample_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startTrample("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stopTrample("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTrampleEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartTrample { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopTrample { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTrampleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trance_read_ops() {
+        super::TRANCE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTranceDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranceTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranceRegenMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranceEntered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranceExited("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTranceEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRANCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trance_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyTrance("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearTrance("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTranceEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyTrance { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearTrance { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTranceEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tranquil_read_ops() {
+        super::TRANQUIL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTranquilDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranquilTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranquilRegenMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranquilEntered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranquilExited("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTranquilEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRANQUIL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tranquil_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.enterTranquil("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.interruptTranquil("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTranquilEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterTranquil { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InterruptTranquil { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTranquilEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_transfix_read_ops() {
+        super::TRANSFIX_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (true, 1.5f32, 10.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isTransfixActive("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getTransfixTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTransfixLockRange("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTransfixLocked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTransfixBroken("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTransfixEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRANSFIX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_transfix_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fixTransfix("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.breakTransfix("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTransfixEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FixTransfix { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BreakTransfix { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTransfixEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremble_read_ops() {
+        super::TREMBLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTrembleDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrembleTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrembleIntensity("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTrembling("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTrembleJustStopped("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTrembleEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TREMBLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremble_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyTremble("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearTremble("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTrembleEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyTremble { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearTremble { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTrembleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremor_read_ops() {
+        super::TREMOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (1.0f32, 0.5f32, 5.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorPulseInterval("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorPulseTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorRadius("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorStaggerStrength("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isTremorActive("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTremorJustPulsed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTremorEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TREMOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremor_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.activateTremor("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deactivateTremor("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTremorEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateTremor { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateTremor { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTremorEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trove_read_ops() {
+        super::TROVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.75f32, 1.0f32, 2.0f32, 3u32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveValue("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveThreshold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveRewardMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveCount("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isTroveJustActivated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTroveEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TROVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trove_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addTroveValue("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.consumeTrove("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTroveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddTroveValue { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeTrove { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTroveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tusk_read_ops() {
+        super::TUSK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (2.0f32, 5.0f32, 10.0f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTuskCurrentCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTuskFullChargeDist("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTuskMaxBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isTuskJustHit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTuskEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TUSK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tusk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chargeTusk("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.impactTusk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetTusk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTuskEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChargeTusk { name, dist } if name == "Grunt" && *dist == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ImpactTusk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetTusk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTuskEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_unrest_read_ops() {
+        super::UNREST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.75f32, 0.25f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestLevel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getUnrestMax("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestThreshold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestPenalty("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustBecameRestless("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustUnrestCalmed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isUnrestEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::UNREST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_unrest_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.agitateUnrest("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmUnrest("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setUnrestEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AgitateUnrest { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmUnrest { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetUnrestEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_upkeep_read_ops() {
+        super::UPKEEP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 2.0f32, 1.0f32, 0.75f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepDeficit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepMaxDeficit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepCostPerSecond("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepPenalty("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isUpkeepJustDefaulted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isUpkeepJustCleared("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isUpkeepEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::UPKEEP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_upkeep_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.payUpkeep("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setUpkeepEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PayUpkeep { name, amount } if name == "Grunt" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetUpkeepEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_urge_read_ops() {
+        super::URGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, 0.5f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getUrgeLevel("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getUrgeMax("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getUrgeBuildRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getUrgeDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getUrgeDriveBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt.eval(r#"String(Bsengine.isUrged("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isUrgeJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isUrgeEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::URGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_urge_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.urgeOn("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.urgeOff("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setUrgeEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UrgeOn { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UrgeOff { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetUrgeEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_venom_read_ops() {
+        super::VENOM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 3u32, 5u32, 3.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomDamagePerStack("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomStacks("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomMaxStacks("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVenomJustApplied("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVenomJustExpired("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVenomEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VENOM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_venom_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyVenom("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.applyVenomN("Grunt", 3);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearVenom("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVenomEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVenom { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVenomN { name, n } if name == "Grunt" && *n == 3)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearVenom { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVenomEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vex_read_ops() {
+        super::VEX_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (2u32, 5u32, 0.25f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getVexStacks("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getVexMaxStacks("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVexCcAmplify("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVexJustVexed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVexJustCleared("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isVexEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vex_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addVexStack("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.removeVexStack("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearVex("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVexEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddVexStack { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RemoveVexStack { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearVex { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVexEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vigor_read_ops() {
+        super::VIGOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 5.0f32, 20.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorHealthRegen("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorMaxHealthBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustInvigorated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVigorJustFaded("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVigorEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VIGOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vigor_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyVigor("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVigorEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVigor { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVigorEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vile_read_ops() {
+        super::VILE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVileDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt.eval(r#"String(Bsengine.getVileTimer("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVileHealReduction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVileJustApplied("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVileJustCleared("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVileEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VILE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vile_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyVile("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cleanseVile("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVileEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVile { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseVile { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVileEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_void_read_ops() {
+        super::VOID_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.75f32, 1.0f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVoidCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getVoidMaxCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVoidDrainFraction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVoidJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVoidEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VOID_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_void_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.drainVoid("Grunt", 10.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseVoid("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVoidEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrainVoid { name, damage } if name == "Grunt" && *damage == 10.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseVoid { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVoidEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

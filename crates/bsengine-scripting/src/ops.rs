@@ -5971,6 +5971,92 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    HoldWrap {
+        name: String,
+    },
+    ReleaseWrap {
+        name: String,
+    },
+    SetWrapEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnrageWrath {
+        name: String,
+        amount: f32,
+    },
+    CalmWrath {
+        name: String,
+    },
+    SetWrathEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RageWrathful {
+        name: String,
+        amount: f32,
+    },
+    CalmWrathful {
+        name: String,
+        amount: f32,
+    },
+    SetWrathfulEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DamageWreck {
+        name: String,
+        amount: f32,
+    },
+    RepairWreck {
+        name: String,
+        amount: f32,
+    },
+    SetWreckEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DemolishWrecker {
+        name: String,
+        amount: f32,
+    },
+    RebuildWrecker {
+        name: String,
+        amount: f32,
+    },
+    SetWreckerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    HarvestWren {
+        name: String,
+    },
+    SetWrenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    TwistWrench {
+        name: String,
+        amount: f32,
+    },
+    LoosenWrench {
+        name: String,
+        amount: f32,
+    },
+    SetWrenchEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StrainWrest {
+        name: String,
+    },
+    EaseWrest {
+        name: String,
+    },
+    SetWrestEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7390,6 +7476,22 @@ thread_local! {
     pub(crate) static WRAITH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WRANGLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRAP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRATH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRATHFUL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRECK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRECKER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WREN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WRENCH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WREST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -18562,6 +18664,349 @@ pub fn bsengine_set_wrangle_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWrangleEnabled { name, enabled })
+    });
+}
+// ── Wrap ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrap_level(#[string] name: String) -> f32 {
+    WRAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrap_max_wrap(#[string] name: String) -> f32 {
+    WRAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrap_tighten_rate(#[string] name: String) -> f32 {
+    WRAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrap_just_gripped(#[string] name: String) -> bool {
+    WRAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrap_just_freed(#[string] name: String) -> bool {
+    WRAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrap_enabled(#[string] name: String) -> bool {
+    WRAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_hold_wrap(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HoldWrap { name }));
+}
+#[op2(fast)]
+pub fn bsengine_release_wrap(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseWrap { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrap_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrapEnabled { name, enabled })
+    });
+}
+// ── Wrath ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrath_timer(#[string] name: String) -> f32 {
+    WRATH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrath_damage_multiplier(#[string] name: String) -> f32 {
+    WRATH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrath_defense_penalty(#[string] name: String) -> f32 {
+    WRATH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrath_just_entered(#[string] name: String) -> bool {
+    WRATH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrath_just_exited(#[string] name: String) -> bool {
+    WRATH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrath_enabled(#[string] name: String) -> bool {
+    WRATH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enrage_wrath(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EnrageWrath { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_wrath(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CalmWrath { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrath_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrathEnabled { name, enabled })
+    });
+}
+// ── Wrathful ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrathful_fury(#[string] name: String) -> f32 {
+    WRATHFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrathful_max_fury(#[string] name: String) -> f32 {
+    WRATHFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrathful_rage_rate(#[string] name: String) -> f32 {
+    WRATHFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrathful_just_enraged(#[string] name: String) -> bool {
+    WRATHFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrathful_just_calmed(#[string] name: String) -> bool {
+    WRATHFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrathful_enabled(#[string] name: String) -> bool {
+    WRATHFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rage_wrathful(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RageWrathful { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_wrathful(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalmWrathful { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wrathful_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrathfulEnabled { name, enabled })
+    });
+}
+// ── Wreck ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wreck_level(#[string] name: String) -> f32 {
+    WRECK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wreck_max_wreck(#[string] name: String) -> f32 {
+    WRECK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wreck_decay_rate(#[string] name: String) -> f32 {
+    WRECK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wreck_just_wrecked(#[string] name: String) -> bool {
+    WRECK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wreck_just_restored(#[string] name: String) -> bool {
+    WRECK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wreck_enabled(#[string] name: String) -> bool {
+    WRECK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_damage_wreck(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DamageWreck { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repair_wreck(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RepairWreck { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wreck_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWreckEnabled { name, enabled })
+    });
+}
+// ── Wrecker ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrecker_destruction(#[string] name: String) -> f32 {
+    WRECKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrecker_max_destruction(#[string] name: String) -> f32 {
+    WRECKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrecker_demolish_rate(#[string] name: String) -> f32 {
+    WRECKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrecker_just_ruined(#[string] name: String) -> bool {
+    WRECKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrecker_just_intact(#[string] name: String) -> bool {
+    WRECKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrecker_enabled(#[string] name: String) -> bool {
+    WRECKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_demolish_wrecker(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DemolishWrecker { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_rebuild_wrecker(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RebuildWrecker { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wrecker_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWreckerEnabled { name, enabled })
+    });
+}
+// ── Wren ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wren_level(#[string] name: String) -> f32 {
+    WREN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wren_max_wren(#[string] name: String) -> f32 {
+    WREN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wren_cache_rate(#[string] name: String) -> f32 {
+    WREN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wren_just_stocked(#[string] name: String) -> bool {
+    WREN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wren_just_yielded(#[string] name: String) -> bool {
+    WREN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wren_enabled(#[string] name: String) -> bool {
+    WREN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_harvest_wren(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HarvestWren { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wren_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrenEnabled { name, enabled })
+    });
+}
+// ── Wrench ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrench_torque(#[string] name: String) -> f32 {
+    WRENCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrench_max_torque(#[string] name: String) -> f32 {
+    WRENCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrench_twist_rate(#[string] name: String) -> f32 {
+    WRENCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrench_just_tightened(#[string] name: String) -> bool {
+    WRENCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrench_just_loose(#[string] name: String) -> bool {
+    WRENCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrench_enabled(#[string] name: String) -> bool {
+    WRENCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_twist_wrench(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TwistWrench { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_loosen_wrench(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LoosenWrench { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wrench_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrenchEnabled { name, enabled })
+    });
+}
+// ── Wrest ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wrest_level(#[string] name: String) -> f32 {
+    WREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrest_max_wrest(#[string] name: String) -> f32 {
+    WREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wrest_strain_rate(#[string] name: String) -> f32 {
+    WREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrest_just_seized(#[string] name: String) -> bool {
+    WREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrest_just_released(#[string] name: String) -> bool {
+    WREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wrest_enabled(#[string] name: String) -> bool {
+    WREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_strain_wrest(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StrainWrest { name }));
+}
+#[op2(fast)]
+pub fn bsengine_ease_wrest(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EaseWrest { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wrest_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWrestEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -39725,6 +40170,77 @@ deno_core::extension!(
         bsengine_quarrel_wrangle,
         bsengine_resolve_wrangle,
         bsengine_set_wrangle_enabled,
+        bsengine_get_wrap_level,
+        bsengine_get_wrap_max_wrap,
+        bsengine_get_wrap_tighten_rate,
+        bsengine_is_wrap_just_gripped,
+        bsengine_is_wrap_just_freed,
+        bsengine_is_wrap_enabled,
+        bsengine_hold_wrap,
+        bsengine_release_wrap,
+        bsengine_set_wrap_enabled,
+        bsengine_get_wrath_timer,
+        bsengine_get_wrath_damage_multiplier,
+        bsengine_get_wrath_defense_penalty,
+        bsengine_is_wrath_just_entered,
+        bsengine_is_wrath_just_exited,
+        bsengine_is_wrath_enabled,
+        bsengine_enrage_wrath,
+        bsengine_calm_wrath,
+        bsengine_set_wrath_enabled,
+        bsengine_get_wrathful_fury,
+        bsengine_get_wrathful_max_fury,
+        bsengine_get_wrathful_rage_rate,
+        bsengine_is_wrathful_just_enraged,
+        bsengine_is_wrathful_just_calmed,
+        bsengine_is_wrathful_enabled,
+        bsengine_rage_wrathful,
+        bsengine_calm_wrathful,
+        bsengine_set_wrathful_enabled,
+        bsengine_get_wreck_level,
+        bsengine_get_wreck_max_wreck,
+        bsengine_get_wreck_decay_rate,
+        bsengine_is_wreck_just_wrecked,
+        bsengine_is_wreck_just_restored,
+        bsengine_is_wreck_enabled,
+        bsengine_damage_wreck,
+        bsengine_repair_wreck,
+        bsengine_set_wreck_enabled,
+        bsengine_get_wrecker_destruction,
+        bsengine_get_wrecker_max_destruction,
+        bsengine_get_wrecker_demolish_rate,
+        bsengine_is_wrecker_just_ruined,
+        bsengine_is_wrecker_just_intact,
+        bsengine_is_wrecker_enabled,
+        bsengine_demolish_wrecker,
+        bsengine_rebuild_wrecker,
+        bsengine_set_wrecker_enabled,
+        bsengine_get_wren_level,
+        bsengine_get_wren_max_wren,
+        bsengine_get_wren_cache_rate,
+        bsengine_is_wren_just_stocked,
+        bsengine_is_wren_just_yielded,
+        bsengine_is_wren_enabled,
+        bsengine_harvest_wren,
+        bsengine_set_wren_enabled,
+        bsengine_get_wrench_torque,
+        bsengine_get_wrench_max_torque,
+        bsengine_get_wrench_twist_rate,
+        bsengine_is_wrench_just_tightened,
+        bsengine_is_wrench_just_loose,
+        bsengine_is_wrench_enabled,
+        bsengine_twist_wrench,
+        bsengine_loosen_wrench,
+        bsengine_set_wrench_enabled,
+        bsengine_get_wrest_level,
+        bsengine_get_wrest_max_wrest,
+        bsengine_get_wrest_strain_rate,
+        bsengine_is_wrest_just_seized,
+        bsengine_is_wrest_just_released,
+        bsengine_is_wrest_enabled,
+        bsengine_strain_wrest,
+        bsengine_ease_wrest,
+        bsengine_set_wrest_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -44300,6 +44816,77 @@ const Bsengine = {
     quarrelWrangle:             (name, v)           => Deno.core.ops.bsengine_quarrel_wrangle(name, v),
     resolveWrangle:             (name, v)           => Deno.core.ops.bsengine_resolve_wrangle(name, v),
     setWrangleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_wrangle_enabled(name, v),
+    getWrapLevel:               (name)              => Deno.core.ops.bsengine_get_wrap_level(name),
+    getWrapMaxWrap:             (name)              => Deno.core.ops.bsengine_get_wrap_max_wrap(name),
+    getWrapTightenRate:         (name)              => Deno.core.ops.bsengine_get_wrap_tighten_rate(name),
+    isWrapJustGripped:          (name)              => Deno.core.ops.bsengine_is_wrap_just_gripped(name),
+    isWrapJustFreed:            (name)              => Deno.core.ops.bsengine_is_wrap_just_freed(name),
+    isWrapEnabled:              (name)              => Deno.core.ops.bsengine_is_wrap_enabled(name),
+    holdWrap:                   (name)              => Deno.core.ops.bsengine_hold_wrap(name),
+    releaseWrap:                (name)              => Deno.core.ops.bsengine_release_wrap(name),
+    setWrapEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wrap_enabled(name, v),
+    getWrathTimer:              (name)              => Deno.core.ops.bsengine_get_wrath_timer(name),
+    getWrathDamageMultiplier:   (name)              => Deno.core.ops.bsengine_get_wrath_damage_multiplier(name),
+    getWrathDefensePenalty:     (name)              => Deno.core.ops.bsengine_get_wrath_defense_penalty(name),
+    isWrathJustEntered:         (name)              => Deno.core.ops.bsengine_is_wrath_just_entered(name),
+    isWrathJustExited:          (name)              => Deno.core.ops.bsengine_is_wrath_just_exited(name),
+    isWrathEnabled:             (name)              => Deno.core.ops.bsengine_is_wrath_enabled(name),
+    enrageWrath:                (name, v)           => Deno.core.ops.bsengine_enrage_wrath(name, v),
+    calmWrath:                  (name)              => Deno.core.ops.bsengine_calm_wrath(name),
+    setWrathEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wrath_enabled(name, v),
+    getWrathfulFury:            (name)              => Deno.core.ops.bsengine_get_wrathful_fury(name),
+    getWrathfulMaxFury:         (name)              => Deno.core.ops.bsengine_get_wrathful_max_fury(name),
+    getWrathfulRageRate:        (name)              => Deno.core.ops.bsengine_get_wrathful_rage_rate(name),
+    isWrathfulJustEnraged:      (name)              => Deno.core.ops.bsengine_is_wrathful_just_enraged(name),
+    isWrathfulJustCalmed:       (name)              => Deno.core.ops.bsengine_is_wrathful_just_calmed(name),
+    isWrathfulEnabled:          (name)              => Deno.core.ops.bsengine_is_wrathful_enabled(name),
+    rageWrathful:               (name, v)           => Deno.core.ops.bsengine_rage_wrathful(name, v),
+    calmWrathful:               (name, v)           => Deno.core.ops.bsengine_calm_wrathful(name, v),
+    setWrathfulEnabled:         (name, v)           => Deno.core.ops.bsengine_set_wrathful_enabled(name, v),
+    getWreckLevel:              (name)              => Deno.core.ops.bsengine_get_wreck_level(name),
+    getWreckMaxWreck:           (name)              => Deno.core.ops.bsengine_get_wreck_max_wreck(name),
+    getWreckDecayRate:          (name)              => Deno.core.ops.bsengine_get_wreck_decay_rate(name),
+    isWreckJustWrecked:         (name)              => Deno.core.ops.bsengine_is_wreck_just_wrecked(name),
+    isWreckJustRestored:        (name)              => Deno.core.ops.bsengine_is_wreck_just_restored(name),
+    isWreckEnabled:             (name)              => Deno.core.ops.bsengine_is_wreck_enabled(name),
+    damageWreck:                (name, v)           => Deno.core.ops.bsengine_damage_wreck(name, v),
+    repairWreck:                (name, v)           => Deno.core.ops.bsengine_repair_wreck(name, v),
+    setWreckEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wreck_enabled(name, v),
+    getWreckerDestruction:      (name)              => Deno.core.ops.bsengine_get_wrecker_destruction(name),
+    getWreckerMaxDestruction:   (name)              => Deno.core.ops.bsengine_get_wrecker_max_destruction(name),
+    getWreckerDemolishRate:     (name)              => Deno.core.ops.bsengine_get_wrecker_demolish_rate(name),
+    isWreckerJustRuined:        (name)              => Deno.core.ops.bsengine_is_wrecker_just_ruined(name),
+    isWreckerJustIntact:        (name)              => Deno.core.ops.bsengine_is_wrecker_just_intact(name),
+    isWreckerEnabled:           (name)              => Deno.core.ops.bsengine_is_wrecker_enabled(name),
+    demolishWrecker:            (name, v)           => Deno.core.ops.bsengine_demolish_wrecker(name, v),
+    rebuildWrecker:             (name, v)           => Deno.core.ops.bsengine_rebuild_wrecker(name, v),
+    setWreckerEnabled:          (name, v)           => Deno.core.ops.bsengine_set_wrecker_enabled(name, v),
+    getWrenLevel:               (name)              => Deno.core.ops.bsengine_get_wren_level(name),
+    getWrenMaxWren:             (name)              => Deno.core.ops.bsengine_get_wren_max_wren(name),
+    getWrenCacheRate:           (name)              => Deno.core.ops.bsengine_get_wren_cache_rate(name),
+    isWrenJustStocked:          (name)              => Deno.core.ops.bsengine_is_wren_just_stocked(name),
+    isWrenJustYielded:          (name)              => Deno.core.ops.bsengine_is_wren_just_yielded(name),
+    isWrenEnabled:              (name)              => Deno.core.ops.bsengine_is_wren_enabled(name),
+    harvestWren:                (name)              => Deno.core.ops.bsengine_harvest_wren(name),
+    setWrenEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wren_enabled(name, v),
+    getWrenchTorque:            (name)              => Deno.core.ops.bsengine_get_wrench_torque(name),
+    getWrenchMaxTorque:         (name)              => Deno.core.ops.bsengine_get_wrench_max_torque(name),
+    getWrenchTwistRate:         (name)              => Deno.core.ops.bsengine_get_wrench_twist_rate(name),
+    isWrenchJustTightened:      (name)              => Deno.core.ops.bsengine_is_wrench_just_tightened(name),
+    isWrenchJustLoose:          (name)              => Deno.core.ops.bsengine_is_wrench_just_loose(name),
+    isWrenchEnabled:            (name)              => Deno.core.ops.bsengine_is_wrench_enabled(name),
+    twistWrench:                (name, v)           => Deno.core.ops.bsengine_twist_wrench(name, v),
+    loosenWrench:               (name, v)           => Deno.core.ops.bsengine_loosen_wrench(name, v),
+    setWrenchEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wrench_enabled(name, v),
+    getWrestLevel:              (name)              => Deno.core.ops.bsengine_get_wrest_level(name),
+    getWrestMaxWrest:           (name)              => Deno.core.ops.bsengine_get_wrest_max_wrest(name),
+    getWrestStrainRate:         (name)              => Deno.core.ops.bsengine_get_wrest_strain_rate(name),
+    isWrestJustSeized:          (name)              => Deno.core.ops.bsengine_is_wrest_just_seized(name),
+    isWrestJustReleased:        (name)              => Deno.core.ops.bsengine_is_wrest_just_released(name),
+    isWrestEnabled:             (name)              => Deno.core.ops.bsengine_is_wrest_enabled(name),
+    strainWrest:                (name)              => Deno.core.ops.bsengine_strain_wrest(name),
+    easeWrest:                  (name)              => Deno.core.ops.bsengine_ease_wrest(name),
+    setWrestEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wrest_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -74066,6 +74653,441 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuarrelWrangle { name, amount } if name == "Dispute" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResolveWrangle { name, amount } if name == "Dispute" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrangleEnabled { name, enabled } if name == "Dispute" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrap_read_ops() {
+        super::WRAP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Coil".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWrapLevel("Coil"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrapMaxWrap("Coil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrapTightenRate("Coil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrapJustGripped("Coil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrapJustFreed("Coil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrapEnabled("Coil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRAP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrap_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.holdWrap("Coil");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseWrap("Coil");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrapEnabled("Coil", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HoldWrap { name } if name == "Coil")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseWrap { name } if name == "Coil")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrapEnabled { name, enabled } if name == "Coil" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrath_read_ops() {
+        super::WRATH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fury".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrathTimer("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrathDamageMultiplier("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrathDefensePenalty("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrathJustEntered("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrathJustExited("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrathEnabled("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRATH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrath_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.enrageWrath("Fury", 5.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmWrath("Fury");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrathEnabled("Fury", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnrageWrath { name, amount } if name == "Fury" && *amount == 5.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmWrath { name } if name == "Fury")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrathEnabled { name, enabled } if name == "Fury" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrathful_read_ops() {
+        super::WRATHFUL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rage".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrathfulFury("Rage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrathfulMaxFury("Rage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrathfulRageRate("Rage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrathfulJustEnraged("Rage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrathfulJustCalmed("Rage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrathfulEnabled("Rage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRATHFUL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrathful_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.rageWrathful("Rage", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmWrathful("Rage", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrathfulEnabled("Rage", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RageWrathful { name, amount } if name == "Rage" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmWrathful { name, amount } if name == "Rage" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrathfulEnabled { name, enabled } if name == "Rage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wreck_read_ops() {
+        super::WRECK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ruin".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWreckLevel("Ruin"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWreckMaxWreck("Ruin"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWreckDecayRate("Ruin"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWreckJustWrecked("Ruin"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWreckJustRestored("Ruin"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWreckEnabled("Ruin"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRECK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wreck_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.damageWreck("Ruin", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairWreck("Ruin", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWreckEnabled("Ruin", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DamageWreck { name, amount } if name == "Ruin" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairWreck { name, amount } if name == "Ruin" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWreckEnabled { name, enabled } if name == "Ruin" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrecker_read_ops() {
+        super::WRECKER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Demo".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWreckerDestruction("Demo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWreckerMaxDestruction("Demo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWreckerDemolishRate("Demo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWreckerJustRuined("Demo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWreckerJustIntact("Demo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWreckerEnabled("Demo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRECKER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrecker_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.demolishWrecker("Demo", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.rebuildWrecker("Demo", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWreckerEnabled("Demo", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DemolishWrecker { name, amount } if name == "Demo" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RebuildWrecker { name, amount } if name == "Demo" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWreckerEnabled { name, enabled } if name == "Demo" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wren_read_ops() {
+        super::WREN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cache".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrenLevel("Cache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrenMaxWren("Cache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrenCacheRate("Cache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrenJustStocked("Cache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrenJustYielded("Cache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrenEnabled("Cache"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WREN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wren_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.harvestWren("Cache");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrenEnabled("Cache", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HarvestWren { name } if name == "Cache")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrenEnabled { name, enabled } if name == "Cache" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrench_read_ops() {
+        super::WRENCH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Torque".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrenchTorque("Torque"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrenchMaxTorque("Torque"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrenchTwistRate("Torque"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrenchJustTightened("Torque"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrenchJustLoose("Torque"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrenchEnabled("Torque"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WRENCH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrench_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.twistWrench("Torque", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.loosenWrench("Torque", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrenchEnabled("Torque", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TwistWrench { name, amount } if name == "Torque" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LoosenWrench { name, amount } if name == "Torque" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrenchEnabled { name, enabled } if name == "Torque" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrest_read_ops() {
+        super::WREST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Seize".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWrestLevel("Seize"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrestMaxWrest("Seize"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWrestStrainRate("Seize"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrestJustSeized("Seize"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrestJustReleased("Seize"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWrestEnabled("Seize"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WREST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wrest_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.strainWrest("Seize");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.easeWrest("Seize");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWrestEnabled("Seize", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrainWrest { name } if name == "Seize")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EaseWrest { name } if name == "Seize")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWrestEnabled { name, enabled } if name == "Seize" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

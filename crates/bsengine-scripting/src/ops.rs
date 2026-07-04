@@ -5024,6 +5024,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    StrikeWelt {
+        name: String,
+        amount: f32,
+    },
+    SalveWelt {
+        name: String,
+        amount: f32,
+    },
+    SetWeltEnabled {
+        name: String,
+        enabled: bool,
+    },
+    TraverseWend {
+        name: String,
+        amount: f32,
+    },
+    BacktrackWend {
+        name: String,
+        amount: f32,
+    },
+    SetWendEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WaftWhiff {
+        name: String,
+        amount: f32,
+    },
+    DissipateWhiff {
+        name: String,
+        amount: f32,
+    },
+    SetWhiffEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FancyWhim {
+        name: String,
+        amount: f32,
+    },
+    SettleWhim {
+        name: String,
+        amount: f32,
+    },
+    SetWhimEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CrackWhip {
+        name: String,
+        amount: f32,
+    },
+    SlackenWhip {
+        name: String,
+        amount: f32,
+    },
+    SetWhipEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SpinUpWhirl {
+        name: String,
+    },
+    SpinDownWhirl {
+        name: String,
+    },
+    SetWhirlEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeatWhisk {
+        name: String,
+        amount: f32,
+    },
+    SettleWhisk {
+        name: String,
+        amount: f32,
+    },
+    SetWhiskEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SoakWick {
+        name: String,
+        amount: f32,
+    },
+    SpendWick {
+        name: String,
+        amount: f32,
+    },
+    SetWickEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6283,6 +6377,22 @@ thread_local! {
     pub(crate) static WELLY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WELP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEND_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WHIFF_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WHIM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WHIP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WHIRL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WHISK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WICK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -13877,6 +13987,368 @@ pub fn bsengine_set_welp_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWelpEnabled { name, enabled })
+    });
+}
+// ── Welt ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_welt_marks(#[string] name: String) -> f32 {
+    WELT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welt_max_marks(#[string] name: String) -> f32 {
+    WELT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welt_bruise_rate(#[string] name: String) -> f32 {
+    WELT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_welt_just_welted(#[string] name: String) -> bool {
+    WELT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welt_just_healed(#[string] name: String) -> bool {
+    WELT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welt_enabled(#[string] name: String) -> bool {
+    WELT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_strike_welt(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StrikeWelt { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_salve_welt(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SalveWelt { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_welt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeltEnabled { name, enabled })
+    });
+}
+// ── Wend ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wend_journey(#[string] name: String) -> f32 {
+    WEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wend_max_journey(#[string] name: String) -> f32 {
+    WEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wend_travel_rate(#[string] name: String) -> f32 {
+    WEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wend_just_arrived(#[string] name: String) -> bool {
+    WEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wend_just_lost(#[string] name: String) -> bool {
+    WEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wend_enabled(#[string] name: String) -> bool {
+    WEND_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_traverse_wend(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TraverseWend { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_backtrack_wend(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BacktrackWend { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wend_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWendEnabled { name, enabled })
+    });
+}
+// ── Whiff ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_whiff_scent(#[string] name: String) -> f32 {
+    WHIFF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whiff_max_scent(#[string] name: String) -> f32 {
+    WHIFF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whiff_drift_rate(#[string] name: String) -> f32 {
+    WHIFF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_whiff_just_pungent(#[string] name: String) -> bool {
+    WHIFF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whiff_just_faded(#[string] name: String) -> bool {
+    WHIFF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whiff_enabled(#[string] name: String) -> bool {
+    WHIFF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_waft_whiff(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WaftWhiff { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dissipate_whiff(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DissipateWhiff { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_whiff_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWhiffEnabled { name, enabled })
+    });
+}
+// ── Whim ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_whim_impulse(#[string] name: String) -> f32 {
+    WHIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whim_max_impulse(#[string] name: String) -> f32 {
+    WHIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whim_whim_rate(#[string] name: String) -> f32 {
+    WHIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_whim_just_whimsy(#[string] name: String) -> bool {
+    WHIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whim_just_grounded(#[string] name: String) -> bool {
+    WHIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whim_enabled(#[string] name: String) -> bool {
+    WHIM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fancy_whim(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FancyWhim { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_settle_whim(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SettleWhim { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_whim_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWhimEnabled { name, enabled })
+    });
+}
+// ── Whip ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_whip_lash(#[string] name: String) -> f32 {
+    WHIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whip_max_lash(#[string] name: String) -> f32 {
+    WHIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whip_crack_rate(#[string] name: String) -> f32 {
+    WHIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_whip_just_cracking(#[string] name: String) -> bool {
+    WHIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whip_just_slack(#[string] name: String) -> bool {
+    WHIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whip_enabled(#[string] name: String) -> bool {
+    WHIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crack_whip(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrackWhip { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_slacken_whip(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SlackenWhip { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_whip_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWhipEnabled { name, enabled })
+    });
+}
+// ── Whirl ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_whirl_angle(#[string] name: String) -> f32 {
+    WHIRL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whirl_spin_speed(#[string] name: String) -> f32 {
+    WHIRL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whirl_revolutions(#[string] name: String) -> u32 {
+    WHIRL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_whirl_active(#[string] name: String) -> bool {
+    WHIRL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whirl_just_lapped(#[string] name: String) -> bool {
+    WHIRL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whirl_enabled(#[string] name: String) -> bool {
+    WHIRL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_spin_up_whirl(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SpinUpWhirl { name }));
+}
+#[op2(fast)]
+pub fn bsengine_spin_down_whirl(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SpinDownWhirl { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_whirl_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWhirlEnabled { name, enabled })
+    });
+}
+// ── Whisk ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_whisk_agitation(#[string] name: String) -> f32 {
+    WHISK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whisk_max_agitation(#[string] name: String) -> f32 {
+    WHISK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_whisk_beat_rate(#[string] name: String) -> f32 {
+    WHISK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_whisk_just_frothy(#[string] name: String) -> bool {
+    WHISK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whisk_just_settled(#[string] name: String) -> bool {
+    WHISK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_whisk_enabled(#[string] name: String) -> bool {
+    WHISK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_beat_whisk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeatWhisk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_settle_whisk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SettleWhisk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_whisk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWhiskEnabled { name, enabled })
+    });
+}
+// ── Wick ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wick_fuel(#[string] name: String) -> f32 {
+    WICK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wick_max_fuel(#[string] name: String) -> f32 {
+    WICK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wick_draw_rate(#[string] name: String) -> f32 {
+    WICK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wick_just_lit(#[string] name: String) -> bool {
+    WICK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wick_just_dry(#[string] name: String) -> bool {
+    WICK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wick_enabled(#[string] name: String) -> bool {
+    WICK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_soak_wick(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SoakWick { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_spend_wick(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SpendWick { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wick_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWickEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -34320,6 +34792,78 @@ deno_core::extension!(
         bsengine_panic_welp,
         bsengine_calm_welp,
         bsengine_set_welp_enabled,
+        bsengine_get_welt_marks,
+        bsengine_get_welt_max_marks,
+        bsengine_get_welt_bruise_rate,
+        bsengine_is_welt_just_welted,
+        bsengine_is_welt_just_healed,
+        bsengine_is_welt_enabled,
+        bsengine_strike_welt,
+        bsengine_salve_welt,
+        bsengine_set_welt_enabled,
+        bsengine_get_wend_journey,
+        bsengine_get_wend_max_journey,
+        bsengine_get_wend_travel_rate,
+        bsengine_is_wend_just_arrived,
+        bsengine_is_wend_just_lost,
+        bsengine_is_wend_enabled,
+        bsengine_traverse_wend,
+        bsengine_backtrack_wend,
+        bsengine_set_wend_enabled,
+        bsengine_get_whiff_scent,
+        bsengine_get_whiff_max_scent,
+        bsengine_get_whiff_drift_rate,
+        bsengine_is_whiff_just_pungent,
+        bsengine_is_whiff_just_faded,
+        bsengine_is_whiff_enabled,
+        bsengine_waft_whiff,
+        bsengine_dissipate_whiff,
+        bsengine_set_whiff_enabled,
+        bsengine_get_whim_impulse,
+        bsengine_get_whim_max_impulse,
+        bsengine_get_whim_whim_rate,
+        bsengine_is_whim_just_whimsy,
+        bsengine_is_whim_just_grounded,
+        bsengine_is_whim_enabled,
+        bsengine_fancy_whim,
+        bsengine_settle_whim,
+        bsengine_set_whim_enabled,
+        bsengine_get_whip_lash,
+        bsengine_get_whip_max_lash,
+        bsengine_get_whip_crack_rate,
+        bsengine_is_whip_just_cracking,
+        bsengine_is_whip_just_slack,
+        bsengine_is_whip_enabled,
+        bsengine_crack_whip,
+        bsengine_slacken_whip,
+        bsengine_set_whip_enabled,
+        bsengine_get_whirl_angle,
+        bsengine_get_whirl_spin_speed,
+        bsengine_get_whirl_revolutions,
+        bsengine_is_whirl_active,
+        bsengine_is_whirl_just_lapped,
+        bsengine_is_whirl_enabled,
+        bsengine_spin_up_whirl,
+        bsengine_spin_down_whirl,
+        bsengine_set_whirl_enabled,
+        bsengine_get_whisk_agitation,
+        bsengine_get_whisk_max_agitation,
+        bsengine_get_whisk_beat_rate,
+        bsengine_is_whisk_just_frothy,
+        bsengine_is_whisk_just_settled,
+        bsengine_is_whisk_enabled,
+        bsengine_beat_whisk,
+        bsengine_settle_whisk,
+        bsengine_set_whisk_enabled,
+        bsengine_get_wick_fuel,
+        bsengine_get_wick_max_fuel,
+        bsengine_get_wick_draw_rate,
+        bsengine_is_wick_just_lit,
+        bsengine_is_wick_just_dry,
+        bsengine_is_wick_enabled,
+        bsengine_soak_wick,
+        bsengine_spend_wick,
+        bsengine_set_wick_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -38175,6 +38719,78 @@ const Bsengine = {
     panicWelp:                  (name, amount)      => Deno.core.ops.bsengine_panic_welp(name, amount),
     calmWelp:                   (name, amount)      => Deno.core.ops.bsengine_calm_welp(name, amount),
     setWelpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_welp_enabled(name, v),
+    getWeltMarks:               (name)              => Deno.core.ops.bsengine_get_welt_marks(name),
+    getWeltMaxMarks:            (name)              => Deno.core.ops.bsengine_get_welt_max_marks(name),
+    getWeltBruiseRate:          (name)              => Deno.core.ops.bsengine_get_welt_bruise_rate(name),
+    isWeltJustWelted:           (name)              => Deno.core.ops.bsengine_is_welt_just_welted(name),
+    isWeltJustHealed:           (name)              => Deno.core.ops.bsengine_is_welt_just_healed(name),
+    isWeltEnabled:              (name)              => Deno.core.ops.bsengine_is_welt_enabled(name),
+    strikeWelt:                 (name, amount)      => Deno.core.ops.bsengine_strike_welt(name, amount),
+    salveWelt:                  (name, amount)      => Deno.core.ops.bsengine_salve_welt(name, amount),
+    setWeltEnabled:             (name, v)           => Deno.core.ops.bsengine_set_welt_enabled(name, v),
+    getWendJourney:             (name)              => Deno.core.ops.bsengine_get_wend_journey(name),
+    getWendMaxJourney:          (name)              => Deno.core.ops.bsengine_get_wend_max_journey(name),
+    getWendTravelRate:          (name)              => Deno.core.ops.bsengine_get_wend_travel_rate(name),
+    isWendJustArrived:          (name)              => Deno.core.ops.bsengine_is_wend_just_arrived(name),
+    isWendJustLost:             (name)              => Deno.core.ops.bsengine_is_wend_just_lost(name),
+    isWendEnabled:              (name)              => Deno.core.ops.bsengine_is_wend_enabled(name),
+    traverseWend:               (name, amount)      => Deno.core.ops.bsengine_traverse_wend(name, amount),
+    backtrackWend:              (name, amount)      => Deno.core.ops.bsengine_backtrack_wend(name, amount),
+    setWendEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wend_enabled(name, v),
+    getWhiffScent:              (name)              => Deno.core.ops.bsengine_get_whiff_scent(name),
+    getWhiffMaxScent:           (name)              => Deno.core.ops.bsengine_get_whiff_max_scent(name),
+    getWhiffDriftRate:          (name)              => Deno.core.ops.bsengine_get_whiff_drift_rate(name),
+    isWhiffJustPungent:         (name)              => Deno.core.ops.bsengine_is_whiff_just_pungent(name),
+    isWhiffJustFaded:           (name)              => Deno.core.ops.bsengine_is_whiff_just_faded(name),
+    isWhiffEnabled:             (name)              => Deno.core.ops.bsengine_is_whiff_enabled(name),
+    waftWhiff:                  (name, amount)      => Deno.core.ops.bsengine_waft_whiff(name, amount),
+    dissipateWhiff:             (name, amount)      => Deno.core.ops.bsengine_dissipate_whiff(name, amount),
+    setWhiffEnabled:            (name, v)           => Deno.core.ops.bsengine_set_whiff_enabled(name, v),
+    getWhimImpulse:             (name)              => Deno.core.ops.bsengine_get_whim_impulse(name),
+    getWhimMaxImpulse:          (name)              => Deno.core.ops.bsengine_get_whim_max_impulse(name),
+    getWhimWhimRate:            (name)              => Deno.core.ops.bsengine_get_whim_whim_rate(name),
+    isWhimJustWhimsy:           (name)              => Deno.core.ops.bsengine_is_whim_just_whimsy(name),
+    isWhimJustGrounded:         (name)              => Deno.core.ops.bsengine_is_whim_just_grounded(name),
+    isWhimEnabled:              (name)              => Deno.core.ops.bsengine_is_whim_enabled(name),
+    fancyWhim:                  (name, amount)      => Deno.core.ops.bsengine_fancy_whim(name, amount),
+    settleWhim:                 (name, amount)      => Deno.core.ops.bsengine_settle_whim(name, amount),
+    setWhimEnabled:             (name, v)           => Deno.core.ops.bsengine_set_whim_enabled(name, v),
+    getWhipLash:                (name)              => Deno.core.ops.bsengine_get_whip_lash(name),
+    getWhipMaxLash:             (name)              => Deno.core.ops.bsengine_get_whip_max_lash(name),
+    getWhipCrackRate:           (name)              => Deno.core.ops.bsengine_get_whip_crack_rate(name),
+    isWhipJustCracking:         (name)              => Deno.core.ops.bsengine_is_whip_just_cracking(name),
+    isWhipJustSlack:            (name)              => Deno.core.ops.bsengine_is_whip_just_slack(name),
+    isWhipEnabled:              (name)              => Deno.core.ops.bsengine_is_whip_enabled(name),
+    crackWhip:                  (name, amount)      => Deno.core.ops.bsengine_crack_whip(name, amount),
+    slackenWhip:                (name, amount)      => Deno.core.ops.bsengine_slacken_whip(name, amount),
+    setWhipEnabled:             (name, v)           => Deno.core.ops.bsengine_set_whip_enabled(name, v),
+    getWhirlAngle:              (name)              => Deno.core.ops.bsengine_get_whirl_angle(name),
+    getWhirlSpinSpeed:          (name)              => Deno.core.ops.bsengine_get_whirl_spin_speed(name),
+    getWhirlRevolutions:        (name)              => Deno.core.ops.bsengine_get_whirl_revolutions(name),
+    isWhirlActive:              (name)              => Deno.core.ops.bsengine_is_whirl_active(name),
+    isWhirlJustLapped:          (name)              => Deno.core.ops.bsengine_is_whirl_just_lapped(name),
+    isWhirlEnabled:             (name)              => Deno.core.ops.bsengine_is_whirl_enabled(name),
+    spinUpWhirl:                (name)              => Deno.core.ops.bsengine_spin_up_whirl(name),
+    spinDownWhirl:              (name)              => Deno.core.ops.bsengine_spin_down_whirl(name),
+    setWhirlEnabled:            (name, v)           => Deno.core.ops.bsengine_set_whirl_enabled(name, v),
+    getWhiskAgitation:          (name)              => Deno.core.ops.bsengine_get_whisk_agitation(name),
+    getWhiskMaxAgitation:       (name)              => Deno.core.ops.bsengine_get_whisk_max_agitation(name),
+    getWhiskBeatRate:           (name)              => Deno.core.ops.bsengine_get_whisk_beat_rate(name),
+    isWhiskJustFrothy:          (name)              => Deno.core.ops.bsengine_is_whisk_just_frothy(name),
+    isWhiskJustSettled:         (name)              => Deno.core.ops.bsengine_is_whisk_just_settled(name),
+    isWhiskEnabled:             (name)              => Deno.core.ops.bsengine_is_whisk_enabled(name),
+    beatWhisk:                  (name, amount)      => Deno.core.ops.bsengine_beat_whisk(name, amount),
+    settleWhisk:                (name, amount)      => Deno.core.ops.bsengine_settle_whisk(name, amount),
+    setWhiskEnabled:            (name, v)           => Deno.core.ops.bsengine_set_whisk_enabled(name, v),
+    getWickFuel:                (name)              => Deno.core.ops.bsengine_get_wick_fuel(name),
+    getWickMaxFuel:             (name)              => Deno.core.ops.bsengine_get_wick_max_fuel(name),
+    getWickDrawRate:            (name)              => Deno.core.ops.bsengine_get_wick_draw_rate(name),
+    isWickJustLit:              (name)              => Deno.core.ops.bsengine_is_wick_just_lit(name),
+    isWickJustDry:              (name)              => Deno.core.ops.bsengine_is_wick_just_dry(name),
+    isWickEnabled:              (name)              => Deno.core.ops.bsengine_is_wick_enabled(name),
+    soakWick:                   (name, amount)      => Deno.core.ops.bsengine_soak_wick(name, amount),
+    spendWick:                  (name, amount)      => Deno.core.ops.bsengine_spend_wick(name, amount),
+    setWickEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wick_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -63660,6 +64276,428 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PanicWelp { name, amount } if name == "Pup" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmWelp { name, amount } if name == "Pup" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWelpEnabled { name, enabled } if name == "Pup" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welt_read_ops() {
+        super::WELT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Scar".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWeltMarks("Scar"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeltMaxMarks("Scar"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeltBruiseRate("Scar"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeltJustWelted("Scar"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeltJustHealed("Scar"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeltEnabled("Scar"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welt_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.strikeWelt("Scar", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.salveWelt("Scar", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWeltEnabled("Scar", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrikeWelt { name, amount } if name == "Scar" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SalveWelt { name, amount } if name == "Scar" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeltEnabled { name, enabled } if name == "Scar" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wend_read_ops() {
+        super::WEND_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Road".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWendJourney("Road"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWendMaxJourney("Road"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWendTravelRate("Road"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWendJustArrived("Road"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWendJustLost("Road"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWendEnabled("Road"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEND_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wend_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.traverseWend("Road", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.backtrackWend("Road", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWendEnabled("Road", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TraverseWend { name, amount } if name == "Road" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BacktrackWend { name, amount } if name == "Road" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWendEnabled { name, enabled } if name == "Road" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whiff_read_ops() {
+        super::WHIFF_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Nose".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWhiffScent("Nose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhiffMaxScent("Nose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhiffDriftRate("Nose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhiffJustPungent("Nose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhiffJustFaded("Nose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhiffEnabled("Nose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WHIFF_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whiff_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.waftWhiff("Nose", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissipateWhiff("Nose", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWhiffEnabled("Nose", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WaftWhiff { name, amount } if name == "Nose" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissipateWhiff { name, amount } if name == "Nose" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWhiffEnabled { name, enabled } if name == "Nose" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whim_read_ops() {
+        super::WHIM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mind".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWhimImpulse("Mind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhimMaxImpulse("Mind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhimWhimRate("Mind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhimJustWhimsy("Mind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhimJustGrounded("Mind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhimEnabled("Mind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WHIM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whim_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fancyWhim("Mind", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.settleWhim("Mind", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWhimEnabled("Mind", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FancyWhim { name, amount } if name == "Mind" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SettleWhim { name, amount } if name == "Mind" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWhimEnabled { name, enabled } if name == "Mind" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whip_read_ops() {
+        super::WHIP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Lash".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWhipLash("Lash"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhipMaxLash("Lash"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhipCrackRate("Lash"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhipJustCracking("Lash"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhipJustSlack("Lash"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhipEnabled("Lash"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WHIP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whip_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crackWhip("Lash", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.slackenWhip("Lash", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWhipEnabled("Lash", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrackWhip { name, amount } if name == "Lash" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SlackenWhip { name, amount } if name == "Lash" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWhipEnabled { name, enabled } if name == "Lash" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whirl_read_ops() {
+        super::WHIRL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Top".to_string(),
+                (0.5f32, 0.25f32, 3u32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWhirlAngle("Top"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhirlSpinSpeed("Top"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhirlRevolutions("Top"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt.eval(r#"String(Bsengine.isWhirlActive("Top"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhirlJustLapped("Top"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhirlEnabled("Top"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WHIRL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whirl_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.spinUpWhirl("Top");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spinDownWhirl("Top");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWhirlEnabled("Top", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpinUpWhirl { name } if name == "Top")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpinDownWhirl { name } if name == "Top")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWhirlEnabled { name, enabled } if name == "Top" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whisk_read_ops() {
+        super::WHISK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mix".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWhiskAgitation("Mix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhiskMaxAgitation("Mix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWhiskBeatRate("Mix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhiskJustFrothy("Mix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhiskJustSettled("Mix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWhiskEnabled("Mix"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WHISK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_whisk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beatWhisk("Mix", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.settleWhisk("Mix", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWhiskEnabled("Mix", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeatWhisk { name, amount } if name == "Mix" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SettleWhisk { name, amount } if name == "Mix" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWhiskEnabled { name, enabled } if name == "Mix" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wick_read_ops() {
+        super::WICK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Lamp".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWickFuel("Lamp"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWickMaxFuel("Lamp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWickDrawRate("Lamp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWickJustLit("Lamp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWickJustDry("Lamp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWickEnabled("Lamp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WICK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wick_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.soakWick("Lamp", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spendWick("Lamp", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWickEnabled("Lamp", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SoakWick { name, amount } if name == "Lamp" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpendWick { name, amount } if name == "Lamp" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWickEnabled { name, enabled } if name == "Lamp" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

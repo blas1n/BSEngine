@@ -4421,6 +4421,114 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Vulture ──────────────────────────────────────────────────────────────
+    CircleVulture {
+        name: String,
+        amount: f32,
+    },
+    ScatterVulture {
+        name: String,
+        amount: f32,
+    },
+    SetVultureEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wage ─────────────────────────────────────────────────────────────────
+    EarnWage {
+        name: String,
+        amount: f32,
+    },
+    SpendWage {
+        name: String,
+        amount: f32,
+    },
+    SetWageEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wager ────────────────────────────────────────────────────────────────
+    BetWager {
+        name: String,
+        amount: f32,
+    },
+    ForfeitWager {
+        name: String,
+        amount: f32,
+    },
+    SetWagerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wail ─────────────────────────────────────────────────────────────────
+    LamentWail {
+        name: String,
+        amount: f32,
+    },
+    ConsoleWail {
+        name: String,
+        amount: f32,
+    },
+    SetWailEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wake ─────────────────────────────────────────────────────────────────
+    RouseWake {
+        name: String,
+        amount: f32,
+    },
+    LullWake {
+        name: String,
+        amount: f32,
+    },
+    SetWakeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Walk ─────────────────────────────────────────────────────────────────
+    StepWalk {
+        name: String,
+        amount: f32,
+    },
+    RestWalk {
+        name: String,
+        amount: f32,
+    },
+    SetWalkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wall ─────────────────────────────────────────────────────────────────
+    SetWallRunSpeed {
+        name: String,
+        value: f32,
+    },
+    SetWallSlideSpeed {
+        name: String,
+        value: f32,
+    },
+    SetWallJumpForce {
+        name: String,
+        value: f32,
+    },
+    SetWallEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Waltz ────────────────────────────────────────────────────────────────
+    StepWaltz {
+        name: String,
+        amount: f32,
+    },
+    HaltWaltz {
+        name: String,
+        amount: f32,
+    },
+    SetWaltzEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5584,6 +5692,22 @@ thread_local! {
     pub(crate) static VOW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static VULNERABLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VULTURE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAGER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAIL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAKE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WALK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WALL_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WALTZ_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -10974,6 +11098,385 @@ pub fn bsengine_set_vulnerable_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetVulnerableEnabled { name, enabled })
+    });
+}
+// ── Vulture ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vulture_patience(#[string] name: String) -> f32 {
+    VULTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vulture_max_patience(#[string] name: String) -> f32 {
+    VULTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vulture_wait_rate(#[string] name: String) -> f32 {
+    VULTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vulture_just_descended(#[string] name: String) -> bool {
+    VULTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vulture_just_scattered(#[string] name: String) -> bool {
+    VULTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vulture_enabled(#[string] name: String) -> bool {
+    VULTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_circle_vulture(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CircleVulture { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_scatter_vulture(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ScatterVulture { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vulture_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVultureEnabled { name, enabled })
+    });
+}
+// ── Wage ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wage_earnings(#[string] name: String) -> f32 {
+    WAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wage_max_earnings(#[string] name: String) -> f32 {
+    WAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wage_income_rate(#[string] name: String) -> f32 {
+    WAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wage_just_paid(#[string] name: String) -> bool {
+    WAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wage_just_broke(#[string] name: String) -> bool {
+    WAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wage_enabled(#[string] name: String) -> bool {
+    WAGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_earn_wage(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EarnWage { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_spend_wage(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SpendWage { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wage_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWageEnabled { name, enabled })
+    });
+}
+// ── Wager ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wager_stake(#[string] name: String) -> f32 {
+    WAGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wager_max_stake(#[string] name: String) -> f32 {
+    WAGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wager_risk_rate(#[string] name: String) -> f32 {
+    WAGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wager_just_won(#[string] name: String) -> bool {
+    WAGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wager_just_lost(#[string] name: String) -> bool {
+    WAGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wager_enabled(#[string] name: String) -> bool {
+    WAGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bet_wager(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BetWager { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_forfeit_wager(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ForfeitWager { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wager_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWagerEnabled { name, enabled })
+    });
+}
+// ── Wail ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wail_grief(#[string] name: String) -> f32 {
+    WAIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wail_max_grief(#[string] name: String) -> f32 {
+    WAIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wail_keen_rate(#[string] name: String) -> f32 {
+    WAIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wail_just_wailed(#[string] name: String) -> bool {
+    WAIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wail_just_calmed(#[string] name: String) -> bool {
+    WAIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wail_enabled(#[string] name: String) -> bool {
+    WAIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_lament_wail(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LamentWail { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_console_wail(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConsoleWail { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wail_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWailEnabled { name, enabled })
+    });
+}
+// ── Wake ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wake_arousal(#[string] name: String) -> f32 {
+    WAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wake_max_arousal(#[string] name: String) -> f32 {
+    WAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wake_alert_rate(#[string] name: String) -> f32 {
+    WAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wake_just_woken(#[string] name: String) -> bool {
+    WAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wake_just_slept(#[string] name: String) -> bool {
+    WAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wake_enabled(#[string] name: String) -> bool {
+    WAKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rouse_wake(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RouseWake { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_lull_wake(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LullWake { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wake_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWakeEnabled { name, enabled })
+    });
+}
+// ── Walk ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_walk_stride(#[string] name: String) -> f32 {
+    WALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_walk_max_stride(#[string] name: String) -> f32 {
+    WALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_walk_pace_rate(#[string] name: String) -> f32 {
+    WALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_walk_just_striding(#[string] name: String) -> bool {
+    WALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_walk_just_halted(#[string] name: String) -> bool {
+    WALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_walk_enabled(#[string] name: String) -> bool {
+    WALK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_step_walk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StepWalk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_rest_walk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestWalk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_walk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWalkEnabled { name, enabled })
+    });
+}
+// ── Wall ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wall_state(#[string] name: String) -> u32 {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wall_run_speed(#[string] name: String) -> f32 {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wall_slide_speed(#[string] name: String) -> f32 {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wall_gravity_scale(#[string] name: String) -> f32 {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wall_run_timer(#[string] name: String) -> f32 {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wall_jump_force(#[string] name: String) -> f32 {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wall_enabled(#[string] name: String) -> bool {
+    WALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_wall_run_speed(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWallRunSpeed { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wall_slide_speed(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWallSlideSpeed { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wall_jump_force(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWallJumpForce { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wall_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWallEnabled { name, enabled })
+    });
+}
+// ── Waltz ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_waltz_rhythm(#[string] name: String) -> f32 {
+    WALTZ_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_waltz_max_rhythm(#[string] name: String) -> f32 {
+    WALTZ_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_waltz_grace_rate(#[string] name: String) -> f32 {
+    WALTZ_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_waltz_just_dancing(#[string] name: String) -> bool {
+    WALTZ_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_waltz_just_still(#[string] name: String) -> bool {
+    WALTZ_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_waltz_enabled(#[string] name: String) -> bool {
+    WALTZ_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_step_waltz(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StepWaltz { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_halt_waltz(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HaltWaltz { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_waltz_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaltzEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -30983,6 +31486,80 @@ deno_core::extension!(
         bsengine_weaken_vulnerable,
         bsengine_fortify_vulnerable,
         bsengine_set_vulnerable_enabled,
+        bsengine_get_vulture_patience,
+        bsengine_get_vulture_max_patience,
+        bsengine_get_vulture_wait_rate,
+        bsengine_is_vulture_just_descended,
+        bsengine_is_vulture_just_scattered,
+        bsengine_is_vulture_enabled,
+        bsengine_circle_vulture,
+        bsengine_scatter_vulture,
+        bsengine_set_vulture_enabled,
+        bsengine_get_wage_earnings,
+        bsengine_get_wage_max_earnings,
+        bsengine_get_wage_income_rate,
+        bsengine_is_wage_just_paid,
+        bsengine_is_wage_just_broke,
+        bsengine_is_wage_enabled,
+        bsengine_earn_wage,
+        bsengine_spend_wage,
+        bsengine_set_wage_enabled,
+        bsengine_get_wager_stake,
+        bsengine_get_wager_max_stake,
+        bsengine_get_wager_risk_rate,
+        bsengine_is_wager_just_won,
+        bsengine_is_wager_just_lost,
+        bsengine_is_wager_enabled,
+        bsengine_bet_wager,
+        bsengine_forfeit_wager,
+        bsengine_set_wager_enabled,
+        bsengine_get_wail_grief,
+        bsengine_get_wail_max_grief,
+        bsengine_get_wail_keen_rate,
+        bsengine_is_wail_just_wailed,
+        bsengine_is_wail_just_calmed,
+        bsengine_is_wail_enabled,
+        bsengine_lament_wail,
+        bsengine_console_wail,
+        bsengine_set_wail_enabled,
+        bsengine_get_wake_arousal,
+        bsengine_get_wake_max_arousal,
+        bsengine_get_wake_alert_rate,
+        bsengine_is_wake_just_woken,
+        bsengine_is_wake_just_slept,
+        bsengine_is_wake_enabled,
+        bsengine_rouse_wake,
+        bsengine_lull_wake,
+        bsengine_set_wake_enabled,
+        bsengine_get_walk_stride,
+        bsengine_get_walk_max_stride,
+        bsengine_get_walk_pace_rate,
+        bsengine_is_walk_just_striding,
+        bsengine_is_walk_just_halted,
+        bsengine_is_walk_enabled,
+        bsengine_step_walk,
+        bsengine_rest_walk,
+        bsengine_set_walk_enabled,
+        bsengine_get_wall_state,
+        bsengine_get_wall_run_speed,
+        bsengine_get_wall_slide_speed,
+        bsengine_get_wall_gravity_scale,
+        bsengine_get_wall_run_timer,
+        bsengine_get_wall_jump_force,
+        bsengine_is_wall_enabled,
+        bsengine_set_wall_run_speed,
+        bsengine_set_wall_slide_speed,
+        bsengine_set_wall_jump_force,
+        bsengine_set_wall_enabled,
+        bsengine_get_waltz_rhythm,
+        bsengine_get_waltz_max_rhythm,
+        bsengine_get_waltz_grace_rate,
+        bsengine_is_waltz_just_dancing,
+        bsengine_is_waltz_just_still,
+        bsengine_is_waltz_enabled,
+        bsengine_step_waltz,
+        bsengine_halt_waltz,
+        bsengine_set_waltz_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -34404,6 +34981,80 @@ const Bsengine = {
     weakenVulnerable:           (name, amount)      => Deno.core.ops.bsengine_weaken_vulnerable(name, amount),
     fortifyVulnerable:          (name, amount)      => Deno.core.ops.bsengine_fortify_vulnerable(name, amount),
     setVulnerableEnabled:       (name, v)           => Deno.core.ops.bsengine_set_vulnerable_enabled(name, v),
+    getVulturePatience:         (name)              => Deno.core.ops.bsengine_get_vulture_patience(name),
+    getVultureMaxPatience:      (name)              => Deno.core.ops.bsengine_get_vulture_max_patience(name),
+    getVultureWaitRate:         (name)              => Deno.core.ops.bsengine_get_vulture_wait_rate(name),
+    isVultureJustDescended:     (name)              => Deno.core.ops.bsengine_is_vulture_just_descended(name),
+    isVultureJustScattered:     (name)              => Deno.core.ops.bsengine_is_vulture_just_scattered(name),
+    isVultureEnabled:           (name)              => Deno.core.ops.bsengine_is_vulture_enabled(name),
+    circleVulture:              (name, amount)      => Deno.core.ops.bsengine_circle_vulture(name, amount),
+    scatterVulture:             (name, amount)      => Deno.core.ops.bsengine_scatter_vulture(name, amount),
+    setVultureEnabled:          (name, v)           => Deno.core.ops.bsengine_set_vulture_enabled(name, v),
+    getWageEarnings:            (name)              => Deno.core.ops.bsengine_get_wage_earnings(name),
+    getWageMaxEarnings:         (name)              => Deno.core.ops.bsengine_get_wage_max_earnings(name),
+    getWageIncomeRate:          (name)              => Deno.core.ops.bsengine_get_wage_income_rate(name),
+    isWageJustPaid:             (name)              => Deno.core.ops.bsengine_is_wage_just_paid(name),
+    isWageJustBroke:            (name)              => Deno.core.ops.bsengine_is_wage_just_broke(name),
+    isWageEnabled:              (name)              => Deno.core.ops.bsengine_is_wage_enabled(name),
+    earnWage:                   (name, amount)      => Deno.core.ops.bsengine_earn_wage(name, amount),
+    spendWage:                  (name, amount)      => Deno.core.ops.bsengine_spend_wage(name, amount),
+    setWageEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wage_enabled(name, v),
+    getWagerStake:              (name)              => Deno.core.ops.bsengine_get_wager_stake(name),
+    getWagerMaxStake:           (name)              => Deno.core.ops.bsengine_get_wager_max_stake(name),
+    getWagerRiskRate:           (name)              => Deno.core.ops.bsengine_get_wager_risk_rate(name),
+    isWagerJustWon:             (name)              => Deno.core.ops.bsengine_is_wager_just_won(name),
+    isWagerJustLost:            (name)              => Deno.core.ops.bsengine_is_wager_just_lost(name),
+    isWagerEnabled:             (name)              => Deno.core.ops.bsengine_is_wager_enabled(name),
+    betWager:                   (name, amount)      => Deno.core.ops.bsengine_bet_wager(name, amount),
+    forfeitWager:               (name, amount)      => Deno.core.ops.bsengine_forfeit_wager(name, amount),
+    setWagerEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wager_enabled(name, v),
+    getWailGrief:               (name)              => Deno.core.ops.bsengine_get_wail_grief(name),
+    getWailMaxGrief:            (name)              => Deno.core.ops.bsengine_get_wail_max_grief(name),
+    getWailKeenRate:            (name)              => Deno.core.ops.bsengine_get_wail_keen_rate(name),
+    isWailJustWailed:           (name)              => Deno.core.ops.bsengine_is_wail_just_wailed(name),
+    isWailJustCalmed:           (name)              => Deno.core.ops.bsengine_is_wail_just_calmed(name),
+    isWailEnabled:              (name)              => Deno.core.ops.bsengine_is_wail_enabled(name),
+    lamentWail:                 (name, amount)      => Deno.core.ops.bsengine_lament_wail(name, amount),
+    consoleWail:                (name, amount)      => Deno.core.ops.bsengine_console_wail(name, amount),
+    setWailEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wail_enabled(name, v),
+    getWakeArousal:             (name)              => Deno.core.ops.bsengine_get_wake_arousal(name),
+    getWakeMaxArousal:          (name)              => Deno.core.ops.bsengine_get_wake_max_arousal(name),
+    getWakeAlertRate:           (name)              => Deno.core.ops.bsengine_get_wake_alert_rate(name),
+    isWakeJustWoken:            (name)              => Deno.core.ops.bsengine_is_wake_just_woken(name),
+    isWakeJustSlept:            (name)              => Deno.core.ops.bsengine_is_wake_just_slept(name),
+    isWakeEnabled:              (name)              => Deno.core.ops.bsengine_is_wake_enabled(name),
+    rouseWake:                  (name, amount)      => Deno.core.ops.bsengine_rouse_wake(name, amount),
+    lullWake:                   (name, amount)      => Deno.core.ops.bsengine_lull_wake(name, amount),
+    setWakeEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wake_enabled(name, v),
+    getWalkStride:              (name)              => Deno.core.ops.bsengine_get_walk_stride(name),
+    getWalkMaxStride:           (name)              => Deno.core.ops.bsengine_get_walk_max_stride(name),
+    getWalkPaceRate:            (name)              => Deno.core.ops.bsengine_get_walk_pace_rate(name),
+    isWalkJustStriding:         (name)              => Deno.core.ops.bsengine_is_walk_just_striding(name),
+    isWalkJustHalted:           (name)              => Deno.core.ops.bsengine_is_walk_just_halted(name),
+    isWalkEnabled:              (name)              => Deno.core.ops.bsengine_is_walk_enabled(name),
+    stepWalk:                   (name, amount)      => Deno.core.ops.bsengine_step_walk(name, amount),
+    restWalk:                   (name, amount)      => Deno.core.ops.bsengine_rest_walk(name, amount),
+    setWalkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_walk_enabled(name, v),
+    getWallState:               (name)              => Deno.core.ops.bsengine_get_wall_state(name),
+    getWallRunSpeed:            (name)              => Deno.core.ops.bsengine_get_wall_run_speed(name),
+    getWallSlideSpeed:          (name)              => Deno.core.ops.bsengine_get_wall_slide_speed(name),
+    getWallGravityScale:        (name)              => Deno.core.ops.bsengine_get_wall_gravity_scale(name),
+    getWallRunTimer:            (name)              => Deno.core.ops.bsengine_get_wall_run_timer(name),
+    getWallJumpForce:           (name)              => Deno.core.ops.bsengine_get_wall_jump_force(name),
+    isWallEnabled:              (name)              => Deno.core.ops.bsengine_is_wall_enabled(name),
+    setWallRunSpeed:            (name, v)           => Deno.core.ops.bsengine_set_wall_run_speed(name, v),
+    setWallSlideSpeed:          (name, v)           => Deno.core.ops.bsengine_set_wall_slide_speed(name, v),
+    setWallJumpForce:           (name, v)           => Deno.core.ops.bsengine_set_wall_jump_force(name, v),
+    setWallEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wall_enabled(name, v),
+    getWaltzRhythm:             (name)              => Deno.core.ops.bsengine_get_waltz_rhythm(name),
+    getWaltzMaxRhythm:          (name)              => Deno.core.ops.bsengine_get_waltz_max_rhythm(name),
+    getWaltzGraceRate:          (name)              => Deno.core.ops.bsengine_get_waltz_grace_rate(name),
+    isWaltzJustDancing:         (name)              => Deno.core.ops.bsengine_is_waltz_just_dancing(name),
+    isWaltzJustStill:           (name)              => Deno.core.ops.bsengine_is_waltz_just_still(name),
+    isWaltzEnabled:             (name)              => Deno.core.ops.bsengine_is_waltz_enabled(name),
+    stepWaltz:                  (name, amount)      => Deno.core.ops.bsengine_step_waltz(name, amount),
+    haltWaltz:                  (name, amount)      => Deno.core.ops.bsengine_halt_waltz(name, amount),
+    setWaltzEnabled:            (name, v)           => Deno.core.ops.bsengine_set_waltz_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -57316,6 +57967,441 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WeakenVulnerable { name, amount } if name == "Grunt" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FortifyVulnerable { name, amount } if name == "Grunt" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVulnerableEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vulture_read_ops() {
+        super::VULTURE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVulturePatience("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVultureMaxPatience("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVultureWaitRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVultureJustDescended("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVultureJustScattered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVultureEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VULTURE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vulture_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.circleVulture("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.scatterVulture("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVultureEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CircleVulture { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ScatterVulture { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVultureEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wage_read_ops() {
+        super::WAGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWageEarnings("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWageMaxEarnings("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWageIncomeRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWageJustPaid("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWageJustBroke("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWageEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wage_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.earnWage("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spendWage("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWageEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EarnWage { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpendWage { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWageEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wager_read_ops() {
+        super::WAGER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWagerStake("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWagerMaxStake("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWagerRiskRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWagerJustWon("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWagerJustLost("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWagerEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAGER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wager_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.betWager("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.forfeitWager("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWagerEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BetWager { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ForfeitWager { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWagerEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wail_read_ops() {
+        super::WAIL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWailGrief("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWailMaxGrief("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWailKeenRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWailJustWailed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWailJustCalmed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWailEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAIL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wail_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.lamentWail("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.consoleWail("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWailEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LamentWail { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsoleWail { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWailEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wake_read_ops() {
+        super::WAKE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWakeArousal("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWakeMaxArousal("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWakeAlertRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWakeJustWoken("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWakeJustSlept("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWakeEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAKE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wake_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.rouseWake("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.lullWake("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWakeEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RouseWake { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LullWake { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWakeEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_walk_read_ops() {
+        super::WALK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWalkStride("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWalkMaxStride("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWalkPaceRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWalkJustStriding("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWalkJustHalted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWalkEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WALK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_walk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.stepWalk("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.restWalk("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWalkEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StepWalk { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestWalk { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWalkEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wall_read_ops() {
+        super::WALL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (1u32, 0.5f32, 0.25f32, 0.125f32, 0.5f32, 1.0f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWallState("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWallRunSpeed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWallSlideSpeed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWallGravityScale("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.getWallRunTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWallJumpForce("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isWallEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WALL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wall_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setWallRunSpeed("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWallSlideSpeed("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWallJumpForce("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWallEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWallRunSpeed { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWallSlideSpeed { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWallJumpForce { name, value } if name == "Grunt" && *value == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWallEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_waltz_read_ops() {
+        super::WALTZ_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWaltzRhythm("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaltzMaxRhythm("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWaltzGraceRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaltzJustDancing("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaltzJustStill("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaltzEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WALTZ_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_waltz_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.stepWaltz("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.haltWaltz("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaltzEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StepWaltz { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HaltWaltz { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaltzEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

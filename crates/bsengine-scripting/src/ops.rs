@@ -6434,6 +6434,80 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    VoteYes {
+        name: String,
+    },
+    ResetYes {
+        name: String,
+    },
+    SetYesEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SightingYeti {
+        name: String,
+    },
+    DisperseYeti {
+        name: String,
+    },
+    SetYetiEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ExposeYew {
+        name: String,
+    },
+    DrainYew {
+        name: String,
+    },
+    SetYewEnabled {
+        name: String,
+        enabled: bool,
+    },
+    YieldToYield {
+        name: String,
+    },
+    SetYieldEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StartleYikes {
+        name: String,
+    },
+    SettleYikes {
+        name: String,
+    },
+    SetYikesEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DarkenYin {
+        name: String,
+    },
+    LightenYin {
+        name: String,
+    },
+    SetYinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    YipYip {
+        name: String,
+    },
+    SetYipEnabled {
+        name: String,
+        enabled: bool,
+    },
+    TicYips {
+        name: String,
+    },
+    ComposeYips {
+        name: String,
+    },
+    SetYipsEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7971,6 +8045,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // yep: consent, max_consent, doubt_rate, just_agreed, just_withdrew, enabled
     pub(crate) static YEP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yes: yes_count, yes_threshold, just_reached, just_reset, enabled
+    pub(crate) static YES_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yeti: tension, max_tension, fade_rate, just_manifested, just_fled, enabled
+    pub(crate) static YETI_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yew: exposure, max_exposure, just_saturated, enabled
+    pub(crate) static YEW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yield: yield_duration, yield_remaining, is_yielding, just_started_yielding, just_finished_yielding, enabled
+    pub(crate) static YIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yikes: fright, max_fright, calm_rate, just_startled, just_calmed, enabled
+    pub(crate) static YIKES_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yin: balance, just_darkened, just_lightened, enabled
+    pub(crate) static YIN_SNAPSHOT: RefCell<HashMap<String, (f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yip: burst_limit, burst_count, cooldown, cooldown_remaining, just_yipped, just_burst_out, enabled
+    pub(crate) static YIP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yips: pressure, max_pressure, just_seized, just_composed, enabled
+    pub(crate) static YIPS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -20942,6 +21040,290 @@ pub fn bsengine_set_yep_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetYepEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yes_count(#[string] name: String) -> f32 {
+    YES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yes_threshold(#[string] name: String) -> f32 {
+    YES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yes_just_reached(#[string] name: String) -> bool {
+    YES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yes_just_reset(#[string] name: String) -> bool {
+    YES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yes_enabled(#[string] name: String) -> bool {
+    YES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_vote_yes(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::VoteYes { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_yes(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetYes { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yes_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYesEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yeti_tension(#[string] name: String) -> f32 {
+    YETI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yeti_max_tension(#[string] name: String) -> f32 {
+    YETI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yeti_fade_rate(#[string] name: String) -> f32 {
+    YETI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeti_just_manifested(#[string] name: String) -> bool {
+    YETI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeti_just_fled(#[string] name: String) -> bool {
+    YETI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yeti_enabled(#[string] name: String) -> bool {
+    YETI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_sighting_yeti(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SightingYeti { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disperse_yeti(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisperseYeti { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yeti_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYetiEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yew_exposure(#[string] name: String) -> f32 {
+    YEW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yew_max_exposure(#[string] name: String) -> f32 {
+    YEW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yew_just_saturated(#[string] name: String) -> bool {
+    YEW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yew_enabled(#[string] name: String) -> bool {
+    YEW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_expose_yew(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExposeYew { name }));
+}
+#[op2(fast)]
+pub fn bsengine_drain_yew(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DrainYew { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yew_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYewEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yield_duration(#[string] name: String) -> f32 {
+    YIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yield_remaining(#[string] name: String) -> f32 {
+    YIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yield_yielding(#[string] name: String) -> bool {
+    YIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yield_just_started(#[string] name: String) -> bool {
+    YIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yield_just_finished(#[string] name: String) -> bool {
+    YIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yield_enabled(#[string] name: String) -> bool {
+    YIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yield_to_yield(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YieldToYield { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yield_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYieldEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yikes_fright(#[string] name: String) -> f32 {
+    YIKES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yikes_max_fright(#[string] name: String) -> f32 {
+    YIKES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yikes_calm_rate(#[string] name: String) -> f32 {
+    YIKES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yikes_just_startled(#[string] name: String) -> bool {
+    YIKES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yikes_just_calmed(#[string] name: String) -> bool {
+    YIKES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yikes_enabled(#[string] name: String) -> bool {
+    YIKES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_startle_yikes(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StartleYikes { name }));
+}
+#[op2(fast)]
+pub fn bsengine_settle_yikes(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SettleYikes { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yikes_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYikesEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yin_balance(#[string] name: String) -> f32 {
+    YIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yin_just_darkened(#[string] name: String) -> bool {
+    YIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yin_just_lightened(#[string] name: String) -> bool {
+    YIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yin_enabled(#[string] name: String) -> bool {
+    YIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_darken_yin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DarkenYin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_lighten_yin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LightenYin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYinEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yip_burst_limit(#[string] name: String) -> f32 {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yip_burst_count(#[string] name: String) -> f32 {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yip_cooldown(#[string] name: String) -> f32 {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yip_cooldown_remaining(#[string] name: String) -> f32 {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yip_just_yipped(#[string] name: String) -> bool {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yip_just_burst_out(#[string] name: String) -> bool {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yip_enabled(#[string] name: String) -> bool {
+    YIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yip_yip(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YipYip { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yip_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYipEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yips_pressure(#[string] name: String) -> f32 {
+    YIPS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yips_max_pressure(#[string] name: String) -> f32 {
+    YIPS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yips_just_seized(#[string] name: String) -> bool {
+    YIPS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yips_just_composed(#[string] name: String) -> bool {
+    YIPS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yips_enabled(#[string] name: String) -> bool {
+    YIPS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_tic_yips(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TicYips { name }));
+}
+#[op2(fast)]
+pub fn bsengine_compose_yips(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ComposeYips { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yips_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYipsEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -42505,6 +42887,71 @@ deno_core::extension!(
         bsengine_affirm_yep,
         bsengine_retract_yep,
         bsengine_set_yep_enabled,
+        bsengine_get_yes_count,
+        bsengine_get_yes_threshold,
+        bsengine_is_yes_just_reached,
+        bsengine_is_yes_just_reset,
+        bsengine_is_yes_enabled,
+        bsengine_vote_yes,
+        bsengine_reset_yes,
+        bsengine_set_yes_enabled,
+        bsengine_get_yeti_tension,
+        bsengine_get_yeti_max_tension,
+        bsengine_get_yeti_fade_rate,
+        bsengine_is_yeti_just_manifested,
+        bsengine_is_yeti_just_fled,
+        bsengine_is_yeti_enabled,
+        bsengine_sighting_yeti,
+        bsengine_disperse_yeti,
+        bsengine_set_yeti_enabled,
+        bsengine_get_yew_exposure,
+        bsengine_get_yew_max_exposure,
+        bsengine_is_yew_just_saturated,
+        bsengine_is_yew_enabled,
+        bsengine_expose_yew,
+        bsengine_drain_yew,
+        bsengine_set_yew_enabled,
+        bsengine_get_yield_duration,
+        bsengine_get_yield_remaining,
+        bsengine_is_yield_yielding,
+        bsengine_is_yield_just_started,
+        bsengine_is_yield_just_finished,
+        bsengine_is_yield_enabled,
+        bsengine_yield_to_yield,
+        bsengine_set_yield_enabled,
+        bsengine_get_yikes_fright,
+        bsengine_get_yikes_max_fright,
+        bsengine_get_yikes_calm_rate,
+        bsengine_is_yikes_just_startled,
+        bsengine_is_yikes_just_calmed,
+        bsengine_is_yikes_enabled,
+        bsengine_startle_yikes,
+        bsengine_settle_yikes,
+        bsengine_set_yikes_enabled,
+        bsengine_get_yin_balance,
+        bsengine_is_yin_just_darkened,
+        bsengine_is_yin_just_lightened,
+        bsengine_is_yin_enabled,
+        bsengine_darken_yin,
+        bsengine_lighten_yin,
+        bsengine_set_yin_enabled,
+        bsengine_get_yip_burst_limit,
+        bsengine_get_yip_burst_count,
+        bsengine_get_yip_cooldown,
+        bsengine_get_yip_cooldown_remaining,
+        bsengine_is_yip_just_yipped,
+        bsengine_is_yip_just_burst_out,
+        bsengine_is_yip_enabled,
+        bsengine_yip_yip,
+        bsengine_set_yip_enabled,
+        bsengine_get_yips_pressure,
+        bsengine_get_yips_max_pressure,
+        bsengine_is_yips_just_seized,
+        bsengine_is_yips_just_composed,
+        bsengine_is_yips_enabled,
+        bsengine_tic_yips,
+        bsengine_compose_yips,
+        bsengine_set_yips_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -47480,6 +47927,71 @@ const Bsengine = {
     affirmYep:                  (name)              => Deno.core.ops.bsengine_affirm_yep(name),
     retractYep:                 (name)              => Deno.core.ops.bsengine_retract_yep(name),
     setYepEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yep_enabled(name, v),
+    getYesCount:                (name)              => Deno.core.ops.bsengine_get_yes_count(name),
+    getYesThreshold:            (name)              => Deno.core.ops.bsengine_get_yes_threshold(name),
+    isYesJustReached:           (name)              => Deno.core.ops.bsengine_is_yes_just_reached(name),
+    isYesJustReset:             (name)              => Deno.core.ops.bsengine_is_yes_just_reset(name),
+    isYesEnabled:               (name)              => Deno.core.ops.bsengine_is_yes_enabled(name),
+    voteYes:                    (name)              => Deno.core.ops.bsengine_vote_yes(name),
+    resetYes:                   (name)              => Deno.core.ops.bsengine_reset_yes(name),
+    setYesEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yes_enabled(name, v),
+    getYetiTension:             (name)              => Deno.core.ops.bsengine_get_yeti_tension(name),
+    getYetiMaxTension:          (name)              => Deno.core.ops.bsengine_get_yeti_max_tension(name),
+    getYetiFadeRate:            (name)              => Deno.core.ops.bsengine_get_yeti_fade_rate(name),
+    isYetiJustManifested:       (name)              => Deno.core.ops.bsengine_is_yeti_just_manifested(name),
+    isYetiJustFled:             (name)              => Deno.core.ops.bsengine_is_yeti_just_fled(name),
+    isYetiEnabled:              (name)              => Deno.core.ops.bsengine_is_yeti_enabled(name),
+    sightingYeti:               (name)              => Deno.core.ops.bsengine_sighting_yeti(name),
+    disperseYeti:               (name)              => Deno.core.ops.bsengine_disperse_yeti(name),
+    setYetiEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yeti_enabled(name, v),
+    getYewExposure:             (name)              => Deno.core.ops.bsengine_get_yew_exposure(name),
+    getYewMaxExposure:          (name)              => Deno.core.ops.bsengine_get_yew_max_exposure(name),
+    isYewJustSaturated:         (name)              => Deno.core.ops.bsengine_is_yew_just_saturated(name),
+    isYewEnabled:               (name)              => Deno.core.ops.bsengine_is_yew_enabled(name),
+    exposeYew:                  (name)              => Deno.core.ops.bsengine_expose_yew(name),
+    drainYew:                   (name)              => Deno.core.ops.bsengine_drain_yew(name),
+    setYewEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yew_enabled(name, v),
+    getYieldDuration:           (name)              => Deno.core.ops.bsengine_get_yield_duration(name),
+    getYieldRemaining:          (name)              => Deno.core.ops.bsengine_get_yield_remaining(name),
+    isYieldYielding:            (name)              => Deno.core.ops.bsengine_is_yield_yielding(name),
+    isYieldJustStarted:         (name)              => Deno.core.ops.bsengine_is_yield_just_started(name),
+    isYieldJustFinished:        (name)              => Deno.core.ops.bsengine_is_yield_just_finished(name),
+    isYieldEnabled:             (name)              => Deno.core.ops.bsengine_is_yield_enabled(name),
+    yieldToYield:               (name)              => Deno.core.ops.bsengine_yield_to_yield(name),
+    setYieldEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yield_enabled(name, v),
+    getYikesFright:             (name)              => Deno.core.ops.bsengine_get_yikes_fright(name),
+    getYikesMaxFright:          (name)              => Deno.core.ops.bsengine_get_yikes_max_fright(name),
+    getYikesCalmRate:           (name)              => Deno.core.ops.bsengine_get_yikes_calm_rate(name),
+    isYikesJustStartled:        (name)              => Deno.core.ops.bsengine_is_yikes_just_startled(name),
+    isYikesJustCalmed:          (name)              => Deno.core.ops.bsengine_is_yikes_just_calmed(name),
+    isYikesEnabled:             (name)              => Deno.core.ops.bsengine_is_yikes_enabled(name),
+    startleYikes:               (name)              => Deno.core.ops.bsengine_startle_yikes(name),
+    settleYikes:                (name)              => Deno.core.ops.bsengine_settle_yikes(name),
+    setYikesEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yikes_enabled(name, v),
+    getYinBalance:              (name)              => Deno.core.ops.bsengine_get_yin_balance(name),
+    isYinJustDarkened:          (name)              => Deno.core.ops.bsengine_is_yin_just_darkened(name),
+    isYinJustLightened:         (name)              => Deno.core.ops.bsengine_is_yin_just_lightened(name),
+    isYinEnabled:               (name)              => Deno.core.ops.bsengine_is_yin_enabled(name),
+    darkenYin:                  (name)              => Deno.core.ops.bsengine_darken_yin(name),
+    lightenYin:                 (name)              => Deno.core.ops.bsengine_lighten_yin(name),
+    setYinEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yin_enabled(name, v),
+    getYipBurstLimit:           (name)              => Deno.core.ops.bsengine_get_yip_burst_limit(name),
+    getYipBurstCount:           (name)              => Deno.core.ops.bsengine_get_yip_burst_count(name),
+    getYipCooldown:             (name)              => Deno.core.ops.bsengine_get_yip_cooldown(name),
+    getYipCooldownRemaining:    (name)              => Deno.core.ops.bsengine_get_yip_cooldown_remaining(name),
+    isYipJustYipped:            (name)              => Deno.core.ops.bsengine_is_yip_just_yipped(name),
+    isYipJustBurstOut:          (name)              => Deno.core.ops.bsengine_is_yip_just_burst_out(name),
+    isYipEnabled:               (name)              => Deno.core.ops.bsengine_is_yip_enabled(name),
+    yipYip:                     (name)              => Deno.core.ops.bsengine_yip_yip(name),
+    setYipEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yip_enabled(name, v),
+    getYipsPressure:            (name)              => Deno.core.ops.bsengine_get_yips_pressure(name),
+    getYipsMaxPressure:         (name)              => Deno.core.ops.bsengine_get_yips_max_pressure(name),
+    isYipsJustSeized:           (name)              => Deno.core.ops.bsengine_is_yips_just_seized(name),
+    isYipsJustComposed:         (name)              => Deno.core.ops.bsengine_is_yips_just_composed(name),
+    isYipsEnabled:              (name)              => Deno.core.ops.bsengine_is_yips_enabled(name),
+    ticYips:                    (name)              => Deno.core.ops.bsengine_tic_yips(name),
+    composeYips:                (name)              => Deno.core.ops.bsengine_compose_yips(name),
+    setYipsEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yips_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -79642,6 +80154,376 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AffirmYep { name } if name == "Agree")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetractYep { name } if name == "Agree")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYepEnabled { name, enabled } if name == "Agree" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yes_read_ops() {
+        super::YES_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Confirm".to_string(), (3f32, 5f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYesCount("Confirm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getYesThreshold("Confirm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYesJustReached("Confirm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYesJustReset("Confirm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYesEnabled("Confirm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yes_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.voteYes("Confirm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetYes("Confirm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYesEnabled("Confirm", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VoteYes { name } if name == "Confirm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetYes { name } if name == "Confirm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYesEnabled { name, enabled } if name == "Confirm" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yeti_read_ops() {
+        super::YETI_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Beast".to_string(),
+                (0.8f32, 1.0f32, 0.1f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYetiTension("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.800000011920929");
+        let r = rt
+            .eval(r#"String(Bsengine.getYetiMaxTension("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isYetiJustManifested("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYetiJustFled("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYetiEnabled("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yeti_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.sightingYeti("Beast");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disperseYeti("Beast");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYetiEnabled("Beast", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SightingYeti { name } if name == "Beast")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisperseYeti { name } if name == "Beast")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYetiEnabled { name, enabled } if name == "Beast" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yew_read_ops() {
+        super::YEW_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Bark".to_string(), (0.5f32, 1.0f32, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYewExposure("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYewMaxExposure("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isYewJustSaturated("Bark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isYewEnabled("Bark"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yew_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.exposeYew("Bark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.drainYew("Bark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYewEnabled("Bark", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExposeYew { name } if name == "Bark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrainYew { name } if name == "Bark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYewEnabled { name, enabled } if name == "Bark" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yield_read_ops() {
+        super::YIELD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wait".to_string(),
+                (2.0f32, 1.5f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYieldDuration("Wait"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getYieldRemaining("Wait"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYieldYielding("Wait"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYieldJustStarted("Wait"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYieldJustFinished("Wait"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYieldEnabled("Wait"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yield_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yieldToYield("Wait");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYieldEnabled("Wait", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YieldToYield { name } if name == "Wait")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYieldEnabled { name, enabled } if name == "Wait" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yikes_read_ops() {
+        super::YIKES_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fright".to_string(),
+                (0.6f32, 1.0f32, 0.2f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYikesFright("Fright"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.6000000238418579");
+        let r = rt
+            .eval(r#"String(Bsengine.getYikesMaxFright("Fright"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isYikesJustStartled("Fright"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYikesJustCalmed("Fright"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYikesEnabled("Fright"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yikes_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startleYikes("Fright");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.settleYikes("Fright");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYikesEnabled("Fright", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartleYikes { name } if name == "Fright")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SettleYikes { name } if name == "Fright")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYikesEnabled { name, enabled } if name == "Fright" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yin_read_ops() {
+        super::YIN_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Dark".to_string(), (0.3f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYinBalance("Dark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.30000001192092896");
+        let r = rt
+            .eval(r#"String(Bsengine.isYinJustDarkened("Dark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYinJustLightened("Dark"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isYinEnabled("Dark"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yin_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.darkenYin("Dark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.lightenYin("Dark");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYinEnabled("Dark", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DarkenYin { name } if name == "Dark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LightenYin { name } if name == "Dark")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYinEnabled { name, enabled } if name == "Dark" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yip_read_ops() {
+        super::YIP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Burst".to_string(),
+                (5f32, 2f32, 1.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYipBurstLimit("Burst"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYipBurstCount("Burst"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isYipJustYipped("Burst"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYipJustBurstOut("Burst"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYipEnabled("Burst"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yip_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yipYip("Burst");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYipEnabled("Burst", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YipYip { name } if name == "Burst")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYipEnabled { name, enabled } if name == "Burst" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yips_read_ops() {
+        super::YIPS_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Twitch".to_string(), (0.7f32, 1.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYipsPressure("Twitch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.699999988079071");
+        let r = rt
+            .eval(r#"String(Bsengine.getYipsMaxPressure("Twitch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isYipsJustSeized("Twitch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYipsJustComposed("Twitch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYipsEnabled("Twitch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yips_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.ticYips("Twitch");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.composeYips("Twitch");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYipsEnabled("Twitch", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TicYips { name } if name == "Twitch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ComposeYips { name } if name == "Twitch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYipsEnabled { name, enabled } if name == "Twitch" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

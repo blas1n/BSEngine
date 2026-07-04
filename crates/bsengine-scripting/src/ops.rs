@@ -3871,6 +3871,64 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyTaint {
+        name: String,
+        duration: f32,
+    },
+    ClearTaint {
+        name: String,
+    },
+    SetTaintEnabled {
+        name: String,
+        enabled: bool,
+    },
+    IncrementTally {
+        name: String,
+        amount: u32,
+    },
+    ResetTally {
+        name: String,
+    },
+    SetTallyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetGripping {
+        name: String,
+        gripping: bool,
+    },
+    SetTalonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EngageTaper {
+        name: String,
+    },
+    DisengageTaper {
+        name: String,
+    },
+    SetTaperEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivateTaunt {
+        name: String,
+    },
+    DeactivateTaunt {
+        name: String,
+    },
+    SetTauntEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyFreeze {
+        name: String,
+        intensity: f32,
+    },
+    SetThawEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -4942,6 +5000,18 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (state, swim_speed, dive_speed, ascent_speed, breath_remaining, max_breath, breath_drain_rate, breath_regen_rate, depth, submerge_depth, wants_dive, wants_surface, enabled)
     pub(crate) static SWIM_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TAINT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TALLY_SNAPSHOT: RefCell<HashMap<String, (u32, u32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TALON_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TAPER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TAUNT_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static THAW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -8240,6 +8310,258 @@ pub fn bsengine_set_swim_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetSwimEnabled { name, enabled })
+    });
+}
+// ── Taint ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_taint_duration(#[string] name: String) -> f32 {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taint_timer(#[string] name: String) -> f32 {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taint_healing_reduction(#[string] name: String) -> f32 {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tainted(#[string] name: String) -> bool {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_cleansed(#[string] name: String) -> bool {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_taint_enabled(#[string] name: String) -> bool {
+    TAINT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_taint(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyTaint { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_taint(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTaint { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_taint_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTaintEnabled { name, enabled })
+    });
+}
+// ── Tally ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tally_count(#[string] name: String) -> u32 {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tally_goal(#[string] name: String) -> u32 {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_incremented(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tally_completed(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tally_reset(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tally_enabled(#[string] name: String) -> bool {
+    TALLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_increment_tally(#[string] name: String, amount: u32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::IncrementTally { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_reset_tally(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTally { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_tally_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTallyEnabled { name, enabled })
+    });
+}
+// ── Talon ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_talon_active(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_talon_grip_bonus(#[string] name: String) -> f32 {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_talon_slip_resistance(#[string] name: String) -> f32 {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_gripped(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_released(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_talon_enabled(#[string] name: String) -> bool {
+    TALON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_gripping(#[string] name: String, gripping: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetGripping { name, gripping })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_talon_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTalonEnabled { name, enabled })
+    });
+}
+// ── Taper ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_taper_elapsed_time(#[string] name: String) -> f32 {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taper_max_reduction_time(#[string] name: String) -> f32 {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taper_damage_reduction(#[string] name: String) -> f32 {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_taper_in_combat(#[string] name: String) -> bool {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_taper_peaked(#[string] name: String) -> bool {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_taper_enabled(#[string] name: String) -> bool {
+    TAPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_engage_taper(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EngageTaper { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disengage_taper(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisengageTaper { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_taper_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTaperEnabled { name, enabled })
+    });
+}
+// ── Taunt ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_taunt_active(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_radius(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_threat_boost(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_duration(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_taunt_timer(#[string] name: String) -> f32 {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_taunt_activated(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_taunt_expired(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_taunt_enabled(#[string] name: String) -> bool {
+    TAUNT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_taunt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateTaunt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_taunt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeactivateTaunt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_taunt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTauntEnabled { name, enabled })
+    });
+}
+// ── Thaw ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_thaw_fraction(#[string] name: String) -> f32 {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(1.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_thaw_rate(#[string] name: String) -> f32 {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_thaw_freeze_penalty(#[string] name: String) -> f32 {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_thawed(#[string] name: String) -> bool {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_frozen(#[string] name: String) -> bool {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_thaw_enabled(#[string] name: String) -> bool {
+    THAW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_freeze(#[string] name: String, intensity: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyFreeze { name, intensity })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_thaw_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetThawEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -27822,6 +28144,60 @@ deno_core::extension!(
         bsengine_set_wants_dive,
         bsengine_set_wants_surface,
         bsengine_set_swim_enabled,
+        bsengine_get_taint_duration,
+        bsengine_get_taint_timer,
+        bsengine_get_taint_healing_reduction,
+        bsengine_is_just_tainted,
+        bsengine_is_just_cleansed,
+        bsengine_is_taint_enabled,
+        bsengine_apply_taint,
+        bsengine_clear_taint,
+        bsengine_set_taint_enabled,
+        bsengine_get_tally_count,
+        bsengine_get_tally_goal,
+        bsengine_is_just_incremented,
+        bsengine_is_just_tally_completed,
+        bsengine_is_just_tally_reset,
+        bsengine_is_tally_enabled,
+        bsengine_increment_tally,
+        bsengine_reset_tally,
+        bsengine_set_tally_enabled,
+        bsengine_is_talon_active,
+        bsengine_get_talon_grip_bonus,
+        bsengine_get_talon_slip_resistance,
+        bsengine_is_just_gripped,
+        bsengine_is_just_released,
+        bsengine_is_talon_enabled,
+        bsengine_set_gripping,
+        bsengine_set_talon_enabled,
+        bsengine_get_taper_elapsed_time,
+        bsengine_get_taper_max_reduction_time,
+        bsengine_get_taper_damage_reduction,
+        bsengine_is_taper_in_combat,
+        bsengine_is_just_taper_peaked,
+        bsengine_is_taper_enabled,
+        bsengine_engage_taper,
+        bsengine_disengage_taper,
+        bsengine_set_taper_enabled,
+        bsengine_is_taunt_active,
+        bsengine_get_taunt_radius,
+        bsengine_get_taunt_threat_boost,
+        bsengine_get_taunt_duration,
+        bsengine_get_taunt_timer,
+        bsengine_is_just_taunt_activated,
+        bsengine_is_just_taunt_expired,
+        bsengine_is_taunt_enabled,
+        bsengine_activate_taunt,
+        bsengine_deactivate_taunt,
+        bsengine_set_taunt_enabled,
+        bsengine_get_thaw_fraction,
+        bsengine_get_thaw_rate,
+        bsengine_get_thaw_freeze_penalty,
+        bsengine_is_just_thawed,
+        bsengine_is_just_frozen,
+        bsengine_is_thaw_enabled,
+        bsengine_apply_freeze,
+        bsengine_set_thaw_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -30816,6 +31192,60 @@ const Bsengine = {
     setWantsDive:               (name, v)           => Deno.core.ops.bsengine_set_wants_dive(name, v),
     setWantsSurface:            (name, v)           => Deno.core.ops.bsengine_set_wants_surface(name, v),
     setSwimEnabled:             (name, v)           => Deno.core.ops.bsengine_set_swim_enabled(name, v),
+    getTaintDuration:           (name)              => Deno.core.ops.bsengine_get_taint_duration(name),
+    getTaintTimer:              (name)              => Deno.core.ops.bsengine_get_taint_timer(name),
+    getTaintHealingReduction:   (name)              => Deno.core.ops.bsengine_get_taint_healing_reduction(name),
+    isJustTainted:              (name)              => Deno.core.ops.bsengine_is_just_tainted(name),
+    isJustCleansed:             (name)              => Deno.core.ops.bsengine_is_just_cleansed(name),
+    isTaintEnabled:             (name)              => Deno.core.ops.bsengine_is_taint_enabled(name),
+    applyTaint:                 (name, duration)    => Deno.core.ops.bsengine_apply_taint(name, duration),
+    clearTaint:                 (name)              => Deno.core.ops.bsengine_clear_taint(name),
+    setTaintEnabled:            (name, v)           => Deno.core.ops.bsengine_set_taint_enabled(name, v),
+    getTallyCount:              (name)              => Deno.core.ops.bsengine_get_tally_count(name),
+    getTallyGoal:               (name)              => Deno.core.ops.bsengine_get_tally_goal(name),
+    isJustIncremented:          (name)              => Deno.core.ops.bsengine_is_just_incremented(name),
+    isJustTallyCompleted:       (name)              => Deno.core.ops.bsengine_is_just_tally_completed(name),
+    isJustTallyReset:           (name)              => Deno.core.ops.bsengine_is_just_tally_reset(name),
+    isTallyEnabled:             (name)              => Deno.core.ops.bsengine_is_tally_enabled(name),
+    incrementTally:             (name, amount)      => Deno.core.ops.bsengine_increment_tally(name, amount),
+    resetTally:                 (name)              => Deno.core.ops.bsengine_reset_tally(name),
+    setTallyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_tally_enabled(name, v),
+    isTalonActive:              (name)              => Deno.core.ops.bsengine_is_talon_active(name),
+    getTalonGripBonus:          (name)              => Deno.core.ops.bsengine_get_talon_grip_bonus(name),
+    getTalonSlipResistance:     (name)              => Deno.core.ops.bsengine_get_talon_slip_resistance(name),
+    isJustGripped:              (name)              => Deno.core.ops.bsengine_is_just_gripped(name),
+    isJustReleased:             (name)              => Deno.core.ops.bsengine_is_just_released(name),
+    isTalonEnabled:             (name)              => Deno.core.ops.bsengine_is_talon_enabled(name),
+    setGripping:                (name, v)           => Deno.core.ops.bsengine_set_gripping(name, v),
+    setTalonEnabled:            (name, v)           => Deno.core.ops.bsengine_set_talon_enabled(name, v),
+    getTaperElapsedTime:        (name)              => Deno.core.ops.bsengine_get_taper_elapsed_time(name),
+    getTaperMaxReductionTime:   (name)              => Deno.core.ops.bsengine_get_taper_max_reduction_time(name),
+    getTaperDamageReduction:    (name)              => Deno.core.ops.bsengine_get_taper_damage_reduction(name),
+    isTaperInCombat:            (name)              => Deno.core.ops.bsengine_is_taper_in_combat(name),
+    isJustTaperPeaked:          (name)              => Deno.core.ops.bsengine_is_just_taper_peaked(name),
+    isTaperEnabled:             (name)              => Deno.core.ops.bsengine_is_taper_enabled(name),
+    engageTaper:                (name)              => Deno.core.ops.bsengine_engage_taper(name),
+    disengageTaper:             (name)              => Deno.core.ops.bsengine_disengage_taper(name),
+    setTaperEnabled:            (name, v)           => Deno.core.ops.bsengine_set_taper_enabled(name, v),
+    isTauntActive:              (name)              => Deno.core.ops.bsengine_is_taunt_active(name),
+    getTauntRadius:             (name)              => Deno.core.ops.bsengine_get_taunt_radius(name),
+    getTauntThreatBoost:        (name)              => Deno.core.ops.bsengine_get_taunt_threat_boost(name),
+    getTauntDuration:           (name)              => Deno.core.ops.bsengine_get_taunt_duration(name),
+    getTauntTimer:              (name)              => Deno.core.ops.bsengine_get_taunt_timer(name),
+    isJustTauntActivated:       (name)              => Deno.core.ops.bsengine_is_just_taunt_activated(name),
+    isJustTauntExpired:         (name)              => Deno.core.ops.bsengine_is_just_taunt_expired(name),
+    isTauntEnabled:             (name)              => Deno.core.ops.bsengine_is_taunt_enabled(name),
+    activateTaunt:              (name)              => Deno.core.ops.bsengine_activate_taunt(name),
+    deactivateTaunt:            (name)              => Deno.core.ops.bsengine_deactivate_taunt(name),
+    setTauntEnabled:            (name, v)           => Deno.core.ops.bsengine_set_taunt_enabled(name, v),
+    getThawFraction:            (name)              => Deno.core.ops.bsengine_get_thaw_fraction(name),
+    getThawRate:                (name)              => Deno.core.ops.bsengine_get_thaw_rate(name),
+    getThawFreezePenalty:       (name)              => Deno.core.ops.bsengine_get_thaw_freeze_penalty(name),
+    isJustThawed:               (name)              => Deno.core.ops.bsengine_is_just_thawed(name),
+    isJustFrozen:               (name)              => Deno.core.ops.bsengine_is_just_frozen(name),
+    isThawEnabled:              (name)              => Deno.core.ops.bsengine_is_thaw_enabled(name),
+    applyFreeze:                (name, intensity)   => Deno.core.ops.bsengine_apply_freeze(name, intensity),
+    setThawEnabled:             (name, v)           => Deno.core.ops.bsengine_set_thaw_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -51238,6 +51668,328 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantsDive { name, wants } if name == "Grunt" && *wants)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWantsSurface { name, wants } if name == "Grunt" && !wants)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSwimEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taint_read_ops() {
+        super::TAINT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (0.5f32, 0.25f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTaintDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaintTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaintHealingReduction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTainted("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustCleansed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTaintEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TAINT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taint_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyTaint("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearTaint("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTaintEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyTaint { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearTaint { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTaintEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tally_read_ops() {
+        super::TALLY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Grunt".to_string(), (3u32, 5u32, true, false, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTallyCount("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getTallyGoal("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustIncremented("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTallyCompleted("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTallyReset("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTallyEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TALLY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tally_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.incrementTally("Grunt", 2);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetTally("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTallyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IncrementTally { name, amount } if name == "Grunt" && *amount == 2)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetTally { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTallyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_talon_read_ops() {
+        super::TALON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (true, 0.5f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isTalonActive("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getTalonGripBonus("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTalonSlipResistance("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustGripped("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustReleased("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTalonEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TALON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_talon_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setGripping("Grunt", true);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTalonEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetGripping { name, gripping } if name == "Grunt" && *gripping)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTalonEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taper_read_ops() {
+        super::TAPER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTaperElapsedTime("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaperMaxReductionTime("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTaperDamageReduction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isTaperInCombat("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTaperPeaked("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTaperEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TAPER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taper_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.engageTaper("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disengageTaper("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTaperEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EngageTaper { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisengageTaper { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTaperEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taunt_read_ops() {
+        super::TAUNT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (true, 3.0f32, 1.5f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isTauntActive("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntRadius("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntThreatBoost("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntDuration("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTauntTimer("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTauntActivated("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTauntExpired("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTauntEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TAUNT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_taunt_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.activateTaunt("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deactivateTaunt("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTauntEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateTaunt { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateTaunt { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTauntEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_thaw_read_ops() {
+        super::THAW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grunt".to_string(),
+                (0.75f32, 1.0f32, 0.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getThawFraction("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt.eval(r#"String(Bsengine.getThawRate("Grunt"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getThawFreezePenalty("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustThawed("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustFrozen("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isThawEnabled("Grunt"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::THAW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_thaw_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyFreeze("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setThawEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyFreeze { name, intensity } if name == "Grunt" && *intensity == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetThawEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

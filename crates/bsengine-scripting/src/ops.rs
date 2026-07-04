@@ -3562,6 +3562,118 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Silence ──────────────────────────────────────────────────────────────
+    ApplySilence {
+        name: String,
+        duration: f32,
+    },
+    ClearSilence {
+        name: String,
+    },
+    SetSilenceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Siphon ───────────────────────────────────────────────────────────────
+    StartSiphon {
+        name: String,
+        duration: f32,
+    },
+    StopSiphon {
+        name: String,
+    },
+    SetSiphonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Slam ─────────────────────────────────────────────────────────────────
+    BeginSlam {
+        name: String,
+        height: f32,
+    },
+    LandSlam {
+        name: String,
+    },
+    SetSlamEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Slay ─────────────────────────────────────────────────────────────────
+    RegisterKill {
+        name: String,
+    },
+    SetSlayEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Slide ────────────────────────────────────────────────────────────────
+    StartSlide {
+        name: String,
+        dir_x: f32,
+        dir_y: f32,
+        dir_z: f32,
+    },
+    CancelSlide {
+        name: String,
+    },
+    SetSlideEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Slime ────────────────────────────────────────────────────────────────
+    ApplySlime {
+        name: String,
+        duration: f32,
+    },
+    CleanseSlime {
+        name: String,
+    },
+    SetSlimeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Slink ────────────────────────────────────────────────────────────────
+    EngageSlink {
+        name: String,
+    },
+    DisengageSlink {
+        name: String,
+    },
+    SetSlinkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── SlowMo ───────────────────────────────────────────────────────────────
+    SetSlowMoEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Smoke ────────────────────────────────────────────────────────────────
+    SetSmokeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Snare ────────────────────────────────────────────────────────────────
+    ApplySnare {
+        name: String,
+        duration: f32,
+    },
+    ClearSnare {
+        name: String,
+    },
+    SetSnareEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Soak ─────────────────────────────────────────────────────────────────
+    AbsorbSoak {
+        name: String,
+        amount: f32,
+    },
+    SetSoakEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -4543,6 +4655,39 @@ thread_local! {
         RefCell::new(HashMap::new());
     // entity name → (shunt_resistance, last_shunt_magnitude, shunts_received, cooldown_timer, cooldown, just_shunted, enabled)
     pub(crate) static SHUNT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, u32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, just_silenced, just_unsilenced, enabled)
+    pub(crate) static SILENCE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, drain_per_second, return_fraction, just_started, just_ended, enabled)
+    pub(crate) static SIPHON_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (phase, slam_speed, impact_radius, impact_force, min_height, launch_height, recovery_time, recovery_timer, cooldown, cooldown_timer, wants_slam, enabled)
+    pub(crate) static SLAM_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (kill_count, threshold, trigger_count, just_triggered, enabled)
+    pub(crate) static SLAY_SNAPSHOT: RefCell<HashMap<String, (u32, u32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (phase, dir_x, dir_y, dir_z, duration, brake_start, elapsed, slide_speed, wants_slide, crouch_scale, enabled)
+    pub(crate) static SLIDE_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, bool, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (slime_timer, slow_factor, slimed, just_slimed, just_cleansed, enabled)
+    pub(crate) static SLIME_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (active, speed_reduction, noise_reduction, just_engaged, just_disengaged, enabled)
+    pub(crate) static SLINK_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (target_scale, current_scale, blend_speed, max_duration, elapsed, charge, drain_rate, source, enabled)
+    pub(crate) static SLOW_MO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, f32, f32, u32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (style, rate, color_r, color_g, color_b, color_a, particle_speed, spread_rate, particle_lifetime, offset_x, offset_y, offset_z, burst_duration, elapsed, enabled)
+    pub(crate) static SMOKE_SNAPSHOT: RefCell<HashMap<String, (u32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (duration, timer, slow_fraction, escape_chance, just_snared, just_escaped, enabled)
+    pub(crate) static SNARE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // entity name → (soak_level, decay_rate, fire_resistance, lightning_amplify, just_soaked, just_dried, enabled)
+    pub(crate) static SOAK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -7021,6 +7166,543 @@ pub fn bsengine_set_shunt_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetShuntEnabled { name, enabled })
+    });
+}
+// ── Silence ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_silence_duration(#[string] name: String) -> f32 {
+    SILENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_silence_timer(#[string] name: String) -> f32 {
+    SILENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_silenced(#[string] name: String) -> bool {
+    SILENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_unsilenced(#[string] name: String) -> bool {
+    SILENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_silence_enabled(#[string] name: String) -> bool {
+    SILENCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_silence(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySilence { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_silence(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearSilence { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_silence_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSilenceEnabled { name, enabled })
+    });
+}
+// ── Siphon ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_siphon_duration(#[string] name: String) -> f32 {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_siphon_timer(#[string] name: String) -> f32 {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_siphon_drain_per_second(#[string] name: String) -> f32 {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_siphon_return_fraction(#[string] name: String) -> f32 {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_siphon_just_started(#[string] name: String) -> bool {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_siphon_just_ended(#[string] name: String) -> bool {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_siphon_enabled(#[string] name: String) -> bool {
+    SIPHON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_start_siphon(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StartSiphon { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stop_siphon(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopSiphon { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_siphon_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSiphonEnabled { name, enabled })
+    });
+}
+// ── Slam ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_slam_phase(#[string] name: String) -> u32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_speed(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_impact_radius(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_impact_force(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_min_height(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_launch_height(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_recovery_time(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_recovery_timer(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_cooldown(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slam_cooldown_timer(#[string] name: String) -> f32 {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_slam_wants_slam(#[string] name: String) -> bool {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_slam_enabled(#[string] name: String) -> bool {
+    SLAM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_slam(#[string] name: String, height: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeginSlam { name, height })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_land_slam(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LandSlam { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_slam_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlamEnabled { name, enabled })
+    });
+}
+// ── Slay ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_slay_kill_count(#[string] name: String) -> u32 {
+    SLAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slay_threshold(#[string] name: String) -> u32 {
+    SLAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slay_trigger_count(#[string] name: String) -> u32 {
+    SLAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_slay_just_triggered(#[string] name: String) -> bool {
+    SLAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_slay_enabled(#[string] name: String) -> bool {
+    SLAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_register_kill(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RegisterKill { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_slay_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlayEnabled { name, enabled })
+    });
+}
+// ── Slide ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_slide_phase(#[string] name: String) -> u32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_direction_x(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_direction_y(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_direction_z(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_duration(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_brake_start(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_elapsed(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_speed(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_slide_wants_slide(#[string] name: String) -> bool {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_slide_crouch_scale(#[string] name: String) -> f32 {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_slide_enabled(#[string] name: String) -> bool {
+    SLIDE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_start_slide(#[string] name: String, dir_x: f32, dir_y: f32, dir_z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::StartSlide {
+            name,
+            dir_x,
+            dir_y,
+            dir_z,
+        })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cancel_slide(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CancelSlide { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_slide_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlideEnabled { name, enabled })
+    });
+}
+// ── Slime ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_slime_timer(#[string] name: String) -> f32 {
+    SLIME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slime_slow_factor(#[string] name: String) -> f32 {
+    SLIME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_slimed(#[string] name: String) -> bool {
+    SLIME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_slimed(#[string] name: String) -> bool {
+    SLIME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_slime_cleansed(#[string] name: String) -> bool {
+    SLIME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_slime_enabled(#[string] name: String) -> bool {
+    SLIME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_slime(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySlime { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_slime(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CleanseSlime { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_slime_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlimeEnabled { name, enabled })
+    });
+}
+// ── Slink ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_slink_active(#[string] name: String) -> bool {
+    SLINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_slink_speed_reduction(#[string] name: String) -> f32 {
+    SLINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slink_noise_reduction(#[string] name: String) -> f32 {
+    SLINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_slink_just_engaged(#[string] name: String) -> bool {
+    SLINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_slink_just_disengaged(#[string] name: String) -> bool {
+    SLINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_slink_enabled(#[string] name: String) -> bool {
+    SLINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_engage_slink(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EngageSlink { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disengage_slink(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisengageSlink { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_slink_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlinkEnabled { name, enabled })
+    });
+}
+// ── SlowMo ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_target_scale(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_current_scale(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_blend_speed(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_max_duration(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_elapsed(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_charge(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_drain_rate(#[string] name: String) -> f32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_slow_mo_source(#[string] name: String) -> u32 {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_slow_mo_enabled(#[string] name: String) -> bool {
+    SLOW_MO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_slow_mo_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSlowMoEnabled { name, enabled })
+    });
+}
+// ── Smoke ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_smoke_style(#[string] name: String) -> u32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_rate(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_color_r(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_color_g(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_color_b(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_color_a(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_particle_speed(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_spread_rate(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_particle_lifetime(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.8).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_offset_x(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.9).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_offset_y(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.10).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_offset_z(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.11).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_burst_duration(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.12).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_smoke_elapsed(#[string] name: String) -> f32 {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.13).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_smoke_enabled(#[string] name: String) -> bool {
+    SMOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.14).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_smoke_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSmokeEnabled { name, enabled })
+    });
+}
+// ── Snare ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_snare_duration(#[string] name: String) -> f32 {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_snare_timer(#[string] name: String) -> f32 {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_snare_slow_fraction(#[string] name: String) -> f32 {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_snare_escape_chance(#[string] name: String) -> f32 {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_snared(#[string] name: String) -> bool {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_snare_escaped(#[string] name: String) -> bool {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_snare_enabled(#[string] name: String) -> bool {
+    SNARE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_snare(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplySnare { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_snare(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearSnare { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_snare_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSnareEnabled { name, enabled })
+    });
+}
+// ── Soak ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_soak_level(#[string] name: String) -> f32 {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_soak_decay_rate(#[string] name: String) -> f32 {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_soak_fire_resistance(#[string] name: String) -> f32 {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_soak_lightning_amplify(#[string] name: String) -> f32 {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_soaked(#[string] name: String) -> bool {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_dried(#[string] name: String) -> bool {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_soak_enabled(#[string] name: String) -> bool {
+    SOAK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_absorb_soak(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AbsorbSoak { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_soak_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSoakEnabled { name, enabled })
     });
 }
 #[op2(fast)]
@@ -25772,6 +26454,123 @@ deno_core::extension!(
         bsengine_set_shunt_resistance,
         bsengine_set_shunt_cooldown,
         bsengine_set_shunt_enabled,
+        bsengine_get_silence_duration,
+        bsengine_get_silence_timer,
+        bsengine_is_just_silenced,
+        bsengine_is_just_unsilenced,
+        bsengine_is_silence_enabled,
+        bsengine_apply_silence,
+        bsengine_clear_silence,
+        bsengine_set_silence_enabled,
+        bsengine_get_siphon_duration,
+        bsengine_get_siphon_timer,
+        bsengine_get_siphon_drain_per_second,
+        bsengine_get_siphon_return_fraction,
+        bsengine_is_siphon_just_started,
+        bsengine_is_siphon_just_ended,
+        bsengine_is_siphon_enabled,
+        bsengine_start_siphon,
+        bsengine_stop_siphon,
+        bsengine_set_siphon_enabled,
+        bsengine_get_slam_phase,
+        bsengine_get_slam_speed,
+        bsengine_get_slam_impact_radius,
+        bsengine_get_slam_impact_force,
+        bsengine_get_slam_min_height,
+        bsengine_get_slam_launch_height,
+        bsengine_get_slam_recovery_time,
+        bsengine_get_slam_recovery_timer,
+        bsengine_get_slam_cooldown,
+        bsengine_get_slam_cooldown_timer,
+        bsengine_slam_wants_slam,
+        bsengine_is_slam_enabled,
+        bsengine_begin_slam,
+        bsengine_land_slam,
+        bsengine_set_slam_enabled,
+        bsengine_get_slay_kill_count,
+        bsengine_get_slay_threshold,
+        bsengine_get_slay_trigger_count,
+        bsengine_is_slay_just_triggered,
+        bsengine_is_slay_enabled,
+        bsengine_register_kill,
+        bsengine_set_slay_enabled,
+        bsengine_get_slide_phase,
+        bsengine_get_slide_direction_x,
+        bsengine_get_slide_direction_y,
+        bsengine_get_slide_direction_z,
+        bsengine_get_slide_duration,
+        bsengine_get_slide_brake_start,
+        bsengine_get_slide_elapsed,
+        bsengine_get_slide_speed,
+        bsengine_slide_wants_slide,
+        bsengine_get_slide_crouch_scale,
+        bsengine_is_slide_enabled,
+        bsengine_start_slide,
+        bsengine_cancel_slide,
+        bsengine_set_slide_enabled,
+        bsengine_get_slime_timer,
+        bsengine_get_slime_slow_factor,
+        bsengine_is_slimed,
+        bsengine_is_just_slimed,
+        bsengine_is_just_slime_cleansed,
+        bsengine_is_slime_enabled,
+        bsengine_apply_slime,
+        bsengine_cleanse_slime,
+        bsengine_set_slime_enabled,
+        bsengine_is_slink_active,
+        bsengine_get_slink_speed_reduction,
+        bsengine_get_slink_noise_reduction,
+        bsengine_is_slink_just_engaged,
+        bsengine_is_slink_just_disengaged,
+        bsengine_is_slink_enabled,
+        bsengine_engage_slink,
+        bsengine_disengage_slink,
+        bsengine_set_slink_enabled,
+        bsengine_get_slow_mo_target_scale,
+        bsengine_get_slow_mo_current_scale,
+        bsengine_get_slow_mo_blend_speed,
+        bsengine_get_slow_mo_max_duration,
+        bsengine_get_slow_mo_elapsed,
+        bsengine_get_slow_mo_charge,
+        bsengine_get_slow_mo_drain_rate,
+        bsengine_get_slow_mo_source,
+        bsengine_is_slow_mo_enabled,
+        bsengine_set_slow_mo_enabled,
+        bsengine_get_smoke_style,
+        bsengine_get_smoke_rate,
+        bsengine_get_smoke_color_r,
+        bsengine_get_smoke_color_g,
+        bsengine_get_smoke_color_b,
+        bsengine_get_smoke_color_a,
+        bsengine_get_smoke_particle_speed,
+        bsengine_get_smoke_spread_rate,
+        bsengine_get_smoke_particle_lifetime,
+        bsengine_get_smoke_offset_x,
+        bsengine_get_smoke_offset_y,
+        bsengine_get_smoke_offset_z,
+        bsengine_get_smoke_burst_duration,
+        bsengine_get_smoke_elapsed,
+        bsengine_is_smoke_enabled,
+        bsengine_set_smoke_enabled,
+        bsengine_get_snare_duration,
+        bsengine_get_snare_timer,
+        bsengine_get_snare_slow_fraction,
+        bsengine_get_snare_escape_chance,
+        bsengine_is_just_snared,
+        bsengine_is_just_snare_escaped,
+        bsengine_is_snare_enabled,
+        bsengine_apply_snare,
+        bsengine_clear_snare,
+        bsengine_set_snare_enabled,
+        bsengine_get_soak_level,
+        bsengine_get_soak_decay_rate,
+        bsengine_get_soak_fire_resistance,
+        bsengine_get_soak_lightning_amplify,
+        bsengine_is_just_soaked,
+        bsengine_is_just_dried,
+        bsengine_is_soak_enabled,
+        bsengine_absorb_soak,
+        bsengine_set_soak_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -28472,6 +29271,123 @@ const Bsengine = {
     setShuntResistance:         (name, v)           => Deno.core.ops.bsengine_set_shunt_resistance(name, v),
     setShuntCooldown:           (name, v)           => Deno.core.ops.bsengine_set_shunt_cooldown(name, v),
     setShuntEnabled:            (name, v)           => Deno.core.ops.bsengine_set_shunt_enabled(name, v),
+    getSilenceDuration:         (name)              => Deno.core.ops.bsengine_get_silence_duration(name),
+    getSilenceTimer:            (name)              => Deno.core.ops.bsengine_get_silence_timer(name),
+    isJustSilenced:             (name)              => Deno.core.ops.bsengine_is_just_silenced(name),
+    isJustUnsilenced:           (name)              => Deno.core.ops.bsengine_is_just_unsilenced(name),
+    isSilenceEnabled:           (name)              => Deno.core.ops.bsengine_is_silence_enabled(name),
+    applySilence:               (name, duration)    => Deno.core.ops.bsengine_apply_silence(name, duration),
+    clearSilence:               (name)              => Deno.core.ops.bsengine_clear_silence(name),
+    setSilenceEnabled:          (name, v)           => Deno.core.ops.bsengine_set_silence_enabled(name, v),
+    getSiphonDuration:          (name)              => Deno.core.ops.bsengine_get_siphon_duration(name),
+    getSiphonTimer:             (name)              => Deno.core.ops.bsengine_get_siphon_timer(name),
+    getSiphonDrainPerSecond:    (name)              => Deno.core.ops.bsengine_get_siphon_drain_per_second(name),
+    getSiphonReturnFraction:    (name)              => Deno.core.ops.bsengine_get_siphon_return_fraction(name),
+    isSiphonJustStarted:        (name)              => Deno.core.ops.bsengine_is_siphon_just_started(name),
+    isSiphonJustEnded:          (name)              => Deno.core.ops.bsengine_is_siphon_just_ended(name),
+    isSiphonEnabled:            (name)              => Deno.core.ops.bsengine_is_siphon_enabled(name),
+    startSiphon:                (name, duration)    => Deno.core.ops.bsengine_start_siphon(name, duration),
+    stopSiphon:                 (name)              => Deno.core.ops.bsengine_stop_siphon(name),
+    setSiphonEnabled:           (name, v)           => Deno.core.ops.bsengine_set_siphon_enabled(name, v),
+    getSlamPhase:               (name)              => Deno.core.ops.bsengine_get_slam_phase(name),
+    getSlamSpeed:               (name)              => Deno.core.ops.bsengine_get_slam_speed(name),
+    getSlamImpactRadius:        (name)              => Deno.core.ops.bsengine_get_slam_impact_radius(name),
+    getSlamImpactForce:         (name)              => Deno.core.ops.bsengine_get_slam_impact_force(name),
+    getSlamMinHeight:           (name)              => Deno.core.ops.bsengine_get_slam_min_height(name),
+    getSlamLaunchHeight:        (name)              => Deno.core.ops.bsengine_get_slam_launch_height(name),
+    getSlamRecoveryTime:        (name)              => Deno.core.ops.bsengine_get_slam_recovery_time(name),
+    getSlamRecoveryTimer:       (name)              => Deno.core.ops.bsengine_get_slam_recovery_timer(name),
+    getSlamCooldown:            (name)              => Deno.core.ops.bsengine_get_slam_cooldown(name),
+    getSlamCooldownTimer:       (name)              => Deno.core.ops.bsengine_get_slam_cooldown_timer(name),
+    slamWantsSlam:              (name)              => Deno.core.ops.bsengine_slam_wants_slam(name),
+    isSlamEnabled:              (name)              => Deno.core.ops.bsengine_is_slam_enabled(name),
+    beginSlam:                  (name, height)      => Deno.core.ops.bsengine_begin_slam(name, height),
+    landSlam:                   (name)              => Deno.core.ops.bsengine_land_slam(name),
+    setSlamEnabled:             (name, v)           => Deno.core.ops.bsengine_set_slam_enabled(name, v),
+    getSlayKillCount:           (name)              => Deno.core.ops.bsengine_get_slay_kill_count(name),
+    getSlayThreshold:           (name)              => Deno.core.ops.bsengine_get_slay_threshold(name),
+    getSlayTriggerCount:        (name)              => Deno.core.ops.bsengine_get_slay_trigger_count(name),
+    isSlayJustTriggered:        (name)              => Deno.core.ops.bsengine_is_slay_just_triggered(name),
+    isSlayEnabled:              (name)              => Deno.core.ops.bsengine_is_slay_enabled(name),
+    registerKill:               (name)              => Deno.core.ops.bsengine_register_kill(name),
+    setSlayEnabled:             (name, v)           => Deno.core.ops.bsengine_set_slay_enabled(name, v),
+    getSlidePhase:              (name)              => Deno.core.ops.bsengine_get_slide_phase(name),
+    getSlideDirectionX:         (name)              => Deno.core.ops.bsengine_get_slide_direction_x(name),
+    getSlideDirectionY:         (name)              => Deno.core.ops.bsengine_get_slide_direction_y(name),
+    getSlideDirectionZ:         (name)              => Deno.core.ops.bsengine_get_slide_direction_z(name),
+    getSlideDuration:           (name)              => Deno.core.ops.bsengine_get_slide_duration(name),
+    getSlideBrakeStart:         (name)              => Deno.core.ops.bsengine_get_slide_brake_start(name),
+    getSlideElapsed:            (name)              => Deno.core.ops.bsengine_get_slide_elapsed(name),
+    getSlideSpeed:              (name)              => Deno.core.ops.bsengine_get_slide_speed(name),
+    slideWantsSlide:            (name)              => Deno.core.ops.bsengine_slide_wants_slide(name),
+    getSlideCrouchScale:        (name)              => Deno.core.ops.bsengine_get_slide_crouch_scale(name),
+    isSlideEnabled:             (name)              => Deno.core.ops.bsengine_is_slide_enabled(name),
+    startSlide:                 (name, x, y, z)    => Deno.core.ops.bsengine_start_slide(name, x, y, z),
+    cancelSlide:                (name)              => Deno.core.ops.bsengine_cancel_slide(name),
+    setSlideEnabled:            (name, v)           => Deno.core.ops.bsengine_set_slide_enabled(name, v),
+    getSlimeTimer:              (name)              => Deno.core.ops.bsengine_get_slime_timer(name),
+    getSlimeSlowFactor:         (name)              => Deno.core.ops.bsengine_get_slime_slow_factor(name),
+    isSlimed:                   (name)              => Deno.core.ops.bsengine_is_slimed(name),
+    isJustSlimed:               (name)              => Deno.core.ops.bsengine_is_just_slimed(name),
+    isJustSlimeCleansed:        (name)              => Deno.core.ops.bsengine_is_just_slime_cleansed(name),
+    isSlimeEnabled:             (name)              => Deno.core.ops.bsengine_is_slime_enabled(name),
+    applySlime:                 (name, duration)    => Deno.core.ops.bsengine_apply_slime(name, duration),
+    cleanseSlime:               (name)              => Deno.core.ops.bsengine_cleanse_slime(name),
+    setSlimeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_slime_enabled(name, v),
+    isSlinkActive:              (name)              => Deno.core.ops.bsengine_is_slink_active(name),
+    getSlinkSpeedReduction:     (name)              => Deno.core.ops.bsengine_get_slink_speed_reduction(name),
+    getSlinkNoiseReduction:     (name)              => Deno.core.ops.bsengine_get_slink_noise_reduction(name),
+    isSlinkJustEngaged:         (name)              => Deno.core.ops.bsengine_is_slink_just_engaged(name),
+    isSlinkJustDisengaged:      (name)              => Deno.core.ops.bsengine_is_slink_just_disengaged(name),
+    isSlinkEnabled:             (name)              => Deno.core.ops.bsengine_is_slink_enabled(name),
+    engageSlink:                (name)              => Deno.core.ops.bsengine_engage_slink(name),
+    disengageSlink:             (name)              => Deno.core.ops.bsengine_disengage_slink(name),
+    setSlinkEnabled:            (name, v)           => Deno.core.ops.bsengine_set_slink_enabled(name, v),
+    getSlowMoTargetScale:       (name)              => Deno.core.ops.bsengine_get_slow_mo_target_scale(name),
+    getSlowMoCurrentScale:      (name)              => Deno.core.ops.bsengine_get_slow_mo_current_scale(name),
+    getSlowMoBlendSpeed:        (name)              => Deno.core.ops.bsengine_get_slow_mo_blend_speed(name),
+    getSlowMoMaxDuration:       (name)              => Deno.core.ops.bsengine_get_slow_mo_max_duration(name),
+    getSlowMoElapsed:           (name)              => Deno.core.ops.bsengine_get_slow_mo_elapsed(name),
+    getSlowMoCharge:            (name)              => Deno.core.ops.bsengine_get_slow_mo_charge(name),
+    getSlowMoDrainRate:         (name)              => Deno.core.ops.bsengine_get_slow_mo_drain_rate(name),
+    getSlowMoSource:            (name)              => Deno.core.ops.bsengine_get_slow_mo_source(name),
+    isSlowMoEnabled:            (name)              => Deno.core.ops.bsengine_is_slow_mo_enabled(name),
+    setSlowMoEnabled:           (name, v)           => Deno.core.ops.bsengine_set_slow_mo_enabled(name, v),
+    getSmokeStyle:              (name)              => Deno.core.ops.bsengine_get_smoke_style(name),
+    getSmokeRate:               (name)              => Deno.core.ops.bsengine_get_smoke_rate(name),
+    getSmokeColorR:             (name)              => Deno.core.ops.bsengine_get_smoke_color_r(name),
+    getSmokeColorG:             (name)              => Deno.core.ops.bsengine_get_smoke_color_g(name),
+    getSmokeColorB:             (name)              => Deno.core.ops.bsengine_get_smoke_color_b(name),
+    getSmokeColorA:             (name)              => Deno.core.ops.bsengine_get_smoke_color_a(name),
+    getSmokeParticleSpeed:      (name)              => Deno.core.ops.bsengine_get_smoke_particle_speed(name),
+    getSmokeSpreadRate:         (name)              => Deno.core.ops.bsengine_get_smoke_spread_rate(name),
+    getSmokeParticleLifetime:   (name)              => Deno.core.ops.bsengine_get_smoke_particle_lifetime(name),
+    getSmokeOffsetX:            (name)              => Deno.core.ops.bsengine_get_smoke_offset_x(name),
+    getSmokeOffsetY:            (name)              => Deno.core.ops.bsengine_get_smoke_offset_y(name),
+    getSmokeOffsetZ:            (name)              => Deno.core.ops.bsengine_get_smoke_offset_z(name),
+    getSmokeBurstDuration:      (name)              => Deno.core.ops.bsengine_get_smoke_burst_duration(name),
+    getSmokeElapsed:            (name)              => Deno.core.ops.bsengine_get_smoke_elapsed(name),
+    isSmokeEnabled:             (name)              => Deno.core.ops.bsengine_is_smoke_enabled(name),
+    setSmokeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_smoke_enabled(name, v),
+    getSnareDuration:           (name)              => Deno.core.ops.bsengine_get_snare_duration(name),
+    getSnareTimer:              (name)              => Deno.core.ops.bsengine_get_snare_timer(name),
+    getSnareSlowFraction:       (name)              => Deno.core.ops.bsengine_get_snare_slow_fraction(name),
+    getSnareEscapeChance:       (name)              => Deno.core.ops.bsengine_get_snare_escape_chance(name),
+    isJustSnared:               (name)              => Deno.core.ops.bsengine_is_just_snared(name),
+    isJustSnareEscaped:         (name)              => Deno.core.ops.bsengine_is_just_snare_escaped(name),
+    isSnareEnabled:             (name)              => Deno.core.ops.bsengine_is_snare_enabled(name),
+    applySnare:                 (name, duration)    => Deno.core.ops.bsengine_apply_snare(name, duration),
+    clearSnare:                 (name)              => Deno.core.ops.bsengine_clear_snare(name),
+    setSnareEnabled:            (name, v)           => Deno.core.ops.bsengine_set_snare_enabled(name, v),
+    getSoakLevel:               (name)              => Deno.core.ops.bsengine_get_soak_level(name),
+    getSoakDecayRate:           (name)              => Deno.core.ops.bsengine_get_soak_decay_rate(name),
+    getSoakFireResistance:      (name)              => Deno.core.ops.bsengine_get_soak_fire_resistance(name),
+    getSoakLightningAmplify:    (name)              => Deno.core.ops.bsengine_get_soak_lightning_amplify(name),
+    isJustSoaked:               (name)              => Deno.core.ops.bsengine_is_just_soaked(name),
+    isJustDried:                (name)              => Deno.core.ops.bsengine_is_just_dried(name),
+    isSoakEnabled:              (name)              => Deno.core.ops.bsengine_is_soak_enabled(name),
+    absorbSoak:                 (name, amount)      => Deno.core.ops.bsengine_absorb_soak(name, amount),
+    setSoakEnabled:             (name, v)           => Deno.core.ops.bsengine_set_soak_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -47193,6 +48109,669 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShuntResistance { name, resistance } if name == "Tank" && (*resistance - 0.75).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShuntCooldown { name, cooldown } if name == "Tank" && (*cooldown - 2.0).abs() < 1e-5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetShuntEnabled { name, enabled } if name == "Tank" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_silence_read_ops() {
+        super::SILENCE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Mage".to_string(), (2.0f32, 0.5f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSilenceDuration("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSilenceTimer("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSilenced("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustUnsilenced("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSilenceEnabled("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SILENCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_silence_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySilence("Mage", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearSilence("Mage");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSilenceEnabled("Mage", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySilence { name, duration } if name == "Mage" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearSilence { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSilenceEnabled { name, enabled } if name == "Mage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_siphon_read_ops() {
+        super::SIPHON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mage".to_string(),
+                (4.0f32, 1.0f32, 0.5f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSiphonDuration("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getSiphonTimer("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSiphonDrainPerSecond("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSiphonReturnFraction("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isSiphonJustStarted("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSiphonJustEnded("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSiphonEnabled("Mage"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SIPHON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_siphon_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startSiphon("Mage", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stopSiphon("Mage");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSiphonEnabled("Mage", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartSiphon { name, duration } if name == "Mage" && (*duration - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopSiphon { name } if name == "Mage")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSiphonEnabled { name, enabled } if name == "Mage" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slam_read_ops() {
+        super::SLAM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Warrior".to_string(),
+                (
+                    1u32, 10.0f32, 2.0f32, 5.0f32, 1.0f32, 4.0f32, 0.5f32, 0.25f32, 2.0f32,
+                    0.75f32, true, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamPhase("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamSpeed("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamImpactRadius("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamImpactForce("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamMinHeight("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamLaunchHeight("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamRecoveryTime("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamRecoveryTimer("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamCooldown("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlamCooldownTimer("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.slamWantsSlam("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlamEnabled("Warrior"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SLAM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slam_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginSlam("Warrior", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.landSlam("Warrior");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSlamEnabled("Warrior", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginSlam { name, height } if name == "Warrior" && (*height - 3.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LandSlam { name } if name == "Warrior")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSlamEnabled { name, enabled } if name == "Warrior" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slay_read_ops() {
+        super::SLAY_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hunter".to_string(), (5u32, 10u32, 2u32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSlayKillCount("Hunter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlayThreshold("Hunter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlayTriggerCount("Hunter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlayJustTriggered("Hunter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlayEnabled("Hunter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SLAY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slay_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.registerKill("Hunter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSlayEnabled("Hunter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RegisterKill { name } if name == "Hunter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSlayEnabled { name, enabled } if name == "Hunter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slide_read_ops() {
+        super::SLIDE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Runner".to_string(),
+                (
+                    1u32, 1.0f32, 0.0f32, 0.0f32, 0.75f32, 0.5f32, 0.25f32, 8.0f32, true, 0.5f32,
+                    true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSlidePhase("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideDirectionX("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideDirectionY("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideDirectionZ("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideDuration("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideBrakeStart("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideElapsed("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideSpeed("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.slideWantsSlide("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlideCrouchScale("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlideEnabled("Runner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SLIDE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slide_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startSlide("Runner", 1.0, 0.0, 0.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cancelSlide("Runner");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSlideEnabled("Runner", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartSlide { name, dir_x, dir_y, dir_z } if name == "Runner" && (*dir_x - 1.0).abs() < 1e-5 && dir_y.abs() < 1e-5 && dir_z.abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CancelSlide { name } if name == "Runner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSlideEnabled { name, enabled } if name == "Runner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slime_read_ops() {
+        super::SLIME_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Goo".to_string(), (1.5f32, 0.5f32, true, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getSlimeTimer("Goo"))"#).unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlimeSlowFactor("Goo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.isSlimed("Goo"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isJustSlimed("Goo"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSlimeCleansed("Goo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlimeEnabled("Goo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SLIME_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slime_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySlime("Goo", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cleanseSlime("Goo");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSlimeEnabled("Goo", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySlime { name, duration } if name == "Goo" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseSlime { name } if name == "Goo")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSlimeEnabled { name, enabled } if name == "Goo" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slink_read_ops() {
+        super::SLINK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Thief".to_string(),
+                (true, 0.25f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isSlinkActive("Thief"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlinkSpeedReduction("Thief"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlinkNoiseReduction("Thief"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlinkJustEngaged("Thief"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlinkJustDisengaged("Thief"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlinkEnabled("Thief"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SLINK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slink_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.engageSlink("Thief");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disengageSlink("Thief");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSlinkEnabled("Thief", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EngageSlink { name } if name == "Thief")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisengageSlink { name } if name == "Thief")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSlinkEnabled { name, enabled } if name == "Thief" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slow_mo_read_ops() {
+        super::SLOW_MO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "World".to_string(),
+                (
+                    0.25f32, 0.5f32, 2.0f32, 4.0f32, 1.0f32, 0.75f32, 0.5f32, 0u32, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoTargetScale("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoCurrentScale("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoBlendSpeed("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoMaxDuration("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoElapsed("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoCharge("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoDrainRate("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSlowMoSource("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.isSlowMoEnabled("World"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SLOW_MO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_slow_mo_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setSlowMoEnabled("World", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSlowMoEnabled { name, enabled } if name == "World" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_smoke_read_ops() {
+        super::SMOKE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Barrel".to_string(),
+                (
+                    1u32, 2.0f32, 0.5f32, 0.5f32, 0.5f32, 1.0f32, 1.0f32, 0.25f32, 2.0f32, 0.0f32,
+                    0.0f32, 0.0f32, 0.5f32, 1.0f32, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeStyle("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeRate("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeColorR("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeColorG("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeColorB("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeColorA("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeParticleSpeed("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeSpreadRate("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeParticleLifetime("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeOffsetX("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeOffsetY("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeOffsetZ("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeBurstDuration("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSmokeElapsed("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isSmokeEnabled("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SMOKE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_smoke_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setSmokeEnabled("Barrel", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSmokeEnabled { name, enabled } if name == "Barrel" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_snare_read_ops() {
+        super::SNARE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rabbit".to_string(),
+                (3.0f32, 1.5f32, 0.5f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getSnareDuration("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getSnareTimer("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSnareSlowFraction("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSnareEscapeChance("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSnared("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSnareEscaped("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isSnareEnabled("Rabbit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SNARE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_snare_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applySnare("Rabbit", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearSnare("Rabbit");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSnareEnabled("Rabbit", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplySnare { name, duration } if name == "Rabbit" && (*duration - 2.0).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearSnare { name } if name == "Rabbit")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSnareEnabled { name, enabled } if name == "Rabbit" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_soak_read_ops() {
+        super::SOAK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wet".to_string(),
+                (0.75f32, 0.25f32, 0.5f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getSoakLevel("Wet"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getSoakDecayRate("Wet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getSoakFireResistance("Wet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getSoakLightningAmplify("Wet"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt.eval(r#"String(Bsengine.isJustSoaked("Wet"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt.eval(r#"String(Bsengine.isJustDried("Wet"))"#).unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isSoakEnabled("Wet"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::SOAK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_soak_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.absorbSoak("Wet", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setSoakEnabled("Wet", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AbsorbSoak { name, amount } if name == "Wet" && (*amount - 0.5).abs() < 1e-5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetSoakEnabled { name, enabled } if name == "Wet" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

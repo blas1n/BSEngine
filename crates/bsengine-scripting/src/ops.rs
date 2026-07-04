@@ -5690,6 +5690,101 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AstoundWondrous {
+        name: String,
+        amount: f32,
+    },
+    MundanifyWondrous {
+        name: String,
+        amount: f32,
+    },
+    SetWondrousEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StudyWonk {
+        name: String,
+        amount: f32,
+    },
+    LapseWonk {
+        name: String,
+        amount: f32,
+    },
+    SetWonkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WobbleWonky {
+        name: String,
+        amount: f32,
+    },
+    SteadyWonky {
+        name: String,
+        amount: f32,
+    },
+    SetWonkyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ReinforceWont {
+        name: String,
+        amount: f32,
+    },
+    DisruptWont {
+        name: String,
+        amount: f32,
+    },
+    SetWontEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SwayWoo {
+        name: String,
+        amount: f32,
+    },
+    RebuffWoo {
+        name: String,
+    },
+    SetWooEnabled {
+        name: String,
+        enabled: bool,
+    },
+    GatherWood {
+        name: String,
+        amount: f32,
+    },
+    BurnWood {
+        name: String,
+        amount: f32,
+    },
+    SetWoodEnabled {
+        name: String,
+        enabled: bool,
+    },
+    GoWildWoodsy {
+        name: String,
+        amount: f32,
+    },
+    TameWoodsy {
+        name: String,
+        amount: f32,
+    },
+    SetWoodsyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WooWooer {
+        name: String,
+        amount: f32,
+    },
+    SpurnWooer {
+        name: String,
+        amount: f32,
+    },
+    SetWooerEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -7061,6 +7156,22 @@ thread_local! {
     pub(crate) static WON_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WONDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WONDROUS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WONK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WONKY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WONT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOOD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOODSY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOOER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -17153,6 +17264,368 @@ pub fn bsengine_set_wonder_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWonderEnabled { name, enabled })
+    });
+}
+// ── Wondrous ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wondrous_marvel(#[string] name: String) -> f32 {
+    WONDROUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wondrous_max_marvel(#[string] name: String) -> f32 {
+    WONDROUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wondrous_awe_rate(#[string] name: String) -> f32 {
+    WONDROUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wondrous_just_astounded(#[string] name: String) -> bool {
+    WONDROUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wondrous_just_mundane(#[string] name: String) -> bool {
+    WONDROUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wondrous_enabled(#[string] name: String) -> bool {
+    WONDROUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_astound_wondrous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AstoundWondrous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_mundanify_wondrous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MundanifyWondrous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wondrous_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWondrousEnabled { name, enabled })
+    });
+}
+// ── Wonk ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wonk_expertise(#[string] name: String) -> f32 {
+    WONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wonk_max_expertise(#[string] name: String) -> f32 {
+    WONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wonk_study_rate(#[string] name: String) -> f32 {
+    WONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonk_just_mastered(#[string] name: String) -> bool {
+    WONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonk_just_lapsed(#[string] name: String) -> bool {
+    WONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonk_enabled(#[string] name: String) -> bool {
+    WONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_study_wonk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StudyWonk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_lapse_wonk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LapseWonk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wonk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWonkEnabled { name, enabled })
+    });
+}
+// ── Wonky ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wonky_instability(#[string] name: String) -> f32 {
+    WONKY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wonky_max_instability(#[string] name: String) -> f32 {
+    WONKY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wonky_wobble_rate(#[string] name: String) -> f32 {
+    WONKY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonky_just_toppled(#[string] name: String) -> bool {
+    WONKY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonky_just_steadied(#[string] name: String) -> bool {
+    WONKY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonky_enabled(#[string] name: String) -> bool {
+    WONKY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_wobble_wonky(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WobbleWonky { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_steady_wonky(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SteadyWonky { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wonky_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWonkyEnabled { name, enabled })
+    });
+}
+// ── Wont ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wont_habit(#[string] name: String) -> f32 {
+    WONT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wont_max_habit(#[string] name: String) -> f32 {
+    WONT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wont_routine_rate(#[string] name: String) -> f32 {
+    WONT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wont_just_ingrained(#[string] name: String) -> bool {
+    WONT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wont_just_broken(#[string] name: String) -> bool {
+    WONT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wont_enabled(#[string] name: String) -> bool {
+    WONT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_reinforce_wont(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ReinforceWont { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_disrupt_wont(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DisruptWont { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wont_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWontEnabled { name, enabled })
+    });
+}
+// ── Woo ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_woo_level(#[string] name: String) -> f32 {
+    WOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woo_max_woo(#[string] name: String) -> f32 {
+    WOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woo_fraction(#[string] name: String) -> f32 {
+    WOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_woo_just_charmed(#[string] name: String) -> bool {
+    WOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woo_just_smitten(#[string] name: String) -> bool {
+    WOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woo_enabled(#[string] name: String) -> bool {
+    WOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_sway_woo(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SwayWoo { name, amount }));
+}
+#[op2(fast)]
+pub fn bsengine_rebuff_woo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RebuffWoo { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_woo_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWooEnabled { name, enabled })
+    });
+}
+// ── Wood ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wood_stock(#[string] name: String) -> f32 {
+    WOOD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wood_max_stock(#[string] name: String) -> f32 {
+    WOOD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wood_grow_rate(#[string] name: String) -> f32 {
+    WOOD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wood_just_stocked(#[string] name: String) -> bool {
+    WOOD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wood_just_bare(#[string] name: String) -> bool {
+    WOOD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wood_enabled(#[string] name: String) -> bool {
+    WOOD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_gather_wood(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::GatherWood { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_burn_wood(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BurnWood { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wood_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoodEnabled { name, enabled })
+    });
+}
+// ── Woodsy ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_woodsy_rusticity(#[string] name: String) -> f32 {
+    WOODSY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woodsy_max_rusticity(#[string] name: String) -> f32 {
+    WOODSY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woodsy_wild_rate(#[string] name: String) -> f32 {
+    WOODSY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_woodsy_just_feral(#[string] name: String) -> bool {
+    WOODSY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woodsy_just_tamed(#[string] name: String) -> bool {
+    WOODSY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woodsy_enabled(#[string] name: String) -> bool {
+    WOODSY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_go_wild_woodsy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::GoWildWoodsy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_tame_woodsy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TameWoodsy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_woodsy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoodsyEnabled { name, enabled })
+    });
+}
+// ── Wooer ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wooer_appeal(#[string] name: String) -> f32 {
+    WOOER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wooer_max_appeal(#[string] name: String) -> f32 {
+    WOOER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wooer_charm_rate(#[string] name: String) -> f32 {
+    WOOER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wooer_just_smitten(#[string] name: String) -> bool {
+    WOOER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wooer_just_spurned(#[string] name: String) -> bool {
+    WOOER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wooer_enabled(#[string] name: String) -> bool {
+    WOOER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_woo_wooer(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WooWooer { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_spurn_wooer(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SpurnWooer { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wooer_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWooerEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -38100,6 +38573,78 @@ deno_core::extension!(
         bsengine_marvel_wonder,
         bsengine_jade_wonder,
         bsengine_set_wonder_enabled,
+        bsengine_get_wondrous_marvel,
+        bsengine_get_wondrous_max_marvel,
+        bsengine_get_wondrous_awe_rate,
+        bsengine_is_wondrous_just_astounded,
+        bsengine_is_wondrous_just_mundane,
+        bsengine_is_wondrous_enabled,
+        bsengine_astound_wondrous,
+        bsengine_mundanify_wondrous,
+        bsengine_set_wondrous_enabled,
+        bsengine_get_wonk_expertise,
+        bsengine_get_wonk_max_expertise,
+        bsengine_get_wonk_study_rate,
+        bsengine_is_wonk_just_mastered,
+        bsengine_is_wonk_just_lapsed,
+        bsengine_is_wonk_enabled,
+        bsengine_study_wonk,
+        bsengine_lapse_wonk,
+        bsengine_set_wonk_enabled,
+        bsengine_get_wonky_instability,
+        bsengine_get_wonky_max_instability,
+        bsengine_get_wonky_wobble_rate,
+        bsengine_is_wonky_just_toppled,
+        bsengine_is_wonky_just_steadied,
+        bsengine_is_wonky_enabled,
+        bsengine_wobble_wonky,
+        bsengine_steady_wonky,
+        bsengine_set_wonky_enabled,
+        bsengine_get_wont_habit,
+        bsengine_get_wont_max_habit,
+        bsengine_get_wont_routine_rate,
+        bsengine_is_wont_just_ingrained,
+        bsengine_is_wont_just_broken,
+        bsengine_is_wont_enabled,
+        bsengine_reinforce_wont,
+        bsengine_disrupt_wont,
+        bsengine_set_wont_enabled,
+        bsengine_get_woo_level,
+        bsengine_get_woo_max_woo,
+        bsengine_get_woo_fraction,
+        bsengine_is_woo_just_charmed,
+        bsengine_is_woo_just_smitten,
+        bsengine_is_woo_enabled,
+        bsengine_sway_woo,
+        bsengine_rebuff_woo,
+        bsengine_set_woo_enabled,
+        bsengine_get_wood_stock,
+        bsengine_get_wood_max_stock,
+        bsengine_get_wood_grow_rate,
+        bsengine_is_wood_just_stocked,
+        bsengine_is_wood_just_bare,
+        bsengine_is_wood_enabled,
+        bsengine_gather_wood,
+        bsengine_burn_wood,
+        bsengine_set_wood_enabled,
+        bsengine_get_woodsy_rusticity,
+        bsengine_get_woodsy_max_rusticity,
+        bsengine_get_woodsy_wild_rate,
+        bsengine_is_woodsy_just_feral,
+        bsengine_is_woodsy_just_tamed,
+        bsengine_is_woodsy_enabled,
+        bsengine_go_wild_woodsy,
+        bsengine_tame_woodsy,
+        bsengine_set_woodsy_enabled,
+        bsengine_get_wooer_appeal,
+        bsengine_get_wooer_max_appeal,
+        bsengine_get_wooer_charm_rate,
+        bsengine_is_wooer_just_smitten,
+        bsengine_is_wooer_just_spurned,
+        bsengine_is_wooer_enabled,
+        bsengine_woo_wooer,
+        bsengine_spurn_wooer,
+        bsengine_set_wooer_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -42459,6 +43004,78 @@ const Bsengine = {
     marvelWonder:               (name, v)           => Deno.core.ops.bsengine_marvel_wonder(name, v),
     jadeWonder:                 (name, v)           => Deno.core.ops.bsengine_jade_wonder(name, v),
     setWonderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wonder_enabled(name, v),
+    getWondrousMarvel:          (name)              => Deno.core.ops.bsengine_get_wondrous_marvel(name),
+    getWondrousMaxMarvel:       (name)              => Deno.core.ops.bsengine_get_wondrous_max_marvel(name),
+    getWondrousAweRate:         (name)              => Deno.core.ops.bsengine_get_wondrous_awe_rate(name),
+    isWondrousJustAstounded:    (name)              => Deno.core.ops.bsengine_is_wondrous_just_astounded(name),
+    isWondrousJustMundane:      (name)              => Deno.core.ops.bsengine_is_wondrous_just_mundane(name),
+    isWondrousEnabled:          (name)              => Deno.core.ops.bsengine_is_wondrous_enabled(name),
+    astoundWondrous:            (name, v)           => Deno.core.ops.bsengine_astound_wondrous(name, v),
+    mundanifyWondrous:          (name, v)           => Deno.core.ops.bsengine_mundanify_wondrous(name, v),
+    setWondrousEnabled:         (name, v)           => Deno.core.ops.bsengine_set_wondrous_enabled(name, v),
+    getWonkExpertise:           (name)              => Deno.core.ops.bsengine_get_wonk_expertise(name),
+    getWonkMaxExpertise:        (name)              => Deno.core.ops.bsengine_get_wonk_max_expertise(name),
+    getWonkStudyRate:           (name)              => Deno.core.ops.bsengine_get_wonk_study_rate(name),
+    isWonkJustMastered:         (name)              => Deno.core.ops.bsengine_is_wonk_just_mastered(name),
+    isWonkJustLapsed:           (name)              => Deno.core.ops.bsengine_is_wonk_just_lapsed(name),
+    isWonkEnabled:              (name)              => Deno.core.ops.bsengine_is_wonk_enabled(name),
+    studyWonk:                  (name, v)           => Deno.core.ops.bsengine_study_wonk(name, v),
+    lapseWonk:                  (name, v)           => Deno.core.ops.bsengine_lapse_wonk(name, v),
+    setWonkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wonk_enabled(name, v),
+    getWonkyInstability:        (name)              => Deno.core.ops.bsengine_get_wonky_instability(name),
+    getWonkyMaxInstability:     (name)              => Deno.core.ops.bsengine_get_wonky_max_instability(name),
+    getWonkyWobbleRate:         (name)              => Deno.core.ops.bsengine_get_wonky_wobble_rate(name),
+    isWonkyJustToppled:         (name)              => Deno.core.ops.bsengine_is_wonky_just_toppled(name),
+    isWonkyJustSteadied:        (name)              => Deno.core.ops.bsengine_is_wonky_just_steadied(name),
+    isWonkyEnabled:             (name)              => Deno.core.ops.bsengine_is_wonky_enabled(name),
+    wobbleWonky:                (name, v)           => Deno.core.ops.bsengine_wobble_wonky(name, v),
+    steadyWonky:                (name, v)           => Deno.core.ops.bsengine_steady_wonky(name, v),
+    setWonkyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wonky_enabled(name, v),
+    getWontHabit:               (name)              => Deno.core.ops.bsengine_get_wont_habit(name),
+    getWontMaxHabit:            (name)              => Deno.core.ops.bsengine_get_wont_max_habit(name),
+    getWontRoutineRate:         (name)              => Deno.core.ops.bsengine_get_wont_routine_rate(name),
+    isWontJustIngrained:        (name)              => Deno.core.ops.bsengine_is_wont_just_ingrained(name),
+    isWontJustBroken:           (name)              => Deno.core.ops.bsengine_is_wont_just_broken(name),
+    isWontEnabled:              (name)              => Deno.core.ops.bsengine_is_wont_enabled(name),
+    reinforceWont:              (name, v)           => Deno.core.ops.bsengine_reinforce_wont(name, v),
+    disruptWont:                (name, v)           => Deno.core.ops.bsengine_disrupt_wont(name, v),
+    setWontEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wont_enabled(name, v),
+    getWooLevel:                (name)              => Deno.core.ops.bsengine_get_woo_level(name),
+    getWooMaxWoo:               (name)              => Deno.core.ops.bsengine_get_woo_max_woo(name),
+    getWooFraction:             (name)              => Deno.core.ops.bsengine_get_woo_fraction(name),
+    isWooJustCharmed:           (name)              => Deno.core.ops.bsengine_is_woo_just_charmed(name),
+    isWooJustSmitten:           (name)              => Deno.core.ops.bsengine_is_woo_just_smitten(name),
+    isWooEnabled:               (name)              => Deno.core.ops.bsengine_is_woo_enabled(name),
+    swayWoo:                    (name, v)           => Deno.core.ops.bsengine_sway_woo(name, v),
+    rebuffWoo:                  (name)              => Deno.core.ops.bsengine_rebuff_woo(name),
+    setWooEnabled:              (name, v)           => Deno.core.ops.bsengine_set_woo_enabled(name, v),
+    getWoodStock:               (name)              => Deno.core.ops.bsengine_get_wood_stock(name),
+    getWoodMaxStock:            (name)              => Deno.core.ops.bsengine_get_wood_max_stock(name),
+    getWoodGrowRate:            (name)              => Deno.core.ops.bsengine_get_wood_grow_rate(name),
+    isWoodJustStocked:          (name)              => Deno.core.ops.bsengine_is_wood_just_stocked(name),
+    isWoodJustBare:             (name)              => Deno.core.ops.bsengine_is_wood_just_bare(name),
+    isWoodEnabled:              (name)              => Deno.core.ops.bsengine_is_wood_enabled(name),
+    gatherWood:                 (name, v)           => Deno.core.ops.bsengine_gather_wood(name, v),
+    burnWood:                   (name, v)           => Deno.core.ops.bsengine_burn_wood(name, v),
+    setWoodEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wood_enabled(name, v),
+    getWoodsyRusticity:         (name)              => Deno.core.ops.bsengine_get_woodsy_rusticity(name),
+    getWoodsyMaxRusticity:      (name)              => Deno.core.ops.bsengine_get_woodsy_max_rusticity(name),
+    getWoodsyWildRate:          (name)              => Deno.core.ops.bsengine_get_woodsy_wild_rate(name),
+    isWoodsyJustFeral:          (name)              => Deno.core.ops.bsengine_is_woodsy_just_feral(name),
+    isWoodsyJustTamed:          (name)              => Deno.core.ops.bsengine_is_woodsy_just_tamed(name),
+    isWoodsyEnabled:            (name)              => Deno.core.ops.bsengine_is_woodsy_enabled(name),
+    goWildWoodsy:               (name, v)           => Deno.core.ops.bsengine_go_wild_woodsy(name, v),
+    tameWoodsy:                 (name, v)           => Deno.core.ops.bsengine_tame_woodsy(name, v),
+    setWoodsyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_woodsy_enabled(name, v),
+    getWooerAppeal:             (name)              => Deno.core.ops.bsengine_get_wooer_appeal(name),
+    getWooerMaxAppeal:          (name)              => Deno.core.ops.bsengine_get_wooer_max_appeal(name),
+    getWooerCharmRate:          (name)              => Deno.core.ops.bsengine_get_wooer_charm_rate(name),
+    isWooerJustSmitten:         (name)              => Deno.core.ops.bsengine_is_wooer_just_smitten(name),
+    isWooerJustSpurned:         (name)              => Deno.core.ops.bsengine_is_wooer_just_spurned(name),
+    isWooerEnabled:             (name)              => Deno.core.ops.bsengine_is_wooer_enabled(name),
+    wooWooer:                   (name, v)           => Deno.core.ops.bsengine_woo_wooer(name, v),
+    spurnWooer:                 (name, v)           => Deno.core.ops.bsengine_spurn_wooer(name, v),
+    setWooerEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wooer_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -70916,6 +71533,439 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MarvelWonder { name, amount } if name == "Awe" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::JadeWonder { name, amount } if name == "Awe" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWonderEnabled { name, enabled } if name == "Awe" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wondrous_read_ops() {
+        super::WONDROUS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Marveled".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWondrousMarvel("Marveled"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWondrousMaxMarvel("Marveled"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWondrousAweRate("Marveled"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWondrousJustAstounded("Marveled"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWondrousJustMundane("Marveled"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWondrousEnabled("Marveled"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WONDROUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wondrous_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.astoundWondrous("Marveled", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.mundanifyWondrous("Marveled", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWondrousEnabled("Marveled", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AstoundWondrous { name, amount } if name == "Marveled" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MundanifyWondrous { name, amount } if name == "Marveled" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWondrousEnabled { name, enabled } if name == "Marveled" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wonk_read_ops() {
+        super::WONK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Expert".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWonkExpertise("Expert"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonkMaxExpertise("Expert"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonkStudyRate("Expert"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonkJustMastered("Expert"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonkJustLapsed("Expert"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonkEnabled("Expert"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WONK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wonk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.studyWonk("Expert", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.lapseWonk("Expert", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWonkEnabled("Expert", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StudyWonk { name, amount } if name == "Expert" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LapseWonk { name, amount } if name == "Expert" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWonkEnabled { name, enabled } if name == "Expert" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wonky_read_ops() {
+        super::WONKY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wobbly".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWonkyInstability("Wobbly"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonkyMaxInstability("Wobbly"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonkyWobbleRate("Wobbly"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonkyJustToppled("Wobbly"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonkyJustSteadied("Wobbly"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonkyEnabled("Wobbly"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WONKY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wonky_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.wobbleWonky("Wobbly", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.steadyWonky("Wobbly", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWonkyEnabled("Wobbly", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WobbleWonky { name, amount } if name == "Wobbly" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SteadyWonky { name, amount } if name == "Wobbly" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWonkyEnabled { name, enabled } if name == "Wobbly" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wont_read_ops() {
+        super::WONT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Habit".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWontHabit("Habit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWontMaxHabit("Habit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWontRoutineRate("Habit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWontJustIngrained("Habit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWontJustBroken("Habit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWontEnabled("Habit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WONT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wont_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.reinforceWont("Habit", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disruptWont("Habit", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWontEnabled("Habit", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReinforceWont { name, amount } if name == "Habit" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisruptWont { name, amount } if name == "Habit" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWontEnabled { name, enabled } if name == "Habit" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woo_read_ops() {
+        super::WOO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wooed".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWooLevel("Wooed"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWooMaxWoo("Wooed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWooFraction("Wooed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWooJustCharmed("Wooed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWooJustSmitten("Wooed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWooEnabled("Wooed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woo_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.swayWoo("Wooed", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.rebuffWoo("Wooed");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWooEnabled("Wooed", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SwayWoo { name, amount } if name == "Wooed" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RebuffWoo { name } if name == "Wooed")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWooEnabled { name, enabled } if name == "Wooed" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wood_read_ops() {
+        super::WOOD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Timber".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoodStock("Timber"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoodMaxStock("Timber"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoodGrowRate("Timber"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoodJustStocked("Timber"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoodJustBare("Timber"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoodEnabled("Timber"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOOD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wood_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.gatherWood("Timber", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.burnWood("Timber", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoodEnabled("Timber", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GatherWood { name, amount } if name == "Timber" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BurnWood { name, amount } if name == "Timber" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoodEnabled { name, enabled } if name == "Timber" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woodsy_read_ops() {
+        super::WOODSY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Forest".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoodsyRusticity("Forest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoodsyMaxRusticity("Forest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoodsyWildRate("Forest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoodsyJustFeral("Forest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoodsyJustTamed("Forest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoodsyEnabled("Forest"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOODSY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woodsy_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.goWildWoodsy("Forest", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.tameWoodsy("Forest", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoodsyEnabled("Forest", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GoWildWoodsy { name, amount } if name == "Forest" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TameWoodsy { name, amount } if name == "Forest" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoodsyEnabled { name, enabled } if name == "Forest" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wooer_read_ops() {
+        super::WOOER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Charmer".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWooerAppeal("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWooerMaxAppeal("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWooerCharmRate("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWooerJustSmitten("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWooerJustSpurned("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWooerEnabled("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOOER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wooer_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.wooWooer("Charmer", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spurnWooer("Charmer", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWooerEnabled("Charmer", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WooWooer { name, amount } if name == "Charmer" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpurnWooer { name, amount } if name == "Charmer" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWooerEnabled { name, enabled } if name == "Charmer" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

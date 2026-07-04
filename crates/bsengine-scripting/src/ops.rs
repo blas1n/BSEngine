@@ -5314,6 +5314,106 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Windfall ─────────────────────────────────────────────────────────────
+    AccrueWindfall {
+        name: String,
+        amount: f32,
+    },
+    SpendWindfall {
+        name: String,
+        amount: f32,
+    },
+    SetWindfallEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Windup ───────────────────────────────────────────────────────────────
+    BeginWindup {
+        name: String,
+        amount: f32,
+    },
+    ReleaseWindup {
+        name: String,
+    },
+    SetWindupEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wine ─────────────────────────────────────────────────────────────────
+    UncorkWine {
+        name: String,
+    },
+    AgeWine {
+        name: String,
+        amount: f32,
+    },
+    SetWineEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wing ─────────────────────────────────────────────────────────────────
+    SoarWing {
+        name: String,
+        amount: f32,
+    },
+    StallWing {
+        name: String,
+        amount: f32,
+    },
+    SetWingEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wink ─────────────────────────────────────────────────────────────────
+    OpenWink {
+        name: String,
+    },
+    CloseWink {
+        name: String,
+    },
+    SetWinkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wino ─────────────────────────────────────────────────────────────────
+    TippleWino {
+        name: String,
+        amount: f32,
+    },
+    SoberWino {
+        name: String,
+        amount: f32,
+    },
+    SetWinoEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Winsome ──────────────────────────────────────────────────────────────
+    DelightWinsome {
+        name: String,
+        amount: f32,
+    },
+    DullWinsome {
+        name: String,
+        amount: f32,
+    },
+    SetWinsomeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wintry ───────────────────────────────────────────────────────────────
+    ChillWintry {
+        name: String,
+        amount: f32,
+    },
+    ThawWintry {
+        name: String,
+        amount: f32,
+    },
+    SetWintryEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6621,6 +6721,22 @@ thread_local! {
     pub(crate) static WINCH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WINDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINDFALL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINDUP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WING_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINSOME_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINTRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -15295,6 +15411,359 @@ pub fn bsengine_set_winder_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWinderEnabled { name, enabled })
+    });
+}
+// ── Windfall ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_windfall_fortune(#[string] name: String) -> f32 {
+    WINDFALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_windfall_max_fortune(#[string] name: String) -> f32 {
+    WINDFALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_windfall_accrue_rate(#[string] name: String) -> f32 {
+    WINDFALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_windfall_just_fortunate(#[string] name: String) -> bool {
+    WINDFALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_windfall_just_penniless(#[string] name: String) -> bool {
+    WINDFALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_windfall_enabled(#[string] name: String) -> bool {
+    WINDFALL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_accrue_windfall(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AccrueWindfall { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_spend_windfall(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SpendWindfall { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_windfall_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWindfallEnabled { name, enabled })
+    });
+}
+// ── Windup ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_windup_duration(#[string] name: String) -> f32 {
+    WINDUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_windup_timer(#[string] name: String) -> f32 {
+    WINDUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_windup_damage_multiplier(#[string] name: String) -> f32 {
+    WINDUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_windup_just_started(#[string] name: String) -> bool {
+    WINDUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_windup_just_released(#[string] name: String) -> bool {
+    WINDUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_windup_enabled(#[string] name: String) -> bool {
+    WINDUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_windup(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeginWindup { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_windup(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseWindup { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_windup_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWindupEnabled { name, enabled })
+    });
+}
+// ── Wine ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wine_age(#[string] name: String) -> f32 {
+    WINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wine_peak_vintage(#[string] name: String) -> f32 {
+    WINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wine_age_rate(#[string] name: String) -> f32 {
+    WINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wine_just_peaked(#[string] name: String) -> bool {
+    WINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wine_just_spoiled(#[string] name: String) -> bool {
+    WINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wine_enabled(#[string] name: String) -> bool {
+    WINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_uncork_wine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UncorkWine { name }));
+}
+#[op2(fast)]
+pub fn bsengine_age_wine(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AgeWine { name, amount }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wine_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWineEnabled { name, enabled })
+    });
+}
+// ── Wing ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wing_lift(#[string] name: String) -> f32 {
+    WING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wing_max_lift(#[string] name: String) -> f32 {
+    WING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wing_glide_rate(#[string] name: String) -> f32 {
+    WING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wing_just_airborne(#[string] name: String) -> bool {
+    WING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wing_just_grounded(#[string] name: String) -> bool {
+    WING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wing_enabled(#[string] name: String) -> bool {
+    WING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_soar_wing(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SoarWing { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stall_wing(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StallWing { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wing_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWingEnabled { name, enabled })
+    });
+}
+// ── Wink ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wink_timer(#[string] name: String) -> f32 {
+    WINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wink_duration(#[string] name: String) -> f32 {
+    WINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wink_power(#[string] name: String) -> f32 {
+    WINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wink_active(#[string] name: String) -> bool {
+    WINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wink_just_closed(#[string] name: String) -> bool {
+    WINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wink_enabled(#[string] name: String) -> bool {
+    WINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_open_wink(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::OpenWink { name }));
+}
+#[op2(fast)]
+pub fn bsengine_close_wink(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CloseWink { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wink_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinkEnabled { name, enabled })
+    });
+}
+// ── Wino ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wino_indulgence(#[string] name: String) -> f32 {
+    WINO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wino_max_indulgence(#[string] name: String) -> f32 {
+    WINO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wino_tipple_rate(#[string] name: String) -> f32 {
+    WINO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wino_just_tipsy(#[string] name: String) -> bool {
+    WINO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wino_just_sober(#[string] name: String) -> bool {
+    WINO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wino_enabled(#[string] name: String) -> bool {
+    WINO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_tipple_wino(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TippleWino { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_sober_wino(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SoberWino { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wino_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinoEnabled { name, enabled })
+    });
+}
+// ── Winsome ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_winsome_charm(#[string] name: String) -> f32 {
+    WINSOME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_winsome_max_charm(#[string] name: String) -> f32 {
+    WINSOME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_winsome_delight_rate(#[string] name: String) -> f32 {
+    WINSOME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_winsome_just_delightful(#[string] name: String) -> bool {
+    WINSOME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_winsome_just_dull(#[string] name: String) -> bool {
+    WINSOME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_winsome_enabled(#[string] name: String) -> bool {
+    WINSOME_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_delight_winsome(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DelightWinsome { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dull_winsome(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DullWinsome { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_winsome_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinsomeEnabled { name, enabled })
+    });
+}
+// ── Wintry ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wintry_cold(#[string] name: String) -> f32 {
+    WINTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wintry_max_cold(#[string] name: String) -> f32 {
+    WINTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wintry_chill_rate(#[string] name: String) -> f32 {
+    WINTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wintry_just_frozen(#[string] name: String) -> bool {
+    WINTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wintry_just_thawed(#[string] name: String) -> bool {
+    WINTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wintry_enabled(#[string] name: String) -> bool {
+    WINTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_chill_wintry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChillWintry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_thaw_wintry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ThawWintry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wintry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWintryEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -35954,6 +36423,78 @@ deno_core::extension!(
         bsengine_crank_winder,
         bsengine_release_winder,
         bsengine_set_winder_enabled,
+        bsengine_get_windfall_fortune,
+        bsengine_get_windfall_max_fortune,
+        bsengine_get_windfall_accrue_rate,
+        bsengine_is_windfall_just_fortunate,
+        bsengine_is_windfall_just_penniless,
+        bsengine_is_windfall_enabled,
+        bsengine_accrue_windfall,
+        bsengine_spend_windfall,
+        bsengine_set_windfall_enabled,
+        bsengine_get_windup_duration,
+        bsengine_get_windup_timer,
+        bsengine_get_windup_damage_multiplier,
+        bsengine_is_windup_just_started,
+        bsengine_is_windup_just_released,
+        bsengine_is_windup_enabled,
+        bsengine_begin_windup,
+        bsengine_release_windup,
+        bsengine_set_windup_enabled,
+        bsengine_get_wine_age,
+        bsengine_get_wine_peak_vintage,
+        bsengine_get_wine_age_rate,
+        bsengine_is_wine_just_peaked,
+        bsengine_is_wine_just_spoiled,
+        bsengine_is_wine_enabled,
+        bsengine_uncork_wine,
+        bsengine_age_wine,
+        bsengine_set_wine_enabled,
+        bsengine_get_wing_lift,
+        bsengine_get_wing_max_lift,
+        bsengine_get_wing_glide_rate,
+        bsengine_is_wing_just_airborne,
+        bsengine_is_wing_just_grounded,
+        bsengine_is_wing_enabled,
+        bsengine_soar_wing,
+        bsengine_stall_wing,
+        bsengine_set_wing_enabled,
+        bsengine_get_wink_timer,
+        bsengine_get_wink_duration,
+        bsengine_get_wink_power,
+        bsengine_is_wink_active,
+        bsengine_is_wink_just_closed,
+        bsengine_is_wink_enabled,
+        bsengine_open_wink,
+        bsengine_close_wink,
+        bsengine_set_wink_enabled,
+        bsengine_get_wino_indulgence,
+        bsengine_get_wino_max_indulgence,
+        bsengine_get_wino_tipple_rate,
+        bsengine_is_wino_just_tipsy,
+        bsengine_is_wino_just_sober,
+        bsengine_is_wino_enabled,
+        bsengine_tipple_wino,
+        bsengine_sober_wino,
+        bsengine_set_wino_enabled,
+        bsengine_get_winsome_charm,
+        bsengine_get_winsome_max_charm,
+        bsengine_get_winsome_delight_rate,
+        bsengine_is_winsome_just_delightful,
+        bsengine_is_winsome_just_dull,
+        bsengine_is_winsome_enabled,
+        bsengine_delight_winsome,
+        bsengine_dull_winsome,
+        bsengine_set_winsome_enabled,
+        bsengine_get_wintry_cold,
+        bsengine_get_wintry_max_cold,
+        bsengine_get_wintry_chill_rate,
+        bsengine_is_wintry_just_frozen,
+        bsengine_is_wintry_just_thawed,
+        bsengine_is_wintry_enabled,
+        bsengine_chill_wintry,
+        bsengine_thaw_wintry,
+        bsengine_set_wintry_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -40025,6 +40566,78 @@ const Bsengine = {
     crankWinder:                (name, amount)      => Deno.core.ops.bsengine_crank_winder(name, amount),
     releaseWinder:              (name, amount)      => Deno.core.ops.bsengine_release_winder(name, amount),
     setWinderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_winder_enabled(name, v),
+    getWindfallFortune:         (name)              => Deno.core.ops.bsengine_get_windfall_fortune(name),
+    getWindfallMaxFortune:      (name)              => Deno.core.ops.bsengine_get_windfall_max_fortune(name),
+    getWindfallAccrueRate:      (name)              => Deno.core.ops.bsengine_get_windfall_accrue_rate(name),
+    isWindfallJustFortunate:    (name)              => Deno.core.ops.bsengine_is_windfall_just_fortunate(name),
+    isWindfallJustPenniless:    (name)              => Deno.core.ops.bsengine_is_windfall_just_penniless(name),
+    isWindfallEnabled:          (name)              => Deno.core.ops.bsengine_is_windfall_enabled(name),
+    accrueWindfall:             (name, amount)      => Deno.core.ops.bsengine_accrue_windfall(name, amount),
+    spendWindfall:              (name, amount)      => Deno.core.ops.bsengine_spend_windfall(name, amount),
+    setWindfallEnabled:         (name, v)           => Deno.core.ops.bsengine_set_windfall_enabled(name, v),
+    getWindupDuration:          (name)              => Deno.core.ops.bsengine_get_windup_duration(name),
+    getWindupTimer:             (name)              => Deno.core.ops.bsengine_get_windup_timer(name),
+    getWindupDamageMultiplier:  (name)              => Deno.core.ops.bsengine_get_windup_damage_multiplier(name),
+    isWindupJustStarted:        (name)              => Deno.core.ops.bsengine_is_windup_just_started(name),
+    isWindupJustReleased:       (name)              => Deno.core.ops.bsengine_is_windup_just_released(name),
+    isWindupEnabled:            (name)              => Deno.core.ops.bsengine_is_windup_enabled(name),
+    beginWindup:                (name, amount)      => Deno.core.ops.bsengine_begin_windup(name, amount),
+    releaseWindup:              (name)              => Deno.core.ops.bsengine_release_windup(name),
+    setWindupEnabled:           (name, v)           => Deno.core.ops.bsengine_set_windup_enabled(name, v),
+    getWineAge:                 (name)              => Deno.core.ops.bsengine_get_wine_age(name),
+    getWinePeakVintage:         (name)              => Deno.core.ops.bsengine_get_wine_peak_vintage(name),
+    getWineAgeRate:             (name)              => Deno.core.ops.bsengine_get_wine_age_rate(name),
+    isWineJustPeaked:           (name)              => Deno.core.ops.bsengine_is_wine_just_peaked(name),
+    isWineJustSpoiled:          (name)              => Deno.core.ops.bsengine_is_wine_just_spoiled(name),
+    isWineEnabled:              (name)              => Deno.core.ops.bsengine_is_wine_enabled(name),
+    uncorkWine:                 (name)              => Deno.core.ops.bsengine_uncork_wine(name),
+    ageWine:                    (name, amount)      => Deno.core.ops.bsengine_age_wine(name, amount),
+    setWineEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wine_enabled(name, v),
+    getWingLift:                (name)              => Deno.core.ops.bsengine_get_wing_lift(name),
+    getWingMaxLift:             (name)              => Deno.core.ops.bsengine_get_wing_max_lift(name),
+    getWingGlideRate:           (name)              => Deno.core.ops.bsengine_get_wing_glide_rate(name),
+    isWingJustAirborne:         (name)              => Deno.core.ops.bsengine_is_wing_just_airborne(name),
+    isWingJustGrounded:         (name)              => Deno.core.ops.bsengine_is_wing_just_grounded(name),
+    isWingEnabled:              (name)              => Deno.core.ops.bsengine_is_wing_enabled(name),
+    soarWing:                   (name, amount)      => Deno.core.ops.bsengine_soar_wing(name, amount),
+    stallWing:                  (name, amount)      => Deno.core.ops.bsengine_stall_wing(name, amount),
+    setWingEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wing_enabled(name, v),
+    getWinkTimer:               (name)              => Deno.core.ops.bsengine_get_wink_timer(name),
+    getWinkDuration:            (name)              => Deno.core.ops.bsengine_get_wink_duration(name),
+    getWinkPower:               (name)              => Deno.core.ops.bsengine_get_wink_power(name),
+    isWinkActive:               (name)              => Deno.core.ops.bsengine_is_wink_active(name),
+    isWinkJustClosed:           (name)              => Deno.core.ops.bsengine_is_wink_just_closed(name),
+    isWinkEnabled:              (name)              => Deno.core.ops.bsengine_is_wink_enabled(name),
+    openWink:                   (name)              => Deno.core.ops.bsengine_open_wink(name),
+    closeWink:                  (name)              => Deno.core.ops.bsengine_close_wink(name),
+    setWinkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wink_enabled(name, v),
+    getWinoIndulgence:          (name)              => Deno.core.ops.bsengine_get_wino_indulgence(name),
+    getWinoMaxIndulgence:       (name)              => Deno.core.ops.bsengine_get_wino_max_indulgence(name),
+    getWinoTippleRate:          (name)              => Deno.core.ops.bsengine_get_wino_tipple_rate(name),
+    isWinoJustTipsy:            (name)              => Deno.core.ops.bsengine_is_wino_just_tipsy(name),
+    isWinoJustSober:            (name)              => Deno.core.ops.bsengine_is_wino_just_sober(name),
+    isWinoEnabled:              (name)              => Deno.core.ops.bsengine_is_wino_enabled(name),
+    tippleWino:                 (name, amount)      => Deno.core.ops.bsengine_tipple_wino(name, amount),
+    soberWino:                  (name, amount)      => Deno.core.ops.bsengine_sober_wino(name, amount),
+    setWinoEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wino_enabled(name, v),
+    getWinsomeCharm:            (name)              => Deno.core.ops.bsengine_get_winsome_charm(name),
+    getWinsomeMaxCharm:         (name)              => Deno.core.ops.bsengine_get_winsome_max_charm(name),
+    getWinsomeDelightRate:      (name)              => Deno.core.ops.bsengine_get_winsome_delight_rate(name),
+    isWinsomeJustDelightful:    (name)              => Deno.core.ops.bsengine_is_winsome_just_delightful(name),
+    isWinsomeJustDull:          (name)              => Deno.core.ops.bsengine_is_winsome_just_dull(name),
+    isWinsomeEnabled:           (name)              => Deno.core.ops.bsengine_is_winsome_enabled(name),
+    delightWinsome:             (name, amount)      => Deno.core.ops.bsengine_delight_winsome(name, amount),
+    dullWinsome:                (name, amount)      => Deno.core.ops.bsengine_dull_winsome(name, amount),
+    setWinsomeEnabled:          (name, v)           => Deno.core.ops.bsengine_set_winsome_enabled(name, v),
+    getWintryCold:              (name)              => Deno.core.ops.bsengine_get_wintry_cold(name),
+    getWintryMaxCold:           (name)              => Deno.core.ops.bsengine_get_wintry_max_cold(name),
+    getWintryChillRate:         (name)              => Deno.core.ops.bsengine_get_wintry_chill_rate(name),
+    isWintryJustFrozen:         (name)              => Deno.core.ops.bsengine_is_wintry_just_frozen(name),
+    isWintryJustThawed:         (name)              => Deno.core.ops.bsengine_is_wintry_just_thawed(name),
+    isWintryEnabled:            (name)              => Deno.core.ops.bsengine_is_wintry_enabled(name),
+    chillWintry:                (name, amount)      => Deno.core.ops.bsengine_chill_wintry(name, amount),
+    thawWintry:                 (name, amount)      => Deno.core.ops.bsengine_thaw_wintry(name, amount),
+    setWintryEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wintry_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -66792,6 +67405,426 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrankWinder { name, amount } if name == "Spool" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseWinder { name, amount } if name == "Spool" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinderEnabled { name, enabled } if name == "Spool" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_windfall_read_ops() {
+        super::WINDFALL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Luck".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWindfallFortune("Luck"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWindfallMaxFortune("Luck"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWindfallAccrueRate("Luck"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWindfallJustFortunate("Luck"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWindfallJustPenniless("Luck"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWindfallEnabled("Luck"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINDFALL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_windfall_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.accrueWindfall("Luck", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spendWindfall("Luck", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWindfallEnabled("Luck", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AccrueWindfall { name, amount } if name == "Luck" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpendWindfall { name, amount } if name == "Luck" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWindfallEnabled { name, enabled } if name == "Luck" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_windup_read_ops() {
+        super::WINDUP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Punch".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWindupDuration("Punch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWindupTimer("Punch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWindupDamageMultiplier("Punch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWindupJustStarted("Punch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWindupJustReleased("Punch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWindupEnabled("Punch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINDUP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_windup_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginWindup("Punch", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseWindup("Punch");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWindupEnabled("Punch", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginWindup { name, amount } if name == "Punch" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseWindup { name } if name == "Punch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWindupEnabled { name, enabled } if name == "Punch" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wine_read_ops() {
+        super::WINE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Grape".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWineAge("Grape"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinePeakVintage("Grape"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWineAgeRate("Grape"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWineJustPeaked("Grape"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWineJustSpoiled("Grape"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWineEnabled("Grape"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wine_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.uncorkWine("Grape");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.ageWine("Grape", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWineEnabled("Grape", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UncorkWine { name } if name == "Grape")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AgeWine { name, amount } if name == "Grape" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWineEnabled { name, enabled } if name == "Grape" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wing_read_ops() {
+        super::WING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Eagle".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWingLift("Eagle"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWingMaxLift("Eagle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWingGlideRate("Eagle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWingJustAirborne("Eagle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWingJustGrounded("Eagle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWingEnabled("Eagle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WING_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wing_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.soarWing("Eagle", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stallWing("Eagle", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWingEnabled("Eagle", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SoarWing { name, amount } if name == "Eagle" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StallWing { name, amount } if name == "Eagle" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWingEnabled { name, enabled } if name == "Eagle" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wink_read_ops() {
+        super::WINK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Eye".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWinkTimer("Eye"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinkDuration("Eye"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt.eval(r#"String(Bsengine.getWinkPower("Eye"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isWinkActive("Eye"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinkJustClosed("Eye"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWinkEnabled("Eye"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wink_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.openWink("Eye");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.closeWink("Eye");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinkEnabled("Eye", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::OpenWink { name } if name == "Eye")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CloseWink { name } if name == "Eye")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinkEnabled { name, enabled } if name == "Eye" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wino_read_ops() {
+        super::WINO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Drunkard".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWinoIndulgence("Drunkard"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinoMaxIndulgence("Drunkard"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinoTippleRate("Drunkard"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinoJustTipsy("Drunkard"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinoJustSober("Drunkard"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinoEnabled("Drunkard"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wino_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.tippleWino("Drunkard", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.soberWino("Drunkard", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinoEnabled("Drunkard", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TippleWino { name, amount } if name == "Drunkard" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SoberWino { name, amount } if name == "Drunkard" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinoEnabled { name, enabled } if name == "Drunkard" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_winsome_read_ops() {
+        super::WINSOME_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Charmer".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWinsomeCharm("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinsomeMaxCharm("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinsomeDelightRate("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinsomeJustDelightful("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinsomeJustDull("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinsomeEnabled("Charmer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINSOME_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_winsome_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.delightWinsome("Charmer", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dullWinsome("Charmer", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinsomeEnabled("Charmer", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DelightWinsome { name, amount } if name == "Charmer" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DullWinsome { name, amount } if name == "Charmer" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinsomeEnabled { name, enabled } if name == "Charmer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wintry_read_ops() {
+        super::WINTRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Frost".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWintryCold("Frost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWintryMaxCold("Frost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWintryChillRate("Frost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWintryJustFrozen("Frost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWintryJustThawed("Frost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWintryEnabled("Frost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINTRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wintry_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chillWintry("Frost", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.thawWintry("Frost", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWintryEnabled("Frost", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChillWintry { name, amount } if name == "Frost" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ThawWintry { name, amount } if name == "Frost" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWintryEnabled { name, enabled } if name == "Frost" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

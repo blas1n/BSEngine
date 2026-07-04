@@ -5214,6 +5214,106 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Wilt ─────────────────────────────────────────────────────────────────
+    StrainOnWilt {
+        name: String,
+    },
+    StrainOffWilt {
+        name: String,
+    },
+    SetWiltEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wily ─────────────────────────────────────────────────────────────────
+    PlotWily {
+        name: String,
+        amount: f32,
+    },
+    NaiveWily {
+        name: String,
+        amount: f32,
+    },
+    SetWilyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wimp ─────────────────────────────────────────────────────────────────
+    FlinchWimp {
+        name: String,
+        amount: f32,
+    },
+    DefyWimp {
+        name: String,
+    },
+    SetWimpEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wimple ───────────────────────────────────────────────────────────────
+    DrapeWimple {
+        name: String,
+        amount: f32,
+    },
+    UnfoldWimple {
+        name: String,
+        amount: f32,
+    },
+    SetWimpleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Win ──────────────────────────────────────────────────────────────────
+    GainWin {
+        name: String,
+        amount: f32,
+    },
+    ForfeitWin {
+        name: String,
+        amount: f32,
+    },
+    SetWinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Wince ────────────────────────────────────────────────────────────────
+    FlinchWince {
+        name: String,
+        amount: f32,
+    },
+    RecoverWince {
+        name: String,
+    },
+    SetWinceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Winch ────────────────────────────────────────────────────────────────
+    CrankWinch {
+        name: String,
+        amount: f32,
+    },
+    ReleaseWinch {
+        name: String,
+        amount: f32,
+    },
+    SetWinchEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Winder ───────────────────────────────────────────────────────────────
+    CrankWinder {
+        name: String,
+        amount: f32,
+    },
+    ReleaseWinder {
+        name: String,
+        amount: f32,
+    },
+    SetWinderEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6505,6 +6605,22 @@ thread_local! {
     pub(crate) static WILL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WILLOW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIMP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIMPLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINCE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINCH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WINDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -14826,6 +14942,359 @@ pub fn bsengine_set_willow_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWillowEnabled { name, enabled })
+    });
+}
+// ── Wilt ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wilt_level(#[string] name: String) -> f32 {
+    WILT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wilt_max_wilt(#[string] name: String) -> f32 {
+    WILT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wilt_strain_rate(#[string] name: String) -> f32 {
+    WILT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wilt_just_wilted(#[string] name: String) -> bool {
+    WILT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wilt_just_recovered(#[string] name: String) -> bool {
+    WILT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wilt_enabled(#[string] name: String) -> bool {
+    WILT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_strain_on_wilt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StrainOnWilt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_strain_off_wilt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StrainOffWilt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wilt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWiltEnabled { name, enabled })
+    });
+}
+// ── Wily ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wily_cunning(#[string] name: String) -> f32 {
+    WILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wily_max_cunning(#[string] name: String) -> f32 {
+    WILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wily_plot_rate(#[string] name: String) -> f32 {
+    WILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wily_just_sly(#[string] name: String) -> bool {
+    WILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wily_just_naive(#[string] name: String) -> bool {
+    WILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wily_enabled(#[string] name: String) -> bool {
+    WILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_plot_wily(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PlotWily { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_naive_wily(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NaiveWily { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wily_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWilyEnabled { name, enabled })
+    });
+}
+// ── Wimp ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wimp_level(#[string] name: String) -> f32 {
+    WIMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wimp_max_wimp(#[string] name: String) -> f32 {
+    WIMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wimp_recover_rate(#[string] name: String) -> f32 {
+    WIMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wimp_just_flinched(#[string] name: String) -> bool {
+    WIMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wimp_just_overcame(#[string] name: String) -> bool {
+    WIMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wimp_enabled(#[string] name: String) -> bool {
+    WIMP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_flinch_wimp(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FlinchWimp { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_defy_wimp(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DefyWimp { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wimp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWimpEnabled { name, enabled })
+    });
+}
+// ── Wimple ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wimple_folds(#[string] name: String) -> f32 {
+    WIMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wimple_max_folds(#[string] name: String) -> f32 {
+    WIMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wimple_drape_rate(#[string] name: String) -> f32 {
+    WIMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wimple_just_draped(#[string] name: String) -> bool {
+    WIMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wimple_just_plain(#[string] name: String) -> bool {
+    WIMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wimple_enabled(#[string] name: String) -> bool {
+    WIMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_drape_wimple(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DrapeWimple { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_unfold_wimple(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UnfoldWimple { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wimple_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWimpleEnabled { name, enabled })
+    });
+}
+// ── Win ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_win_score(#[string] name: String) -> f32 {
+    WIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_win_max_score(#[string] name: String) -> f32 {
+    WIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_win_win_rate(#[string] name: String) -> f32 {
+    WIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_win_just_won(#[string] name: String) -> bool {
+    WIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_win_just_lost(#[string] name: String) -> bool {
+    WIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_win_enabled(#[string] name: String) -> bool {
+    WIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_gain_win(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::GainWin { name, amount }));
+}
+#[op2(fast)]
+pub fn bsengine_forfeit_win(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ForfeitWin { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_win_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinEnabled { name, enabled })
+    });
+}
+// ── Wince ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wince_level(#[string] name: String) -> f32 {
+    WINCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wince_max_wince(#[string] name: String) -> f32 {
+    WINCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wince_decay_rate(#[string] name: String) -> f32 {
+    WINCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wince_just_winced(#[string] name: String) -> bool {
+    WINCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wince_just_recovered(#[string] name: String) -> bool {
+    WINCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wince_enabled(#[string] name: String) -> bool {
+    WINCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_flinch_wince(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FlinchWince { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_recover_wince(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RecoverWince { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wince_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinceEnabled { name, enabled })
+    });
+}
+// ── Winch ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_winch_tension(#[string] name: String) -> f32 {
+    WINCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_winch_max_tension(#[string] name: String) -> f32 {
+    WINCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_winch_crank_rate(#[string] name: String) -> f32 {
+    WINCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_winch_just_taut(#[string] name: String) -> bool {
+    WINCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_winch_just_slack(#[string] name: String) -> bool {
+    WINCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_winch_enabled(#[string] name: String) -> bool {
+    WINCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crank_winch(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrankWinch { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_winch(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ReleaseWinch { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_winch_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinchEnabled { name, enabled })
+    });
+}
+// ── Winder ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_winder_tension(#[string] name: String) -> f32 {
+    WINDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_winder_max_tension(#[string] name: String) -> f32 {
+    WINDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_winder_crank_rate(#[string] name: String) -> f32 {
+    WINDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_winder_just_taut(#[string] name: String) -> bool {
+    WINDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_winder_just_slack(#[string] name: String) -> bool {
+    WINDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_winder_enabled(#[string] name: String) -> bool {
+    WINDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crank_winder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrankWinder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_winder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ReleaseWinder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_winder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWinderEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -35413,6 +35882,78 @@ deno_core::extension!(
         bsengine_bend_willow,
         bsengine_settle_willow,
         bsengine_set_willow_enabled,
+        bsengine_get_wilt_level,
+        bsengine_get_wilt_max_wilt,
+        bsengine_get_wilt_strain_rate,
+        bsengine_is_wilt_just_wilted,
+        bsengine_is_wilt_just_recovered,
+        bsengine_is_wilt_enabled,
+        bsengine_strain_on_wilt,
+        bsengine_strain_off_wilt,
+        bsengine_set_wilt_enabled,
+        bsengine_get_wily_cunning,
+        bsengine_get_wily_max_cunning,
+        bsengine_get_wily_plot_rate,
+        bsengine_is_wily_just_sly,
+        bsengine_is_wily_just_naive,
+        bsengine_is_wily_enabled,
+        bsengine_plot_wily,
+        bsengine_naive_wily,
+        bsengine_set_wily_enabled,
+        bsengine_get_wimp_level,
+        bsengine_get_wimp_max_wimp,
+        bsengine_get_wimp_recover_rate,
+        bsengine_is_wimp_just_flinched,
+        bsengine_is_wimp_just_overcame,
+        bsengine_is_wimp_enabled,
+        bsengine_flinch_wimp,
+        bsengine_defy_wimp,
+        bsengine_set_wimp_enabled,
+        bsengine_get_wimple_folds,
+        bsengine_get_wimple_max_folds,
+        bsengine_get_wimple_drape_rate,
+        bsengine_is_wimple_just_draped,
+        bsengine_is_wimple_just_plain,
+        bsengine_is_wimple_enabled,
+        bsengine_drape_wimple,
+        bsengine_unfold_wimple,
+        bsengine_set_wimple_enabled,
+        bsengine_get_win_score,
+        bsengine_get_win_max_score,
+        bsengine_get_win_win_rate,
+        bsengine_is_win_just_won,
+        bsengine_is_win_just_lost,
+        bsengine_is_win_enabled,
+        bsengine_gain_win,
+        bsengine_forfeit_win,
+        bsengine_set_win_enabled,
+        bsengine_get_wince_level,
+        bsengine_get_wince_max_wince,
+        bsengine_get_wince_decay_rate,
+        bsengine_is_wince_just_winced,
+        bsengine_is_wince_just_recovered,
+        bsengine_is_wince_enabled,
+        bsengine_flinch_wince,
+        bsengine_recover_wince,
+        bsengine_set_wince_enabled,
+        bsengine_get_winch_tension,
+        bsengine_get_winch_max_tension,
+        bsengine_get_winch_crank_rate,
+        bsengine_is_winch_just_taut,
+        bsengine_is_winch_just_slack,
+        bsengine_is_winch_enabled,
+        bsengine_crank_winch,
+        bsengine_release_winch,
+        bsengine_set_winch_enabled,
+        bsengine_get_winder_tension,
+        bsengine_get_winder_max_tension,
+        bsengine_get_winder_crank_rate,
+        bsengine_is_winder_just_taut,
+        bsengine_is_winder_just_slack,
+        bsengine_is_winder_enabled,
+        bsengine_crank_winder,
+        bsengine_release_winder,
+        bsengine_set_winder_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -39412,6 +39953,78 @@ const Bsengine = {
     bendWillow:                 (name, amount)      => Deno.core.ops.bsengine_bend_willow(name, amount),
     settleWillow:               (name, amount)      => Deno.core.ops.bsengine_settle_willow(name, amount),
     setWillowEnabled:           (name, v)           => Deno.core.ops.bsengine_set_willow_enabled(name, v),
+    getWiltLevel:               (name)              => Deno.core.ops.bsengine_get_wilt_level(name),
+    getWiltMaxWilt:             (name)              => Deno.core.ops.bsengine_get_wilt_max_wilt(name),
+    getWiltStrainRate:          (name)              => Deno.core.ops.bsengine_get_wilt_strain_rate(name),
+    isWiltJustWilted:           (name)              => Deno.core.ops.bsengine_is_wilt_just_wilted(name),
+    isWiltJustRecovered:        (name)              => Deno.core.ops.bsengine_is_wilt_just_recovered(name),
+    isWiltEnabled:              (name)              => Deno.core.ops.bsengine_is_wilt_enabled(name),
+    strainOnWilt:               (name)              => Deno.core.ops.bsengine_strain_on_wilt(name),
+    strainOffWilt:              (name)              => Deno.core.ops.bsengine_strain_off_wilt(name),
+    setWiltEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wilt_enabled(name, v),
+    getWilyCunning:             (name)              => Deno.core.ops.bsengine_get_wily_cunning(name),
+    getWilyMaxCunning:          (name)              => Deno.core.ops.bsengine_get_wily_max_cunning(name),
+    getWilyPlotRate:            (name)              => Deno.core.ops.bsengine_get_wily_plot_rate(name),
+    isWilyJustSly:              (name)              => Deno.core.ops.bsengine_is_wily_just_sly(name),
+    isWilyJustNaive:            (name)              => Deno.core.ops.bsengine_is_wily_just_naive(name),
+    isWilyEnabled:              (name)              => Deno.core.ops.bsengine_is_wily_enabled(name),
+    plotWily:                   (name, amount)      => Deno.core.ops.bsengine_plot_wily(name, amount),
+    naiveWily:                  (name, amount)      => Deno.core.ops.bsengine_naive_wily(name, amount),
+    setWilyEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wily_enabled(name, v),
+    getWimpLevel:               (name)              => Deno.core.ops.bsengine_get_wimp_level(name),
+    getWimpMaxWimp:             (name)              => Deno.core.ops.bsengine_get_wimp_max_wimp(name),
+    getWimpRecoverRate:         (name)              => Deno.core.ops.bsengine_get_wimp_recover_rate(name),
+    isWimpJustFlinched:         (name)              => Deno.core.ops.bsengine_is_wimp_just_flinched(name),
+    isWimpJustOvercame:         (name)              => Deno.core.ops.bsengine_is_wimp_just_overcame(name),
+    isWimpEnabled:              (name)              => Deno.core.ops.bsengine_is_wimp_enabled(name),
+    flinchWimp:                 (name, amount)      => Deno.core.ops.bsengine_flinch_wimp(name, amount),
+    defyWimp:                   (name)              => Deno.core.ops.bsengine_defy_wimp(name),
+    setWimpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wimp_enabled(name, v),
+    getWimpleFolds:             (name)              => Deno.core.ops.bsengine_get_wimple_folds(name),
+    getWimpleMaxFolds:          (name)              => Deno.core.ops.bsengine_get_wimple_max_folds(name),
+    getWimpleDrapeRate:         (name)              => Deno.core.ops.bsengine_get_wimple_drape_rate(name),
+    isWimpleJustDraped:         (name)              => Deno.core.ops.bsengine_is_wimple_just_draped(name),
+    isWimpleJustPlain:          (name)              => Deno.core.ops.bsengine_is_wimple_just_plain(name),
+    isWimpleEnabled:            (name)              => Deno.core.ops.bsengine_is_wimple_enabled(name),
+    drapeWimple:                (name, amount)      => Deno.core.ops.bsengine_drape_wimple(name, amount),
+    unfoldWimple:               (name, amount)      => Deno.core.ops.bsengine_unfold_wimple(name, amount),
+    setWimpleEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wimple_enabled(name, v),
+    getWinScore:                (name)              => Deno.core.ops.bsengine_get_win_score(name),
+    getWinMaxScore:             (name)              => Deno.core.ops.bsengine_get_win_max_score(name),
+    getWinWinRate:              (name)              => Deno.core.ops.bsengine_get_win_win_rate(name),
+    isWinJustWon:               (name)              => Deno.core.ops.bsengine_is_win_just_won(name),
+    isWinJustLost:              (name)              => Deno.core.ops.bsengine_is_win_just_lost(name),
+    isWinEnabled:               (name)              => Deno.core.ops.bsengine_is_win_enabled(name),
+    gainWin:                    (name, amount)      => Deno.core.ops.bsengine_gain_win(name, amount),
+    forfeitWin:                 (name, amount)      => Deno.core.ops.bsengine_forfeit_win(name, amount),
+    setWinEnabled:              (name, v)           => Deno.core.ops.bsengine_set_win_enabled(name, v),
+    getWinceLevel:              (name)              => Deno.core.ops.bsengine_get_wince_level(name),
+    getWinceMaxWince:           (name)              => Deno.core.ops.bsengine_get_wince_max_wince(name),
+    getWinceDecayRate:          (name)              => Deno.core.ops.bsengine_get_wince_decay_rate(name),
+    isWinceJustWinced:          (name)              => Deno.core.ops.bsengine_is_wince_just_winced(name),
+    isWinceJustRecovered:       (name)              => Deno.core.ops.bsengine_is_wince_just_recovered(name),
+    isWinceEnabled:             (name)              => Deno.core.ops.bsengine_is_wince_enabled(name),
+    flinchWince:                (name, amount)      => Deno.core.ops.bsengine_flinch_wince(name, amount),
+    recoverWince:               (name)              => Deno.core.ops.bsengine_recover_wince(name),
+    setWinceEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wince_enabled(name, v),
+    getWinchTension:            (name)              => Deno.core.ops.bsengine_get_winch_tension(name),
+    getWinchMaxTension:         (name)              => Deno.core.ops.bsengine_get_winch_max_tension(name),
+    getWinchCrankRate:          (name)              => Deno.core.ops.bsengine_get_winch_crank_rate(name),
+    isWinchJustTaut:            (name)              => Deno.core.ops.bsengine_is_winch_just_taut(name),
+    isWinchJustSlack:           (name)              => Deno.core.ops.bsengine_is_winch_just_slack(name),
+    isWinchEnabled:             (name)              => Deno.core.ops.bsengine_is_winch_enabled(name),
+    crankWinch:                 (name, amount)      => Deno.core.ops.bsengine_crank_winch(name, amount),
+    releaseWinch:               (name, amount)      => Deno.core.ops.bsengine_release_winch(name, amount),
+    setWinchEnabled:            (name, v)           => Deno.core.ops.bsengine_set_winch_enabled(name, v),
+    getWinderTension:           (name)              => Deno.core.ops.bsengine_get_winder_tension(name),
+    getWinderMaxTension:        (name)              => Deno.core.ops.bsengine_get_winder_max_tension(name),
+    getWinderCrankRate:         (name)              => Deno.core.ops.bsengine_get_winder_crank_rate(name),
+    isWinderJustTaut:           (name)              => Deno.core.ops.bsengine_is_winder_just_taut(name),
+    isWinderJustSlack:          (name)              => Deno.core.ops.bsengine_is_winder_just_slack(name),
+    isWinderEnabled:            (name)              => Deno.core.ops.bsengine_is_winder_enabled(name),
+    crankWinder:                (name, amount)      => Deno.core.ops.bsengine_crank_winder(name, amount),
+    releaseWinder:              (name, amount)      => Deno.core.ops.bsengine_release_winder(name, amount),
+    setWinderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_winder_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -65751,6 +66364,434 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BendWillow { name, amount } if name == "Reed" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SettleWillow { name, amount } if name == "Reed" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWillowEnabled { name, enabled } if name == "Reed" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wilt_read_ops() {
+        super::WILT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Candle".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWiltLevel("Candle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWiltMaxWilt("Candle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWiltStrainRate("Candle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWiltJustWilted("Candle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWiltJustRecovered("Candle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWiltEnabled("Candle"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wilt_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.strainOnWilt("Candle");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.strainOffWilt("Candle");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWiltEnabled("Candle", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrainOnWilt { name } if name == "Candle")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrainOffWilt { name } if name == "Candle")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWiltEnabled { name, enabled } if name == "Candle" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wily_read_ops() {
+        super::WILY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fox".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWilyCunning("Fox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWilyMaxCunning("Fox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWilyPlotRate("Fox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isWilyJustSly("Fox"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilyJustNaive("Fox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWilyEnabled("Fox"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wily_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.plotWily("Fox", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.naiveWily("Fox", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWilyEnabled("Fox", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PlotWily { name, amount } if name == "Fox" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NaiveWily { name, amount } if name == "Fox" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWilyEnabled { name, enabled } if name == "Fox" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wimp_read_ops() {
+        super::WIMP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Coward".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWimpLevel("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWimpMaxWimp("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWimpRecoverRate("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWimpJustFlinched("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWimpJustOvercame("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWimpEnabled("Coward"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIMP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wimp_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.flinchWimp("Coward", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.defyWimp("Coward");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWimpEnabled("Coward", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FlinchWimp { name, amount } if name == "Coward" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DefyWimp { name } if name == "Coward")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWimpEnabled { name, enabled } if name == "Coward" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wimple_read_ops() {
+        super::WIMPLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Veil".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWimpleFolds("Veil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWimpleMaxFolds("Veil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWimpleDrapeRate("Veil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWimpleJustDraped("Veil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWimpleJustPlain("Veil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWimpleEnabled("Veil"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIMPLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wimple_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.drapeWimple("Veil", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.unfoldWimple("Veil", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWimpleEnabled("Veil", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrapeWimple { name, amount } if name == "Veil" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnfoldWimple { name, amount } if name == "Veil" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWimpleEnabled { name, enabled } if name == "Veil" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_win_read_ops() {
+        super::WIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Trophy".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWinScore("Trophy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinMaxScore("Trophy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinWinRate("Trophy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinJustWon("Trophy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinJustLost("Trophy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinEnabled("Trophy"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_win_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.gainWin("Trophy", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.forfeitWin("Trophy", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinEnabled("Trophy", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GainWin { name, amount } if name == "Trophy" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ForfeitWin { name, amount } if name == "Trophy" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinEnabled { name, enabled } if name == "Trophy" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wince_read_ops() {
+        super::WINCE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ouch".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWinceLevel("Ouch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinceMaxWince("Ouch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinceDecayRate("Ouch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinceJustWinced("Ouch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinceJustRecovered("Ouch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinceEnabled("Ouch"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wince_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.flinchWince("Ouch", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.recoverWince("Ouch");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinceEnabled("Ouch", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FlinchWince { name, amount } if name == "Ouch" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RecoverWince { name } if name == "Ouch")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinceEnabled { name, enabled } if name == "Ouch" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_winch_read_ops() {
+        super::WINCH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pulley".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWinchTension("Pulley"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinchMaxTension("Pulley"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinchCrankRate("Pulley"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinchJustTaut("Pulley"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinchJustSlack("Pulley"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinchEnabled("Pulley"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINCH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_winch_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crankWinch("Pulley", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseWinch("Pulley", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinchEnabled("Pulley", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrankWinch { name, amount } if name == "Pulley" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseWinch { name, amount } if name == "Pulley" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinchEnabled { name, enabled } if name == "Pulley" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_winder_read_ops() {
+        super::WINDER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Spool".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWinderTension("Spool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinderMaxTension("Spool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWinderCrankRate("Spool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinderJustTaut("Spool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinderJustSlack("Spool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWinderEnabled("Spool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WINDER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_winder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crankWinder("Spool", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseWinder("Spool", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWinderEnabled("Spool", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrankWinder { name, amount } if name == "Spool" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseWinder { name, amount } if name == "Spool" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWinderEnabled { name, enabled } if name == "Spool" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

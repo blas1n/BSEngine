@@ -6508,6 +6508,83 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    YodelYodel {
+        name: String,
+    },
+    SetYodelEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PracticeYoga {
+        name: String,
+    },
+    StrainYoga {
+        name: String,
+    },
+    SetYogaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    MeditateYogi {
+        name: String,
+    },
+    DistractYogi {
+        name: String,
+    },
+    SetYogiEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BurdenYoke {
+        name: String,
+    },
+    RelieveYoke {
+        name: String,
+    },
+    SetYokeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DeceiveYokel {
+        name: String,
+    },
+    EnlightenYokel {
+        name: String,
+    },
+    SetYokelEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CrackYolk {
+        name: String,
+    },
+    RepairYolk {
+        name: String,
+    },
+    SetYolkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetYonder {
+        name: String,
+    },
+    CloseInYonder {
+        name: String,
+    },
+    SetYonderEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ObserveYore {
+        name: String,
+    },
+    ResetPeakYore {
+        name: String,
+    },
+    SetYoreEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8069,6 +8146,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // yips: pressure, max_pressure, just_seized, just_composed, enabled
     pub(crate) static YIPS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yodel: echo_delay, echo_remaining, awaiting_echo, just_yodeled, just_echoed, enabled
+    pub(crate) static YODEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yoga: flexibility, max_flexibility, recovery_rate, just_centered, just_broken, enabled
+    pub(crate) static YOGA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yogi: depth, max_depth, focus_rate, drift_rate, meditating, just_transcended, just_scattered, enabled
+    pub(crate) static YOGI_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yoke: yoke_weight, max_weight, recovery_rate, speed_penalty, just_burdened, just_freed, enabled
+    pub(crate) static YOKE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yokel: credulity, max_credulity, wisdom_rate, just_fooled, just_savvy, enabled
+    pub(crate) static YOKEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yolk: fragility, max_fragility, damage_multiplier, just_cracked, enabled
+    pub(crate) static YOLK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yonder: distance, max_range, just_acquired, just_arrived, enabled
+    pub(crate) static YONDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yore: current_value, peak_value, just_peaked, enabled
+    pub(crate) static YORE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -21324,6 +21425,310 @@ pub fn bsengine_set_yips_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetYipsEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yodel_echo_delay(#[string] name: String) -> f32 {
+    YODEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yodel_echo_remaining(#[string] name: String) -> f32 {
+    YODEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yodel_awaiting_echo(#[string] name: String) -> bool {
+    YODEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yodel_just_yodeled(#[string] name: String) -> bool {
+    YODEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yodel_just_echoed(#[string] name: String) -> bool {
+    YODEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yodel_enabled(#[string] name: String) -> bool {
+    YODEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yodel_yodel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YodelYodel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yodel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYodelEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yoga_flexibility(#[string] name: String) -> f32 {
+    YOGA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yoga_max_flexibility(#[string] name: String) -> f32 {
+    YOGA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yoga_recovery_rate(#[string] name: String) -> f32 {
+    YOGA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yoga_just_centered(#[string] name: String) -> bool {
+    YOGA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yoga_just_broken(#[string] name: String) -> bool {
+    YOGA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yoga_enabled(#[string] name: String) -> bool {
+    YOGA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_practice_yoga(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PracticeYoga { name }));
+}
+#[op2(fast)]
+pub fn bsengine_strain_yoga(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StrainYoga { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yoga_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYogaEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yogi_depth(#[string] name: String) -> f32 {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yogi_max_depth(#[string] name: String) -> f32 {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yogi_focus_rate(#[string] name: String) -> f32 {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yogi_drift_rate(#[string] name: String) -> f32 {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yogi_meditating(#[string] name: String) -> bool {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yogi_just_transcended(#[string] name: String) -> bool {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yogi_just_scattered(#[string] name: String) -> bool {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yogi_enabled(#[string] name: String) -> bool {
+    YOGI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_meditate_yogi(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::MeditateYogi { name }));
+}
+#[op2(fast)]
+pub fn bsengine_distract_yogi(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DistractYogi { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yogi_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYogiEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yoke_weight(#[string] name: String) -> f32 {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yoke_max_weight(#[string] name: String) -> f32 {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yoke_recovery_rate(#[string] name: String) -> f32 {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yoke_speed_penalty(#[string] name: String) -> f32 {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yoke_just_burdened(#[string] name: String) -> bool {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yoke_just_freed(#[string] name: String) -> bool {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yoke_enabled(#[string] name: String) -> bool {
+    YOKE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_burden_yoke(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BurdenYoke { name }));
+}
+#[op2(fast)]
+pub fn bsengine_relieve_yoke(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RelieveYoke { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yoke_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYokeEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yokel_credulity(#[string] name: String) -> f32 {
+    YOKEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yokel_max_credulity(#[string] name: String) -> f32 {
+    YOKEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yokel_wisdom_rate(#[string] name: String) -> f32 {
+    YOKEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yokel_just_fooled(#[string] name: String) -> bool {
+    YOKEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yokel_just_savvy(#[string] name: String) -> bool {
+    YOKEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yokel_enabled(#[string] name: String) -> bool {
+    YOKEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_deceive_yokel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeceiveYokel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_enlighten_yokel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EnlightenYokel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yokel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYokelEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yolk_fragility(#[string] name: String) -> f32 {
+    YOLK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yolk_max_fragility(#[string] name: String) -> f32 {
+    YOLK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yolk_damage_multiplier(#[string] name: String) -> f32 {
+    YOLK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yolk_just_cracked(#[string] name: String) -> bool {
+    YOLK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yolk_enabled(#[string] name: String) -> bool {
+    YOLK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crack_yolk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CrackYolk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_repair_yolk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RepairYolk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yolk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYolkEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yonder_distance(#[string] name: String) -> f32 {
+    YONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yonder_max_range(#[string] name: String) -> f32 {
+    YONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yonder_just_acquired(#[string] name: String) -> bool {
+    YONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yonder_just_arrived(#[string] name: String) -> bool {
+    YONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yonder_enabled(#[string] name: String) -> bool {
+    YONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_yonder(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetYonder { name }));
+}
+#[op2(fast)]
+pub fn bsengine_close_in_yonder(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CloseInYonder { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yonder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYonderEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_yore_current_value(#[string] name: String) -> f32 {
+    YORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yore_peak_value(#[string] name: String) -> f32 {
+    YORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yore_just_peaked(#[string] name: String) -> bool {
+    YORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yore_enabled(#[string] name: String) -> bool {
+    YORE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_observe_yore(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ObserveYore { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_peak_yore(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetPeakYore { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yore_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYoreEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -42952,6 +43357,76 @@ deno_core::extension!(
         bsengine_tic_yips,
         bsengine_compose_yips,
         bsengine_set_yips_enabled,
+        bsengine_get_yodel_echo_delay,
+        bsengine_get_yodel_echo_remaining,
+        bsengine_is_yodel_awaiting_echo,
+        bsengine_is_yodel_just_yodeled,
+        bsengine_is_yodel_just_echoed,
+        bsengine_is_yodel_enabled,
+        bsengine_yodel_yodel,
+        bsengine_set_yodel_enabled,
+        bsengine_get_yoga_flexibility,
+        bsengine_get_yoga_max_flexibility,
+        bsengine_get_yoga_recovery_rate,
+        bsengine_is_yoga_just_centered,
+        bsengine_is_yoga_just_broken,
+        bsengine_is_yoga_enabled,
+        bsengine_practice_yoga,
+        bsengine_strain_yoga,
+        bsengine_set_yoga_enabled,
+        bsengine_get_yogi_depth,
+        bsengine_get_yogi_max_depth,
+        bsengine_get_yogi_focus_rate,
+        bsengine_get_yogi_drift_rate,
+        bsengine_is_yogi_meditating,
+        bsengine_is_yogi_just_transcended,
+        bsengine_is_yogi_just_scattered,
+        bsengine_is_yogi_enabled,
+        bsengine_meditate_yogi,
+        bsengine_distract_yogi,
+        bsengine_set_yogi_enabled,
+        bsengine_get_yoke_weight,
+        bsengine_get_yoke_max_weight,
+        bsengine_get_yoke_recovery_rate,
+        bsengine_get_yoke_speed_penalty,
+        bsengine_is_yoke_just_burdened,
+        bsengine_is_yoke_just_freed,
+        bsengine_is_yoke_enabled,
+        bsengine_burden_yoke,
+        bsengine_relieve_yoke,
+        bsengine_set_yoke_enabled,
+        bsengine_get_yokel_credulity,
+        bsengine_get_yokel_max_credulity,
+        bsengine_get_yokel_wisdom_rate,
+        bsengine_is_yokel_just_fooled,
+        bsengine_is_yokel_just_savvy,
+        bsengine_is_yokel_enabled,
+        bsengine_deceive_yokel,
+        bsengine_enlighten_yokel,
+        bsengine_set_yokel_enabled,
+        bsengine_get_yolk_fragility,
+        bsengine_get_yolk_max_fragility,
+        bsengine_get_yolk_damage_multiplier,
+        bsengine_is_yolk_just_cracked,
+        bsengine_is_yolk_enabled,
+        bsengine_crack_yolk,
+        bsengine_repair_yolk,
+        bsengine_set_yolk_enabled,
+        bsengine_get_yonder_distance,
+        bsengine_get_yonder_max_range,
+        bsengine_is_yonder_just_acquired,
+        bsengine_is_yonder_just_arrived,
+        bsengine_is_yonder_enabled,
+        bsengine_set_yonder,
+        bsengine_close_in_yonder,
+        bsengine_set_yonder_enabled,
+        bsengine_get_yore_current_value,
+        bsengine_get_yore_peak_value,
+        bsengine_is_yore_just_peaked,
+        bsengine_is_yore_enabled,
+        bsengine_observe_yore,
+        bsengine_reset_peak_yore,
+        bsengine_set_yore_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -47992,6 +48467,76 @@ const Bsengine = {
     ticYips:                    (name)              => Deno.core.ops.bsengine_tic_yips(name),
     composeYips:                (name)              => Deno.core.ops.bsengine_compose_yips(name),
     setYipsEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yips_enabled(name, v),
+    getYodelEchoDelay:          (name)              => Deno.core.ops.bsengine_get_yodel_echo_delay(name),
+    getYodelEchoRemaining:      (name)              => Deno.core.ops.bsengine_get_yodel_echo_remaining(name),
+    isYodelAwaitingEcho:        (name)              => Deno.core.ops.bsengine_is_yodel_awaiting_echo(name),
+    isYodelJustYodeled:         (name)              => Deno.core.ops.bsengine_is_yodel_just_yodeled(name),
+    isYodelJustEchoed:          (name)              => Deno.core.ops.bsengine_is_yodel_just_echoed(name),
+    isYodelEnabled:             (name)              => Deno.core.ops.bsengine_is_yodel_enabled(name),
+    yodelYodel:                 (name)              => Deno.core.ops.bsengine_yodel_yodel(name),
+    setYodelEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yodel_enabled(name, v),
+    getYogaFlexibility:         (name)              => Deno.core.ops.bsengine_get_yoga_flexibility(name),
+    getYogaMaxFlexibility:      (name)              => Deno.core.ops.bsengine_get_yoga_max_flexibility(name),
+    getYogaRecoveryRate:        (name)              => Deno.core.ops.bsengine_get_yoga_recovery_rate(name),
+    isYogaJustCentered:         (name)              => Deno.core.ops.bsengine_is_yoga_just_centered(name),
+    isYogaJustBroken:           (name)              => Deno.core.ops.bsengine_is_yoga_just_broken(name),
+    isYogaEnabled:              (name)              => Deno.core.ops.bsengine_is_yoga_enabled(name),
+    practiceYoga:               (name)              => Deno.core.ops.bsengine_practice_yoga(name),
+    strainYoga:                 (name)              => Deno.core.ops.bsengine_strain_yoga(name),
+    setYogaEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yoga_enabled(name, v),
+    getYogiDepth:               (name)              => Deno.core.ops.bsengine_get_yogi_depth(name),
+    getYogiMaxDepth:            (name)              => Deno.core.ops.bsengine_get_yogi_max_depth(name),
+    getYogiFocusRate:           (name)              => Deno.core.ops.bsengine_get_yogi_focus_rate(name),
+    getYogiDriftRate:           (name)              => Deno.core.ops.bsengine_get_yogi_drift_rate(name),
+    isYogiMeditating:           (name)              => Deno.core.ops.bsengine_is_yogi_meditating(name),
+    isYogiJustTranscended:      (name)              => Deno.core.ops.bsengine_is_yogi_just_transcended(name),
+    isYogiJustScattered:        (name)              => Deno.core.ops.bsengine_is_yogi_just_scattered(name),
+    isYogiEnabled:              (name)              => Deno.core.ops.bsengine_is_yogi_enabled(name),
+    meditateYogi:               (name)              => Deno.core.ops.bsengine_meditate_yogi(name),
+    distractYogi:               (name)              => Deno.core.ops.bsengine_distract_yogi(name),
+    setYogiEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yogi_enabled(name, v),
+    getYokeWeight:              (name)              => Deno.core.ops.bsengine_get_yoke_weight(name),
+    getYokeMaxWeight:           (name)              => Deno.core.ops.bsengine_get_yoke_max_weight(name),
+    getYokeRecoveryRate:        (name)              => Deno.core.ops.bsengine_get_yoke_recovery_rate(name),
+    getYokeSpeedPenalty:        (name)              => Deno.core.ops.bsengine_get_yoke_speed_penalty(name),
+    isYokeJustBurdened:         (name)              => Deno.core.ops.bsengine_is_yoke_just_burdened(name),
+    isYokeJustFreed:            (name)              => Deno.core.ops.bsengine_is_yoke_just_freed(name),
+    isYokeEnabled:              (name)              => Deno.core.ops.bsengine_is_yoke_enabled(name),
+    burdenYoke:                 (name)              => Deno.core.ops.bsengine_burden_yoke(name),
+    relieveYoke:                (name)              => Deno.core.ops.bsengine_relieve_yoke(name),
+    setYokeEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yoke_enabled(name, v),
+    getYokelCredulity:          (name)              => Deno.core.ops.bsengine_get_yokel_credulity(name),
+    getYokelMaxCreedulity:      (name)              => Deno.core.ops.bsengine_get_yokel_max_credulity(name),
+    getYokelWisdomRate:         (name)              => Deno.core.ops.bsengine_get_yokel_wisdom_rate(name),
+    isYokelJustFooled:          (name)              => Deno.core.ops.bsengine_is_yokel_just_fooled(name),
+    isYokelJustSavvy:           (name)              => Deno.core.ops.bsengine_is_yokel_just_savvy(name),
+    isYokelEnabled:             (name)              => Deno.core.ops.bsengine_is_yokel_enabled(name),
+    deceiveYokel:               (name)              => Deno.core.ops.bsengine_deceive_yokel(name),
+    enlightenYokel:             (name)              => Deno.core.ops.bsengine_enlighten_yokel(name),
+    setYokelEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yokel_enabled(name, v),
+    getYolkFragility:           (name)              => Deno.core.ops.bsengine_get_yolk_fragility(name),
+    getYolkMaxFragility:        (name)              => Deno.core.ops.bsengine_get_yolk_max_fragility(name),
+    getYolkDamageMultiplier:    (name)              => Deno.core.ops.bsengine_get_yolk_damage_multiplier(name),
+    isYolkJustCracked:          (name)              => Deno.core.ops.bsengine_is_yolk_just_cracked(name),
+    isYolkEnabled:              (name)              => Deno.core.ops.bsengine_is_yolk_enabled(name),
+    crackYolk:                  (name)              => Deno.core.ops.bsengine_crack_yolk(name),
+    repairYolk:                 (name)              => Deno.core.ops.bsengine_repair_yolk(name),
+    setYolkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yolk_enabled(name, v),
+    getYonderDistance:          (name)              => Deno.core.ops.bsengine_get_yonder_distance(name),
+    getYonderMaxRange:          (name)              => Deno.core.ops.bsengine_get_yonder_max_range(name),
+    isYonderJustAcquired:       (name)              => Deno.core.ops.bsengine_is_yonder_just_acquired(name),
+    isYonderJustArrived:        (name)              => Deno.core.ops.bsengine_is_yonder_just_arrived(name),
+    isYonderEnabled:            (name)              => Deno.core.ops.bsengine_is_yonder_enabled(name),
+    setYonder:                  (name)              => Deno.core.ops.bsengine_set_yonder(name),
+    closeInYonder:              (name)              => Deno.core.ops.bsengine_close_in_yonder(name),
+    setYonderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_yonder_enabled(name, v),
+    getYoreCurrentValue:        (name)              => Deno.core.ops.bsengine_get_yore_current_value(name),
+    getYorePeakValue:           (name)              => Deno.core.ops.bsengine_get_yore_peak_value(name),
+    isYoreJustPeaked:           (name)              => Deno.core.ops.bsengine_is_yore_just_peaked(name),
+    isYoreEnabled:              (name)              => Deno.core.ops.bsengine_is_yore_enabled(name),
+    observeYore:                (name)              => Deno.core.ops.bsengine_observe_yore(name),
+    resetPeakYore:              (name)              => Deno.core.ops.bsengine_reset_peak_yore(name),
+    setYoreEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yore_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -80524,6 +81069,363 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TicYips { name } if name == "Twitch")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ComposeYips { name } if name == "Twitch")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYipsEnabled { name, enabled } if name == "Twitch" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yodel_read_ops() {
+        super::YODEL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Echo".to_string(),
+                (1.0f32, 0.5f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYodelEchoDelay("Echo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getYodelEchoRemaining("Echo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYodelAwaitingEcho("Echo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYodelJustYodeled("Echo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYodelEnabled("Echo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yodel_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yodelYodel("Echo");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYodelEnabled("Echo", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YodelYodel { name } if name == "Echo")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYodelEnabled { name, enabled } if name == "Echo" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yoga_read_ops() {
+        super::YOGA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pose".to_string(),
+                (80.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYogaFlexibility("Pose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getYogaMaxFlexibility("Pose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYogaJustCentered("Pose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYogaEnabled("Pose"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yoga_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.practiceYoga("Pose");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.strainYoga("Pose");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYogaEnabled("Pose", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PracticeYoga { name } if name == "Pose")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrainYoga { name } if name == "Pose")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYogaEnabled { name, enabled } if name == "Pose" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yogi_read_ops() {
+        super::YOGI_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Om".to_string(),
+                (
+                    50.0f32, 100.0f32, 20.0f32, 5.0f32, false, false, false, true,
+                ),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getYogiDepth("Om"))"#).unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getYogiMaxDepth("Om"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYogiMeditating("Om"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isYogiEnabled("Om"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yogi_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.meditateYogi("Om");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.distractYogi("Om");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYogiEnabled("Om", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MeditateYogi { name } if name == "Om")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DistractYogi { name } if name == "Om")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYogiEnabled { name, enabled } if name == "Om" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yoke_read_ops() {
+        super::YOKE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Burden".to_string(),
+                (3.0f32, 10.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYokeWeight("Burden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getYokeMaxWeight("Burden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYokeJustBurdened("Burden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYokeEnabled("Burden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yoke_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.burdenYoke("Burden");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.relieveYoke("Burden");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYokeEnabled("Burden", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BurdenYoke { name } if name == "Burden")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RelieveYoke { name } if name == "Burden")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYokeEnabled { name, enabled } if name == "Burden" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yokel_read_ops() {
+        super::YOKEL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fool".to_string(),
+                (40.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYokelCredulity("Fool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getYokelMaxCreedulity("Fool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYokelJustFooled("Fool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYokelEnabled("Fool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yokel_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.deceiveYokel("Fool");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.enlightenYokel("Fool");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYokelEnabled("Fool", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeceiveYokel { name } if name == "Fool")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnlightenYokel { name } if name == "Fool")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYokelEnabled { name, enabled } if name == "Fool" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yolk_read_ops() {
+        super::YOLK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Crack".to_string(),
+                (30.0f32, 100.0f32, 2.0f32, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYolkFragility("Crack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getYolkMaxFragility("Crack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYolkJustCracked("Crack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYolkEnabled("Crack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yolk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crackYolk("Crack");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairYolk("Crack");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYolkEnabled("Crack", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrackYolk { name } if name == "Crack")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepairYolk { name } if name == "Crack")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYolkEnabled { name, enabled } if name == "Crack" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yonder_read_ops() {
+        super::YONDER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Beacon".to_string(),
+                (60.0f32, 100.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYonderDistance("Beacon"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getYonderMaxRange("Beacon"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYonderJustAcquired("Beacon"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYonderEnabled("Beacon"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yonder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setYonder("Beacon");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.closeInYonder("Beacon");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYonderEnabled("Beacon", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYonder { name } if name == "Beacon")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CloseInYonder { name } if name == "Beacon")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYonderEnabled { name, enabled } if name == "Beacon" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yore_read_ops() {
+        super::YORE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Record".to_string(), (75.0f32, 100.0f32, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYoreCurrentValue("Record"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getYorePeakValue("Record"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYoreJustPeaked("Record"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYoreEnabled("Record"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+    }
+    #[test]
+    fn test_yore_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.observeYore("Record");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetPeakYore("Record");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYoreEnabled("Record", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObserveYore { name } if name == "Record")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetPeakYore { name } if name == "Record")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYoreEnabled { name, enabled } if name == "Record" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

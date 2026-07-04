@@ -77,9 +77,10 @@ use crate::ops::{
     TONE_MAP_SNAPSHOT, TRAMPLE_SNAPSHOT, TRANCE_SNAPSHOT, TRANQUIL_SNAPSHOT, TRANSFIX_SNAPSHOT,
     TRANSFORM_SNAPSHOT, TREMBLE_SNAPSHOT, TREMOR_SNAPSHOT, TRIGGER_SNAPSHOT, TROVE_SNAPSHOT,
     TUSK_SNAPSHOT, TWEEN_SNAPSHOT, UNREST_SNAPSHOT, UPKEEP_SNAPSHOT, URGE_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VENOM_SNAPSHOT, VEX_SNAPSHOT, VIGNETTE_SNAPSHOT, VIGOR_SNAPSHOT,
-    VILE_SNAPSHOT, VISIBLE_SNAPSHOT, VOID_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
-    Z_INDEX_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VENOM_SNAPSHOT, VENTURE_SNAPSHOT, VERGE_SNAPSHOT, VERIFY_SNAPSHOT,
+    VERILY_SNAPSHOT, VERMIN_SNAPSHOT, VERNAL_SNAPSHOT, VERSE_SNAPSHOT, VERTEX_SNAPSHOT,
+    VEX_SNAPSHOT, VIGNETTE_SNAPSHOT, VIGOR_SNAPSHOT, VILE_SNAPSHOT, VISIBLE_SNAPSHOT,
+    VOID_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1988,6 +1989,153 @@ fn run_scripts(world: &mut World) {
             );
         }
         VOID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Venture;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Venture)>();
+        for (name, vt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vt.venture_level,
+                    vt.max_venture,
+                    vt.venture_rate,
+                    vt.recovery_rate,
+                    vt.damage_bonus,
+                    vt.in_venture,
+                    vt.just_peaked,
+                    vt.enabled,
+                ),
+            );
+        }
+        VENTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verge;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verge)>();
+        for (name, vg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (vg.charge, vg.charge_rate, vg.just_peaked, vg.enabled),
+            );
+        }
+        VERGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verify;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verify)>();
+        for (name, vy) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vy.confidence,
+                    vy.max_confidence,
+                    vy.probe_rate,
+                    vy.just_verified,
+                    vy.just_refuted,
+                    vy.enabled,
+                ),
+            );
+        }
+        VERIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verily;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verily)>();
+        for (name, vl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vl.conviction,
+                    vl.max_conviction,
+                    vl.oath_rate,
+                    vl.just_sworn,
+                    vl.just_recanted,
+                    vl.enabled,
+                ),
+            );
+        }
+        VERILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vermin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vermin)>();
+        for (name, vm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vm.infestation,
+                    vm.max_infestation,
+                    vm.swarm_rate,
+                    vm.just_swarmed,
+                    vm.just_exterminated,
+                    vm.enabled,
+                ),
+            );
+        }
+        VERMIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vernal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vernal)>();
+        for (name, vn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vn.bloom,
+                    vn.max_bloom,
+                    vn.thaw_rate,
+                    vn.just_bloomed,
+                    vn.just_dormant,
+                    vn.enabled,
+                ),
+            );
+        }
+        VERNAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verse;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verse)>();
+        for (name, vs) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vs.meter,
+                    vs.max_meter,
+                    vs.cadence_rate,
+                    vs.just_composed,
+                    vs.just_silenced,
+                    vs.enabled,
+                ),
+            );
+        }
+        VERSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vertex;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vertex)>();
+        for (name, vx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vx.apex,
+                    vx.max_apex,
+                    vx.ascent_rate,
+                    vx.just_peaked,
+                    vx.just_grounded,
+                    vx.enabled,
+                ),
+            );
+        }
+        VERTEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -19887,6 +20035,270 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut vo) = world.get_mut::<bsengine_core::Void>(e) {
                         vo.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BeginVenture { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vt) = world.get_mut::<bsengine_core::Venture>(e) {
+                        vt.begin_venture();
+                    }
+                }
+            }
+            ScriptCommand::EndVenture { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vt) = world.get_mut::<bsengine_core::Venture>(e) {
+                        vt.end_venture();
+                    }
+                }
+            }
+            ScriptCommand::SetVentureEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vt) = world.get_mut::<bsengine_core::Venture>(e) {
+                        vt.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::FeedVerge { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<bsengine_core::Verge>(e) {
+                        vg.feed(amount);
+                    }
+                }
+            }
+            ScriptCommand::ConsumeVerge { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<bsengine_core::Verge>(e) {
+                        vg.consume();
+                    }
+                }
+            }
+            ScriptCommand::SetVergeEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<bsengine_core::Verge>(e) {
+                        vg.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ConfirmVerify { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vy) = world.get_mut::<bsengine_core::Verify>(e) {
+                        vy.confirm(amount);
+                    }
+                }
+            }
+            ScriptCommand::RefuteVerify { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vy) = world.get_mut::<bsengine_core::Verify>(e) {
+                        vy.refute(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetVerifyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vy) = world.get_mut::<bsengine_core::Verify>(e) {
+                        vy.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AffirmVerily { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vl) = world.get_mut::<bsengine_core::Verily>(e) {
+                        vl.affirm(amount);
+                    }
+                }
+            }
+            ScriptCommand::RecantVerily { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vl) = world.get_mut::<bsengine_core::Verily>(e) {
+                        vl.recant(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetVerilyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vl) = world.get_mut::<bsengine_core::Verily>(e) {
+                        vl.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InfestVermin { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vm) = world.get_mut::<bsengine_core::Vermin>(e) {
+                        vm.infest(amount);
+                    }
+                }
+            }
+            ScriptCommand::ExterminateVermin { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vm) = world.get_mut::<bsengine_core::Vermin>(e) {
+                        vm.exterminate(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetVerminEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vm) = world.get_mut::<bsengine_core::Vermin>(e) {
+                        vm.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RenewVernal { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Vernal>(e) {
+                        vn.renew(amount);
+                    }
+                }
+            }
+            ScriptCommand::WitherVernal { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Vernal>(e) {
+                        vn.wither(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetVernalEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Vernal>(e) {
+                        vn.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ComposeVerse { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vs) = world.get_mut::<bsengine_core::Verse>(e) {
+                        vs.compose(amount);
+                    }
+                }
+            }
+            ScriptCommand::SilenceVerse { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vs) = world.get_mut::<bsengine_core::Verse>(e) {
+                        vs.silence(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetVerseEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vs) = world.get_mut::<bsengine_core::Verse>(e) {
+                        vs.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AscendVertex { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vertex>(e) {
+                        vx.ascend(amount);
+                    }
+                }
+            }
+            ScriptCommand::DescendVertex { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vertex>(e) {
+                        vx.descend(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetVertexEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vertex>(e) {
+                        vx.enabled = enabled;
                     }
                 }
             }

@@ -4106,6 +4106,107 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Venture ───────────────────────────────────────────────────────────────
+    BeginVenture {
+        name: String,
+    },
+    EndVenture {
+        name: String,
+    },
+    SetVentureEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Verge ─────────────────────────────────────────────────────────────────
+    FeedVerge {
+        name: String,
+        amount: f32,
+    },
+    ConsumeVerge {
+        name: String,
+    },
+    SetVergeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Verify ────────────────────────────────────────────────────────────────
+    ConfirmVerify {
+        name: String,
+        amount: f32,
+    },
+    RefuteVerify {
+        name: String,
+        amount: f32,
+    },
+    SetVerifyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Verily ────────────────────────────────────────────────────────────────
+    AffirmVerily {
+        name: String,
+        amount: f32,
+    },
+    RecantVerily {
+        name: String,
+        amount: f32,
+    },
+    SetVerilyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vermin ────────────────────────────────────────────────────────────────
+    InfestVermin {
+        name: String,
+        amount: f32,
+    },
+    ExterminateVermin {
+        name: String,
+        amount: f32,
+    },
+    SetVerminEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vernal ────────────────────────────────────────────────────────────────
+    RenewVernal {
+        name: String,
+        amount: f32,
+    },
+    WitherVernal {
+        name: String,
+        amount: f32,
+    },
+    SetVernalEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Verse ─────────────────────────────────────────────────────────────────
+    ComposeVerse {
+        name: String,
+        amount: f32,
+    },
+    SilenceVerse {
+        name: String,
+        amount: f32,
+    },
+    SetVerseEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Vertex ────────────────────────────────────────────────────────────────
+    AscendVertex {
+        name: String,
+        amount: f32,
+    },
+    DescendVertex {
+        name: String,
+        amount: f32,
+    },
+    SetVertexEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5221,6 +5322,22 @@ thread_local! {
     pub(crate) static VILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static VOID_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VENTURE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERIFY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERILY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERMIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERNAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERSE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VERTEX_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -9496,6 +9613,365 @@ pub fn bsengine_set_void_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetVoidEnabled { name, enabled })
+    });
+}
+// ── Venture ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_venture_level(#[string] name: String) -> f32 {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_venture(#[string] name: String) -> f32 {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venture_rate(#[string] name: String) -> f32 {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_recovery_rate(#[string] name: String) -> f32 {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venture_damage_bonus(#[string] name: String) -> f32 {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_in_venture(#[string] name: String) -> bool {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_venture_just_peaked(#[string] name: String) -> bool {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_venture_enabled(#[string] name: String) -> bool {
+    VENTURE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_venture(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginVenture { name }));
+}
+#[op2(fast)]
+pub fn bsengine_end_venture(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EndVenture { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_venture_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVentureEnabled { name, enabled })
+    });
+}
+// ── Verge ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_verge_charge(#[string] name: String) -> f32 {
+    VERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verge_charge_rate(#[string] name: String) -> f32 {
+    VERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_verge_just_peaked(#[string] name: String) -> bool {
+    VERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_verge_enabled(#[string] name: String) -> bool {
+    VERGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_feed_verge(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FeedVerge { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_consume_verge(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConsumeVerge { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_verge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVergeEnabled { name, enabled })
+    });
+}
+// ── Verify ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_verify_confidence(#[string] name: String) -> f32 {
+    VERIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verify_max_confidence(#[string] name: String) -> f32 {
+    VERIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verify_probe_rate(#[string] name: String) -> f32 {
+    VERIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_verified(#[string] name: String) -> bool {
+    VERIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_refuted(#[string] name: String) -> bool {
+    VERIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_verify_enabled(#[string] name: String) -> bool {
+    VERIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_confirm_verify(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConfirmVerify { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_refute_verify(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RefuteVerify { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_verify_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVerifyEnabled { name, enabled })
+    });
+}
+// ── Verily ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_verily_conviction(#[string] name: String) -> f32 {
+    VERILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verily_max_conviction(#[string] name: String) -> f32 {
+    VERILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_verily_oath_rate(#[string] name: String) -> f32 {
+    VERILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_sworn(#[string] name: String) -> bool {
+    VERILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_recanted(#[string] name: String) -> bool {
+    VERILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_verily_enabled(#[string] name: String) -> bool {
+    VERILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_affirm_verily(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AffirmVerily { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_recant_verily(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RecantVerily { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_verily_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVerilyEnabled { name, enabled })
+    });
+}
+// ── Vermin ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vermin_infestation(#[string] name: String) -> f32 {
+    VERMIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_infestation(#[string] name: String) -> f32 {
+    VERMIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_swarm_rate(#[string] name: String) -> f32 {
+    VERMIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_swarmed(#[string] name: String) -> bool {
+    VERMIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_exterminated(#[string] name: String) -> bool {
+    VERMIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vermin_enabled(#[string] name: String) -> bool {
+    VERMIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_infest_vermin(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InfestVermin { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_exterminate_vermin(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExterminateVermin { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vermin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVerminEnabled { name, enabled })
+    });
+}
+// ── Vernal ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_bloom(#[string] name: String) -> f32 {
+    VERNAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_bloom(#[string] name: String) -> f32 {
+    VERNAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vernal_thaw_rate(#[string] name: String) -> f32 {
+    VERNAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_bloomed(#[string] name: String) -> bool {
+    VERNAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_dormant(#[string] name: String) -> bool {
+    VERNAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vernal_enabled(#[string] name: String) -> bool {
+    VERNAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_renew_vernal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RenewVernal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_wither_vernal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WitherVernal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vernal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVernalEnabled { name, enabled })
+    });
+}
+// ── Verse ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_verse_meter(#[string] name: String) -> f32 {
+    VERSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_meter(#[string] name: String) -> f32 {
+    VERSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_cadence_rate(#[string] name: String) -> f32 {
+    VERSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_composed(#[string] name: String) -> bool {
+    VERSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_verse_silenced(#[string] name: String) -> bool {
+    VERSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_verse_enabled(#[string] name: String) -> bool {
+    VERSE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_compose_verse(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ComposeVerse { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_silence_verse(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SilenceVerse { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_verse_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVerseEnabled { name, enabled })
+    });
+}
+// ── Vertex ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vertex_apex(#[string] name: String) -> f32 {
+    VERTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_max_apex(#[string] name: String) -> f32 {
+    VERTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ascent_rate(#[string] name: String) -> f32 {
+    VERTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vertex_just_peaked(#[string] name: String) -> bool {
+    VERTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vertex_just_grounded(#[string] name: String) -> bool {
+    VERTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vertex_enabled(#[string] name: String) -> bool {
+    VERTEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ascend_vertex(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AscendVertex { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_descend_vertex(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DescendVertex { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vertex_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVertexEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -29286,6 +29762,78 @@ deno_core::extension!(
         bsengine_drain_void,
         bsengine_release_void,
         bsengine_set_void_enabled,
+        bsengine_get_venture_level,
+        bsengine_get_max_venture,
+        bsengine_get_venture_rate,
+        bsengine_get_recovery_rate,
+        bsengine_get_venture_damage_bonus,
+        bsengine_is_in_venture,
+        bsengine_is_venture_just_peaked,
+        bsengine_is_venture_enabled,
+        bsengine_begin_venture,
+        bsengine_end_venture,
+        bsengine_set_venture_enabled,
+        bsengine_get_verge_charge,
+        bsengine_get_verge_charge_rate,
+        bsengine_is_verge_just_peaked,
+        bsengine_is_verge_enabled,
+        bsengine_feed_verge,
+        bsengine_consume_verge,
+        bsengine_set_verge_enabled,
+        bsengine_get_verify_confidence,
+        bsengine_get_verify_max_confidence,
+        bsengine_get_verify_probe_rate,
+        bsengine_is_just_verified,
+        bsengine_is_just_refuted,
+        bsengine_is_verify_enabled,
+        bsengine_confirm_verify,
+        bsengine_refute_verify,
+        bsengine_set_verify_enabled,
+        bsengine_get_verily_conviction,
+        bsengine_get_verily_max_conviction,
+        bsengine_get_verily_oath_rate,
+        bsengine_is_just_sworn,
+        bsengine_is_just_recanted,
+        bsengine_is_verily_enabled,
+        bsengine_affirm_verily,
+        bsengine_recant_verily,
+        bsengine_set_verily_enabled,
+        bsengine_get_vermin_infestation,
+        bsengine_get_max_infestation,
+        bsengine_get_swarm_rate,
+        bsengine_is_just_swarmed,
+        bsengine_is_just_exterminated,
+        bsengine_is_vermin_enabled,
+        bsengine_infest_vermin,
+        bsengine_exterminate_vermin,
+        bsengine_set_vermin_enabled,
+        bsengine_get_bloom,
+        bsengine_get_max_bloom,
+        bsengine_get_vernal_thaw_rate,
+        bsengine_is_just_bloomed,
+        bsengine_is_just_dormant,
+        bsengine_is_vernal_enabled,
+        bsengine_renew_vernal,
+        bsengine_wither_vernal,
+        bsengine_set_vernal_enabled,
+        bsengine_get_verse_meter,
+        bsengine_get_max_meter,
+        bsengine_get_cadence_rate,
+        bsengine_is_just_composed,
+        bsengine_is_just_verse_silenced,
+        bsengine_is_verse_enabled,
+        bsengine_compose_verse,
+        bsengine_silence_verse,
+        bsengine_set_verse_enabled,
+        bsengine_get_vertex_apex,
+        bsengine_get_max_apex,
+        bsengine_get_ascent_rate,
+        bsengine_is_vertex_just_peaked,
+        bsengine_is_vertex_just_grounded,
+        bsengine_is_vertex_enabled,
+        bsengine_ascend_vertex,
+        bsengine_descend_vertex,
+        bsengine_set_vertex_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -32488,6 +33036,78 @@ const Bsengine = {
     drainVoid:                  (name, damage)      => Deno.core.ops.bsengine_drain_void(name, damage),
     releaseVoid:                (name)              => Deno.core.ops.bsengine_release_void(name),
     setVoidEnabled:             (name, v)           => Deno.core.ops.bsengine_set_void_enabled(name, v),
+    getVentureLevel:            (name)              => Deno.core.ops.bsengine_get_venture_level(name),
+    getMaxVenture:              (name)              => Deno.core.ops.bsengine_get_max_venture(name),
+    getVentureRate:             (name)              => Deno.core.ops.bsengine_get_venture_rate(name),
+    getRecoveryRate:            (name)              => Deno.core.ops.bsengine_get_recovery_rate(name),
+    getVentureDamageBonus:      (name)              => Deno.core.ops.bsengine_get_venture_damage_bonus(name),
+    isInVenture:                (name)              => Deno.core.ops.bsengine_is_in_venture(name),
+    isVentureJustPeaked:        (name)              => Deno.core.ops.bsengine_is_venture_just_peaked(name),
+    isVentureEnabled:           (name)              => Deno.core.ops.bsengine_is_venture_enabled(name),
+    beginVenture:               (name)              => Deno.core.ops.bsengine_begin_venture(name),
+    endVenture:                 (name)              => Deno.core.ops.bsengine_end_venture(name),
+    setVentureEnabled:          (name, v)           => Deno.core.ops.bsengine_set_venture_enabled(name, v),
+    getVergeCharge:             (name)              => Deno.core.ops.bsengine_get_verge_charge(name),
+    getVergeChargeRate:         (name)              => Deno.core.ops.bsengine_get_verge_charge_rate(name),
+    isVergeJustPeaked:          (name)              => Deno.core.ops.bsengine_is_verge_just_peaked(name),
+    isVergeEnabled:             (name)              => Deno.core.ops.bsengine_is_verge_enabled(name),
+    feedVerge:                  (name, amount)      => Deno.core.ops.bsengine_feed_verge(name, amount),
+    consumeVerge:               (name)              => Deno.core.ops.bsengine_consume_verge(name),
+    setVergeEnabled:            (name, v)           => Deno.core.ops.bsengine_set_verge_enabled(name, v),
+    getVerifyConfidence:        (name)              => Deno.core.ops.bsengine_get_verify_confidence(name),
+    getVerifyMaxConfidence:     (name)              => Deno.core.ops.bsengine_get_verify_max_confidence(name),
+    getVerifyProbeRate:         (name)              => Deno.core.ops.bsengine_get_verify_probe_rate(name),
+    isJustVerified:             (name)              => Deno.core.ops.bsengine_is_just_verified(name),
+    isJustRefuted:              (name)              => Deno.core.ops.bsengine_is_just_refuted(name),
+    isVerifyEnabled:            (name)              => Deno.core.ops.bsengine_is_verify_enabled(name),
+    confirmVerify:              (name, amount)      => Deno.core.ops.bsengine_confirm_verify(name, amount),
+    refuteVerify:               (name, amount)      => Deno.core.ops.bsengine_refute_verify(name, amount),
+    setVerifyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_verify_enabled(name, v),
+    getVerilyConviction:        (name)              => Deno.core.ops.bsengine_get_verily_conviction(name),
+    getVerilyMaxConviction:     (name)              => Deno.core.ops.bsengine_get_verily_max_conviction(name),
+    getVerilyOathRate:          (name)              => Deno.core.ops.bsengine_get_verily_oath_rate(name),
+    isJustSworn:                (name)              => Deno.core.ops.bsengine_is_just_sworn(name),
+    isJustRecanted:             (name)              => Deno.core.ops.bsengine_is_just_recanted(name),
+    isVerilyEnabled:            (name)              => Deno.core.ops.bsengine_is_verily_enabled(name),
+    affirmVerily:               (name, amount)      => Deno.core.ops.bsengine_affirm_verily(name, amount),
+    recantVerily:               (name, amount)      => Deno.core.ops.bsengine_recant_verily(name, amount),
+    setVerilyEnabled:           (name, v)           => Deno.core.ops.bsengine_set_verily_enabled(name, v),
+    getVerminInfestation:       (name)              => Deno.core.ops.bsengine_get_vermin_infestation(name),
+    getMaxInfestation:          (name)              => Deno.core.ops.bsengine_get_max_infestation(name),
+    getSwarmRate:               (name)              => Deno.core.ops.bsengine_get_swarm_rate(name),
+    isJustSwarmed:              (name)              => Deno.core.ops.bsengine_is_just_swarmed(name),
+    isJustExterminated:         (name)              => Deno.core.ops.bsengine_is_just_exterminated(name),
+    isVerminEnabled:            (name)              => Deno.core.ops.bsengine_is_vermin_enabled(name),
+    infestVermin:               (name, amount)      => Deno.core.ops.bsengine_infest_vermin(name, amount),
+    exterminateVermin:          (name, amount)      => Deno.core.ops.bsengine_exterminate_vermin(name, amount),
+    setVerminEnabled:           (name, v)           => Deno.core.ops.bsengine_set_vermin_enabled(name, v),
+    getBloom:                   (name)              => Deno.core.ops.bsengine_get_bloom(name),
+    getMaxBloom:                (name)              => Deno.core.ops.bsengine_get_max_bloom(name),
+    getVernalThawRate:          (name)              => Deno.core.ops.bsengine_get_vernal_thaw_rate(name),
+    isJustBloomed:              (name)              => Deno.core.ops.bsengine_is_just_bloomed(name),
+    isJustDormant:              (name)              => Deno.core.ops.bsengine_is_just_dormant(name),
+    isVernalEnabled:            (name)              => Deno.core.ops.bsengine_is_vernal_enabled(name),
+    renewVernal:                (name, amount)      => Deno.core.ops.bsengine_renew_vernal(name, amount),
+    witherVernal:               (name, amount)      => Deno.core.ops.bsengine_wither_vernal(name, amount),
+    setVernalEnabled:           (name, v)           => Deno.core.ops.bsengine_set_vernal_enabled(name, v),
+    getVerseMeter:              (name)              => Deno.core.ops.bsengine_get_verse_meter(name),
+    getMaxMeter:                (name)              => Deno.core.ops.bsengine_get_max_meter(name),
+    getCadenceRate:             (name)              => Deno.core.ops.bsengine_get_cadence_rate(name),
+    isJustComposed:             (name)              => Deno.core.ops.bsengine_is_just_composed(name),
+    isJustVerseSilenced:        (name)              => Deno.core.ops.bsengine_is_just_verse_silenced(name),
+    isVerseEnabled:             (name)              => Deno.core.ops.bsengine_is_verse_enabled(name),
+    composeVerse:               (name, amount)      => Deno.core.ops.bsengine_compose_verse(name, amount),
+    silenceVerse:               (name, amount)      => Deno.core.ops.bsengine_silence_verse(name, amount),
+    setVerseEnabled:            (name, v)           => Deno.core.ops.bsengine_set_verse_enabled(name, v),
+    getVertexApex:              (name)              => Deno.core.ops.bsengine_get_vertex_apex(name),
+    getMaxApex:                 (name)              => Deno.core.ops.bsengine_get_max_apex(name),
+    getAscentRate:              (name)              => Deno.core.ops.bsengine_get_ascent_rate(name),
+    isVertexJustPeaked:         (name)              => Deno.core.ops.bsengine_is_vertex_just_peaked(name),
+    isVertexJustGrounded:       (name)              => Deno.core.ops.bsengine_is_vertex_just_grounded(name),
+    isVertexEnabled:            (name)              => Deno.core.ops.bsengine_is_vertex_enabled(name),
+    ascendVertex:               (name, amount)      => Deno.core.ops.bsengine_ascend_vertex(name, amount),
+    descendVertex:              (name, amount)      => Deno.core.ops.bsengine_descend_vertex(name, amount),
+    setVertexEnabled:           (name, v)           => Deno.core.ops.bsengine_set_vertex_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -54115,6 +54735,422 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrainVoid { name, damage } if name == "Grunt" && *damage == 10.0)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseVoid { name } if name == "Grunt")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVoidEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_venture_read_ops() {
+        super::VENTURE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, 0.5f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVentureLevel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxVenture("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVentureRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getRecoveryRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVentureDamageBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt.eval(r#"String(Bsengine.isInVenture("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVentureJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVentureEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VENTURE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_venture_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginVenture("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.endVenture("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVentureEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BeginVenture { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EndVenture { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVentureEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verge_read_ops() {
+        super::VERGE_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.75f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVergeCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getVergeChargeRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVergeJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVergeEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verge_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.feedVerge("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.consumeVerge("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVergeEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FeedVerge { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeVerge { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVergeEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verify_read_ops() {
+        super::VERIFY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVerifyConfidence("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerifyMaxConfidence("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerifyProbeRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustVerified("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustRefuted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVerifyEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERIFY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verify_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.confirmVerify("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.refuteVerify("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVerifyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConfirmVerify { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RefuteVerify { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVerifyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verily_read_ops() {
+        super::VERILY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVerilyConviction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerilyMaxConviction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVerilyOathRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt.eval(r#"String(Bsengine.isJustSworn("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustRecanted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVerilyEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERILY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verily_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.affirmVerily("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.recantVerily("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVerilyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AffirmVerily { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RecantVerily { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVerilyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vermin_read_ops() {
+        super::VERMIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVerminInfestation("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getMaxInfestation("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt.eval(r#"String(Bsengine.getSwarmRate("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustSwarmed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustExterminated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVerminEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERMIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vermin_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.infestVermin("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exterminateVermin("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVerminEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InfestVermin { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExterminateVermin { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVerminEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vernal_read_ops() {
+        super::VERNAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getBloom("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getMaxBloom("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVernalThawRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustBloomed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustDormant("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVernalEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERNAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vernal_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.renewVernal("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.witherVernal("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVernalEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RenewVernal { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WitherVernal { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVernalEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verse_read_ops() {
+        super::VERSE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVerseMeter("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getMaxMeter("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getCadenceRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustComposed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustVerseSilenced("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVerseEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERSE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_verse_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.composeVerse("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.silenceVerse("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVerseEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ComposeVerse { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SilenceVerse { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVerseEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vertex_read_ops() {
+        super::VERTEX_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVertexApex("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getMaxApex("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getAscentRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVertexJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVertexJustGrounded("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVertexEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VERTEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vertex_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.ascendVertex("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.descendVertex("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVertexEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AscendVertex { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DescendVertex { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVertexEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

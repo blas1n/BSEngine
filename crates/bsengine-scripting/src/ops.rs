@@ -4743,6 +4743,103 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    ApplyWax {
+        name: String,
+        amount: f32,
+    },
+    SetWaxMaxWax {
+        name: String,
+        value: f32,
+    },
+    SetWaxEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AdvanceWay {
+        name: String,
+        amount: f32,
+    },
+    RetreatWay {
+        name: String,
+        amount: f32,
+    },
+    SetWayEnabled {
+        name: String,
+        enabled: bool,
+    },
+    NourishWeal {
+        name: String,
+        amount: f32,
+    },
+    DepleteWeal {
+        name: String,
+        amount: f32,
+    },
+    SetWealEnabled {
+        name: String,
+        enabled: bool,
+    },
+    TireWeary {
+        name: String,
+        amount: f32,
+    },
+    RestWeary {
+        name: String,
+        amount: f32,
+    },
+    SetWearyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SetWeatherCloudCover {
+        name: String,
+        value: f32,
+    },
+    SetWeatherPrecipitationIntensity {
+        name: String,
+        value: f32,
+    },
+    SetWeatherTemperature {
+        name: String,
+        value: f32,
+    },
+    SetWeatherFogDensity {
+        name: String,
+        value: f32,
+    },
+    SetWeatherEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BeginWeave {
+        name: String,
+    },
+    HaltWeave {
+        name: String,
+    },
+    SetWeaveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SlipWeasel {
+        name: String,
+    },
+    SetWeaselEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyWeb {
+        name: String,
+        amount: f32,
+    },
+    StruggleWeb {
+        name: String,
+        amount: f32,
+    },
+    SetWebEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5954,6 +6051,22 @@ thread_local! {
     pub(crate) static WAVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WAVER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAX_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WAY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEARY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEATHER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEAVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEASEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEB_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -12465,6 +12578,368 @@ pub fn bsengine_set_waver_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWaverEnabled { name, enabled })
+    });
+}
+// ── Wax ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wax_level(#[string] name: String) -> f32 {
+    WAX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wax_max_wax(#[string] name: String) -> f32 {
+    WAX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wax_just_applied(#[string] name: String) -> bool {
+    WAX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wax_just_stripped(#[string] name: String) -> bool {
+    WAX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wax_enabled(#[string] name: String) -> bool {
+    WAX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_wax(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyWax { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wax_max_wax(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaxMaxWax { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wax_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWaxEnabled { name, enabled })
+    });
+}
+// ── Way ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_way_progress(#[string] name: String) -> f32 {
+    WAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_way_max_progress(#[string] name: String) -> f32 {
+    WAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_way_traverse_rate(#[string] name: String) -> f32 {
+    WAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_way_just_arrived(#[string] name: String) -> bool {
+    WAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_way_just_turned(#[string] name: String) -> bool {
+    WAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_way_enabled(#[string] name: String) -> bool {
+    WAY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_advance_way(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AdvanceWay { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_retreat_way(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RetreatWay { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_way_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWayEnabled { name, enabled })
+    });
+}
+// ── Weal ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weal_level(#[string] name: String) -> f32 {
+    WEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weal_max_weal(#[string] name: String) -> f32 {
+    WEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weal_regen_rate(#[string] name: String) -> f32 {
+    WEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weal_just_flourished(#[string] name: String) -> bool {
+    WEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weal_just_diminished(#[string] name: String) -> bool {
+    WEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weal_enabled(#[string] name: String) -> bool {
+    WEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_nourish_weal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NourishWeal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_deplete_weal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DepleteWeal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWealEnabled { name, enabled })
+    });
+}
+// ── Weary ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weary_fatigue(#[string] name: String) -> f32 {
+    WEARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weary_max_fatigue(#[string] name: String) -> f32 {
+    WEARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weary_drain_rate(#[string] name: String) -> f32 {
+    WEARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weary_just_exhausted(#[string] name: String) -> bool {
+    WEARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weary_just_refreshed(#[string] name: String) -> bool {
+    WEARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weary_enabled(#[string] name: String) -> bool {
+    WEARY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_tire_weary(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TireWeary { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_rest_weary(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestWeary { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weary_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWearyEnabled { name, enabled })
+    });
+}
+// ── Weather ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weather_cloud_cover(#[string] name: String) -> f32 {
+    WEATHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weather_precipitation_intensity(#[string] name: String) -> f32 {
+    WEATHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weather_temperature(#[string] name: String) -> f32 {
+    WEATHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weather_fog_density(#[string] name: String) -> f32 {
+    WEATHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weather_lightning_probability(#[string] name: String) -> f32 {
+    WEATHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weather_enabled(#[string] name: String) -> bool {
+    WEATHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_set_weather_cloud_cover(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeatherCloudCover { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weather_precipitation_intensity(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeatherPrecipitationIntensity { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weather_temperature(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeatherTemperature { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weather_fog_density(#[string] name: String, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeatherFogDensity { name, value })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weather_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeatherEnabled { name, enabled })
+    });
+}
+// ── Weave ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weave_level(#[string] name: String) -> f32 {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weave_max_weave(#[string] name: String) -> f32 {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weave_buildup_rate(#[string] name: String) -> f32 {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weave_weaving(#[string] name: String) -> bool {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weave_just_peaked(#[string] name: String) -> bool {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weave_just_broken(#[string] name: String) -> bool {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weave_enabled(#[string] name: String) -> bool {
+    WEAVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_weave(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BeginWeave { name }));
+}
+#[op2(fast)]
+pub fn bsengine_halt_weave(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HaltWeave { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_weave_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeaveEnabled { name, enabled })
+    });
+}
+// ── Weasel ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weasel_level(#[string] name: String) -> f32 {
+    WEASEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weasel_max_weasel(#[string] name: String) -> f32 {
+    WEASEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weasel_regen_rate(#[string] name: String) -> f32 {
+    WEASEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weasel_just_slipped(#[string] name: String) -> bool {
+    WEASEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weasel_enabled(#[string] name: String) -> bool {
+    WEASEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_slip_weasel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SlipWeasel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_weasel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeaselEnabled { name, enabled })
+    });
+}
+// ── Web ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_web_strength(#[string] name: String) -> f32 {
+    WEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_web_max_strength(#[string] name: String) -> f32 {
+    WEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_web_movement_penalty(#[string] name: String) -> f32 {
+    WEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_web_just_caught(#[string] name: String) -> bool {
+    WEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_web_just_broken(#[string] name: String) -> bool {
+    WEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_web_enabled(#[string] name: String) -> bool {
+    WEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_web(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyWeb { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_struggle_web(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StruggleWeb { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_web_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWebEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -32692,6 +33167,78 @@ deno_core::extension!(
         bsengine_hesitate_waver,
         bsengine_resolve_waver,
         bsengine_set_waver_enabled,
+        bsengine_get_wax_level,
+        bsengine_get_wax_max_wax,
+        bsengine_is_wax_just_applied,
+        bsengine_is_wax_just_stripped,
+        bsengine_is_wax_enabled,
+        bsengine_apply_wax,
+        bsengine_set_wax_max_wax,
+        bsengine_set_wax_enabled,
+        bsengine_get_way_progress,
+        bsengine_get_way_max_progress,
+        bsengine_get_way_traverse_rate,
+        bsengine_is_way_just_arrived,
+        bsengine_is_way_just_turned,
+        bsengine_is_way_enabled,
+        bsengine_advance_way,
+        bsengine_retreat_way,
+        bsengine_set_way_enabled,
+        bsengine_get_weal_level,
+        bsengine_get_weal_max_weal,
+        bsengine_get_weal_regen_rate,
+        bsengine_is_weal_just_flourished,
+        bsengine_is_weal_just_diminished,
+        bsengine_is_weal_enabled,
+        bsengine_nourish_weal,
+        bsengine_deplete_weal,
+        bsengine_set_weal_enabled,
+        bsengine_get_weary_fatigue,
+        bsengine_get_weary_max_fatigue,
+        bsengine_get_weary_drain_rate,
+        bsengine_is_weary_just_exhausted,
+        bsengine_is_weary_just_refreshed,
+        bsengine_is_weary_enabled,
+        bsengine_tire_weary,
+        bsengine_rest_weary,
+        bsengine_set_weary_enabled,
+        bsengine_get_weather_cloud_cover,
+        bsengine_get_weather_precipitation_intensity,
+        bsengine_get_weather_temperature,
+        bsengine_get_weather_fog_density,
+        bsengine_get_weather_lightning_probability,
+        bsengine_is_weather_enabled,
+        bsengine_set_weather_cloud_cover,
+        bsengine_set_weather_precipitation_intensity,
+        bsengine_set_weather_temperature,
+        bsengine_set_weather_fog_density,
+        bsengine_set_weather_enabled,
+        bsengine_get_weave_level,
+        bsengine_get_weave_max_weave,
+        bsengine_get_weave_buildup_rate,
+        bsengine_is_weave_weaving,
+        bsengine_is_weave_just_peaked,
+        bsengine_is_weave_just_broken,
+        bsengine_is_weave_enabled,
+        bsengine_begin_weave,
+        bsengine_halt_weave,
+        bsengine_set_weave_enabled,
+        bsengine_get_weasel_level,
+        bsengine_get_weasel_max_weasel,
+        bsengine_get_weasel_regen_rate,
+        bsengine_is_weasel_just_slipped,
+        bsengine_is_weasel_enabled,
+        bsengine_slip_weasel,
+        bsengine_set_weasel_enabled,
+        bsengine_get_web_strength,
+        bsengine_get_web_max_strength,
+        bsengine_get_web_movement_penalty,
+        bsengine_is_web_just_caught,
+        bsengine_is_web_just_broken,
+        bsengine_is_web_enabled,
+        bsengine_apply_web,
+        bsengine_struggle_web,
+        bsengine_set_web_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -36331,6 +36878,78 @@ const Bsengine = {
     hesitateWaver:              (name, amount)      => Deno.core.ops.bsengine_hesitate_waver(name, amount),
     resolveWaver:               (name, amount)      => Deno.core.ops.bsengine_resolve_waver(name, amount),
     setWaverEnabled:            (name, v)           => Deno.core.ops.bsengine_set_waver_enabled(name, v),
+    getWaxLevel:                (name)              => Deno.core.ops.bsengine_get_wax_level(name),
+    getWaxMaxWax:               (name)              => Deno.core.ops.bsengine_get_wax_max_wax(name),
+    isWaxJustApplied:           (name)              => Deno.core.ops.bsengine_is_wax_just_applied(name),
+    isWaxJustStripped:          (name)              => Deno.core.ops.bsengine_is_wax_just_stripped(name),
+    isWaxEnabled:               (name)              => Deno.core.ops.bsengine_is_wax_enabled(name),
+    applyWax:                   (name, amount)      => Deno.core.ops.bsengine_apply_wax(name, amount),
+    setWaxMaxWax:               (name, v)           => Deno.core.ops.bsengine_set_wax_max_wax(name, v),
+    setWaxEnabled:              (name, v)           => Deno.core.ops.bsengine_set_wax_enabled(name, v),
+    getWayProgress:             (name)              => Deno.core.ops.bsengine_get_way_progress(name),
+    getWayMaxProgress:          (name)              => Deno.core.ops.bsengine_get_way_max_progress(name),
+    getWayTraverseRate:         (name)              => Deno.core.ops.bsengine_get_way_traverse_rate(name),
+    isWayJustArrived:           (name)              => Deno.core.ops.bsengine_is_way_just_arrived(name),
+    isWayJustTurned:            (name)              => Deno.core.ops.bsengine_is_way_just_turned(name),
+    isWayEnabled:               (name)              => Deno.core.ops.bsengine_is_way_enabled(name),
+    advanceWay:                 (name, amount)      => Deno.core.ops.bsengine_advance_way(name, amount),
+    retreatWay:                 (name, amount)      => Deno.core.ops.bsengine_retreat_way(name, amount),
+    setWayEnabled:              (name, v)           => Deno.core.ops.bsengine_set_way_enabled(name, v),
+    getWealLevel:               (name)              => Deno.core.ops.bsengine_get_weal_level(name),
+    getWealMaxWeal:             (name)              => Deno.core.ops.bsengine_get_weal_max_weal(name),
+    getWealRegenRate:           (name)              => Deno.core.ops.bsengine_get_weal_regen_rate(name),
+    isWealJustFlourished:       (name)              => Deno.core.ops.bsengine_is_weal_just_flourished(name),
+    isWealJustDiminished:       (name)              => Deno.core.ops.bsengine_is_weal_just_diminished(name),
+    isWealEnabled:              (name)              => Deno.core.ops.bsengine_is_weal_enabled(name),
+    nourishWeal:                (name, amount)      => Deno.core.ops.bsengine_nourish_weal(name, amount),
+    depleteWeal:                (name, amount)      => Deno.core.ops.bsengine_deplete_weal(name, amount),
+    setWealEnabled:             (name, v)           => Deno.core.ops.bsengine_set_weal_enabled(name, v),
+    getWearyFatigue:            (name)              => Deno.core.ops.bsengine_get_weary_fatigue(name),
+    getWearyMaxFatigue:         (name)              => Deno.core.ops.bsengine_get_weary_max_fatigue(name),
+    getWearyDrainRate:          (name)              => Deno.core.ops.bsengine_get_weary_drain_rate(name),
+    isWearyJustExhausted:       (name)              => Deno.core.ops.bsengine_is_weary_just_exhausted(name),
+    isWearyJustRefreshed:       (name)              => Deno.core.ops.bsengine_is_weary_just_refreshed(name),
+    isWearyEnabled:             (name)              => Deno.core.ops.bsengine_is_weary_enabled(name),
+    tireWeary:                  (name, amount)      => Deno.core.ops.bsengine_tire_weary(name, amount),
+    restWeary:                  (name, amount)      => Deno.core.ops.bsengine_rest_weary(name, amount),
+    setWearyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_weary_enabled(name, v),
+    getWeatherCloudCover:       (name)              => Deno.core.ops.bsengine_get_weather_cloud_cover(name),
+    getWeatherPrecipitationIntensity: (name)        => Deno.core.ops.bsengine_get_weather_precipitation_intensity(name),
+    getWeatherTemperature:      (name)              => Deno.core.ops.bsengine_get_weather_temperature(name),
+    getWeatherFogDensity:       (name)              => Deno.core.ops.bsengine_get_weather_fog_density(name),
+    getWeatherLightningProbability: (name)          => Deno.core.ops.bsengine_get_weather_lightning_probability(name),
+    isWeatherEnabled:           (name)              => Deno.core.ops.bsengine_is_weather_enabled(name),
+    setWeatherCloudCover:       (name, v)           => Deno.core.ops.bsengine_set_weather_cloud_cover(name, v),
+    setWeatherPrecipitationIntensity: (name, v)     => Deno.core.ops.bsengine_set_weather_precipitation_intensity(name, v),
+    setWeatherTemperature:      (name, v)           => Deno.core.ops.bsengine_set_weather_temperature(name, v),
+    setWeatherFogDensity:       (name, v)           => Deno.core.ops.bsengine_set_weather_fog_density(name, v),
+    setWeatherEnabled:          (name, v)           => Deno.core.ops.bsengine_set_weather_enabled(name, v),
+    getWeaveLevel:              (name)              => Deno.core.ops.bsengine_get_weave_level(name),
+    getWeaveMaxWeave:           (name)              => Deno.core.ops.bsengine_get_weave_max_weave(name),
+    getWeaveBuildupRate:        (name)              => Deno.core.ops.bsengine_get_weave_buildup_rate(name),
+    isWeaveWeaving:             (name)              => Deno.core.ops.bsengine_is_weave_weaving(name),
+    isWeaveJustPeaked:          (name)              => Deno.core.ops.bsengine_is_weave_just_peaked(name),
+    isWeaveJustBroken:          (name)              => Deno.core.ops.bsengine_is_weave_just_broken(name),
+    isWeaveEnabled:             (name)              => Deno.core.ops.bsengine_is_weave_enabled(name),
+    beginWeave:                 (name)              => Deno.core.ops.bsengine_begin_weave(name),
+    haltWeave:                  (name)              => Deno.core.ops.bsengine_halt_weave(name),
+    setWeaveEnabled:            (name, v)           => Deno.core.ops.bsengine_set_weave_enabled(name, v),
+    getWeaselLevel:             (name)              => Deno.core.ops.bsengine_get_weasel_level(name),
+    getWeaselMaxWeasel:         (name)              => Deno.core.ops.bsengine_get_weasel_max_weasel(name),
+    getWeaselRegenRate:         (name)              => Deno.core.ops.bsengine_get_weasel_regen_rate(name),
+    isWeaselJustSlipped:        (name)              => Deno.core.ops.bsengine_is_weasel_just_slipped(name),
+    isWeaselEnabled:            (name)              => Deno.core.ops.bsengine_is_weasel_enabled(name),
+    slipWeasel:                 (name)              => Deno.core.ops.bsengine_slip_weasel(name),
+    setWeaselEnabled:           (name, v)           => Deno.core.ops.bsengine_set_weasel_enabled(name, v),
+    getWebStrength:             (name)              => Deno.core.ops.bsengine_get_web_strength(name),
+    getWebMaxStrength:          (name)              => Deno.core.ops.bsengine_get_web_max_strength(name),
+    getWebMovementPenalty:      (name)              => Deno.core.ops.bsengine_get_web_movement_penalty(name),
+    isWebJustCaught:            (name)              => Deno.core.ops.bsengine_is_web_just_caught(name),
+    isWebJustBroken:            (name)              => Deno.core.ops.bsengine_is_web_just_broken(name),
+    isWebEnabled:               (name)              => Deno.core.ops.bsengine_is_web_enabled(name),
+    applyWeb:                   (name, amount)      => Deno.core.ops.bsengine_apply_web(name, amount),
+    struggleWeb:                (name, amount)      => Deno.core.ops.bsengine_struggle_web(name, amount),
+    setWebEnabled:              (name, v)           => Deno.core.ops.bsengine_set_web_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -60531,6 +61150,436 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HesitateWaver { name, amount } if name == "Grunt" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResolveWaver { name, amount } if name == "Grunt" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaverEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wax_read_ops() {
+        super::WAX_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.5f32, 1.0f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWaxLevel("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getWaxMaxWax("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaxJustApplied("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWaxJustStripped("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWaxEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wax_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyWax("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaxMaxWax("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWaxEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyWax { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaxMaxWax { name, value } if name == "Grunt" && *value == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWaxEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_way_read_ops() {
+        super::WAY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWayProgress("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWayMaxProgress("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWayTraverseRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWayJustArrived("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWayJustTurned("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWayEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WAY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_way_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.advanceWay("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.retreatWay("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWayEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdvanceWay { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetreatWay { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWayEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weal_read_ops() {
+        super::WEAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWealLevel("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWealMaxWeal("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWealRegenRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWealJustFlourished("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWealJustDiminished("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWealEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weal_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.nourishWeal("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.depleteWeal("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWealEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NourishWeal { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepleteWeal { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWealEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weary_read_ops() {
+        super::WEARY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWearyFatigue("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWearyMaxFatigue("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWearyDrainRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWearyJustExhausted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWearyJustRefreshed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWearyEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEARY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weary_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.tireWeary("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.restWeary("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWearyEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TireWeary { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestWeary { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWearyEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weather_read_ops() {
+        super::WEATHER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 0.25f32, 0.125f32, 0.0625f32, 0.03125f32, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWeatherCloudCover("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeatherPrecipitationIntensity("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeatherTemperature("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.125");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeatherFogDensity("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.0625");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeatherLightningProbability("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.03125");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeatherEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEATHER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weather_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.setWeatherCloudCover("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWeatherPrecipitationIntensity("Grunt", 0.25);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWeatherTemperature("Grunt", 0.125);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setWeatherFogDensity("Grunt", 0.0625);"#,
+            "<test>",
+        )
+        .unwrap();
+        rt.exec_source(r#"Bsengine.setWeatherEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeatherCloudCover { name, value } if name == "Grunt" && *value == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeatherPrecipitationIntensity { name, value } if name == "Grunt" && *value == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeatherTemperature { name, value } if name == "Grunt" && *value == 0.125)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeatherFogDensity { name, value } if name == "Grunt" && *value == 0.0625)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeatherEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weave_read_ops() {
+        super::WEAVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWeaveLevel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeaveMaxWeave("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeaveBuildupRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeaveWeaving("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeaveJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeaveJustBroken("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeaveEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEAVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weave_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginWeave("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.haltWeave("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWeaveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::BeginWeave { name } if name == "Grunt")));
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::HaltWeave { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeaveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weasel_read_ops() {
+        super::WEASEL_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.5f32, 1.0f32, 0.25f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWeaselLevel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeaselMaxWeasel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeaselRegenRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeaselJustSlipped("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeaselEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEASEL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weasel_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.slipWeasel("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWeaselEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::SlipWeasel { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeaselEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_web_read_ops() {
+        super::WEB_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWebStrength("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWebMaxStrength("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWebMovementPenalty("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWebJustCaught("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWebJustBroken("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWebEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEB_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_web_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyWeb("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.struggleWeb("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWebEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyWeb { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StruggleWeb { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWebEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

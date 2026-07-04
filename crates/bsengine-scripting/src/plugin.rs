@@ -74,8 +74,10 @@ use crate::ops::{
     SUPPRESS_SNAPSHOT, SURGE_SNAPSHOT, SURROUND_SNAPSHOT, SURVIVE_SNAPSHOT, SWIM_SNAPSHOT,
     TAG_SNAPSHOT, TAINT_SNAPSHOT, TALLY_SNAPSHOT, TALON_SNAPSHOT, TAPER_SNAPSHOT, TAUNT_SNAPSHOT,
     THAW_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT,
-    TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TRIGGER_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    TONE_MAP_SNAPSHOT, TRAMPLE_SNAPSHOT, TRANCE_SNAPSHOT, TRANQUIL_SNAPSHOT, TRANSFIX_SNAPSHOT,
+    TRANSFORM_SNAPSHOT, TREMBLE_SNAPSHOT, TREMOR_SNAPSHOT, TRIGGER_SNAPSHOT, TROVE_SNAPSHOT,
+    TUSK_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1671,6 +1673,160 @@ fn run_scripts(world: &mut World) {
             );
         }
         THAW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Trample;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Trample)>();
+        for (name, tr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tr.duration,
+                    tr.timer,
+                    tr.damage,
+                    tr.push_force,
+                    tr.radius,
+                    tr.just_started,
+                    tr.just_ended,
+                    tr.enabled,
+                ),
+            );
+        }
+        TRAMPLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Trance;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Trance)>();
+        for (name, tr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tr.duration,
+                    tr.timer,
+                    tr.regen_multiplier,
+                    tr.just_entered,
+                    tr.just_exited,
+                    tr.enabled,
+                ),
+            );
+        }
+        TRANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tranquil;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tranquil)>();
+        for (name, tq) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tq.duration,
+                    tq.timer,
+                    tq.regen_multiplier,
+                    tq.just_entered,
+                    tq.just_exited,
+                    tq.enabled,
+                ),
+            );
+        }
+        TRANQUIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Transfix;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Transfix)>();
+        for (name, tf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tf.active,
+                    tf.timer,
+                    tf.lock_range,
+                    tf.just_locked,
+                    tf.just_broken,
+                    tf.enabled,
+                ),
+            );
+        }
+        TRANSFIX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tremble;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tremble)>();
+        for (name, tb) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tb.duration,
+                    tb.timer,
+                    tb.intensity,
+                    tb.just_trembling,
+                    tb.just_stopped,
+                    tb.enabled,
+                ),
+            );
+        }
+        TREMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tremor;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tremor)>();
+        for (name, tm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tm.pulse_interval,
+                    tm.pulse_timer,
+                    tm.radius,
+                    tm.stagger_strength,
+                    tm.active,
+                    tm.just_pulsed,
+                    tm.enabled,
+                ),
+            );
+        }
+        TREMOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Trove;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Trove)>();
+        for (name, tv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tv.trove_value,
+                    tv.threshold,
+                    tv.reward_multiplier,
+                    tv.trove_count,
+                    tv.just_activated,
+                    tv.enabled,
+                ),
+            );
+        }
+        TROVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tusk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tusk)>();
+        for (name, tk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tk.current_charge,
+                    tk.full_charge_dist,
+                    tk.max_bonus,
+                    tk.just_hit,
+                    tk.enabled,
+                ),
+            );
+        }
+        TUSK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -19031,6 +19187,281 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut th) = world.get_mut::<bsengine_core::Thaw>(e) {
                         th.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::StartTrample { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tr) = world.get_mut::<bsengine_core::Trample>(e) {
+                        tr.start(duration);
+                    }
+                }
+            }
+            ScriptCommand::StopTrample { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tr) = world.get_mut::<bsengine_core::Trample>(e) {
+                        tr.stop();
+                    }
+                }
+            }
+            ScriptCommand::SetTrampleEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tr) = world.get_mut::<bsengine_core::Trample>(e) {
+                        tr.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyTrance { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tr) = world.get_mut::<bsengine_core::Trance>(e) {
+                        tr.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearTrance { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tr) = world.get_mut::<bsengine_core::Trance>(e) {
+                        tr.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetTranceEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tr) = world.get_mut::<bsengine_core::Trance>(e) {
+                        tr.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::EnterTranquil { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tq) = world.get_mut::<bsengine_core::Tranquil>(e) {
+                        tq.enter(duration);
+                    }
+                }
+            }
+            ScriptCommand::InterruptTranquil { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tq) = world.get_mut::<bsengine_core::Tranquil>(e) {
+                        tq.interrupt();
+                    }
+                }
+            }
+            ScriptCommand::SetTranquilEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tq) = world.get_mut::<bsengine_core::Tranquil>(e) {
+                        tq.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::FixTransfix { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tf) = world.get_mut::<bsengine_core::Transfix>(e) {
+                        tf.fix(duration);
+                    }
+                }
+            }
+            ScriptCommand::BreakTransfix { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tf) = world.get_mut::<bsengine_core::Transfix>(e) {
+                        tf.break_lock();
+                    }
+                }
+            }
+            ScriptCommand::SetTransfixEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tf) = world.get_mut::<bsengine_core::Transfix>(e) {
+                        tf.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyTremble { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tb) = world.get_mut::<bsengine_core::Tremble>(e) {
+                        tb.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::ClearTremble { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tb) = world.get_mut::<bsengine_core::Tremble>(e) {
+                        tb.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetTrembleEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tb) = world.get_mut::<bsengine_core::Tremble>(e) {
+                        tb.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ActivateTremor { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tm) = world.get_mut::<bsengine_core::Tremor>(e) {
+                        tm.activate();
+                    }
+                }
+            }
+            ScriptCommand::DeactivateTremor { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tm) = world.get_mut::<bsengine_core::Tremor>(e) {
+                        tm.deactivate();
+                    }
+                }
+            }
+            ScriptCommand::SetTremorEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tm) = world.get_mut::<bsengine_core::Tremor>(e) {
+                        tm.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddTroveValue { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tv) = world.get_mut::<bsengine_core::Trove>(e) {
+                        tv.add_value(amount);
+                    }
+                }
+            }
+            ScriptCommand::ConsumeTrove { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tv) = world.get_mut::<bsengine_core::Trove>(e) {
+                        tv.consume();
+                    }
+                }
+            }
+            ScriptCommand::SetTroveEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tv) = world.get_mut::<bsengine_core::Trove>(e) {
+                        tv.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ChargeTusk { name, dist } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tk) = world.get_mut::<bsengine_core::Tusk>(e) {
+                        tk.charge(dist);
+                    }
+                }
+            }
+            ScriptCommand::ImpactTusk { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tk) = world.get_mut::<bsengine_core::Tusk>(e) {
+                        tk.impact();
+                    }
+                }
+            }
+            ScriptCommand::ResetTusk { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tk) = world.get_mut::<bsengine_core::Tusk>(e) {
+                        tk.reset();
+                    }
+                }
+            }
+            ScriptCommand::SetTuskEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut tk) = world.get_mut::<bsengine_core::Tusk>(e) {
+                        tk.enabled = enabled;
                     }
                 }
             }

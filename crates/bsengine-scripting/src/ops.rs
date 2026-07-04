@@ -3929,6 +3929,96 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    StartTrample {
+        name: String,
+        duration: f32,
+    },
+    StopTrample {
+        name: String,
+    },
+    SetTrampleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyTrance {
+        name: String,
+        duration: f32,
+    },
+    ClearTrance {
+        name: String,
+    },
+    SetTranceEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EnterTranquil {
+        name: String,
+        duration: f32,
+    },
+    InterruptTranquil {
+        name: String,
+    },
+    SetTranquilEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FixTransfix {
+        name: String,
+        duration: f32,
+    },
+    BreakTransfix {
+        name: String,
+    },
+    SetTransfixEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyTremble {
+        name: String,
+        duration: f32,
+    },
+    ClearTremble {
+        name: String,
+    },
+    SetTrembleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ActivateTremor {
+        name: String,
+    },
+    DeactivateTremor {
+        name: String,
+    },
+    SetTremorEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddTroveValue {
+        name: String,
+        amount: f32,
+    },
+    ConsumeTrove {
+        name: String,
+    },
+    SetTroveEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ChargeTusk {
+        name: String,
+        dist: f32,
+    },
+    ImpactTusk {
+        name: String,
+    },
+    ResetTusk {
+        name: String,
+    },
+    SetTuskEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5012,6 +5102,22 @@ thread_local! {
     pub(crate) static TAUNT_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static THAW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRAMPLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRANCE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRANQUIL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TRANSFIX_SNAPSHOT: RefCell<HashMap<String, (bool, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TREMBLE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TREMOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TROVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static TUSK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -8562,6 +8668,365 @@ pub fn bsengine_set_thaw_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetThawEnabled { name, enabled })
+    });
+}
+// ── Trample ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_trample_duration(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_timer(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_damage(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_push_force(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trample_radius(#[string] name: String) -> f32 {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trample_started(#[string] name: String) -> bool {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trample_ended(#[string] name: String) -> bool {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_trample_enabled(#[string] name: String) -> bool {
+    TRAMPLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_start_trample(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StartTrample { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stop_trample(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopTrample { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_trample_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTrampleEnabled { name, enabled })
+    });
+}
+// ── Trance ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_trance_duration(#[string] name: String) -> f32 {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trance_timer(#[string] name: String) -> f32 {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trance_regen_multiplier(#[string] name: String) -> f32 {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trance_entered(#[string] name: String) -> bool {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trance_exited(#[string] name: String) -> bool {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_trance_enabled(#[string] name: String) -> bool {
+    TRANCE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_trance(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyTrance { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_trance(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTrance { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_trance_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTranceEnabled { name, enabled })
+    });
+}
+// ── Tranquil ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tranquil_duration(#[string] name: String) -> f32 {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tranquil_timer(#[string] name: String) -> f32 {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tranquil_regen_multiplier(#[string] name: String) -> f32 {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tranquil_entered(#[string] name: String) -> bool {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_tranquil_exited(#[string] name: String) -> bool {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tranquil_enabled(#[string] name: String) -> bool {
+    TRANQUIL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_enter_tranquil(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EnterTranquil { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_interrupt_tranquil(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InterruptTranquil { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_tranquil_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTranquilEnabled { name, enabled })
+    });
+}
+// ── Transfix ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_is_transfix_active(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_transfix_timer(#[string] name: String) -> f32 {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_transfix_lock_range(#[string] name: String) -> f32 {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_transfix_locked(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_transfix_broken(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_transfix_enabled(#[string] name: String) -> bool {
+    TRANSFIX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fix_transfix(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FixTransfix { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_break_transfix(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreakTransfix { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_transfix_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTransfixEnabled { name, enabled })
+    });
+}
+// ── Tremble ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tremble_duration(#[string] name: String) -> f32 {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremble_timer(#[string] name: String) -> f32 {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremble_intensity(#[string] name: String) -> f32 {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_trembling(#[string] name: String) -> bool {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremble_just_stopped(#[string] name: String) -> bool {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremble_enabled(#[string] name: String) -> bool {
+    TREMBLE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_tremble(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyTremble { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_tremble(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearTremble { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_tremble_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTrembleEnabled { name, enabled })
+    });
+}
+// ── Tremor ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tremor_pulse_interval(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremor_pulse_timer(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremor_radius(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tremor_stagger_strength(#[string] name: String) -> f32 {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremor_active(#[string] name: String) -> bool {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremor_just_pulsed(#[string] name: String) -> bool {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tremor_enabled(#[string] name: String) -> bool {
+    TREMOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_tremor(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateTremor { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_tremor(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeactivateTremor { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_tremor_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTremorEnabled { name, enabled })
+    });
+}
+// ── Trove ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_trove_value(#[string] name: String) -> f32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trove_threshold(#[string] name: String) -> f32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trove_reward_multiplier(#[string] name: String) -> f32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_trove_count(#[string] name: String) -> u32 {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_is_trove_just_activated(#[string] name: String) -> bool {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_trove_enabled(#[string] name: String) -> bool {
+    TROVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_trove_value(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AddTroveValue { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_consume_trove(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConsumeTrove { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_trove_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTroveEnabled { name, enabled })
+    });
+}
+// ── Tusk ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_tusk_current_charge(#[string] name: String) -> f32 {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tusk_full_charge_dist(#[string] name: String) -> f32 {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_tusk_max_bonus(#[string] name: String) -> f32 {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_tusk_just_hit(#[string] name: String) -> bool {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_tusk_enabled(#[string] name: String) -> bool {
+    TUSK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_tusk(#[string] name: String, dist: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChargeTusk { name, dist })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_impact_tusk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ImpactTusk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_reset_tusk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTusk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_tusk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetTuskEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -28198,6 +28663,81 @@ deno_core::extension!(
         bsengine_is_thaw_enabled,
         bsengine_apply_freeze,
         bsengine_set_thaw_enabled,
+        bsengine_get_trample_duration,
+        bsengine_get_trample_timer,
+        bsengine_get_trample_damage,
+        bsengine_get_trample_push_force,
+        bsengine_get_trample_radius,
+        bsengine_is_just_trample_started,
+        bsengine_is_just_trample_ended,
+        bsengine_is_trample_enabled,
+        bsengine_start_trample,
+        bsengine_stop_trample,
+        bsengine_set_trample_enabled,
+        bsengine_get_trance_duration,
+        bsengine_get_trance_timer,
+        bsengine_get_trance_regen_multiplier,
+        bsengine_is_just_trance_entered,
+        bsengine_is_just_trance_exited,
+        bsengine_is_trance_enabled,
+        bsengine_apply_trance,
+        bsengine_clear_trance,
+        bsengine_set_trance_enabled,
+        bsengine_get_tranquil_duration,
+        bsengine_get_tranquil_timer,
+        bsengine_get_tranquil_regen_multiplier,
+        bsengine_is_just_tranquil_entered,
+        bsengine_is_just_tranquil_exited,
+        bsengine_is_tranquil_enabled,
+        bsengine_enter_tranquil,
+        bsengine_interrupt_tranquil,
+        bsengine_set_tranquil_enabled,
+        bsengine_is_transfix_active,
+        bsengine_get_transfix_timer,
+        bsengine_get_transfix_lock_range,
+        bsengine_is_just_transfix_locked,
+        bsengine_is_just_transfix_broken,
+        bsengine_is_transfix_enabled,
+        bsengine_fix_transfix,
+        bsengine_break_transfix,
+        bsengine_set_transfix_enabled,
+        bsengine_get_tremble_duration,
+        bsengine_get_tremble_timer,
+        bsengine_get_tremble_intensity,
+        bsengine_is_just_trembling,
+        bsengine_is_tremble_just_stopped,
+        bsengine_is_tremble_enabled,
+        bsengine_apply_tremble,
+        bsengine_clear_tremble,
+        bsengine_set_tremble_enabled,
+        bsengine_get_tremor_pulse_interval,
+        bsengine_get_tremor_pulse_timer,
+        bsengine_get_tremor_radius,
+        bsengine_get_tremor_stagger_strength,
+        bsengine_is_tremor_active,
+        bsengine_is_tremor_just_pulsed,
+        bsengine_is_tremor_enabled,
+        bsengine_activate_tremor,
+        bsengine_deactivate_tremor,
+        bsengine_set_tremor_enabled,
+        bsengine_get_trove_value,
+        bsengine_get_trove_threshold,
+        bsengine_get_trove_reward_multiplier,
+        bsengine_get_trove_count,
+        bsengine_is_trove_just_activated,
+        bsengine_is_trove_enabled,
+        bsengine_add_trove_value,
+        bsengine_consume_trove,
+        bsengine_set_trove_enabled,
+        bsengine_get_tusk_current_charge,
+        bsengine_get_tusk_full_charge_dist,
+        bsengine_get_tusk_max_bonus,
+        bsengine_is_tusk_just_hit,
+        bsengine_is_tusk_enabled,
+        bsengine_charge_tusk,
+        bsengine_impact_tusk,
+        bsengine_reset_tusk,
+        bsengine_set_tusk_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -31246,6 +31786,81 @@ const Bsengine = {
     isThawEnabled:              (name)              => Deno.core.ops.bsengine_is_thaw_enabled(name),
     applyFreeze:                (name, intensity)   => Deno.core.ops.bsengine_apply_freeze(name, intensity),
     setThawEnabled:             (name, v)           => Deno.core.ops.bsengine_set_thaw_enabled(name, v),
+    getTrampleDuration:         (name)              => Deno.core.ops.bsengine_get_trample_duration(name),
+    getTrampleTimer:            (name)              => Deno.core.ops.bsengine_get_trample_timer(name),
+    getTrampleDamage:           (name)              => Deno.core.ops.bsengine_get_trample_damage(name),
+    getTramplePushForce:        (name)              => Deno.core.ops.bsengine_get_trample_push_force(name),
+    getTrampleRadius:           (name)              => Deno.core.ops.bsengine_get_trample_radius(name),
+    isJustTrampleStarted:       (name)              => Deno.core.ops.bsengine_is_just_trample_started(name),
+    isJustTrampleEnded:         (name)              => Deno.core.ops.bsengine_is_just_trample_ended(name),
+    isTrampleEnabled:           (name)              => Deno.core.ops.bsengine_is_trample_enabled(name),
+    startTrample:               (name, duration)    => Deno.core.ops.bsengine_start_trample(name, duration),
+    stopTrample:                (name)              => Deno.core.ops.bsengine_stop_trample(name),
+    setTrampleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_trample_enabled(name, v),
+    getTranceDuration:          (name)              => Deno.core.ops.bsengine_get_trance_duration(name),
+    getTranceTimer:             (name)              => Deno.core.ops.bsengine_get_trance_timer(name),
+    getTranceRegenMultiplier:   (name)              => Deno.core.ops.bsengine_get_trance_regen_multiplier(name),
+    isJustTranceEntered:        (name)              => Deno.core.ops.bsengine_is_just_trance_entered(name),
+    isJustTranceExited:         (name)              => Deno.core.ops.bsengine_is_just_trance_exited(name),
+    isTranceEnabled:            (name)              => Deno.core.ops.bsengine_is_trance_enabled(name),
+    applyTrance:                (name, duration)    => Deno.core.ops.bsengine_apply_trance(name, duration),
+    clearTrance:                (name)              => Deno.core.ops.bsengine_clear_trance(name),
+    setTranceEnabled:           (name, v)           => Deno.core.ops.bsengine_set_trance_enabled(name, v),
+    getTranquilDuration:        (name)              => Deno.core.ops.bsengine_get_tranquil_duration(name),
+    getTranquilTimer:           (name)              => Deno.core.ops.bsengine_get_tranquil_timer(name),
+    getTranquilRegenMultiplier: (name)              => Deno.core.ops.bsengine_get_tranquil_regen_multiplier(name),
+    isJustTranquilEntered:      (name)              => Deno.core.ops.bsengine_is_just_tranquil_entered(name),
+    isJustTranquilExited:       (name)              => Deno.core.ops.bsengine_is_just_tranquil_exited(name),
+    isTranquilEnabled:          (name)              => Deno.core.ops.bsengine_is_tranquil_enabled(name),
+    enterTranquil:              (name, duration)    => Deno.core.ops.bsengine_enter_tranquil(name, duration),
+    interruptTranquil:          (name)              => Deno.core.ops.bsengine_interrupt_tranquil(name),
+    setTranquilEnabled:         (name, v)           => Deno.core.ops.bsengine_set_tranquil_enabled(name, v),
+    isTransfixActive:           (name)              => Deno.core.ops.bsengine_is_transfix_active(name),
+    getTransfixTimer:           (name)              => Deno.core.ops.bsengine_get_transfix_timer(name),
+    getTransfixLockRange:       (name)              => Deno.core.ops.bsengine_get_transfix_lock_range(name),
+    isJustTransfixLocked:       (name)              => Deno.core.ops.bsengine_is_just_transfix_locked(name),
+    isJustTransfixBroken:       (name)              => Deno.core.ops.bsengine_is_just_transfix_broken(name),
+    isTransfixEnabled:          (name)              => Deno.core.ops.bsengine_is_transfix_enabled(name),
+    fixTransfix:                (name, duration)    => Deno.core.ops.bsengine_fix_transfix(name, duration),
+    breakTransfix:              (name)              => Deno.core.ops.bsengine_break_transfix(name),
+    setTransfixEnabled:         (name, v)           => Deno.core.ops.bsengine_set_transfix_enabled(name, v),
+    getTrembleDuration:         (name)              => Deno.core.ops.bsengine_get_tremble_duration(name),
+    getTrembleTimer:            (name)              => Deno.core.ops.bsengine_get_tremble_timer(name),
+    getTrembleIntensity:        (name)              => Deno.core.ops.bsengine_get_tremble_intensity(name),
+    isJustTrembling:            (name)              => Deno.core.ops.bsengine_is_just_trembling(name),
+    isTrembleJustStopped:       (name)              => Deno.core.ops.bsengine_is_tremble_just_stopped(name),
+    isTrembleEnabled:           (name)              => Deno.core.ops.bsengine_is_tremble_enabled(name),
+    applyTremble:               (name, duration)    => Deno.core.ops.bsengine_apply_tremble(name, duration),
+    clearTremble:               (name)              => Deno.core.ops.bsengine_clear_tremble(name),
+    setTrembleEnabled:          (name, v)           => Deno.core.ops.bsengine_set_tremble_enabled(name, v),
+    getTremorPulseInterval:     (name)              => Deno.core.ops.bsengine_get_tremor_pulse_interval(name),
+    getTremorPulseTimer:        (name)              => Deno.core.ops.bsengine_get_tremor_pulse_timer(name),
+    getTremorRadius:            (name)              => Deno.core.ops.bsengine_get_tremor_radius(name),
+    getTremorStaggerStrength:   (name)              => Deno.core.ops.bsengine_get_tremor_stagger_strength(name),
+    isTremorActive:             (name)              => Deno.core.ops.bsengine_is_tremor_active(name),
+    isTremorJustPulsed:         (name)              => Deno.core.ops.bsengine_is_tremor_just_pulsed(name),
+    isTremorEnabled:            (name)              => Deno.core.ops.bsengine_is_tremor_enabled(name),
+    activateTremor:             (name)              => Deno.core.ops.bsengine_activate_tremor(name),
+    deactivateTremor:           (name)              => Deno.core.ops.bsengine_deactivate_tremor(name),
+    setTremorEnabled:           (name, v)           => Deno.core.ops.bsengine_set_tremor_enabled(name, v),
+    getTroveValue:              (name)              => Deno.core.ops.bsengine_get_trove_value(name),
+    getTroveThreshold:          (name)              => Deno.core.ops.bsengine_get_trove_threshold(name),
+    getTroveRewardMultiplier:   (name)              => Deno.core.ops.bsengine_get_trove_reward_multiplier(name),
+    getTroveCount:              (name)              => Deno.core.ops.bsengine_get_trove_count(name),
+    isTroveJustActivated:       (name)              => Deno.core.ops.bsengine_is_trove_just_activated(name),
+    isTroveEnabled:             (name)              => Deno.core.ops.bsengine_is_trove_enabled(name),
+    addTroveValue:              (name, amount)      => Deno.core.ops.bsengine_add_trove_value(name, amount),
+    consumeTrove:               (name)              => Deno.core.ops.bsengine_consume_trove(name),
+    setTroveEnabled:            (name, v)           => Deno.core.ops.bsengine_set_trove_enabled(name, v),
+    getTuskCurrentCharge:       (name)              => Deno.core.ops.bsengine_get_tusk_current_charge(name),
+    getTuskFullChargeDist:      (name)              => Deno.core.ops.bsengine_get_tusk_full_charge_dist(name),
+    getTuskMaxBonus:            (name)              => Deno.core.ops.bsengine_get_tusk_max_bonus(name),
+    isTuskJustHit:              (name)              => Deno.core.ops.bsengine_is_tusk_just_hit(name),
+    isTuskEnabled:              (name)              => Deno.core.ops.bsengine_is_tusk_enabled(name),
+    chargeTusk:                 (name, dist)        => Deno.core.ops.bsengine_charge_tusk(name, dist),
+    impactTusk:                 (name)              => Deno.core.ops.bsengine_impact_tusk(name),
+    resetTusk:                  (name)              => Deno.core.ops.bsengine_reset_tusk(name),
+    setTuskEnabled:             (name, v)           => Deno.core.ops.bsengine_set_tusk_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -51990,6 +52605,447 @@ JSON.stringify(received)
             let buf = c.borrow();
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyFreeze { name, intensity } if name == "Grunt" && *intensity == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetThawEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trample_read_ops() {
+        super::TRAMPLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 10.0f32, 5.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleDamage("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getTramplePushForce("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrampleRadius("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTrampleStarted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTrampleEnded("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTrampleEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRAMPLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trample_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.startTrample("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stopTrample("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTrampleEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StartTrample { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StopTrample { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTrampleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trance_read_ops() {
+        super::TRANCE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTranceDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranceTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranceRegenMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranceEntered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranceExited("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTranceEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRANCE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trance_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyTrance("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearTrance("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTranceEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyTrance { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearTrance { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTranceEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tranquil_read_ops() {
+        super::TRANQUIL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTranquilDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranquilTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTranquilRegenMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranquilEntered("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTranquilExited("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTranquilEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRANQUIL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tranquil_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.enterTranquil("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.interruptTranquil("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTranquilEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnterTranquil { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InterruptTranquil { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTranquilEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_transfix_read_ops() {
+        super::TRANSFIX_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (true, 1.5f32, 10.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.isTransfixActive("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.getTransfixTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTransfixLockRange("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTransfixLocked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTransfixBroken("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTransfixEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TRANSFIX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_transfix_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fixTransfix("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.breakTransfix("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTransfixEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FixTransfix { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BreakTransfix { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTransfixEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremble_read_ops() {
+        super::TREMBLE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTrembleDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrembleTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTrembleIntensity("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustTrembling("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTrembleJustStopped("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTrembleEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TREMBLE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremble_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyTremble("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearTremble("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTrembleEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyTremble { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearTremble { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTrembleEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremor_read_ops() {
+        super::TREMOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (1.0f32, 0.5f32, 5.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorPulseInterval("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorPulseTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorRadius("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTremorStaggerStrength("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isTremorActive("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTremorJustPulsed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isTremorEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TREMOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tremor_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.activateTremor("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deactivateTremor("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTremorEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateTremor { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateTremor { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTremorEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trove_read_ops() {
+        super::TROVE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.75f32, 1.0f32, 2.0f32, 3u32, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveValue("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveThreshold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveRewardMultiplier("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTroveCount("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isTroveJustActivated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTroveEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TROVE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_trove_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addTroveValue("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.consumeTrove("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTroveEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddTroveValue { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeTrove { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTroveEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tusk_read_ops() {
+        super::TUSK_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (2.0f32, 5.0f32, 10.0f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getTuskCurrentCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getTuskFullChargeDist("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getTuskMaxBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isTuskJustHit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isTuskEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::TUSK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_tusk_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chargeTusk("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.impactTusk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.resetTusk("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setTuskEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChargeTusk { name, dist } if name == "Grunt" && *dist == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ImpactTusk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetTusk { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTuskEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

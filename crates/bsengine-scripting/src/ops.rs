@@ -4019,6 +4019,93 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AgitateUnrest {
+        name: String,
+        amount: f32,
+    },
+    CalmUnrest {
+        name: String,
+        amount: f32,
+    },
+    SetUnrestEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PayUpkeep {
+        name: String,
+        amount: f32,
+    },
+    SetUpkeepEnabled {
+        name: String,
+        enabled: bool,
+    },
+    UrgeOn {
+        name: String,
+    },
+    UrgeOff {
+        name: String,
+    },
+    SetUrgeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyVenom {
+        name: String,
+    },
+    ApplyVenomN {
+        name: String,
+        n: u32,
+    },
+    ClearVenom {
+        name: String,
+    },
+    SetVenomEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AddVexStack {
+        name: String,
+    },
+    RemoveVexStack {
+        name: String,
+    },
+    ClearVex {
+        name: String,
+    },
+    SetVexEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyVigor {
+        name: String,
+        duration: f32,
+    },
+    SetVigorEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyVile {
+        name: String,
+        duration: f32,
+    },
+    CleanseVile {
+        name: String,
+    },
+    SetVileEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DrainVoid {
+        name: String,
+        damage: f32,
+    },
+    ReleaseVoid {
+        name: String,
+    },
+    SetVoidEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -5118,6 +5205,22 @@ thread_local! {
     pub(crate) static TROVE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static TUSK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static UNREST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static UPKEEP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static URGE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VENOM_SNAPSHOT: RefCell<HashMap<String, (f32, u32, u32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VEX_SNAPSHOT: RefCell<HashMap<String, (u32, u32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VIGOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static VOID_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -9027,6 +9130,372 @@ pub fn bsengine_set_tusk_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetTuskEnabled { name, enabled })
+    });
+}
+// ── Unrest ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_unrest_level(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_max(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_threshold(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_decay_rate(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_unrest_penalty(#[string] name: String) -> f32 {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_became_restless(#[string] name: String) -> bool {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_unrest_calmed(#[string] name: String) -> bool {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_unrest_enabled(#[string] name: String) -> bool {
+    UNREST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_agitate_unrest(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AgitateUnrest { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_unrest(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalmUnrest { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_unrest_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUnrestEnabled { name, enabled })
+    });
+}
+// ── Upkeep ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_upkeep_deficit(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_upkeep_max_deficit(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_upkeep_cost_per_second(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_upkeep_penalty(#[string] name: String) -> f32 {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_upkeep_just_defaulted(#[string] name: String) -> bool {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_upkeep_just_cleared(#[string] name: String) -> bool {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_upkeep_enabled(#[string] name: String) -> bool {
+    UPKEEP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pay_upkeep(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PayUpkeep { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_upkeep_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUpkeepEnabled { name, enabled })
+    });
+}
+// ── Urge ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_urge_level(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_max(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_build_rate(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_decay_rate(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_urge_drive_bonus(#[string] name: String) -> f32 {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_urged(#[string] name: String) -> bool {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_urge_just_peaked(#[string] name: String) -> bool {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_urge_enabled(#[string] name: String) -> bool {
+    URGE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_urge_on(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UrgeOn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_urge_off(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UrgeOff { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_urge_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUrgeEnabled { name, enabled })
+    });
+}
+// ── Venom ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_venom_damage_per_stack(#[string] name: String) -> f32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_stacks(#[string] name: String) -> u32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_max_stacks(#[string] name: String) -> u32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_duration(#[string] name: String) -> f32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_venom_timer(#[string] name: String) -> f32 {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_venom_just_applied(#[string] name: String) -> bool {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_venom_just_expired(#[string] name: String) -> bool {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_venom_enabled(#[string] name: String) -> bool {
+    VENOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_venom(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyVenom { name }));
+}
+#[op2(fast)]
+pub fn bsengine_apply_venom_n(#[string] name: String, n: u32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyVenomN { name, n }));
+}
+#[op2(fast)]
+pub fn bsengine_clear_venom(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearVenom { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_venom_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVenomEnabled { name, enabled })
+    });
+}
+// ── Vex ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vex_stacks(#[string] name: String) -> u32 {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vex_max_stacks(#[string] name: String) -> u32 {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vex_cc_amplify(#[string] name: String) -> f32 {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vex_just_vexed(#[string] name: String) -> bool {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vex_just_cleared(#[string] name: String) -> bool {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vex_enabled(#[string] name: String) -> bool {
+    VEX_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_add_vex_stack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AddVexStack { name }));
+}
+#[op2(fast)]
+pub fn bsengine_remove_vex_stack(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RemoveVexStack { name }));
+}
+#[op2(fast)]
+pub fn bsengine_clear_vex(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearVex { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_vex_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVexEnabled { name, enabled })
+    });
+}
+// ── Vigor ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vigor_duration(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vigor_timer(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vigor_health_regen(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vigor_max_health_bonus(#[string] name: String) -> f32 {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_invigorated(#[string] name: String) -> bool {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vigor_just_faded(#[string] name: String) -> bool {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vigor_enabled(#[string] name: String) -> bool {
+    VIGOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_vigor(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyVigor { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_vigor_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVigorEnabled { name, enabled })
+    });
+}
+// ── Vile ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_vile_duration(#[string] name: String) -> f32 {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vile_timer(#[string] name: String) -> f32 {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_vile_heal_reduction(#[string] name: String) -> f32 {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_vile_just_applied(#[string] name: String) -> bool {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vile_just_cleared(#[string] name: String) -> bool {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_vile_enabled(#[string] name: String) -> bool {
+    VILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_vile(#[string] name: String, duration: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ApplyVile { name, duration })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cleanse_vile(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CleanseVile { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_vile_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVileEnabled { name, enabled })
+    });
+}
+// ── Void ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_void_charge(#[string] name: String) -> f32 {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_void_max_charge(#[string] name: String) -> f32 {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_void_drain_fraction(#[string] name: String) -> f32 {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_void_just_peaked(#[string] name: String) -> bool {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_void_enabled(#[string] name: String) -> bool {
+    VOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_drain_void(#[string] name: String, damage: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DrainVoid { name, damage })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_void(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseVoid { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_void_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVoidEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -28738,6 +29207,85 @@ deno_core::extension!(
         bsengine_impact_tusk,
         bsengine_reset_tusk,
         bsengine_set_tusk_enabled,
+        bsengine_get_unrest_level,
+        bsengine_get_unrest_max,
+        bsengine_get_unrest_threshold,
+        bsengine_get_unrest_decay_rate,
+        bsengine_get_unrest_penalty,
+        bsengine_is_just_became_restless,
+        bsengine_is_just_unrest_calmed,
+        bsengine_is_unrest_enabled,
+        bsengine_agitate_unrest,
+        bsengine_calm_unrest,
+        bsengine_set_unrest_enabled,
+        bsengine_get_upkeep_deficit,
+        bsengine_get_upkeep_max_deficit,
+        bsengine_get_upkeep_cost_per_second,
+        bsengine_get_upkeep_penalty,
+        bsengine_is_upkeep_just_defaulted,
+        bsengine_is_upkeep_just_cleared,
+        bsengine_is_upkeep_enabled,
+        bsengine_pay_upkeep,
+        bsengine_set_upkeep_enabled,
+        bsengine_get_urge_level,
+        bsengine_get_urge_max,
+        bsengine_get_urge_build_rate,
+        bsengine_get_urge_decay_rate,
+        bsengine_get_urge_drive_bonus,
+        bsengine_is_urged,
+        bsengine_is_urge_just_peaked,
+        bsengine_is_urge_enabled,
+        bsengine_urge_on,
+        bsengine_urge_off,
+        bsengine_set_urge_enabled,
+        bsengine_get_venom_damage_per_stack,
+        bsengine_get_venom_stacks,
+        bsengine_get_venom_max_stacks,
+        bsengine_get_venom_duration,
+        bsengine_get_venom_timer,
+        bsengine_is_venom_just_applied,
+        bsengine_is_venom_just_expired,
+        bsengine_is_venom_enabled,
+        bsengine_apply_venom,
+        bsengine_apply_venom_n,
+        bsengine_clear_venom,
+        bsengine_set_venom_enabled,
+        bsengine_get_vex_stacks,
+        bsengine_get_vex_max_stacks,
+        bsengine_get_vex_cc_amplify,
+        bsengine_is_vex_just_vexed,
+        bsengine_is_vex_just_cleared,
+        bsengine_is_vex_enabled,
+        bsengine_add_vex_stack,
+        bsengine_remove_vex_stack,
+        bsengine_clear_vex,
+        bsengine_set_vex_enabled,
+        bsengine_get_vigor_duration,
+        bsengine_get_vigor_timer,
+        bsengine_get_vigor_health_regen,
+        bsengine_get_vigor_max_health_bonus,
+        bsengine_is_just_invigorated,
+        bsengine_is_vigor_just_faded,
+        bsengine_is_vigor_enabled,
+        bsengine_apply_vigor,
+        bsengine_set_vigor_enabled,
+        bsengine_get_vile_duration,
+        bsengine_get_vile_timer,
+        bsengine_get_vile_heal_reduction,
+        bsengine_is_vile_just_applied,
+        bsengine_is_vile_just_cleared,
+        bsengine_is_vile_enabled,
+        bsengine_apply_vile,
+        bsengine_cleanse_vile,
+        bsengine_set_vile_enabled,
+        bsengine_get_void_charge,
+        bsengine_get_void_max_charge,
+        bsengine_get_void_drain_fraction,
+        bsengine_is_void_just_peaked,
+        bsengine_is_void_enabled,
+        bsengine_drain_void,
+        bsengine_release_void,
+        bsengine_set_void_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -31861,6 +32409,85 @@ const Bsengine = {
     impactTusk:                 (name)              => Deno.core.ops.bsengine_impact_tusk(name),
     resetTusk:                  (name)              => Deno.core.ops.bsengine_reset_tusk(name),
     setTuskEnabled:             (name, v)           => Deno.core.ops.bsengine_set_tusk_enabled(name, v),
+    getUnrestLevel:             (name)              => Deno.core.ops.bsengine_get_unrest_level(name),
+    getUnrestMax:               (name)              => Deno.core.ops.bsengine_get_unrest_max(name),
+    getUnrestThreshold:         (name)              => Deno.core.ops.bsengine_get_unrest_threshold(name),
+    getUnrestDecayRate:         (name)              => Deno.core.ops.bsengine_get_unrest_decay_rate(name),
+    getUnrestPenalty:           (name)              => Deno.core.ops.bsengine_get_unrest_penalty(name),
+    isJustBecameRestless:       (name)              => Deno.core.ops.bsengine_is_just_became_restless(name),
+    isJustUnrestCalmed:         (name)              => Deno.core.ops.bsengine_is_just_unrest_calmed(name),
+    isUnrestEnabled:            (name)              => Deno.core.ops.bsengine_is_unrest_enabled(name),
+    agitateUnrest:              (name, amount)      => Deno.core.ops.bsengine_agitate_unrest(name, amount),
+    calmUnrest:                 (name, amount)      => Deno.core.ops.bsengine_calm_unrest(name, amount),
+    setUnrestEnabled:           (name, v)           => Deno.core.ops.bsengine_set_unrest_enabled(name, v),
+    getUpkeepDeficit:           (name)              => Deno.core.ops.bsengine_get_upkeep_deficit(name),
+    getUpkeepMaxDeficit:        (name)              => Deno.core.ops.bsengine_get_upkeep_max_deficit(name),
+    getUpkeepCostPerSecond:     (name)              => Deno.core.ops.bsengine_get_upkeep_cost_per_second(name),
+    getUpkeepPenalty:           (name)              => Deno.core.ops.bsengine_get_upkeep_penalty(name),
+    isUpkeepJustDefaulted:      (name)              => Deno.core.ops.bsengine_is_upkeep_just_defaulted(name),
+    isUpkeepJustCleared:        (name)              => Deno.core.ops.bsengine_is_upkeep_just_cleared(name),
+    isUpkeepEnabled:            (name)              => Deno.core.ops.bsengine_is_upkeep_enabled(name),
+    payUpkeep:                  (name, amount)      => Deno.core.ops.bsengine_pay_upkeep(name, amount),
+    setUpkeepEnabled:           (name, v)           => Deno.core.ops.bsengine_set_upkeep_enabled(name, v),
+    getUrgeLevel:               (name)              => Deno.core.ops.bsengine_get_urge_level(name),
+    getUrgeMax:                 (name)              => Deno.core.ops.bsengine_get_urge_max(name),
+    getUrgeBuildRate:           (name)              => Deno.core.ops.bsengine_get_urge_build_rate(name),
+    getUrgeDecayRate:           (name)              => Deno.core.ops.bsengine_get_urge_decay_rate(name),
+    getUrgeDriveBonus:          (name)              => Deno.core.ops.bsengine_get_urge_drive_bonus(name),
+    isUrged:                    (name)              => Deno.core.ops.bsengine_is_urged(name),
+    isUrgeJustPeaked:           (name)              => Deno.core.ops.bsengine_is_urge_just_peaked(name),
+    isUrgeEnabled:              (name)              => Deno.core.ops.bsengine_is_urge_enabled(name),
+    urgeOn:                     (name)              => Deno.core.ops.bsengine_urge_on(name),
+    urgeOff:                    (name)              => Deno.core.ops.bsengine_urge_off(name),
+    setUrgeEnabled:             (name, v)           => Deno.core.ops.bsengine_set_urge_enabled(name, v),
+    getVenomDamagePerStack:     (name)              => Deno.core.ops.bsengine_get_venom_damage_per_stack(name),
+    getVenomStacks:             (name)              => Deno.core.ops.bsengine_get_venom_stacks(name),
+    getVenomMaxStacks:          (name)              => Deno.core.ops.bsengine_get_venom_max_stacks(name),
+    getVenomDuration:           (name)              => Deno.core.ops.bsengine_get_venom_duration(name),
+    getVenomTimer:              (name)              => Deno.core.ops.bsengine_get_venom_timer(name),
+    isVenomJustApplied:         (name)              => Deno.core.ops.bsengine_is_venom_just_applied(name),
+    isVenomJustExpired:         (name)              => Deno.core.ops.bsengine_is_venom_just_expired(name),
+    isVenomEnabled:             (name)              => Deno.core.ops.bsengine_is_venom_enabled(name),
+    applyVenom:                 (name)              => Deno.core.ops.bsengine_apply_venom(name),
+    applyVenomN:                (name, n)           => Deno.core.ops.bsengine_apply_venom_n(name, n),
+    clearVenom:                 (name)              => Deno.core.ops.bsengine_clear_venom(name),
+    setVenomEnabled:            (name, v)           => Deno.core.ops.bsengine_set_venom_enabled(name, v),
+    getVexStacks:               (name)              => Deno.core.ops.bsengine_get_vex_stacks(name),
+    getVexMaxStacks:            (name)              => Deno.core.ops.bsengine_get_vex_max_stacks(name),
+    getVexCcAmplify:            (name)              => Deno.core.ops.bsengine_get_vex_cc_amplify(name),
+    isVexJustVexed:             (name)              => Deno.core.ops.bsengine_is_vex_just_vexed(name),
+    isVexJustCleared:           (name)              => Deno.core.ops.bsengine_is_vex_just_cleared(name),
+    isVexEnabled:               (name)              => Deno.core.ops.bsengine_is_vex_enabled(name),
+    addVexStack:                (name)              => Deno.core.ops.bsengine_add_vex_stack(name),
+    removeVexStack:             (name)              => Deno.core.ops.bsengine_remove_vex_stack(name),
+    clearVex:                   (name)              => Deno.core.ops.bsengine_clear_vex(name),
+    setVexEnabled:              (name, v)           => Deno.core.ops.bsengine_set_vex_enabled(name, v),
+    getVigorDuration:           (name)              => Deno.core.ops.bsengine_get_vigor_duration(name),
+    getVigorTimer:              (name)              => Deno.core.ops.bsengine_get_vigor_timer(name),
+    getVigorHealthRegen:        (name)              => Deno.core.ops.bsengine_get_vigor_health_regen(name),
+    getVigorMaxHealthBonus:     (name)              => Deno.core.ops.bsengine_get_vigor_max_health_bonus(name),
+    isJustInvigorated:          (name)              => Deno.core.ops.bsengine_is_just_invigorated(name),
+    isVigorJustFaded:           (name)              => Deno.core.ops.bsengine_is_vigor_just_faded(name),
+    isVigorEnabled:             (name)              => Deno.core.ops.bsengine_is_vigor_enabled(name),
+    applyVigor:                 (name, duration)    => Deno.core.ops.bsengine_apply_vigor(name, duration),
+    setVigorEnabled:            (name, v)           => Deno.core.ops.bsengine_set_vigor_enabled(name, v),
+    getVileDuration:            (name)              => Deno.core.ops.bsengine_get_vile_duration(name),
+    getVileTimer:               (name)              => Deno.core.ops.bsengine_get_vile_timer(name),
+    getVileHealReduction:       (name)              => Deno.core.ops.bsengine_get_vile_heal_reduction(name),
+    isVileJustApplied:          (name)              => Deno.core.ops.bsengine_is_vile_just_applied(name),
+    isVileJustCleared:          (name)              => Deno.core.ops.bsengine_is_vile_just_cleared(name),
+    isVileEnabled:              (name)              => Deno.core.ops.bsengine_is_vile_enabled(name),
+    applyVile:                  (name, duration)    => Deno.core.ops.bsengine_apply_vile(name, duration),
+    cleanseVile:                (name)              => Deno.core.ops.bsengine_cleanse_vile(name),
+    setVileEnabled:             (name, v)           => Deno.core.ops.bsengine_set_vile_enabled(name, v),
+    getVoidCharge:              (name)              => Deno.core.ops.bsengine_get_void_charge(name),
+    getVoidMaxCharge:           (name)              => Deno.core.ops.bsengine_get_void_max_charge(name),
+    getVoidDrainFraction:       (name)              => Deno.core.ops.bsengine_get_void_drain_fraction(name),
+    isVoidJustPeaked:           (name)              => Deno.core.ops.bsengine_is_void_just_peaked(name),
+    isVoidEnabled:              (name)              => Deno.core.ops.bsengine_is_void_enabled(name),
+    drainVoid:                  (name, damage)      => Deno.core.ops.bsengine_drain_void(name, damage),
+    releaseVoid:                (name)              => Deno.core.ops.bsengine_release_void(name),
+    setVoidEnabled:             (name, v)           => Deno.core.ops.bsengine_set_void_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -53046,6 +53673,448 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ImpactTusk { name } if name == "Grunt")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetTusk { name } if name == "Grunt")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetTuskEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_unrest_read_ops() {
+        super::UNREST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.75f32, 0.25f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestLevel("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getUnrestMax("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestThreshold("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getUnrestPenalty("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustBecameRestless("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustUnrestCalmed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isUnrestEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::UNREST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_unrest_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.agitateUnrest("Grunt", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmUnrest("Grunt", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setUnrestEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AgitateUnrest { name, amount } if name == "Grunt" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmUnrest { name, amount } if name == "Grunt" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetUnrestEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_upkeep_read_ops() {
+        super::UPKEEP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 2.0f32, 1.0f32, 0.75f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepDeficit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepMaxDeficit("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepCostPerSecond("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getUpkeepPenalty("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.isUpkeepJustDefaulted("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isUpkeepJustCleared("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isUpkeepEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::UPKEEP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_upkeep_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.payUpkeep("Grunt", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setUpkeepEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PayUpkeep { name, amount } if name == "Grunt" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetUpkeepEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_urge_read_ops() {
+        super::URGE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, 0.5f32, 0.75f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getUrgeLevel("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt.eval(r#"String(Bsengine.getUrgeMax("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getUrgeBuildRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.getUrgeDecayRate("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getUrgeDriveBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt.eval(r#"String(Bsengine.isUrged("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isUrgeJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isUrgeEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::URGE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_urge_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.urgeOn("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.urgeOff("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setUrgeEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UrgeOn { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UrgeOff { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetUrgeEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_venom_read_ops() {
+        super::VENOM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 3u32, 5u32, 3.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomDamagePerStack("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomStacks("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomMaxStacks("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getVenomTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVenomJustApplied("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVenomJustExpired("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVenomEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VENOM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_venom_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyVenom("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.applyVenomN("Grunt", 3);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearVenom("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVenomEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVenom { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVenomN { name, n } if name == "Grunt" && *n == 3)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearVenom { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVenomEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vex_read_ops() {
+        super::VEX_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (2u32, 5u32, 0.25f32, true, false, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getVexStacks("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getVexMaxStacks("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVexCcAmplify("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isVexJustVexed("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVexJustCleared("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isVexEnabled("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VEX_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vex_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.addVexStack("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.removeVexStack("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearVex("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVexEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AddVexStack { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RemoveVexStack { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearVex { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVexEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vigor_read_ops() {
+        super::VIGOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 5.0f32, 20.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorTimer("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorHealthRegen("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVigorMaxHealthBonus("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustInvigorated("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVigorJustFaded("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVigorEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VIGOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vigor_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyVigor("Grunt", 3.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVigorEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVigor { name, duration } if name == "Grunt" && *duration == 3.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVigorEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vile_read_ops() {
+        super::VILE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hero".to_string(),
+                (2.0f32, 1.5f32, 0.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVileDuration("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt.eval(r#"String(Bsengine.getVileTimer("Hero"))"#).unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getVileHealReduction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVileJustApplied("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVileJustCleared("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isVileEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VILE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_vile_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyVile("Grunt", 2.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cleanseVile("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVileEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyVile { name, duration } if name == "Grunt" && *duration == 2.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CleanseVile { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVileEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_void_read_ops() {
+        super::VOID_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Hero".to_string(), (0.75f32, 1.0f32, 0.5f32, true, true));
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getVoidCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.75");
+        let r = rt
+            .eval(r#"String(Bsengine.getVoidMaxCharge("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getVoidDrainFraction("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isVoidJustPeaked("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isVoidEnabled("Hero"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::VOID_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_void_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.drainVoid("Grunt", 10.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseVoid("Grunt");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setVoidEnabled("Grunt", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrainVoid { name, damage } if name == "Grunt" && *damage == 10.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseVoid { name } if name == "Grunt")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetVoidEnabled { name, enabled } if name == "Grunt" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

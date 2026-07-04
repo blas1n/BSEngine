@@ -76,8 +76,10 @@ use crate::ops::{
     THAW_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT,
     TONE_MAP_SNAPSHOT, TRAMPLE_SNAPSHOT, TRANCE_SNAPSHOT, TRANQUIL_SNAPSHOT, TRANSFIX_SNAPSHOT,
     TRANSFORM_SNAPSHOT, TREMBLE_SNAPSHOT, TREMOR_SNAPSHOT, TRIGGER_SNAPSHOT, TROVE_SNAPSHOT,
-    TUSK_SNAPSHOT, TWEEN_SNAPSHOT, VELOCITY_SNAPSHOT, VIGNETTE_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    TUSK_SNAPSHOT, TWEEN_SNAPSHOT, UNREST_SNAPSHOT, UPKEEP_SNAPSHOT, URGE_SNAPSHOT,
+    VELOCITY_SNAPSHOT, VENOM_SNAPSHOT, VEX_SNAPSHOT, VIGNETTE_SNAPSHOT, VIGOR_SNAPSHOT,
+    VILE_SNAPSHOT, VISIBLE_SNAPSHOT, VOID_SNAPSHOT, WIND_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1827,6 +1829,165 @@ fn run_scripts(world: &mut World) {
             );
         }
         TUSK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Unrest;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Unrest)>();
+        for (name, ur) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ur.unrest_level,
+                    ur.max_unrest,
+                    ur.threshold,
+                    ur.decay_rate,
+                    ur.penalty,
+                    ur.just_became_restless,
+                    ur.just_calmed,
+                    ur.enabled,
+                ),
+            );
+        }
+        UNREST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Upkeep;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Upkeep)>();
+        for (name, up) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    up.deficit,
+                    up.max_deficit,
+                    up.cost_per_second,
+                    up.penalty,
+                    up.just_defaulted,
+                    up.just_cleared,
+                    up.enabled,
+                ),
+            );
+        }
+        UPKEEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Urge;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Urge)>();
+        for (name, ug) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ug.urge_level,
+                    ug.max_urge,
+                    ug.build_rate,
+                    ug.decay_rate,
+                    ug.drive_bonus,
+                    ug.urged,
+                    ug.just_peaked,
+                    ug.enabled,
+                ),
+            );
+        }
+        URGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Venom;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Venom)>();
+        for (name, vn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vn.damage_per_stack,
+                    vn.stacks,
+                    vn.max_stacks,
+                    vn.duration,
+                    vn.timer,
+                    vn.just_applied,
+                    vn.just_expired,
+                    vn.enabled,
+                ),
+            );
+        }
+        VENOM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vex;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vex)>();
+        for (name, vx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vx.stacks,
+                    vx.max_stacks,
+                    vx.cc_duration_amplify_per_stack,
+                    vx.just_vexed,
+                    vx.just_cleared,
+                    vx.enabled,
+                ),
+            );
+        }
+        VEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vigor;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vigor)>();
+        for (name, vg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vg.duration,
+                    vg.timer,
+                    vg.health_regen_per_second,
+                    vg.max_health_bonus,
+                    vg.just_invigorated,
+                    vg.just_faded,
+                    vg.enabled,
+                ),
+            );
+        }
+        VIGOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vile;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vile)>();
+        for (name, vi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vi.duration,
+                    vi.timer,
+                    vi.heal_reduction,
+                    vi.just_applied,
+                    vi.just_cleared,
+                    vi.enabled,
+                ),
+            );
+        }
+        VILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Void;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Void)>();
+        for (name, vo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vo.void_charge,
+                    vo.max_charge,
+                    vo.drain_fraction,
+                    vo.just_peaked,
+                    vo.enabled,
+                ),
+            );
+        }
+        VOID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -19462,6 +19623,270 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut tk) = world.get_mut::<bsengine_core::Tusk>(e) {
                         tk.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AgitateUnrest { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ur) = world.get_mut::<bsengine_core::Unrest>(e) {
+                        ur.agitate(amount);
+                    }
+                }
+            }
+            ScriptCommand::CalmUnrest { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ur) = world.get_mut::<bsengine_core::Unrest>(e) {
+                        ur.calm(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetUnrestEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ur) = world.get_mut::<bsengine_core::Unrest>(e) {
+                        ur.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::PayUpkeep { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut up) = world.get_mut::<bsengine_core::Upkeep>(e) {
+                        up.pay(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetUpkeepEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut up) = world.get_mut::<bsengine_core::Upkeep>(e) {
+                        up.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::UrgeOn { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ug) = world.get_mut::<bsengine_core::Urge>(e) {
+                        ug.urge_on();
+                    }
+                }
+            }
+            ScriptCommand::UrgeOff { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ug) = world.get_mut::<bsengine_core::Urge>(e) {
+                        ug.urge_off();
+                    }
+                }
+            }
+            ScriptCommand::SetUrgeEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut ug) = world.get_mut::<bsengine_core::Urge>(e) {
+                        ug.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyVenom { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Venom>(e) {
+                        vn.apply();
+                    }
+                }
+            }
+            ScriptCommand::ApplyVenomN { name, n } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Venom>(e) {
+                        vn.apply_n(n);
+                    }
+                }
+            }
+            ScriptCommand::ClearVenom { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Venom>(e) {
+                        vn.clear();
+                    }
+                }
+            }
+            ScriptCommand::SetVenomEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vn) = world.get_mut::<bsengine_core::Venom>(e) {
+                        vn.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AddVexStack { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vex>(e) {
+                        vx.add_stack();
+                    }
+                }
+            }
+            ScriptCommand::RemoveVexStack { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vex>(e) {
+                        vx.remove_stack();
+                    }
+                }
+            }
+            ScriptCommand::ClearVex { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vex>(e) {
+                        vx.clear_all();
+                    }
+                }
+            }
+            ScriptCommand::SetVexEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vx) = world.get_mut::<bsengine_core::Vex>(e) {
+                        vx.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyVigor { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<bsengine_core::Vigor>(e) {
+                        vg.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::SetVigorEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vg) = world.get_mut::<bsengine_core::Vigor>(e) {
+                        vg.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ApplyVile { name, duration } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vi) = world.get_mut::<bsengine_core::Vile>(e) {
+                        vi.apply(duration);
+                    }
+                }
+            }
+            ScriptCommand::CleanseVile { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vi) = world.get_mut::<bsengine_core::Vile>(e) {
+                        vi.cleanse();
+                    }
+                }
+            }
+            ScriptCommand::SetVileEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vi) = world.get_mut::<bsengine_core::Vile>(e) {
+                        vi.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::DrainVoid { name, damage } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vo) = world.get_mut::<bsengine_core::Void>(e) {
+                        vo.drain(damage);
+                    }
+                }
+            }
+            ScriptCommand::ReleaseVoid { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vo) = world.get_mut::<bsengine_core::Void>(e) {
+                        vo.release();
+                    }
+                }
+            }
+            ScriptCommand::SetVoidEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut vo) = world.get_mut::<bsengine_core::Void>(e) {
+                        vo.enabled = enabled;
                     }
                 }
             }

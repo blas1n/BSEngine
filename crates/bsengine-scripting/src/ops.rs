@@ -4930,6 +4930,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AccrueWeight {
+        name: String,
+        amount: f32,
+    },
+    ShedWeight {
+        name: String,
+        amount: f32,
+    },
+    SetWeightEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WarpWeird {
+        name: String,
+        amount: f32,
+    },
+    NormalizeWeird {
+        name: String,
+        amount: f32,
+    },
+    SetWeirdEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WeldWeld {
+        name: String,
+    },
+    CoolWeld {
+        name: String,
+    },
+    SetWeldEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FuseWelder {
+        name: String,
+        amount: f32,
+    },
+    FractureWelder {
+        name: String,
+        amount: f32,
+    },
+    SetWelderEnabled {
+        name: String,
+        enabled: bool,
+    },
+    VaultWelkin {
+        name: String,
+        amount: f32,
+    },
+    DescendWelkin {
+        name: String,
+        amount: f32,
+    },
+    SetWelkinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FillWell {
+        name: String,
+        amount: f32,
+    },
+    DrawWell {
+        name: String,
+        amount: f32,
+    },
+    SetWellEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PlodWelly {
+        name: String,
+        amount: f32,
+    },
+    RestWelly {
+        name: String,
+        amount: f32,
+    },
+    SetWellyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PanicWelp {
+        name: String,
+        amount: f32,
+    },
+    CalmWelp {
+        name: String,
+        amount: f32,
+    },
+    SetWelpEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6173,6 +6267,22 @@ thread_local! {
     pub(crate) static WEFT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WEIGH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEIGHT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WEIRD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELKIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELLY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WELP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -13405,6 +13515,368 @@ pub fn bsengine_set_weigh_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWeighEnabled { name, enabled })
+    });
+}
+// ── Weight ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weight_mass(#[string] name: String) -> f32 {
+    WEIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weight_max_mass(#[string] name: String) -> f32 {
+    WEIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weight_accrue_rate(#[string] name: String) -> f32 {
+    WEIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weight_just_heavy(#[string] name: String) -> bool {
+    WEIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weight_just_weightless(#[string] name: String) -> bool {
+    WEIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weight_enabled(#[string] name: String) -> bool {
+    WEIGHT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_accrue_weight(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AccrueWeight { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_shed_weight(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ShedWeight { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weight_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeightEnabled { name, enabled })
+    });
+}
+// ── Weird ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weird_strangeness(#[string] name: String) -> f32 {
+    WEIRD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weird_max_strangeness(#[string] name: String) -> f32 {
+    WEIRD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weird_warp_rate(#[string] name: String) -> f32 {
+    WEIRD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weird_just_bizarre(#[string] name: String) -> bool {
+    WEIRD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weird_just_mundane(#[string] name: String) -> bool {
+    WEIRD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weird_enabled(#[string] name: String) -> bool {
+    WEIRD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_warp_weird(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WarpWeird { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_normalize_weird(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NormalizeWeird { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_weird_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeirdEnabled { name, enabled })
+    });
+}
+// ── Weld ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_weld_strength(#[string] name: String) -> f32 {
+    WELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_weld_max_strength(#[string] name: String) -> f32 {
+    WELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_weld_welding(#[string] name: String) -> bool {
+    WELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weld_just_bonded(#[string] name: String) -> bool {
+    WELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weld_just_fractured(#[string] name: String) -> bool {
+    WELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_weld_enabled(#[string] name: String) -> bool {
+    WELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_weld_weld(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WeldWeld { name }));
+}
+#[op2(fast)]
+pub fn bsengine_cool_weld(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CoolWeld { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_weld_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWeldEnabled { name, enabled })
+    });
+}
+// ── Welder ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_welder_bond_strength(#[string] name: String) -> f32 {
+    WELDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welder_max_bond_strength(#[string] name: String) -> f32 {
+    WELDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welder_fuse_rate(#[string] name: String) -> f32 {
+    WELDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_welder_just_fused(#[string] name: String) -> bool {
+    WELDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welder_just_fractured(#[string] name: String) -> bool {
+    WELDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welder_enabled(#[string] name: String) -> bool {
+    WELDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fuse_welder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FuseWelder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_fracture_welder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FractureWelder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_welder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWelderEnabled { name, enabled })
+    });
+}
+// ── Welkin ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_welkin_expanse(#[string] name: String) -> f32 {
+    WELKIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welkin_max_expanse(#[string] name: String) -> f32 {
+    WELKIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welkin_vault_rate(#[string] name: String) -> f32 {
+    WELKIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_welkin_just_heavens(#[string] name: String) -> bool {
+    WELKIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welkin_just_zenith(#[string] name: String) -> bool {
+    WELKIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welkin_enabled(#[string] name: String) -> bool {
+    WELKIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_vault_welkin(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::VaultWelkin { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_descend_welkin(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DescendWelkin { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_welkin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWelkinEnabled { name, enabled })
+    });
+}
+// ── Well ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_well_reserve(#[string] name: String) -> f32 {
+    WELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_well_max_reserve(#[string] name: String) -> f32 {
+    WELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_well_seep_rate(#[string] name: String) -> f32 {
+    WELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_well_just_full(#[string] name: String) -> bool {
+    WELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_well_just_dry(#[string] name: String) -> bool {
+    WELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_well_enabled(#[string] name: String) -> bool {
+    WELL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fill_well(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FillWell { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_draw_well(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DrawWell { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_well_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWellEnabled { name, enabled })
+    });
+}
+// ── Welly ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_welly_stride(#[string] name: String) -> f32 {
+    WELLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welly_max_stride(#[string] name: String) -> f32 {
+    WELLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welly_plod_rate(#[string] name: String) -> f32 {
+    WELLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_welly_just_marched(#[string] name: String) -> bool {
+    WELLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welly_just_halted(#[string] name: String) -> bool {
+    WELLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welly_enabled(#[string] name: String) -> bool {
+    WELLY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_plod_welly(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PlodWelly { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_rest_welly(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RestWelly { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_welly_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWellyEnabled { name, enabled })
+    });
+}
+// ── Welp ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_welp_distress(#[string] name: String) -> f32 {
+    WELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welp_max_distress(#[string] name: String) -> f32 {
+    WELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_welp_panic_rate(#[string] name: String) -> f32 {
+    WELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_welp_just_overwhelmed(#[string] name: String) -> bool {
+    WELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welp_just_calm(#[string] name: String) -> bool {
+    WELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_welp_enabled(#[string] name: String) -> bool {
+    WELP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_panic_welp(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PanicWelp { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_welp(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalmWelp { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_welp_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWelpEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -33776,6 +34248,78 @@ deno_core::extension!(
         bsengine_load_weigh,
         bsengine_lighten_weigh,
         bsengine_set_weigh_enabled,
+        bsengine_get_weight_mass,
+        bsengine_get_weight_max_mass,
+        bsengine_get_weight_accrue_rate,
+        bsengine_is_weight_just_heavy,
+        bsengine_is_weight_just_weightless,
+        bsengine_is_weight_enabled,
+        bsengine_accrue_weight,
+        bsengine_shed_weight,
+        bsengine_set_weight_enabled,
+        bsengine_get_weird_strangeness,
+        bsengine_get_weird_max_strangeness,
+        bsengine_get_weird_warp_rate,
+        bsengine_is_weird_just_bizarre,
+        bsengine_is_weird_just_mundane,
+        bsengine_is_weird_enabled,
+        bsengine_warp_weird,
+        bsengine_normalize_weird,
+        bsengine_set_weird_enabled,
+        bsengine_get_weld_strength,
+        bsengine_get_weld_max_strength,
+        bsengine_is_weld_welding,
+        bsengine_is_weld_just_bonded,
+        bsengine_is_weld_just_fractured,
+        bsengine_is_weld_enabled,
+        bsengine_weld_weld,
+        bsengine_cool_weld,
+        bsengine_set_weld_enabled,
+        bsengine_get_welder_bond_strength,
+        bsengine_get_welder_max_bond_strength,
+        bsengine_get_welder_fuse_rate,
+        bsengine_is_welder_just_fused,
+        bsengine_is_welder_just_fractured,
+        bsengine_is_welder_enabled,
+        bsengine_fuse_welder,
+        bsengine_fracture_welder,
+        bsengine_set_welder_enabled,
+        bsengine_get_welkin_expanse,
+        bsengine_get_welkin_max_expanse,
+        bsengine_get_welkin_vault_rate,
+        bsengine_is_welkin_just_heavens,
+        bsengine_is_welkin_just_zenith,
+        bsengine_is_welkin_enabled,
+        bsengine_vault_welkin,
+        bsengine_descend_welkin,
+        bsengine_set_welkin_enabled,
+        bsengine_get_well_reserve,
+        bsengine_get_well_max_reserve,
+        bsengine_get_well_seep_rate,
+        bsengine_is_well_just_full,
+        bsengine_is_well_just_dry,
+        bsengine_is_well_enabled,
+        bsengine_fill_well,
+        bsengine_draw_well,
+        bsengine_set_well_enabled,
+        bsengine_get_welly_stride,
+        bsengine_get_welly_max_stride,
+        bsengine_get_welly_plod_rate,
+        bsengine_is_welly_just_marched,
+        bsengine_is_welly_just_halted,
+        bsengine_is_welly_enabled,
+        bsengine_plod_welly,
+        bsengine_rest_welly,
+        bsengine_set_welly_enabled,
+        bsengine_get_welp_distress,
+        bsengine_get_welp_max_distress,
+        bsengine_get_welp_panic_rate,
+        bsengine_is_welp_just_overwhelmed,
+        bsengine_is_welp_just_calm,
+        bsengine_is_welp_enabled,
+        bsengine_panic_welp,
+        bsengine_calm_welp,
+        bsengine_set_welp_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -37559,6 +38103,78 @@ const Bsengine = {
     loadWeigh:                  (name, amount)      => Deno.core.ops.bsengine_load_weigh(name, amount),
     lightenWeigh:               (name, amount)      => Deno.core.ops.bsengine_lighten_weigh(name, amount),
     setWeighEnabled:            (name, v)           => Deno.core.ops.bsengine_set_weigh_enabled(name, v),
+    getWeightMass:              (name)              => Deno.core.ops.bsengine_get_weight_mass(name),
+    getWeightMaxMass:           (name)              => Deno.core.ops.bsengine_get_weight_max_mass(name),
+    getWeightAccrueRate:        (name)              => Deno.core.ops.bsengine_get_weight_accrue_rate(name),
+    isWeightJustHeavy:          (name)              => Deno.core.ops.bsengine_is_weight_just_heavy(name),
+    isWeightJustWeightless:     (name)              => Deno.core.ops.bsengine_is_weight_just_weightless(name),
+    isWeightEnabled:            (name)              => Deno.core.ops.bsengine_is_weight_enabled(name),
+    accrueWeight:               (name, amount)      => Deno.core.ops.bsengine_accrue_weight(name, amount),
+    shedWeight:                 (name, amount)      => Deno.core.ops.bsengine_shed_weight(name, amount),
+    setWeightEnabled:           (name, v)           => Deno.core.ops.bsengine_set_weight_enabled(name, v),
+    getWeirdStrangeness:        (name)              => Deno.core.ops.bsengine_get_weird_strangeness(name),
+    getWeirdMaxStrangeness:     (name)              => Deno.core.ops.bsengine_get_weird_max_strangeness(name),
+    getWeirdWarpRate:           (name)              => Deno.core.ops.bsengine_get_weird_warp_rate(name),
+    isWeirdJustBizarre:         (name)              => Deno.core.ops.bsengine_is_weird_just_bizarre(name),
+    isWeirdJustMundane:         (name)              => Deno.core.ops.bsengine_is_weird_just_mundane(name),
+    isWeirdEnabled:             (name)              => Deno.core.ops.bsengine_is_weird_enabled(name),
+    warpWeird:                  (name, amount)      => Deno.core.ops.bsengine_warp_weird(name, amount),
+    normalizeWeird:             (name, amount)      => Deno.core.ops.bsengine_normalize_weird(name, amount),
+    setWeirdEnabled:            (name, v)           => Deno.core.ops.bsengine_set_weird_enabled(name, v),
+    getWeldStrength:            (name)              => Deno.core.ops.bsengine_get_weld_strength(name),
+    getWeldMaxStrength:         (name)              => Deno.core.ops.bsengine_get_weld_max_strength(name),
+    isWeldWelding:              (name)              => Deno.core.ops.bsengine_is_weld_welding(name),
+    isWeldJustBonded:           (name)              => Deno.core.ops.bsengine_is_weld_just_bonded(name),
+    isWeldJustFractured:        (name)              => Deno.core.ops.bsengine_is_weld_just_fractured(name),
+    isWeldEnabled:              (name)              => Deno.core.ops.bsengine_is_weld_enabled(name),
+    weldWeld:                   (name)              => Deno.core.ops.bsengine_weld_weld(name),
+    coolWeld:                   (name)              => Deno.core.ops.bsengine_cool_weld(name),
+    setWeldEnabled:             (name, v)           => Deno.core.ops.bsengine_set_weld_enabled(name, v),
+    getWelderBondStrength:      (name)              => Deno.core.ops.bsengine_get_welder_bond_strength(name),
+    getWelderMaxBondStrength:   (name)              => Deno.core.ops.bsengine_get_welder_max_bond_strength(name),
+    getWelderFuseRate:          (name)              => Deno.core.ops.bsengine_get_welder_fuse_rate(name),
+    isWelderJustFused:          (name)              => Deno.core.ops.bsengine_is_welder_just_fused(name),
+    isWelderJustFractured:      (name)              => Deno.core.ops.bsengine_is_welder_just_fractured(name),
+    isWelderEnabled:            (name)              => Deno.core.ops.bsengine_is_welder_enabled(name),
+    fuseWelder:                 (name, amount)      => Deno.core.ops.bsengine_fuse_welder(name, amount),
+    fractureWelder:             (name, amount)      => Deno.core.ops.bsengine_fracture_welder(name, amount),
+    setWelderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_welder_enabled(name, v),
+    getWelkinExpanse:           (name)              => Deno.core.ops.bsengine_get_welkin_expanse(name),
+    getWelkinMaxExpanse:        (name)              => Deno.core.ops.bsengine_get_welkin_max_expanse(name),
+    getWelkinVaultRate:         (name)              => Deno.core.ops.bsengine_get_welkin_vault_rate(name),
+    isWelkinJustHeavens:        (name)              => Deno.core.ops.bsengine_is_welkin_just_heavens(name),
+    isWelkinJustZenith:         (name)              => Deno.core.ops.bsengine_is_welkin_just_zenith(name),
+    isWelkinEnabled:            (name)              => Deno.core.ops.bsengine_is_welkin_enabled(name),
+    vaultWelkin:                (name, amount)      => Deno.core.ops.bsengine_vault_welkin(name, amount),
+    descendWelkin:              (name, amount)      => Deno.core.ops.bsengine_descend_welkin(name, amount),
+    setWelkinEnabled:           (name, v)           => Deno.core.ops.bsengine_set_welkin_enabled(name, v),
+    getWellReserve:             (name)              => Deno.core.ops.bsengine_get_well_reserve(name),
+    getWellMaxReserve:          (name)              => Deno.core.ops.bsengine_get_well_max_reserve(name),
+    getWellSeepRate:            (name)              => Deno.core.ops.bsengine_get_well_seep_rate(name),
+    isWellJustFull:             (name)              => Deno.core.ops.bsengine_is_well_just_full(name),
+    isWellJustDry:              (name)              => Deno.core.ops.bsengine_is_well_just_dry(name),
+    isWellEnabled:              (name)              => Deno.core.ops.bsengine_is_well_enabled(name),
+    fillWell:                   (name, amount)      => Deno.core.ops.bsengine_fill_well(name, amount),
+    drawWell:                   (name, amount)      => Deno.core.ops.bsengine_draw_well(name, amount),
+    setWellEnabled:             (name, v)           => Deno.core.ops.bsengine_set_well_enabled(name, v),
+    getWellyStride:             (name)              => Deno.core.ops.bsengine_get_welly_stride(name),
+    getWellyMaxStride:          (name)              => Deno.core.ops.bsengine_get_welly_max_stride(name),
+    getWellyPlodRate:           (name)              => Deno.core.ops.bsengine_get_welly_plod_rate(name),
+    isWellyJustMarched:         (name)              => Deno.core.ops.bsengine_is_welly_just_marched(name),
+    isWellyJustHalted:          (name)              => Deno.core.ops.bsengine_is_welly_just_halted(name),
+    isWellyEnabled:             (name)              => Deno.core.ops.bsengine_is_welly_enabled(name),
+    plodWelly:                  (name, amount)      => Deno.core.ops.bsengine_plod_welly(name, amount),
+    restWelly:                  (name, amount)      => Deno.core.ops.bsengine_rest_welly(name, amount),
+    setWellyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_welly_enabled(name, v),
+    getWelpDistress:            (name)              => Deno.core.ops.bsengine_get_welp_distress(name),
+    getWelpMaxDistress:         (name)              => Deno.core.ops.bsengine_get_welp_max_distress(name),
+    getWelpPanicRate:           (name)              => Deno.core.ops.bsengine_get_welp_panic_rate(name),
+    isWelpJustOverwhelmed:      (name)              => Deno.core.ops.bsengine_is_welp_just_overwhelmed(name),
+    isWelpJustCalm:             (name)              => Deno.core.ops.bsengine_is_welp_just_calm(name),
+    isWelpEnabled:              (name)              => Deno.core.ops.bsengine_is_welp_enabled(name),
+    panicWelp:                  (name, amount)      => Deno.core.ops.bsengine_panic_welp(name, amount),
+    calmWelp:                   (name, amount)      => Deno.core.ops.bsengine_calm_welp(name, amount),
+    setWelpEnabled:             (name, v)           => Deno.core.ops.bsengine_set_welp_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -62614,6 +63230,436 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LoadWeigh { name, amount } if name == "Grunt" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LightenWeigh { name, amount } if name == "Grunt" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeighEnabled { name, enabled } if name == "Grunt" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weight_read_ops() {
+        super::WEIGHT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Tank".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWeightMass("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeightMaxMass("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeightAccrueRate("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeightJustHeavy("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeightJustWeightless("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeightEnabled("Tank"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEIGHT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weight_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.accrueWeight("Tank", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shedWeight("Tank", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWeightEnabled("Tank", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AccrueWeight { name, amount } if name == "Tank" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShedWeight { name, amount } if name == "Tank" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeightEnabled { name, enabled } if name == "Tank" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weird_read_ops() {
+        super::WEIRD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ghost".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWeirdStrangeness("Ghost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeirdMaxStrangeness("Ghost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeirdWarpRate("Ghost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeirdJustBizarre("Ghost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeirdJustMundane("Ghost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeirdEnabled("Ghost"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WEIRD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weird_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.warpWeird("Ghost", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.normalizeWeird("Ghost", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWeirdEnabled("Ghost", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WarpWeird { name, amount } if name == "Ghost" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NormalizeWeird { name, amount } if name == "Ghost" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeirdEnabled { name, enabled } if name == "Ghost" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weld_read_ops() {
+        super::WELD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Joint".to_string(),
+                (0.5f32, 1.0f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWeldStrength("Joint"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWeldMaxStrength("Joint"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeldWelding("Joint"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeldJustBonded("Joint"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeldJustFractured("Joint"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWeldEnabled("Joint"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_weld_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.weldWeld("Joint");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.coolWeld("Joint");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWeldEnabled("Joint", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WeldWeld { name } if name == "Joint")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CoolWeld { name } if name == "Joint")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWeldEnabled { name, enabled } if name == "Joint" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welder_read_ops() {
+        super::WELDER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Forge".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWelderBondStrength("Forge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWelderMaxBondStrength("Forge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWelderFuseRate("Forge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelderJustFused("Forge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelderJustFractured("Forge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelderEnabled("Forge"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELDER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fuseWelder("Forge", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.fractureWelder("Forge", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWelderEnabled("Forge", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FuseWelder { name, amount } if name == "Forge" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FractureWelder { name, amount } if name == "Forge" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWelderEnabled { name, enabled } if name == "Forge" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welkin_read_ops() {
+        super::WELKIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sky".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWelkinExpanse("Sky"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWelkinMaxExpanse("Sky"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWelkinVaultRate("Sky"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelkinJustHeavens("Sky"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelkinJustZenith("Sky"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelkinEnabled("Sky"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELKIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welkin_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.vaultWelkin("Sky", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.descendWelkin("Sky", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWelkinEnabled("Sky", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VaultWelkin { name, amount } if name == "Sky" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DescendWelkin { name, amount } if name == "Sky" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWelkinEnabled { name, enabled } if name == "Sky" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_well_read_ops() {
+        super::WELL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pool".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWellReserve("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWellMaxReserve("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWellSeepRate("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWellJustFull("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWellJustDry("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWellEnabled("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_well_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fillWell("Pool", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.drawWell("Pool", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWellEnabled("Pool", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FillWell { name, amount } if name == "Pool" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrawWell { name, amount } if name == "Pool" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWellEnabled { name, enabled } if name == "Pool" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welly_read_ops() {
+        super::WELLY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Boot".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWellyStride("Boot"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWellyMaxStride("Boot"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWellyPlodRate("Boot"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWellyJustMarched("Boot"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWellyJustHalted("Boot"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWellyEnabled("Boot"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELLY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welly_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.plodWelly("Boot", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.restWelly("Boot", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWellyEnabled("Boot", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PlodWelly { name, amount } if name == "Boot" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RestWelly { name, amount } if name == "Boot" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWellyEnabled { name, enabled } if name == "Boot" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welp_read_ops() {
+        super::WELP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pup".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWelpDistress("Pup"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWelpMaxDistress("Pup"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWelpPanicRate("Pup"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelpJustOverwhelmed("Pup"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWelpJustCalm("Pup"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isWelpEnabled("Pup"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WELP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_welp_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.panicWelp("Pup", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmWelp("Pup", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWelpEnabled("Pup", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PanicWelp { name, amount } if name == "Pup" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmWelp { name, amount } if name == "Pup" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWelpEnabled { name, enabled } if name == "Pup" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

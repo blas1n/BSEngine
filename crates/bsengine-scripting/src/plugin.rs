@@ -107,7 +107,9 @@ use crate::ops::{
     WORLD_TRANSFORM_SNAPSHOT, WORM_SNAPSHOT, WORN_SNAPSHOT, WORRY_SNAPSHOT, WORSE_SNAPSHOT,
     WORST_SNAPSHOT, WORTHY_SNAPSHOT, WORT_SNAPSHOT, WOUND_SNAPSHOT, WRAITH_SNAPSHOT,
     WRANGLE_SNAPSHOT, WRAP_SNAPSHOT, WRATHFUL_SNAPSHOT, WRATH_SNAPSHOT, WRECKER_SNAPSHOT,
-    WRECK_SNAPSHOT, WRENCH_SNAPSHOT, WREN_SNAPSHOT, WREST_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    WRECK_SNAPSHOT, WRENCH_SNAPSHOT, WREN_SNAPSHOT, WRESTLE_SNAPSHOT, WREST_SNAPSHOT,
+    WRETCHED_SNAPSHOT, WRETCH_SNAPSHOT, WRIGGLE_SNAPSHOT, WRING_SNAPSHOT, WRINKLE_SNAPSHOT,
+    WRIST_SNAPSHOT, WRITE_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -5043,6 +5045,158 @@ fn run_scripts(world: &mut World) {
             );
         }
         WREST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrestle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrestle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.grapple,
+                    w.max_grapple,
+                    w.clinch_rate,
+                    w.just_pinned,
+                    w.just_released,
+                    w.enabled,
+                ),
+            );
+        }
+        WRESTLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wretch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wretch)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.misery,
+                    w.max_misery,
+                    w.suffer_rate,
+                    w.just_wretched,
+                    w.just_relieved,
+                    w.enabled,
+                ),
+            );
+        }
+        WRETCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wretched;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wretched)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.misery,
+                    w.max_misery,
+                    w.suffer_rate,
+                    w.just_abject,
+                    w.just_unburdened,
+                    w.enabled,
+                ),
+            );
+        }
+        WRETCHED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wriggle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wriggle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.squirm,
+                    w.max_squirm,
+                    w.writhe_rate,
+                    w.just_contorted,
+                    w.just_stilled,
+                    w.enabled,
+                ),
+            );
+        }
+        WRIGGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wring;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wring)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.pressure,
+                    w.max_pressure,
+                    w.press_rate,
+                    w.just_wrung,
+                    w.just_released,
+                    w.enabled,
+                ),
+            );
+        }
+        WRING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrinkle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrinkle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.crease,
+                    w.max_crease,
+                    w.age_rate,
+                    w.just_creased,
+                    w.just_smooth,
+                    w.enabled,
+                ),
+            );
+        }
+        WRINKLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrist;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrist)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.flex,
+                    w.max_flex,
+                    w.rotate_rate,
+                    w.just_flexible,
+                    w.just_locked,
+                    w.enabled,
+                ),
+            );
+        }
+        WRIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Write;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Write)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.inscription,
+                    w.max_inscription,
+                    w.scribe_rate,
+                    w.just_written,
+                    w.just_blank,
+                    w.enabled,
+                ),
+            );
+        }
+        WRITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -28291,6 +28445,270 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Wrest>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ClinchWrestle { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrestle>(e) {
+                        w.clinch(1.0);
+                    }
+                }
+            }
+            ScriptCommand::ReleaseWrestle { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrestle>(e) {
+                        w.release(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWrestleEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrestle>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::DespairWretch { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wretch>(e) {
+                        w.despair(1.0);
+                    }
+                }
+            }
+            ScriptCommand::ConsoleWretch { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wretch>(e) {
+                        w.console(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWretchEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wretch>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SufferWretched { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wretched>(e) {
+                        w.suffer(1.0);
+                    }
+                }
+            }
+            ScriptCommand::RelieveWretched { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wretched>(e) {
+                        w.relieve(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWretchedEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wretched>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::WritheWriggle { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wriggle>(e) {
+                        w.writhe(1.0);
+                    }
+                }
+            }
+            ScriptCommand::StillWriggle { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wriggle>(e) {
+                        w.still(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWriggleEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wriggle>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SqueezeWring { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wring>(e) {
+                        w.squeeze(1.0);
+                    }
+                }
+            }
+            ScriptCommand::EaseWring { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wring>(e) {
+                        w.ease(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWringEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wring>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AgeWrinkle { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrinkle>(e) {
+                        w.age(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SmoothWrinkle { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrinkle>(e) {
+                        w.smooth(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWrinkleEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrinkle>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RotateWrist { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrist>(e) {
+                        w.rotate(1.0);
+                    }
+                }
+            }
+            ScriptCommand::StiffenWrist { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrist>(e) {
+                        w.stiffen(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWristEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Wrist>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InscribeWrite { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Write>(e) {
+                        w.inscribe(1.0);
+                    }
+                }
+            }
+            ScriptCommand::EraseWrite { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Write>(e) {
+                        w.erase(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetWriteEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Write>(e) {
                         w.enabled = enabled;
                     }
                 }

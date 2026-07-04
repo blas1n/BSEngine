@@ -5118,6 +5118,102 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    PlaitWicker {
+        name: String,
+        amount: f32,
+    },
+    UnravelWicker {
+        name: String,
+        amount: f32,
+    },
+    SetWickerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StyleWig {
+        name: String,
+        amount: f32,
+    },
+    ShedWig {
+        name: String,
+        amount: f32,
+    },
+    SetWigEnabled {
+        name: String,
+        enabled: bool,
+    },
+    UnleashWild {
+        name: String,
+        amount: f32,
+    },
+    TameWild {
+        name: String,
+        amount: f32,
+    },
+    SetWildEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RampWilder {
+        name: String,
+        amount: f32,
+    },
+    CalmWilder {
+        name: String,
+        amount: f32,
+    },
+    SetWilderEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SchemeWile {
+        name: String,
+        amount: f32,
+    },
+    ExposeWile {
+        name: String,
+        amount: f32,
+    },
+    SetWileEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SchemeWiles {
+        name: String,
+        amount: f32,
+    },
+    DisarmWiles {
+        name: String,
+        amount: f32,
+    },
+    SetWilesEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FocusWill {
+        name: String,
+        amount: f32,
+    },
+    WaverWill {
+        name: String,
+        amount: f32,
+    },
+    SetWillEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BendWillow {
+        name: String,
+        amount: f32,
+    },
+    SettleWillow {
+        name: String,
+        amount: f32,
+    },
+    SetWillowEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6393,6 +6489,22 @@ thread_local! {
     pub(crate) static WHISK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WICK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WICKER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WIG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILES_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WILLOW_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -14349,6 +14461,371 @@ pub fn bsengine_set_wick_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWickEnabled { name, enabled })
+    });
+}
+// ── Wicker ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wicker_weave(#[string] name: String) -> f32 {
+    WICKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wicker_max_weave(#[string] name: String) -> f32 {
+    WICKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wicker_plait_rate(#[string] name: String) -> f32 {
+    WICKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wicker_just_plaited(#[string] name: String) -> bool {
+    WICKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wicker_just_unraveled(#[string] name: String) -> bool {
+    WICKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wicker_enabled(#[string] name: String) -> bool {
+    WICKER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_plait_wicker(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PlaitWicker { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_unravel_wicker(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UnravelWicker { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wicker_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWickerEnabled { name, enabled })
+    });
+}
+// ── Wig ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wig_coverage(#[string] name: String) -> f32 {
+    WIG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wig_max_coverage(#[string] name: String) -> f32 {
+    WIG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wig_style_rate(#[string] name: String) -> f32 {
+    WIG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wig_just_coiffed(#[string] name: String) -> bool {
+    WIG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wig_just_bare(#[string] name: String) -> bool {
+    WIG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wig_enabled(#[string] name: String) -> bool {
+    WIG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_style_wig(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StyleWig { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_shed_wig(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ShedWig { name, amount }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wig_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWigEnabled { name, enabled })
+    });
+}
+// ── Wild ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wild_feral(#[string] name: String) -> f32 {
+    WILD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wild_max_feral(#[string] name: String) -> f32 {
+    WILD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wild_instinct_rate(#[string] name: String) -> f32 {
+    WILD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wild_just_wild(#[string] name: String) -> bool {
+    WILD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wild_just_tame(#[string] name: String) -> bool {
+    WILD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wild_enabled(#[string] name: String) -> bool {
+    WILD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_unleash_wild(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UnleashWild { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_tame_wild(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TameWild { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wild_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWildEnabled { name, enabled })
+    });
+}
+// ── Wilder ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wilder_frenzy(#[string] name: String) -> f32 {
+    WILDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wilder_max_frenzy(#[string] name: String) -> f32 {
+    WILDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wilder_ramp_rate(#[string] name: String) -> f32 {
+    WILDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wilder_just_frenzied(#[string] name: String) -> bool {
+    WILDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wilder_just_calmed(#[string] name: String) -> bool {
+    WILDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wilder_enabled(#[string] name: String) -> bool {
+    WILDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ramp_wilder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RampWilder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_calm_wilder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalmWilder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wilder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWilderEnabled { name, enabled })
+    });
+}
+// ── Wile ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wile_cunning(#[string] name: String) -> f32 {
+    WILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wile_max_cunning(#[string] name: String) -> f32 {
+    WILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wile_scheme_rate(#[string] name: String) -> f32 {
+    WILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wile_just_crafty(#[string] name: String) -> bool {
+    WILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wile_just_naive(#[string] name: String) -> bool {
+    WILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wile_enabled(#[string] name: String) -> bool {
+    WILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_scheme_wile(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SchemeWile { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_expose_wile(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExposeWile { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wile_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWileEnabled { name, enabled })
+    });
+}
+// ── Wiles ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wiles_guile(#[string] name: String) -> f32 {
+    WILES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wiles_max_guile(#[string] name: String) -> f32 {
+    WILES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wiles_scheme_rate(#[string] name: String) -> f32 {
+    WILES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wiles_just_cunning(#[string] name: String) -> bool {
+    WILES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wiles_just_guileless(#[string] name: String) -> bool {
+    WILES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wiles_enabled(#[string] name: String) -> bool {
+    WILES_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_scheme_wiles(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SchemeWiles { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_disarm_wiles(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DisarmWiles { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wiles_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWilesEnabled { name, enabled })
+    });
+}
+// ── Will ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_will_resolve(#[string] name: String) -> f32 {
+    WILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_will_max_resolve(#[string] name: String) -> f32 {
+    WILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_will_resolve_rate(#[string] name: String) -> f32 {
+    WILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_will_just_resolved(#[string] name: String) -> bool {
+    WILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_will_just_broken(#[string] name: String) -> bool {
+    WILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_will_enabled(#[string] name: String) -> bool {
+    WILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_focus_will(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FocusWill { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_waver_will(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WaverWill { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_will_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWillEnabled { name, enabled })
+    });
+}
+// ── Willow ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_willow_sway(#[string] name: String) -> f32 {
+    WILLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_willow_max_sway(#[string] name: String) -> f32 {
+    WILLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_willow_bend_rate(#[string] name: String) -> f32 {
+    WILLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_willow_just_swaying(#[string] name: String) -> bool {
+    WILLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_willow_just_still(#[string] name: String) -> bool {
+    WILLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_willow_enabled(#[string] name: String) -> bool {
+    WILLOW_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bend_willow(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BendWillow { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_settle_willow(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SettleWillow { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_willow_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWillowEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -34864,6 +35341,78 @@ deno_core::extension!(
         bsengine_soak_wick,
         bsengine_spend_wick,
         bsengine_set_wick_enabled,
+        bsengine_get_wicker_weave,
+        bsengine_get_wicker_max_weave,
+        bsengine_get_wicker_plait_rate,
+        bsengine_is_wicker_just_plaited,
+        bsengine_is_wicker_just_unraveled,
+        bsengine_is_wicker_enabled,
+        bsengine_plait_wicker,
+        bsengine_unravel_wicker,
+        bsengine_set_wicker_enabled,
+        bsengine_get_wig_coverage,
+        bsengine_get_wig_max_coverage,
+        bsengine_get_wig_style_rate,
+        bsengine_is_wig_just_coiffed,
+        bsengine_is_wig_just_bare,
+        bsengine_is_wig_enabled,
+        bsengine_style_wig,
+        bsengine_shed_wig,
+        bsengine_set_wig_enabled,
+        bsengine_get_wild_feral,
+        bsengine_get_wild_max_feral,
+        bsengine_get_wild_instinct_rate,
+        bsengine_is_wild_just_wild,
+        bsengine_is_wild_just_tame,
+        bsengine_is_wild_enabled,
+        bsengine_unleash_wild,
+        bsengine_tame_wild,
+        bsengine_set_wild_enabled,
+        bsengine_get_wilder_frenzy,
+        bsengine_get_wilder_max_frenzy,
+        bsengine_get_wilder_ramp_rate,
+        bsengine_is_wilder_just_frenzied,
+        bsengine_is_wilder_just_calmed,
+        bsengine_is_wilder_enabled,
+        bsengine_ramp_wilder,
+        bsengine_calm_wilder,
+        bsengine_set_wilder_enabled,
+        bsengine_get_wile_cunning,
+        bsengine_get_wile_max_cunning,
+        bsengine_get_wile_scheme_rate,
+        bsengine_is_wile_just_crafty,
+        bsengine_is_wile_just_naive,
+        bsengine_is_wile_enabled,
+        bsengine_scheme_wile,
+        bsengine_expose_wile,
+        bsengine_set_wile_enabled,
+        bsengine_get_wiles_guile,
+        bsengine_get_wiles_max_guile,
+        bsengine_get_wiles_scheme_rate,
+        bsengine_is_wiles_just_cunning,
+        bsengine_is_wiles_just_guileless,
+        bsengine_is_wiles_enabled,
+        bsengine_scheme_wiles,
+        bsengine_disarm_wiles,
+        bsengine_set_wiles_enabled,
+        bsengine_get_will_resolve,
+        bsengine_get_will_max_resolve,
+        bsengine_get_will_resolve_rate,
+        bsengine_is_will_just_resolved,
+        bsengine_is_will_just_broken,
+        bsengine_is_will_enabled,
+        bsengine_focus_will,
+        bsengine_waver_will,
+        bsengine_set_will_enabled,
+        bsengine_get_willow_sway,
+        bsengine_get_willow_max_sway,
+        bsengine_get_willow_bend_rate,
+        bsengine_is_willow_just_swaying,
+        bsengine_is_willow_just_still,
+        bsengine_is_willow_enabled,
+        bsengine_bend_willow,
+        bsengine_settle_willow,
+        bsengine_set_willow_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -38791,6 +39340,78 @@ const Bsengine = {
     soakWick:                   (name, amount)      => Deno.core.ops.bsengine_soak_wick(name, amount),
     spendWick:                  (name, amount)      => Deno.core.ops.bsengine_spend_wick(name, amount),
     setWickEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wick_enabled(name, v),
+    getWickerWeave:             (name)              => Deno.core.ops.bsengine_get_wicker_weave(name),
+    getWickerMaxWeave:          (name)              => Deno.core.ops.bsengine_get_wicker_max_weave(name),
+    getWickerPlaitRate:         (name)              => Deno.core.ops.bsengine_get_wicker_plait_rate(name),
+    isWickerJustPlaited:        (name)              => Deno.core.ops.bsengine_is_wicker_just_plaited(name),
+    isWickerJustUnraveled:      (name)              => Deno.core.ops.bsengine_is_wicker_just_unraveled(name),
+    isWickerEnabled:            (name)              => Deno.core.ops.bsengine_is_wicker_enabled(name),
+    plaitWicker:                (name, amount)      => Deno.core.ops.bsengine_plait_wicker(name, amount),
+    unravelWicker:              (name, amount)      => Deno.core.ops.bsengine_unravel_wicker(name, amount),
+    setWickerEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wicker_enabled(name, v),
+    getWigCoverage:             (name)              => Deno.core.ops.bsengine_get_wig_coverage(name),
+    getWigMaxCoverage:          (name)              => Deno.core.ops.bsengine_get_wig_max_coverage(name),
+    getWigStyleRate:            (name)              => Deno.core.ops.bsengine_get_wig_style_rate(name),
+    isWigJustCoiffed:           (name)              => Deno.core.ops.bsengine_is_wig_just_coiffed(name),
+    isWigJustBare:              (name)              => Deno.core.ops.bsengine_is_wig_just_bare(name),
+    isWigEnabled:               (name)              => Deno.core.ops.bsengine_is_wig_enabled(name),
+    styleWig:                   (name, amount)      => Deno.core.ops.bsengine_style_wig(name, amount),
+    shedWig:                    (name, amount)      => Deno.core.ops.bsengine_shed_wig(name, amount),
+    setWigEnabled:              (name, v)           => Deno.core.ops.bsengine_set_wig_enabled(name, v),
+    getWildFeral:               (name)              => Deno.core.ops.bsengine_get_wild_feral(name),
+    getWildMaxFeral:            (name)              => Deno.core.ops.bsengine_get_wild_max_feral(name),
+    getWildInstinctRate:        (name)              => Deno.core.ops.bsengine_get_wild_instinct_rate(name),
+    isWildJustWild:             (name)              => Deno.core.ops.bsengine_is_wild_just_wild(name),
+    isWildJustTame:             (name)              => Deno.core.ops.bsengine_is_wild_just_tame(name),
+    isWildEnabled:              (name)              => Deno.core.ops.bsengine_is_wild_enabled(name),
+    unleashWild:                (name, amount)      => Deno.core.ops.bsengine_unleash_wild(name, amount),
+    tameWild:                   (name, amount)      => Deno.core.ops.bsengine_tame_wild(name, amount),
+    setWildEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wild_enabled(name, v),
+    getWilderFrenzy:            (name)              => Deno.core.ops.bsengine_get_wilder_frenzy(name),
+    getWilderMaxFrenzy:         (name)              => Deno.core.ops.bsengine_get_wilder_max_frenzy(name),
+    getWilderRampRate:          (name)              => Deno.core.ops.bsengine_get_wilder_ramp_rate(name),
+    isWilderJustFrenzied:       (name)              => Deno.core.ops.bsengine_is_wilder_just_frenzied(name),
+    isWilderJustCalmed:         (name)              => Deno.core.ops.bsengine_is_wilder_just_calmed(name),
+    isWilderEnabled:            (name)              => Deno.core.ops.bsengine_is_wilder_enabled(name),
+    rampWilder:                 (name, amount)      => Deno.core.ops.bsengine_ramp_wilder(name, amount),
+    calmWilder:                 (name, amount)      => Deno.core.ops.bsengine_calm_wilder(name, amount),
+    setWilderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wilder_enabled(name, v),
+    getWileCunning:             (name)              => Deno.core.ops.bsengine_get_wile_cunning(name),
+    getWileMaxCunning:          (name)              => Deno.core.ops.bsengine_get_wile_max_cunning(name),
+    getWileSchemeRate:          (name)              => Deno.core.ops.bsengine_get_wile_scheme_rate(name),
+    isWileJustCrafty:           (name)              => Deno.core.ops.bsengine_is_wile_just_crafty(name),
+    isWileJustNaive:            (name)              => Deno.core.ops.bsengine_is_wile_just_naive(name),
+    isWileEnabled:              (name)              => Deno.core.ops.bsengine_is_wile_enabled(name),
+    schemeWile:                 (name, amount)      => Deno.core.ops.bsengine_scheme_wile(name, amount),
+    exposeWile:                 (name, amount)      => Deno.core.ops.bsengine_expose_wile(name, amount),
+    setWileEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wile_enabled(name, v),
+    getWilesGuile:              (name)              => Deno.core.ops.bsengine_get_wiles_guile(name),
+    getWilesMaxGuile:           (name)              => Deno.core.ops.bsengine_get_wiles_max_guile(name),
+    getWilesSchemeRate:         (name)              => Deno.core.ops.bsengine_get_wiles_scheme_rate(name),
+    isWilesJustCunning:         (name)              => Deno.core.ops.bsengine_is_wiles_just_cunning(name),
+    isWilesJustGuileless:       (name)              => Deno.core.ops.bsengine_is_wiles_just_guileless(name),
+    isWilesEnabled:             (name)              => Deno.core.ops.bsengine_is_wiles_enabled(name),
+    schemeWiles:                (name, amount)      => Deno.core.ops.bsengine_scheme_wiles(name, amount),
+    disarmWiles:                (name, amount)      => Deno.core.ops.bsengine_disarm_wiles(name, amount),
+    setWilesEnabled:            (name, v)           => Deno.core.ops.bsengine_set_wiles_enabled(name, v),
+    getWillResolve:             (name)              => Deno.core.ops.bsengine_get_will_resolve(name),
+    getWillMaxResolve:          (name)              => Deno.core.ops.bsengine_get_will_max_resolve(name),
+    getWillResolveRate:         (name)              => Deno.core.ops.bsengine_get_will_resolve_rate(name),
+    isWillJustResolved:         (name)              => Deno.core.ops.bsengine_is_will_just_resolved(name),
+    isWillJustBroken:           (name)              => Deno.core.ops.bsengine_is_will_just_broken(name),
+    isWillEnabled:              (name)              => Deno.core.ops.bsengine_is_will_enabled(name),
+    focusWill:                  (name, amount)      => Deno.core.ops.bsengine_focus_will(name, amount),
+    waverWill:                  (name, amount)      => Deno.core.ops.bsengine_waver_will(name, amount),
+    setWillEnabled:             (name, v)           => Deno.core.ops.bsengine_set_will_enabled(name, v),
+    getWillowSway:              (name)              => Deno.core.ops.bsengine_get_willow_sway(name),
+    getWillowMaxSway:           (name)              => Deno.core.ops.bsengine_get_willow_max_sway(name),
+    getWillowBendRate:          (name)              => Deno.core.ops.bsengine_get_willow_bend_rate(name),
+    isWillowJustSwaying:        (name)              => Deno.core.ops.bsengine_is_willow_just_swaying(name),
+    isWillowJustStill:          (name)              => Deno.core.ops.bsengine_is_willow_just_still(name),
+    isWillowEnabled:            (name)              => Deno.core.ops.bsengine_is_willow_enabled(name),
+    bendWillow:                 (name, amount)      => Deno.core.ops.bsengine_bend_willow(name, amount),
+    settleWillow:               (name, amount)      => Deno.core.ops.bsengine_settle_willow(name, amount),
+    setWillowEnabled:           (name, v)           => Deno.core.ops.bsengine_set_willow_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -64698,6 +65319,438 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SoakWick { name, amount } if name == "Lamp" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpendWick { name, amount } if name == "Lamp" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWickEnabled { name, enabled } if name == "Lamp" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wicker_read_ops() {
+        super::WICKER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Basket".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWickerWeave("Basket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWickerMaxWeave("Basket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWickerPlaitRate("Basket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWickerJustPlaited("Basket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWickerJustUnraveled("Basket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWickerEnabled("Basket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WICKER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wicker_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.plaitWicker("Basket", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.unravelWicker("Basket", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWickerEnabled("Basket", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PlaitWicker { name, amount } if name == "Basket" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnravelWicker { name, amount } if name == "Basket" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWickerEnabled { name, enabled } if name == "Basket" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wig_read_ops() {
+        super::WIG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Toupee".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWigCoverage("Toupee"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWigMaxCoverage("Toupee"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWigStyleRate("Toupee"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWigJustCoiffed("Toupee"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWigJustBare("Toupee"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWigEnabled("Toupee"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WIG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wig_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.styleWig("Toupee", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shedWig("Toupee", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWigEnabled("Toupee", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StyleWig { name, amount } if name == "Toupee" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShedWig { name, amount } if name == "Toupee" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWigEnabled { name, enabled } if name == "Toupee" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wild_read_ops() {
+        super::WILD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Beast".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWildFeral("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWildMaxFeral("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWildInstinctRate("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWildJustWild("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWildJustTame("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWildEnabled("Beast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wild_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.unleashWild("Beast", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.tameWild("Beast", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWildEnabled("Beast", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnleashWild { name, amount } if name == "Beast" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TameWild { name, amount } if name == "Beast" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWildEnabled { name, enabled } if name == "Beast" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wilder_read_ops() {
+        super::WILDER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Fury".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWilderFrenzy("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWilderMaxFrenzy("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWilderRampRate("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilderJustFrenzied("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilderJustCalmed("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilderEnabled("Fury"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILDER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wilder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.rampWilder("Fury", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.calmWilder("Fury", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWilderEnabled("Fury", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RampWilder { name, amount } if name == "Fury" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalmWilder { name, amount } if name == "Fury" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWilderEnabled { name, enabled } if name == "Fury" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wile_read_ops() {
+        super::WILE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Trick".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWileCunning("Trick"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWileMaxCunning("Trick"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWileSchemeRate("Trick"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWileJustCrafty("Trick"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWileJustNaive("Trick"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWileEnabled("Trick"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wile_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.schemeWile("Trick", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exposeWile("Trick", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWileEnabled("Trick", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SchemeWile { name, amount } if name == "Trick" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExposeWile { name, amount } if name == "Trick" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWileEnabled { name, enabled } if name == "Trick" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wiles_read_ops() {
+        super::WILES_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ruse".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWilesGuile("Ruse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWilesMaxGuile("Ruse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWilesSchemeRate("Ruse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilesJustCunning("Ruse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilesJustGuileless("Ruse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWilesEnabled("Ruse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILES_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wiles_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.schemeWiles("Ruse", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disarmWiles("Ruse", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWilesEnabled("Ruse", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SchemeWiles { name, amount } if name == "Ruse" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisarmWiles { name, amount } if name == "Ruse" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWilesEnabled { name, enabled } if name == "Ruse" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_will_read_ops() {
+        super::WILL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Iron".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWillResolve("Iron"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWillMaxResolve("Iron"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWillResolveRate("Iron"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWillJustResolved("Iron"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWillJustBroken("Iron"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWillEnabled("Iron"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_will_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.focusWill("Iron", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.waverWill("Iron", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWillEnabled("Iron", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FocusWill { name, amount } if name == "Iron" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WaverWill { name, amount } if name == "Iron" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWillEnabled { name, enabled } if name == "Iron" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_willow_read_ops() {
+        super::WILLOW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Reed".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWillowSway("Reed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWillowMaxSway("Reed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWillowBendRate("Reed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWillowJustSwaying("Reed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWillowJustStill("Reed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWillowEnabled("Reed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WILLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_willow_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.bendWillow("Reed", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.settleWillow("Reed", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWillowEnabled("Reed", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BendWillow { name, amount } if name == "Reed" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SettleWillow { name, amount } if name == "Reed" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWillowEnabled { name, enabled } if name == "Reed" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

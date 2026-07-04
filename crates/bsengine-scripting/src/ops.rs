@@ -5596,6 +5596,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    RouseWoken {
+        name: String,
+        amount: f32,
+    },
+    DrowseWoken {
+        name: String,
+        amount: f32,
+    },
+    SetWokenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RoamWold {
+        name: String,
+        amount: f32,
+    },
+    ShrinkWold {
+        name: String,
+        amount: f32,
+    },
+    SetWoldEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PursueWolf {
+        name: String,
+    },
+    BreakOffWolf {
+        name: String,
+    },
+    SetWolfEnabled {
+        name: String,
+        enabled: bool,
+    },
+    NurtureWomb {
+        name: String,
+        amount: f32,
+    },
+    WitherWomb {
+        name: String,
+        amount: f32,
+    },
+    SetWombEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DigWombat {
+        name: String,
+        amount: f32,
+    },
+    SurfaceWombat {
+        name: String,
+        amount: f32,
+    },
+    SetWombatEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BondWomen {
+        name: String,
+        amount: f32,
+    },
+    SeverWomen {
+        name: String,
+        amount: f32,
+    },
+    SetWomenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ClaimWon {
+        name: String,
+        amount: f32,
+    },
+    ConcedeWon {
+        name: String,
+        amount: f32,
+    },
+    SetWonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    MarvelWonder {
+        name: String,
+        amount: f32,
+    },
+    JadeWonder {
+        name: String,
+        amount: f32,
+    },
+    SetWonderEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -6951,6 +7045,22 @@ thread_local! {
     pub(crate) static WOK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     pub(crate) static WOKE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOKEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOLD_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOLF_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOMB_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOMBAT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WOMEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WON_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static WONDER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -16681,6 +16791,368 @@ pub fn bsengine_set_woke_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetWokeEnabled { name, enabled })
+    });
+}
+// ── Woken ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_woken_alertness(#[string] name: String) -> f32 {
+    WOKEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woken_max_alertness(#[string] name: String) -> f32 {
+    WOKEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_woken_rouse_rate(#[string] name: String) -> f32 {
+    WOKEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_woken_just_roused(#[string] name: String) -> bool {
+    WOKEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woken_just_drowsy(#[string] name: String) -> bool {
+    WOKEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_woken_enabled(#[string] name: String) -> bool {
+    WOKEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rouse_woken(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RouseWoken { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_drowse_woken(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DrowseWoken { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_woken_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWokenEnabled { name, enabled })
+    });
+}
+// ── Wold ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wold_expanse(#[string] name: String) -> f32 {
+    WOLD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wold_max_expanse(#[string] name: String) -> f32 {
+    WOLD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wold_roam_rate(#[string] name: String) -> f32 {
+    WOLD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wold_just_vast(#[string] name: String) -> bool {
+    WOLD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wold_just_barren(#[string] name: String) -> bool {
+    WOLD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wold_enabled(#[string] name: String) -> bool {
+    WOLD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_roam_wold(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RoamWold { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_shrink_wold(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ShrinkWold { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wold_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWoldEnabled { name, enabled })
+    });
+}
+// ── Wolf ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wolf_hunt_level(#[string] name: String) -> f32 {
+    WOLF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wolf_max_hunt(#[string] name: String) -> f32 {
+    WOLF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wolf_hunt_fraction(#[string] name: String) -> f32 {
+    WOLF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wolf_just_locked(#[string] name: String) -> bool {
+    WOLF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wolf_just_broken(#[string] name: String) -> bool {
+    WOLF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wolf_enabled(#[string] name: String) -> bool {
+    WOLF_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pursue_wolf(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PursueWolf { name }));
+}
+#[op2(fast)]
+pub fn bsengine_break_off_wolf(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreakOffWolf { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_wolf_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWolfEnabled { name, enabled })
+    });
+}
+// ── Womb ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_womb_gestation(#[string] name: String) -> f32 {
+    WOMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_womb_max_gestation(#[string] name: String) -> f32 {
+    WOMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_womb_grow_rate(#[string] name: String) -> f32 {
+    WOMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_womb_just_born(#[string] name: String) -> bool {
+    WOMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_womb_just_lost(#[string] name: String) -> bool {
+    WOMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_womb_enabled(#[string] name: String) -> bool {
+    WOMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_nurture_womb(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NurtureWomb { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_wither_womb(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WitherWomb { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_womb_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWombEnabled { name, enabled })
+    });
+}
+// ── Wombat ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wombat_burrow(#[string] name: String) -> f32 {
+    WOMBAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wombat_max_burrow(#[string] name: String) -> f32 {
+    WOMBAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wombat_dig_rate(#[string] name: String) -> f32 {
+    WOMBAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wombat_just_tunneled(#[string] name: String) -> bool {
+    WOMBAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wombat_just_surfaced(#[string] name: String) -> bool {
+    WOMBAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wombat_enabled(#[string] name: String) -> bool {
+    WOMBAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_dig_wombat(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DigWombat { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_surface_wombat(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SurfaceWombat { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wombat_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWombatEnabled { name, enabled })
+    });
+}
+// ── Women ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_women_solidarity(#[string] name: String) -> f32 {
+    WOMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_women_max_solidarity(#[string] name: String) -> f32 {
+    WOMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_women_bond_rate(#[string] name: String) -> f32 {
+    WOMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_women_just_bonded(#[string] name: String) -> bool {
+    WOMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_women_just_severed(#[string] name: String) -> bool {
+    WOMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_women_enabled(#[string] name: String) -> bool {
+    WOMEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bond_women(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BondWomen { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_sever_women(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SeverWomen { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_women_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWomenEnabled { name, enabled })
+    });
+}
+// ── Won ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_won_victories(#[string] name: String) -> f32 {
+    WON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_won_max_victories(#[string] name: String) -> f32 {
+    WON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_won_streak_rate(#[string] name: String) -> f32 {
+    WON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_won_just_won(#[string] name: String) -> bool {
+    WON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_won_just_lost(#[string] name: String) -> bool {
+    WON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_won_enabled(#[string] name: String) -> bool {
+    WON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_claim_won(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClaimWon { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_concede_won(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConcedeWon { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_won_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWonEnabled { name, enabled })
+    });
+}
+// ── Wonder ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_wonder_awe(#[string] name: String) -> f32 {
+    WONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wonder_max_awe(#[string] name: String) -> f32 {
+    WONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_wonder_marvel_rate(#[string] name: String) -> f32 {
+    WONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonder_just_awed(#[string] name: String) -> bool {
+    WONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonder_just_jaded(#[string] name: String) -> bool {
+    WONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_wonder_enabled(#[string] name: String) -> bool {
+    WONDER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_marvel_wonder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MarvelWonder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_jade_wonder(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::JadeWonder { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_wonder_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetWonderEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -37556,6 +38028,78 @@ deno_core::extension!(
         bsengine_rouse_woke,
         bsengine_dull_woke,
         bsengine_set_woke_enabled,
+        bsengine_get_woken_alertness,
+        bsengine_get_woken_max_alertness,
+        bsengine_get_woken_rouse_rate,
+        bsengine_is_woken_just_roused,
+        bsengine_is_woken_just_drowsy,
+        bsengine_is_woken_enabled,
+        bsengine_rouse_woken,
+        bsengine_drowse_woken,
+        bsengine_set_woken_enabled,
+        bsengine_get_wold_expanse,
+        bsengine_get_wold_max_expanse,
+        bsengine_get_wold_roam_rate,
+        bsengine_is_wold_just_vast,
+        bsengine_is_wold_just_barren,
+        bsengine_is_wold_enabled,
+        bsengine_roam_wold,
+        bsengine_shrink_wold,
+        bsengine_set_wold_enabled,
+        bsengine_get_wolf_hunt_level,
+        bsengine_get_wolf_max_hunt,
+        bsengine_get_wolf_hunt_fraction,
+        bsengine_is_wolf_just_locked,
+        bsengine_is_wolf_just_broken,
+        bsengine_is_wolf_enabled,
+        bsengine_pursue_wolf,
+        bsengine_break_off_wolf,
+        bsengine_set_wolf_enabled,
+        bsengine_get_womb_gestation,
+        bsengine_get_womb_max_gestation,
+        bsengine_get_womb_grow_rate,
+        bsengine_is_womb_just_born,
+        bsengine_is_womb_just_lost,
+        bsengine_is_womb_enabled,
+        bsengine_nurture_womb,
+        bsengine_wither_womb,
+        bsengine_set_womb_enabled,
+        bsengine_get_wombat_burrow,
+        bsengine_get_wombat_max_burrow,
+        bsengine_get_wombat_dig_rate,
+        bsengine_is_wombat_just_tunneled,
+        bsengine_is_wombat_just_surfaced,
+        bsengine_is_wombat_enabled,
+        bsengine_dig_wombat,
+        bsengine_surface_wombat,
+        bsengine_set_wombat_enabled,
+        bsengine_get_women_solidarity,
+        bsengine_get_women_max_solidarity,
+        bsengine_get_women_bond_rate,
+        bsengine_is_women_just_bonded,
+        bsengine_is_women_just_severed,
+        bsengine_is_women_enabled,
+        bsengine_bond_women,
+        bsengine_sever_women,
+        bsengine_set_women_enabled,
+        bsengine_get_won_victories,
+        bsengine_get_won_max_victories,
+        bsengine_get_won_streak_rate,
+        bsengine_is_won_just_won,
+        bsengine_is_won_just_lost,
+        bsengine_is_won_enabled,
+        bsengine_claim_won,
+        bsengine_concede_won,
+        bsengine_set_won_enabled,
+        bsengine_get_wonder_awe,
+        bsengine_get_wonder_max_awe,
+        bsengine_get_wonder_marvel_rate,
+        bsengine_is_wonder_just_awed,
+        bsengine_is_wonder_just_jaded,
+        bsengine_is_wonder_enabled,
+        bsengine_marvel_wonder,
+        bsengine_jade_wonder,
+        bsengine_set_wonder_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -41843,6 +42387,78 @@ const Bsengine = {
     rouseWoke:                  (name, v)           => Deno.core.ops.bsengine_rouse_woke(name, v),
     dullWoke:                   (name, v)           => Deno.core.ops.bsengine_dull_woke(name, v),
     setWokeEnabled:             (name, v)           => Deno.core.ops.bsengine_set_woke_enabled(name, v),
+    getWokenAlertness:          (name)              => Deno.core.ops.bsengine_get_woken_alertness(name),
+    getWokenMaxAlertness:       (name)              => Deno.core.ops.bsengine_get_woken_max_alertness(name),
+    getWokenRouseRate:          (name)              => Deno.core.ops.bsengine_get_woken_rouse_rate(name),
+    isWokenJustRoused:          (name)              => Deno.core.ops.bsengine_is_woken_just_roused(name),
+    isWokenJustDrowsy:          (name)              => Deno.core.ops.bsengine_is_woken_just_drowsy(name),
+    isWokenEnabled:             (name)              => Deno.core.ops.bsengine_is_woken_enabled(name),
+    rouseWoken:                 (name, v)           => Deno.core.ops.bsengine_rouse_woken(name, v),
+    drowseWoken:                (name, v)           => Deno.core.ops.bsengine_drowse_woken(name, v),
+    setWokenEnabled:            (name, v)           => Deno.core.ops.bsengine_set_woken_enabled(name, v),
+    getWoldExpanse:             (name)              => Deno.core.ops.bsengine_get_wold_expanse(name),
+    getWoldMaxExpanse:          (name)              => Deno.core.ops.bsengine_get_wold_max_expanse(name),
+    getWoldRoamRate:            (name)              => Deno.core.ops.bsengine_get_wold_roam_rate(name),
+    isWoldJustVast:             (name)              => Deno.core.ops.bsengine_is_wold_just_vast(name),
+    isWoldJustBarren:           (name)              => Deno.core.ops.bsengine_is_wold_just_barren(name),
+    isWoldEnabled:              (name)              => Deno.core.ops.bsengine_is_wold_enabled(name),
+    roamWold:                   (name, v)           => Deno.core.ops.bsengine_roam_wold(name, v),
+    shrinkWold:                 (name, v)           => Deno.core.ops.bsengine_shrink_wold(name, v),
+    setWoldEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wold_enabled(name, v),
+    getWolfHuntLevel:           (name)              => Deno.core.ops.bsengine_get_wolf_hunt_level(name),
+    getWolfMaxHunt:             (name)              => Deno.core.ops.bsengine_get_wolf_max_hunt(name),
+    getWolfHuntFraction:        (name)              => Deno.core.ops.bsengine_get_wolf_hunt_fraction(name),
+    isWolfJustLocked:           (name)              => Deno.core.ops.bsengine_is_wolf_just_locked(name),
+    isWolfJustBroken:           (name)              => Deno.core.ops.bsengine_is_wolf_just_broken(name),
+    isWolfEnabled:              (name)              => Deno.core.ops.bsengine_is_wolf_enabled(name),
+    pursueWolf:                 (name)              => Deno.core.ops.bsengine_pursue_wolf(name),
+    breakOffWolf:               (name)              => Deno.core.ops.bsengine_break_off_wolf(name),
+    setWolfEnabled:             (name, v)           => Deno.core.ops.bsengine_set_wolf_enabled(name, v),
+    getWombGestation:           (name)              => Deno.core.ops.bsengine_get_womb_gestation(name),
+    getWombMaxGestation:        (name)              => Deno.core.ops.bsengine_get_womb_max_gestation(name),
+    getWombGrowRate:            (name)              => Deno.core.ops.bsengine_get_womb_grow_rate(name),
+    isWombJustBorn:             (name)              => Deno.core.ops.bsengine_is_womb_just_born(name),
+    isWombJustLost:             (name)              => Deno.core.ops.bsengine_is_womb_just_lost(name),
+    isWombEnabled:              (name)              => Deno.core.ops.bsengine_is_womb_enabled(name),
+    nurtureWomb:                (name, v)           => Deno.core.ops.bsengine_nurture_womb(name, v),
+    witherWomb:                 (name, v)           => Deno.core.ops.bsengine_wither_womb(name, v),
+    setWombEnabled:             (name, v)           => Deno.core.ops.bsengine_set_womb_enabled(name, v),
+    getWombatBurrow:            (name)              => Deno.core.ops.bsengine_get_wombat_burrow(name),
+    getWombatMaxBurrow:         (name)              => Deno.core.ops.bsengine_get_wombat_max_burrow(name),
+    getWombatDigRate:           (name)              => Deno.core.ops.bsengine_get_wombat_dig_rate(name),
+    isWombatJustTunneled:       (name)              => Deno.core.ops.bsengine_is_wombat_just_tunneled(name),
+    isWombatJustSurfaced:       (name)              => Deno.core.ops.bsengine_is_wombat_just_surfaced(name),
+    isWombatEnabled:            (name)              => Deno.core.ops.bsengine_is_wombat_enabled(name),
+    digWombat:                  (name, v)           => Deno.core.ops.bsengine_dig_wombat(name, v),
+    surfaceWombat:              (name, v)           => Deno.core.ops.bsengine_surface_wombat(name, v),
+    setWombatEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wombat_enabled(name, v),
+    getWomenSolidarity:         (name)              => Deno.core.ops.bsengine_get_women_solidarity(name),
+    getWomenMaxSolidarity:      (name)              => Deno.core.ops.bsengine_get_women_max_solidarity(name),
+    getWomenBondRate:           (name)              => Deno.core.ops.bsengine_get_women_bond_rate(name),
+    isWomenJustBonded:          (name)              => Deno.core.ops.bsengine_is_women_just_bonded(name),
+    isWomenJustSevered:         (name)              => Deno.core.ops.bsengine_is_women_just_severed(name),
+    isWomenEnabled:             (name)              => Deno.core.ops.bsengine_is_women_enabled(name),
+    bondWomen:                  (name, v)           => Deno.core.ops.bsengine_bond_women(name, v),
+    severWomen:                 (name, v)           => Deno.core.ops.bsengine_sever_women(name, v),
+    setWomenEnabled:            (name, v)           => Deno.core.ops.bsengine_set_women_enabled(name, v),
+    getWonVictories:            (name)              => Deno.core.ops.bsengine_get_won_victories(name),
+    getWonMaxVictories:         (name)              => Deno.core.ops.bsengine_get_won_max_victories(name),
+    getWonStreakRate:            (name)              => Deno.core.ops.bsengine_get_won_streak_rate(name),
+    isWonJustWon:               (name)              => Deno.core.ops.bsengine_is_won_just_won(name),
+    isWonJustLost:              (name)              => Deno.core.ops.bsengine_is_won_just_lost(name),
+    isWonEnabled:               (name)              => Deno.core.ops.bsengine_is_won_enabled(name),
+    claimWon:                   (name, v)           => Deno.core.ops.bsengine_claim_won(name, v),
+    concedeWon:                 (name, v)           => Deno.core.ops.bsengine_concede_won(name, v),
+    setWonEnabled:              (name, v)           => Deno.core.ops.bsengine_set_won_enabled(name, v),
+    getWonderAwe:               (name)              => Deno.core.ops.bsengine_get_wonder_awe(name),
+    getWonderMaxAwe:            (name)              => Deno.core.ops.bsengine_get_wonder_max_awe(name),
+    getWonderMarvelRate:        (name)              => Deno.core.ops.bsengine_get_wonder_marvel_rate(name),
+    isWonderJustAwed:           (name)              => Deno.core.ops.bsengine_is_wonder_just_awed(name),
+    isWonderJustJaded:          (name)              => Deno.core.ops.bsengine_is_wonder_just_jaded(name),
+    isWonderEnabled:            (name)              => Deno.core.ops.bsengine_is_wonder_enabled(name),
+    marvelWonder:               (name, v)           => Deno.core.ops.bsengine_marvel_wonder(name, v),
+    jadeWonder:                 (name, v)           => Deno.core.ops.bsengine_jade_wonder(name, v),
+    setWonderEnabled:           (name, v)           => Deno.core.ops.bsengine_set_wonder_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -69870,6 +70486,436 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RouseWoke { name, amount } if name == "Eyes" && *amount == 0.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DullWoke { name, amount } if name == "Eyes" && *amount == 0.25)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWokeEnabled { name, enabled } if name == "Eyes" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woken_read_ops() {
+        super::WOKEN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Awake".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWokenAlertness("Awake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWokenMaxAlertness("Awake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWokenRouseRate("Awake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWokenJustRoused("Awake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWokenJustDrowsy("Awake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWokenEnabled("Awake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOKEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_woken_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.rouseWoken("Awake", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.drowseWoken("Awake", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWokenEnabled("Awake", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RouseWoken { name, amount } if name == "Awake" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrowseWoken { name, amount } if name == "Awake" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWokenEnabled { name, enabled } if name == "Awake" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wold_read_ops() {
+        super::WOLD_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Plain".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWoldExpanse("Plain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoldMaxExpanse("Plain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWoldRoamRate("Plain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoldJustVast("Plain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoldJustBarren("Plain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWoldEnabled("Plain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOLD_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wold_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.roamWold("Plain", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shrinkWold("Plain", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWoldEnabled("Plain", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RoamWold { name, amount } if name == "Plain" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShrinkWold { name, amount } if name == "Plain" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWoldEnabled { name, enabled } if name == "Plain" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wolf_read_ops() {
+        super::WOLF_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pack".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWolfHuntLevel("Pack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWolfMaxHunt("Pack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWolfHuntFraction("Pack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWolfJustLocked("Pack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWolfJustBroken("Pack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWolfEnabled("Pack"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOLF_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wolf_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pursueWolf("Pack");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.breakOffWolf("Pack");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWolfEnabled("Pack", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PursueWolf { name } if name == "Pack")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BreakOffWolf { name } if name == "Pack")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWolfEnabled { name, enabled } if name == "Pack" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_womb_read_ops() {
+        super::WOMB_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Seed".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWombGestation("Seed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWombMaxGestation("Seed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWombGrowRate("Seed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWombJustBorn("Seed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWombJustLost("Seed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWombEnabled("Seed"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOMB_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_womb_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.nurtureWomb("Seed", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.witherWomb("Seed", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWombEnabled("Seed", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NurtureWomb { name, amount } if name == "Seed" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WitherWomb { name, amount } if name == "Seed" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWombEnabled { name, enabled } if name == "Seed" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wombat_read_ops() {
+        super::WOMBAT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Burr".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWombatBurrow("Burr"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWombatMaxBurrow("Burr"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWombatDigRate("Burr"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWombatJustTunneled("Burr"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWombatJustSurfaced("Burr"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWombatEnabled("Burr"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOMBAT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wombat_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.digWombat("Burr", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.surfaceWombat("Burr", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWombatEnabled("Burr", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DigWombat { name, amount } if name == "Burr" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SurfaceWombat { name, amount } if name == "Burr" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWombatEnabled { name, enabled } if name == "Burr" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_women_read_ops() {
+        super::WOMEN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Bond".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWomenSolidarity("Bond"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWomenMaxSolidarity("Bond"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWomenBondRate("Bond"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWomenJustBonded("Bond"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWomenJustSevered("Bond"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWomenEnabled("Bond"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WOMEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_women_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.bondWomen("Bond", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.severWomen("Bond", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWomenEnabled("Bond", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BondWomen { name, amount } if name == "Bond" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SeverWomen { name, amount } if name == "Bond" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWomenEnabled { name, enabled } if name == "Bond" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_won_read_ops() {
+        super::WON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Champ".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getWonVictories("Champ"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonMaxVictories("Champ"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonStreakRate("Champ"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonJustWon("Champ"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonJustLost("Champ"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonEnabled("Champ"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_won_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.claimWon("Champ", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.concedeWon("Champ", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWonEnabled("Champ", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClaimWon { name, amount } if name == "Champ" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConcedeWon { name, amount } if name == "Champ" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWonEnabled { name, enabled } if name == "Champ" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wonder_read_ops() {
+        super::WONDER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Awe".to_string(),
+                (0.5f32, 1.0f32, 0.25f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getWonderAwe("Awe"))"#).unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonderMaxAwe("Awe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.getWonderMarvelRate("Awe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.25");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonderJustAwed("Awe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonderJustJaded("Awe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isWonderEnabled("Awe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::WONDER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_wonder_write_ops_queue_commands() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.marvelWonder("Awe", 0.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.jadeWonder("Awe", 0.25);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setWonderEnabled("Awe", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MarvelWonder { name, amount } if name == "Awe" && *amount == 0.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::JadeWonder { name, amount } if name == "Awe" && *amount == 0.25)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetWonderEnabled { name, enabled } if name == "Awe" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

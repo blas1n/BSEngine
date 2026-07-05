@@ -7170,6 +7170,86 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    SprayZibet {
+        name: String,
+    },
+    WaneZibet {
+        name: String,
+    },
+    SetZibetEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AdministerZidovudine {
+        name: String,
+    },
+    MetaboliseZidovudine {
+        name: String,
+    },
+    SetZidovudineEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AscendZiggurat {
+        name: String,
+    },
+    CollapseZiggurat {
+        name: String,
+    },
+    SetZigguratEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AdvanceZigzag {
+        name: String,
+    },
+    TickZigzag {
+        name: String,
+    },
+    SetZigzagEnabled {
+        name: String,
+        enabled: bool,
+    },
+    IntoneZikr {
+        name: String,
+    },
+    HushZikr {
+        name: String,
+    },
+    SetZikrEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DepriveZilch {
+        name: String,
+    },
+    NourishZilch {
+        name: String,
+    },
+    SetZilchEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DoseZileuton {
+        name: String,
+    },
+    MetabolizeZileuton {
+        name: String,
+    },
+    SetZileutonEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StrikeZill {
+        name: String,
+    },
+    DampZill {
+        name: String,
+    },
+    SetZillEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8923,6 +9003,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zho: vigor, max_vigor, cross_rate, just_thriving, just_exhausted, enabled
     pub(crate) static ZHO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zibet: scent, max_scent, mark_rate, just_marked, just_faded, enabled
+    pub(crate) static ZIBET_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zidovudine: dose, max_dose, infusion_rate, just_suppressed, just_cleared, enabled
+    pub(crate) static ZIDOVUDINE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // ziggurat: tier, max_tier, rise_rate, just_crowned, just_razed, enabled
+    pub(crate) static ZIGGURAT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zigzag: phase, period, speed, rising, just_reversed, enabled
+    pub(crate) static ZIGZAG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zikr: resonance, max_resonance, hum_rate, just_resonant, just_hushed, enabled
+    pub(crate) static ZIKR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zilch: deprivation, max_deprivation, replenish_rate, just_exhausted, just_sated, enabled
+    pub(crate) static ZILCH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zileuton: coverage, max_coverage, absorption_rate, just_covered, just_lapsed, enabled
+    pub(crate) static ZILEUTON_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zill: ring, max_ring, sustain_rate, just_ringing, just_damped, enabled
+    pub(crate) static ZILL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -24756,6 +24860,330 @@ pub fn bsengine_set_zho_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZhoEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zibet_scent(#[string] name: String) -> f32 {
+    ZIBET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zibet_max_scent(#[string] name: String) -> f32 {
+    ZIBET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zibet_mark_rate(#[string] name: String) -> f32 {
+    ZIBET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zibet_just_marked(#[string] name: String) -> bool {
+    ZIBET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zibet_just_faded(#[string] name: String) -> bool {
+    ZIBET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zibet_enabled(#[string] name: String) -> bool {
+    ZIBET_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_spray_zibet(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SprayZibet { name }));
+}
+#[op2(fast)]
+pub fn bsengine_wane_zibet(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WaneZibet { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zibet_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZibetEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zidovudine_dose(#[string] name: String) -> f32 {
+    ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zidovudine_max_dose(#[string] name: String) -> f32 {
+    ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zidovudine_infusion_rate(#[string] name: String) -> f32 {
+    ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zidovudine_just_suppressed(#[string] name: String) -> bool {
+    ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zidovudine_just_cleared(#[string] name: String) -> bool {
+    ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zidovudine_enabled(#[string] name: String) -> bool {
+    ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_administer_zidovudine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AdministerZidovudine { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_metabolise_zidovudine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MetaboliseZidovudine { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zidovudine_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZidovudineEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_ziggurat_tier(#[string] name: String) -> f32 {
+    ZIGGURAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ziggurat_max_tier(#[string] name: String) -> f32 {
+    ZIGGURAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ziggurat_rise_rate(#[string] name: String) -> f32 {
+    ZIGGURAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ziggurat_just_crowned(#[string] name: String) -> bool {
+    ZIGGURAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ziggurat_just_razed(#[string] name: String) -> bool {
+    ZIGGURAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ziggurat_enabled(#[string] name: String) -> bool {
+    ZIGGURAT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ascend_ziggurat(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AscendZiggurat { name }));
+}
+#[op2(fast)]
+pub fn bsengine_collapse_ziggurat(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CollapseZiggurat { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ziggurat_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZigguratEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zigzag_phase(#[string] name: String) -> f32 {
+    ZIGZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zigzag_period(#[string] name: String) -> f32 {
+    ZIGZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zigzag_speed(#[string] name: String) -> f32 {
+    ZIGZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zigzag_rising(#[string] name: String) -> bool {
+    ZIGZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zigzag_just_reversed(#[string] name: String) -> bool {
+    ZIGZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zigzag_enabled(#[string] name: String) -> bool {
+    ZIGZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_advance_zigzag(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AdvanceZigzag { name }));
+}
+#[op2(fast)]
+pub fn bsengine_tick_zigzag(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TickZigzag { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zigzag_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZigzagEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zikr_resonance(#[string] name: String) -> f32 {
+    ZIKR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zikr_max_resonance(#[string] name: String) -> f32 {
+    ZIKR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zikr_hum_rate(#[string] name: String) -> f32 {
+    ZIKR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zikr_just_resonant(#[string] name: String) -> bool {
+    ZIKR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zikr_just_hushed(#[string] name: String) -> bool {
+    ZIKR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zikr_enabled(#[string] name: String) -> bool {
+    ZIKR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_intone_zikr(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::IntoneZikr { name }));
+}
+#[op2(fast)]
+pub fn bsengine_hush_zikr(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HushZikr { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zikr_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZikrEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zilch_deprivation(#[string] name: String) -> f32 {
+    ZILCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zilch_max_deprivation(#[string] name: String) -> f32 {
+    ZILCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zilch_replenish_rate(#[string] name: String) -> f32 {
+    ZILCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zilch_just_exhausted(#[string] name: String) -> bool {
+    ZILCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zilch_just_sated(#[string] name: String) -> bool {
+    ZILCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zilch_enabled(#[string] name: String) -> bool {
+    ZILCH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_deprive_zilch(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DepriveZilch { name }));
+}
+#[op2(fast)]
+pub fn bsengine_nourish_zilch(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::NourishZilch { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zilch_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZilchEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zileuton_coverage(#[string] name: String) -> f32 {
+    ZILEUTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zileuton_max_coverage(#[string] name: String) -> f32 {
+    ZILEUTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zileuton_absorption_rate(#[string] name: String) -> f32 {
+    ZILEUTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zileuton_just_covered(#[string] name: String) -> bool {
+    ZILEUTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zileuton_just_lapsed(#[string] name: String) -> bool {
+    ZILEUTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zileuton_enabled(#[string] name: String) -> bool {
+    ZILEUTON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_dose_zileuton(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DoseZileuton { name }));
+}
+#[op2(fast)]
+pub fn bsengine_metabolize_zileuton(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MetabolizeZileuton { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zileuton_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZileutonEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zill_ring(#[string] name: String) -> f32 {
+    ZILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zill_max_ring(#[string] name: String) -> f32 {
+    ZILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zill_sustain_rate(#[string] name: String) -> f32 {
+    ZILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zill_just_ringing(#[string] name: String) -> bool {
+    ZILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zill_just_damped(#[string] name: String) -> bool {
+    ZILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zill_enabled(#[string] name: String) -> bool {
+    ZILL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_strike_zill(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StrikeZill { name }));
+}
+#[op2(fast)]
+pub fn bsengine_damp_zill(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DampZill { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zill_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZillEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -46956,6 +47384,78 @@ deno_core::extension!(
         bsengine_hybridize_zho,
         bsengine_weaken_zho,
         bsengine_set_zho_enabled,
+        bsengine_get_zibet_scent,
+        bsengine_get_zibet_max_scent,
+        bsengine_get_zibet_mark_rate,
+        bsengine_is_zibet_just_marked,
+        bsengine_is_zibet_just_faded,
+        bsengine_is_zibet_enabled,
+        bsengine_spray_zibet,
+        bsengine_wane_zibet,
+        bsengine_set_zibet_enabled,
+        bsengine_get_zidovudine_dose,
+        bsengine_get_zidovudine_max_dose,
+        bsengine_get_zidovudine_infusion_rate,
+        bsengine_is_zidovudine_just_suppressed,
+        bsengine_is_zidovudine_just_cleared,
+        bsengine_is_zidovudine_enabled,
+        bsengine_administer_zidovudine,
+        bsengine_metabolise_zidovudine,
+        bsengine_set_zidovudine_enabled,
+        bsengine_get_ziggurat_tier,
+        bsengine_get_ziggurat_max_tier,
+        bsengine_get_ziggurat_rise_rate,
+        bsengine_is_ziggurat_just_crowned,
+        bsengine_is_ziggurat_just_razed,
+        bsengine_is_ziggurat_enabled,
+        bsengine_ascend_ziggurat,
+        bsengine_collapse_ziggurat,
+        bsengine_set_ziggurat_enabled,
+        bsengine_get_zigzag_phase,
+        bsengine_get_zigzag_period,
+        bsengine_get_zigzag_speed,
+        bsengine_is_zigzag_rising,
+        bsengine_is_zigzag_just_reversed,
+        bsengine_is_zigzag_enabled,
+        bsengine_advance_zigzag,
+        bsengine_tick_zigzag,
+        bsengine_set_zigzag_enabled,
+        bsengine_get_zikr_resonance,
+        bsengine_get_zikr_max_resonance,
+        bsengine_get_zikr_hum_rate,
+        bsengine_is_zikr_just_resonant,
+        bsengine_is_zikr_just_hushed,
+        bsengine_is_zikr_enabled,
+        bsengine_intone_zikr,
+        bsengine_hush_zikr,
+        bsengine_set_zikr_enabled,
+        bsengine_get_zilch_deprivation,
+        bsengine_get_zilch_max_deprivation,
+        bsengine_get_zilch_replenish_rate,
+        bsengine_is_zilch_just_exhausted,
+        bsengine_is_zilch_just_sated,
+        bsengine_is_zilch_enabled,
+        bsengine_deprive_zilch,
+        bsengine_nourish_zilch,
+        bsengine_set_zilch_enabled,
+        bsengine_get_zileuton_coverage,
+        bsengine_get_zileuton_max_coverage,
+        bsengine_get_zileuton_absorption_rate,
+        bsengine_is_zileuton_just_covered,
+        bsengine_is_zileuton_just_lapsed,
+        bsengine_is_zileuton_enabled,
+        bsengine_dose_zileuton,
+        bsengine_metabolize_zileuton,
+        bsengine_set_zileuton_enabled,
+        bsengine_get_zill_ring,
+        bsengine_get_zill_max_ring,
+        bsengine_get_zill_sustain_rate,
+        bsengine_is_zill_just_ringing,
+        bsengine_is_zill_just_damped,
+        bsengine_is_zill_enabled,
+        bsengine_strike_zill,
+        bsengine_damp_zill,
+        bsengine_set_zill_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -52568,6 +53068,78 @@ const Bsengine = {
     hybridizeZho:               (name)              => Deno.core.ops.bsengine_hybridize_zho(name),
     weakenZho:                  (name)              => Deno.core.ops.bsengine_weaken_zho(name),
     setZhoEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zho_enabled(name, v),
+    getZibetScent:              (name)              => Deno.core.ops.bsengine_get_zibet_scent(name),
+    getZibetMaxScent:           (name)              => Deno.core.ops.bsengine_get_zibet_max_scent(name),
+    getZibetMarkRate:           (name)              => Deno.core.ops.bsengine_get_zibet_mark_rate(name),
+    isZibetJustMarked:          (name)              => Deno.core.ops.bsengine_is_zibet_just_marked(name),
+    isZibetJustFaded:           (name)              => Deno.core.ops.bsengine_is_zibet_just_faded(name),
+    isZibetEnabled:             (name)              => Deno.core.ops.bsengine_is_zibet_enabled(name),
+    sprayZibet:                 (name)              => Deno.core.ops.bsengine_spray_zibet(name),
+    waneZibet:                  (name)              => Deno.core.ops.bsengine_wane_zibet(name),
+    setZibetEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zibet_enabled(name, v),
+    getZidovudineDose:          (name)              => Deno.core.ops.bsengine_get_zidovudine_dose(name),
+    getZidovudineMaxDose:       (name)              => Deno.core.ops.bsengine_get_zidovudine_max_dose(name),
+    getZidovudineInfusionRate:  (name)              => Deno.core.ops.bsengine_get_zidovudine_infusion_rate(name),
+    isZidovudineJustSuppressed: (name)              => Deno.core.ops.bsengine_is_zidovudine_just_suppressed(name),
+    isZidovudineJustCleared:    (name)              => Deno.core.ops.bsengine_is_zidovudine_just_cleared(name),
+    isZidovudineEnabled:        (name)              => Deno.core.ops.bsengine_is_zidovudine_enabled(name),
+    administerZidovudine:       (name)              => Deno.core.ops.bsengine_administer_zidovudine(name),
+    metaboliseZidovudine:       (name)              => Deno.core.ops.bsengine_metabolise_zidovudine(name),
+    setZidovudineEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zidovudine_enabled(name, v),
+    getZigguratTier:            (name)              => Deno.core.ops.bsengine_get_ziggurat_tier(name),
+    getZigguratMaxTier:         (name)              => Deno.core.ops.bsengine_get_ziggurat_max_tier(name),
+    getZigguratRiseRate:        (name)              => Deno.core.ops.bsengine_get_ziggurat_rise_rate(name),
+    isZigguratJustCrowned:      (name)              => Deno.core.ops.bsengine_is_ziggurat_just_crowned(name),
+    isZigguratJustRazed:        (name)              => Deno.core.ops.bsengine_is_ziggurat_just_razed(name),
+    isZigguratEnabled:          (name)              => Deno.core.ops.bsengine_is_ziggurat_enabled(name),
+    ascendZiggurat:             (name)              => Deno.core.ops.bsengine_ascend_ziggurat(name),
+    collapseZiggurat:           (name)              => Deno.core.ops.bsengine_collapse_ziggurat(name),
+    setZigguratEnabled:         (name, v)           => Deno.core.ops.bsengine_set_ziggurat_enabled(name, v),
+    getZigzagPhase:             (name)              => Deno.core.ops.bsengine_get_zigzag_phase(name),
+    getZigzagPeriod:            (name)              => Deno.core.ops.bsengine_get_zigzag_period(name),
+    getZigzagSpeed:             (name)              => Deno.core.ops.bsengine_get_zigzag_speed(name),
+    isZigzagRising:             (name)              => Deno.core.ops.bsengine_is_zigzag_rising(name),
+    isZigzagJustReversed:       (name)              => Deno.core.ops.bsengine_is_zigzag_just_reversed(name),
+    isZigzagEnabled:            (name)              => Deno.core.ops.bsengine_is_zigzag_enabled(name),
+    advanceZigzag:              (name)              => Deno.core.ops.bsengine_advance_zigzag(name),
+    tickZigzag:                 (name)              => Deno.core.ops.bsengine_tick_zigzag(name),
+    setZigzagEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zigzag_enabled(name, v),
+    getZikrResonance:           (name)              => Deno.core.ops.bsengine_get_zikr_resonance(name),
+    getZikrMaxResonance:        (name)              => Deno.core.ops.bsengine_get_zikr_max_resonance(name),
+    getZikrHumRate:             (name)              => Deno.core.ops.bsengine_get_zikr_hum_rate(name),
+    isZikrJustResonant:         (name)              => Deno.core.ops.bsengine_is_zikr_just_resonant(name),
+    isZikrJustHushed:           (name)              => Deno.core.ops.bsengine_is_zikr_just_hushed(name),
+    isZikrEnabled:              (name)              => Deno.core.ops.bsengine_is_zikr_enabled(name),
+    intoneZikr:                 (name)              => Deno.core.ops.bsengine_intone_zikr(name),
+    hushZikr:                   (name)              => Deno.core.ops.bsengine_hush_zikr(name),
+    setZikrEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zikr_enabled(name, v),
+    getZilchDeprivation:        (name)              => Deno.core.ops.bsengine_get_zilch_deprivation(name),
+    getZilchMaxDeprivation:     (name)              => Deno.core.ops.bsengine_get_zilch_max_deprivation(name),
+    getZilchReplenishRate:      (name)              => Deno.core.ops.bsengine_get_zilch_replenish_rate(name),
+    isZilchJustExhausted:       (name)              => Deno.core.ops.bsengine_is_zilch_just_exhausted(name),
+    isZilchJustSated:           (name)              => Deno.core.ops.bsengine_is_zilch_just_sated(name),
+    isZilchEnabled:             (name)              => Deno.core.ops.bsengine_is_zilch_enabled(name),
+    depriveZilch:               (name)              => Deno.core.ops.bsengine_deprive_zilch(name),
+    nourishZilch:               (name)              => Deno.core.ops.bsengine_nourish_zilch(name),
+    setZilchEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zilch_enabled(name, v),
+    getZileutonCoverage:        (name)              => Deno.core.ops.bsengine_get_zileuton_coverage(name),
+    getZileutonMaxCoverage:     (name)              => Deno.core.ops.bsengine_get_zileuton_max_coverage(name),
+    getZileutonAbsorptionRate:  (name)              => Deno.core.ops.bsengine_get_zileuton_absorption_rate(name),
+    isZileutonJustCovered:      (name)              => Deno.core.ops.bsengine_is_zileuton_just_covered(name),
+    isZileutonJustLapsed:       (name)              => Deno.core.ops.bsengine_is_zileuton_just_lapsed(name),
+    isZileutonEnabled:          (name)              => Deno.core.ops.bsengine_is_zileuton_enabled(name),
+    doseZileuton:               (name)              => Deno.core.ops.bsengine_dose_zileuton(name),
+    metabolizeZileuton:         (name)              => Deno.core.ops.bsengine_metabolize_zileuton(name),
+    setZileutonEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zileuton_enabled(name, v),
+    getZillRing:                (name)              => Deno.core.ops.bsengine_get_zill_ring(name),
+    getZillMaxRing:             (name)              => Deno.core.ops.bsengine_get_zill_max_ring(name),
+    getZillSustainRate:         (name)              => Deno.core.ops.bsengine_get_zill_sustain_rate(name),
+    isZillJustRinging:          (name)              => Deno.core.ops.bsengine_is_zill_just_ringing(name),
+    isZillJustDamped:           (name)              => Deno.core.ops.bsengine_is_zill_just_damped(name),
+    isZillEnabled:              (name)              => Deno.core.ops.bsengine_is_zill_enabled(name),
+    strikeZill:                 (name)              => Deno.core.ops.bsengine_strike_zill(name),
+    dampZill:                   (name)              => Deno.core.ops.bsengine_damp_zill(name),
+    setZillEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zill_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -89993,6 +90565,449 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HybridizeZho { name } if name == "Hybrid")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WeakenZho { name } if name == "Hybrid")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZhoEnabled { name, enabled } if name == "Hybrid" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zibet_read_ops() {
+        super::ZIBET_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Marker".to_string(),
+                (55.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZibetScent("Marker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "55");
+        let r = rt
+            .eval(r#"String(Bsengine.getZibetMaxScent("Marker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZibetMarkRate("Marker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZibetJustMarked("Marker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZibetJustFaded("Marker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZibetEnabled("Marker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIBET_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zibet_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.sprayZibet("Marker");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.waneZibet("Marker");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZibetEnabled("Marker", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SprayZibet { name } if name == "Marker")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WaneZibet { name } if name == "Marker")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZibetEnabled { name, enabled } if name == "Marker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zidovudine_read_ops() {
+        super::ZIDOVUDINE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Patient".to_string(),
+                (30.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZidovudineDose("Patient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getZidovudineMaxDose("Patient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZidovudineInfusionRate("Patient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZidovudineJustSuppressed("Patient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZidovudineJustCleared("Patient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZidovudineEnabled("Patient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIDOVUDINE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zidovudine_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.administerZidovudine("Patient");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.metaboliseZidovudine("Patient");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZidovudineEnabled("Patient", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdministerZidovudine { name } if name == "Patient")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MetaboliseZidovudine { name } if name == "Patient")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZidovudineEnabled { name, enabled } if name == "Patient" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ziggurat_read_ops() {
+        super::ZIGGURAT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Temple".to_string(),
+                (60.0f32, 100.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZigguratTier("Temple"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZigguratMaxTier("Temple"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZigguratRiseRate("Temple"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZigguratJustCrowned("Temple"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZigguratJustRazed("Temple"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZigguratEnabled("Temple"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIGGURAT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ziggurat_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.ascendZiggurat("Temple");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.collapseZiggurat("Temple");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZigguratEnabled("Temple", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AscendZiggurat { name } if name == "Temple")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CollapseZiggurat { name } if name == "Temple")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZigguratEnabled { name, enabled } if name == "Temple" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zigzag_read_ops() {
+        super::ZIGZAG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pendulum".to_string(),
+                (25.0f32, 100.0f32, 20.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZigzagPhase("Pendulum"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "25");
+        let r = rt
+            .eval(r#"String(Bsengine.getZigzagPeriod("Pendulum"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZigzagSpeed("Pendulum"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.isZigzagRising("Pendulum"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZigzagJustReversed("Pendulum"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZigzagEnabled("Pendulum"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIGZAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zigzag_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.advanceZigzag("Pendulum");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.tickZigzag("Pendulum");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZigzagEnabled("Pendulum", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdvanceZigzag { name } if name == "Pendulum")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TickZigzag { name } if name == "Pendulum")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZigzagEnabled { name, enabled } if name == "Pendulum" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zikr_read_ops() {
+        super::ZIKR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Chanter".to_string(),
+                (70.0f32, 100.0f32, 7.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZikrResonance("Chanter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "70");
+        let r = rt
+            .eval(r#"String(Bsengine.getZikrMaxResonance("Chanter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZikrHumRate("Chanter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt
+            .eval(r#"String(Bsengine.isZikrJustResonant("Chanter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZikrJustHushed("Chanter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZikrEnabled("Chanter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIKR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zikr_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.intoneZikr("Chanter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.hushZikr("Chanter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZikrEnabled("Chanter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::IntoneZikr { name } if name == "Chanter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HushZikr { name } if name == "Chanter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZikrEnabled { name, enabled } if name == "Chanter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zilch_read_ops() {
+        super::ZILCH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Starving".to_string(),
+                (40.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZilchDeprivation("Starving"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZilchMaxDeprivation("Starving"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZilchReplenishRate("Starving"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZilchJustExhausted("Starving"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZilchJustSated("Starving"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZilchEnabled("Starving"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZILCH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zilch_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.depriveZilch("Starving");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.nourishZilch("Starving");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZilchEnabled("Starving", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepriveZilch { name } if name == "Starving")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NourishZilch { name } if name == "Starving")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZilchEnabled { name, enabled } if name == "Starving" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zileuton_read_ops() {
+        super::ZILEUTON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Airway".to_string(),
+                (50.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZileutonCoverage("Airway"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZileutonMaxCoverage("Airway"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZileutonAbsorptionRate("Airway"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZileutonJustCovered("Airway"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZileutonJustLapsed("Airway"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZileutonEnabled("Airway"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZILEUTON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zileuton_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.doseZileuton("Airway");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.metabolizeZileuton("Airway");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZileutonEnabled("Airway", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DoseZileuton { name } if name == "Airway")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MetabolizeZileuton { name } if name == "Airway")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZileutonEnabled { name, enabled } if name == "Airway" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zill_read_ops() {
+        super::ZILL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cymbal".to_string(),
+                (80.0f32, 100.0f32, 8.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZillRing("Cymbal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZillMaxRing("Cymbal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZillSustainRate("Cymbal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.isZillJustRinging("Cymbal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZillJustDamped("Cymbal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZillEnabled("Cymbal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZILL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zill_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.strikeZill("Cymbal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dampZill("Cymbal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZillEnabled("Cymbal", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrikeZill { name } if name == "Cymbal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DampZill { name } if name == "Cymbal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZillEnabled { name, enabled } if name == "Cymbal" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

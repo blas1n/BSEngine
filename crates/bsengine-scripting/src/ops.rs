@@ -7082,6 +7082,94 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Zeroth ───────────────────────────────────────────────────────────────
+    DriftZeroth {
+        name: String,
+    },
+    CorrectZeroth {
+        name: String,
+    },
+    SetZerothEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zester ───────────────────────────────────────────────────────────────
+    GrateZester {
+        name: String,
+    },
+    DiscardZester {
+        name: String,
+    },
+    SetZesterEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zestful ──────────────────────────────────────────────────────────────
+    InvigorateZestful {
+        name: String,
+    },
+    SapZestful {
+        name: String,
+    },
+    SetZestfulEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeta ─────────────────────────────────────────────────────────────────
+    ChargeZeta {
+        name: String,
+    },
+    DischargeZeta {
+        name: String,
+    },
+    SetZetaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zetetic ──────────────────────────────────────────────────────────────
+    InvestigateZetetic {
+        name: String,
+    },
+    AbandonZetetic {
+        name: String,
+    },
+    SetZeteticEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeugen ───────────────────────────────────────────────────────────────
+    UpliftZeugen {
+        name: String,
+    },
+    ErodeZeugen {
+        name: String,
+    },
+    SetZeugenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeugma ───────────────────────────────────────────────────────────────
+    YokeZeugma {
+        name: String,
+    },
+    SeverZeugma {
+        name: String,
+    },
+    SetZeugmaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zho ──────────────────────────────────────────────────────────────────
+    HybridizeZho {
+        name: String,
+    },
+    WeakenZho {
+        name: String,
+    },
+    SetZhoEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8811,6 +8899,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zerk: lubrication, max_lubrication, flow_rate, just_serviced, just_seized, enabled
     pub(crate) static ZERK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeroth: deviation, max_deviation, drift_rate, just_saturated, just_grounded, enabled
+    pub(crate) static ZEROTH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zester: scraped, max_scraped, grate_rate, just_zested, just_depleted, enabled
+    pub(crate) static ZESTER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zestful: energy, max_energy, invigorate_rate, just_zestful, just_listless, enabled
+    pub(crate) static ZESTFUL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeta: potential, max_potential, flux_rate, just_critical, just_neutral, enabled
+    pub(crate) static ZETA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zetetic: inquiry, max_inquiry, probe_rate, just_resolved, just_abandoned, enabled
+    pub(crate) static ZETETIC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeugen: prominence, max_prominence, denude_rate, just_prominent, just_eroded, enabled
+    pub(crate) static ZEUGEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeugma: tension, max_tension, tighten_rate, just_yoked, just_severed, enabled
+    pub(crate) static ZEUGMA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zho: vigor, max_vigor, cross_rate, just_thriving, just_exhausted, enabled
+    pub(crate) static ZHO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -24318,6 +24430,332 @@ pub fn bsengine_set_zerk_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZerkEnabled { name, enabled })
+    });
+}
+// ── Zeroth ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeroth_deviation(#[string] name: String) -> f32 {
+    ZEROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeroth_max_deviation(#[string] name: String) -> f32 {
+    ZEROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeroth_drift_rate(#[string] name: String) -> f32 {
+    ZEROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeroth_just_saturated(#[string] name: String) -> bool {
+    ZEROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeroth_just_grounded(#[string] name: String) -> bool {
+    ZEROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeroth_enabled(#[string] name: String) -> bool {
+    ZEROTH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_drift_zeroth(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DriftZeroth { name }));
+}
+#[op2(fast)]
+pub fn bsengine_correct_zeroth(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CorrectZeroth { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeroth_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZerothEnabled { name, enabled })
+    });
+}
+// ── Zester ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zester_scraped(#[string] name: String) -> f32 {
+    ZESTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zester_max_scraped(#[string] name: String) -> f32 {
+    ZESTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zester_grate_rate(#[string] name: String) -> f32 {
+    ZESTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zester_just_zested(#[string] name: String) -> bool {
+    ZESTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zester_just_depleted(#[string] name: String) -> bool {
+    ZESTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zester_enabled(#[string] name: String) -> bool {
+    ZESTER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_grate_zester(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::GrateZester { name }));
+}
+#[op2(fast)]
+pub fn bsengine_discard_zester(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DiscardZester { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zester_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZesterEnabled { name, enabled })
+    });
+}
+// ── Zestful ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zestful_energy(#[string] name: String) -> f32 {
+    ZESTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zestful_max_energy(#[string] name: String) -> f32 {
+    ZESTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zestful_invigorate_rate(#[string] name: String) -> f32 {
+    ZESTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zestful_just_zestful(#[string] name: String) -> bool {
+    ZESTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zestful_just_listless(#[string] name: String) -> bool {
+    ZESTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zestful_enabled(#[string] name: String) -> bool {
+    ZESTFUL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_invigorate_zestful(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InvigorateZestful { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_sap_zestful(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SapZestful { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zestful_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZestfulEnabled { name, enabled })
+    });
+}
+// ── Zeta ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeta_potential(#[string] name: String) -> f32 {
+    ZETA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeta_max_potential(#[string] name: String) -> f32 {
+    ZETA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeta_flux_rate(#[string] name: String) -> f32 {
+    ZETA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeta_just_critical(#[string] name: String) -> bool {
+    ZETA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeta_just_neutral(#[string] name: String) -> bool {
+    ZETA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeta_enabled(#[string] name: String) -> bool {
+    ZETA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_zeta(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ChargeZeta { name }));
+}
+#[op2(fast)]
+pub fn bsengine_discharge_zeta(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DischargeZeta { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeta_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZetaEnabled { name, enabled })
+    });
+}
+// ── Zetetic ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zetetic_inquiry(#[string] name: String) -> f32 {
+    ZETETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zetetic_max_inquiry(#[string] name: String) -> f32 {
+    ZETETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zetetic_probe_rate(#[string] name: String) -> f32 {
+    ZETETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zetetic_just_resolved(#[string] name: String) -> bool {
+    ZETETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zetetic_just_abandoned(#[string] name: String) -> bool {
+    ZETETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zetetic_enabled(#[string] name: String) -> bool {
+    ZETETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_investigate_zetetic(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InvestigateZetetic { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_abandon_zetetic(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AbandonZetetic { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zetetic_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeteticEnabled { name, enabled })
+    });
+}
+// ── Zeugen ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeugen_prominence(#[string] name: String) -> f32 {
+    ZEUGEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeugen_max_prominence(#[string] name: String) -> f32 {
+    ZEUGEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeugen_denude_rate(#[string] name: String) -> f32 {
+    ZEUGEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeugen_just_prominent(#[string] name: String) -> bool {
+    ZEUGEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeugen_just_eroded(#[string] name: String) -> bool {
+    ZEUGEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeugen_enabled(#[string] name: String) -> bool {
+    ZEUGEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_uplift_zeugen(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UpliftZeugen { name }));
+}
+#[op2(fast)]
+pub fn bsengine_erode_zeugen(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ErodeZeugen { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeugen_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeugenEnabled { name, enabled })
+    });
+}
+// ── Zeugma ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeugma_tension(#[string] name: String) -> f32 {
+    ZEUGMA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeugma_max_tension(#[string] name: String) -> f32 {
+    ZEUGMA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeugma_tighten_rate(#[string] name: String) -> f32 {
+    ZEUGMA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeugma_just_yoked(#[string] name: String) -> bool {
+    ZEUGMA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeugma_just_severed(#[string] name: String) -> bool {
+    ZEUGMA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeugma_enabled(#[string] name: String) -> bool {
+    ZEUGMA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yoke_zeugma(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YokeZeugma { name }));
+}
+#[op2(fast)]
+pub fn bsengine_sever_zeugma(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SeverZeugma { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeugma_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeugmaEnabled { name, enabled })
+    });
+}
+// ── Zho ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zho_vigor(#[string] name: String) -> f32 {
+    ZHO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zho_max_vigor(#[string] name: String) -> f32 {
+    ZHO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zho_cross_rate(#[string] name: String) -> f32 {
+    ZHO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zho_just_thriving(#[string] name: String) -> bool {
+    ZHO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zho_just_exhausted(#[string] name: String) -> bool {
+    ZHO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zho_enabled(#[string] name: String) -> bool {
+    ZHO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_hybridize_zho(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HybridizeZho { name }));
+}
+#[op2(fast)]
+pub fn bsengine_weaken_zho(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WeakenZho { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zho_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZhoEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -46446,6 +46884,78 @@ deno_core::extension!(
         bsengine_grease_zerk,
         bsengine_corrode_zerk,
         bsengine_set_zerk_enabled,
+        bsengine_get_zeroth_deviation,
+        bsengine_get_zeroth_max_deviation,
+        bsengine_get_zeroth_drift_rate,
+        bsengine_is_zeroth_just_saturated,
+        bsengine_is_zeroth_just_grounded,
+        bsengine_is_zeroth_enabled,
+        bsengine_drift_zeroth,
+        bsengine_correct_zeroth,
+        bsengine_set_zeroth_enabled,
+        bsengine_get_zester_scraped,
+        bsengine_get_zester_max_scraped,
+        bsengine_get_zester_grate_rate,
+        bsengine_is_zester_just_zested,
+        bsengine_is_zester_just_depleted,
+        bsengine_is_zester_enabled,
+        bsengine_grate_zester,
+        bsengine_discard_zester,
+        bsengine_set_zester_enabled,
+        bsengine_get_zestful_energy,
+        bsengine_get_zestful_max_energy,
+        bsengine_get_zestful_invigorate_rate,
+        bsengine_is_zestful_just_zestful,
+        bsengine_is_zestful_just_listless,
+        bsengine_is_zestful_enabled,
+        bsengine_invigorate_zestful,
+        bsengine_sap_zestful,
+        bsengine_set_zestful_enabled,
+        bsengine_get_zeta_potential,
+        bsengine_get_zeta_max_potential,
+        bsengine_get_zeta_flux_rate,
+        bsengine_is_zeta_just_critical,
+        bsengine_is_zeta_just_neutral,
+        bsengine_is_zeta_enabled,
+        bsengine_charge_zeta,
+        bsengine_discharge_zeta,
+        bsengine_set_zeta_enabled,
+        bsengine_get_zetetic_inquiry,
+        bsengine_get_zetetic_max_inquiry,
+        bsengine_get_zetetic_probe_rate,
+        bsengine_is_zetetic_just_resolved,
+        bsengine_is_zetetic_just_abandoned,
+        bsengine_is_zetetic_enabled,
+        bsengine_investigate_zetetic,
+        bsengine_abandon_zetetic,
+        bsengine_set_zetetic_enabled,
+        bsengine_get_zeugen_prominence,
+        bsengine_get_zeugen_max_prominence,
+        bsengine_get_zeugen_denude_rate,
+        bsengine_is_zeugen_just_prominent,
+        bsengine_is_zeugen_just_eroded,
+        bsengine_is_zeugen_enabled,
+        bsengine_uplift_zeugen,
+        bsengine_erode_zeugen,
+        bsengine_set_zeugen_enabled,
+        bsengine_get_zeugma_tension,
+        bsengine_get_zeugma_max_tension,
+        bsengine_get_zeugma_tighten_rate,
+        bsengine_is_zeugma_just_yoked,
+        bsengine_is_zeugma_just_severed,
+        bsengine_is_zeugma_enabled,
+        bsengine_yoke_zeugma,
+        bsengine_sever_zeugma,
+        bsengine_set_zeugma_enabled,
+        bsengine_get_zho_vigor,
+        bsengine_get_zho_max_vigor,
+        bsengine_get_zho_cross_rate,
+        bsengine_is_zho_just_thriving,
+        bsengine_is_zho_just_exhausted,
+        bsengine_is_zho_enabled,
+        bsengine_hybridize_zho,
+        bsengine_weaken_zho,
+        bsengine_set_zho_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -51986,6 +52496,78 @@ const Bsengine = {
     greaseZerk:                 (name)              => Deno.core.ops.bsengine_grease_zerk(name),
     corrodeZerk:                (name)              => Deno.core.ops.bsengine_corrode_zerk(name),
     setZerkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zerk_enabled(name, v),
+    getZerothDeviation:         (name)              => Deno.core.ops.bsengine_get_zeroth_deviation(name),
+    getZerothMaxDeviation:      (name)              => Deno.core.ops.bsengine_get_zeroth_max_deviation(name),
+    getZerothDriftRate:         (name)              => Deno.core.ops.bsengine_get_zeroth_drift_rate(name),
+    isZerothJustSaturated:      (name)              => Deno.core.ops.bsengine_is_zeroth_just_saturated(name),
+    isZerothJustGrounded:       (name)              => Deno.core.ops.bsengine_is_zeroth_just_grounded(name),
+    isZerothEnabled:            (name)              => Deno.core.ops.bsengine_is_zeroth_enabled(name),
+    driftZeroth:                (name)              => Deno.core.ops.bsengine_drift_zeroth(name),
+    correctZeroth:              (name)              => Deno.core.ops.bsengine_correct_zeroth(name),
+    setZerothEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zeroth_enabled(name, v),
+    getZesterScraped:           (name)              => Deno.core.ops.bsengine_get_zester_scraped(name),
+    getZesterMaxScraped:        (name)              => Deno.core.ops.bsengine_get_zester_max_scraped(name),
+    getZesterGrateRate:         (name)              => Deno.core.ops.bsengine_get_zester_grate_rate(name),
+    isZesterJustZested:         (name)              => Deno.core.ops.bsengine_is_zester_just_zested(name),
+    isZesterJustDepleted:       (name)              => Deno.core.ops.bsengine_is_zester_just_depleted(name),
+    isZesterEnabled:            (name)              => Deno.core.ops.bsengine_is_zester_enabled(name),
+    grateZester:                (name)              => Deno.core.ops.bsengine_grate_zester(name),
+    discardZester:              (name)              => Deno.core.ops.bsengine_discard_zester(name),
+    setZesterEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zester_enabled(name, v),
+    getZestfulEnergy:           (name)              => Deno.core.ops.bsengine_get_zestful_energy(name),
+    getZestfulMaxEnergy:        (name)              => Deno.core.ops.bsengine_get_zestful_max_energy(name),
+    getZestfulInvigorateRate:   (name)              => Deno.core.ops.bsengine_get_zestful_invigorate_rate(name),
+    isZestfulJustZestful:       (name)              => Deno.core.ops.bsengine_is_zestful_just_zestful(name),
+    isZestfulJustListless:      (name)              => Deno.core.ops.bsengine_is_zestful_just_listless(name),
+    isZestfulEnabled:           (name)              => Deno.core.ops.bsengine_is_zestful_enabled(name),
+    invigorateZestful:          (name)              => Deno.core.ops.bsengine_invigorate_zestful(name),
+    sapZestful:                 (name)              => Deno.core.ops.bsengine_sap_zestful(name),
+    setZestfulEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zestful_enabled(name, v),
+    getZetaPotential:           (name)              => Deno.core.ops.bsengine_get_zeta_potential(name),
+    getZetaMaxPotential:        (name)              => Deno.core.ops.bsengine_get_zeta_max_potential(name),
+    getZetaFluxRate:            (name)              => Deno.core.ops.bsengine_get_zeta_flux_rate(name),
+    isZetaJustCritical:         (name)              => Deno.core.ops.bsengine_is_zeta_just_critical(name),
+    isZetaJustNeutral:          (name)              => Deno.core.ops.bsengine_is_zeta_just_neutral(name),
+    isZetaEnabled:              (name)              => Deno.core.ops.bsengine_is_zeta_enabled(name),
+    chargeZeta:                 (name)              => Deno.core.ops.bsengine_charge_zeta(name),
+    dischargeZeta:              (name)              => Deno.core.ops.bsengine_discharge_zeta(name),
+    setZetaEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zeta_enabled(name, v),
+    getZeteticInquiry:          (name)              => Deno.core.ops.bsengine_get_zetetic_inquiry(name),
+    getZeteticMaxInquiry:       (name)              => Deno.core.ops.bsengine_get_zetetic_max_inquiry(name),
+    getZeteticProbeRate:        (name)              => Deno.core.ops.bsengine_get_zetetic_probe_rate(name),
+    isZeteticJustResolved:      (name)              => Deno.core.ops.bsengine_is_zetetic_just_resolved(name),
+    isZeteticJustAbandoned:     (name)              => Deno.core.ops.bsengine_is_zetetic_just_abandoned(name),
+    isZeteticEnabled:           (name)              => Deno.core.ops.bsengine_is_zetetic_enabled(name),
+    investigateZetetic:         (name)              => Deno.core.ops.bsengine_investigate_zetetic(name),
+    abandonZetetic:             (name)              => Deno.core.ops.bsengine_abandon_zetetic(name),
+    setZeteticEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zetetic_enabled(name, v),
+    getZeugenProminence:        (name)              => Deno.core.ops.bsengine_get_zeugen_prominence(name),
+    getZeugenMaxProminence:     (name)              => Deno.core.ops.bsengine_get_zeugen_max_prominence(name),
+    getZeugenDenudeRate:        (name)              => Deno.core.ops.bsengine_get_zeugen_denude_rate(name),
+    isZeugenJustProminent:      (name)              => Deno.core.ops.bsengine_is_zeugen_just_prominent(name),
+    isZeugenJustEroded:         (name)              => Deno.core.ops.bsengine_is_zeugen_just_eroded(name),
+    isZeugenEnabled:            (name)              => Deno.core.ops.bsengine_is_zeugen_enabled(name),
+    upliftZeugen:               (name)              => Deno.core.ops.bsengine_uplift_zeugen(name),
+    erodeZeugen:                (name)              => Deno.core.ops.bsengine_erode_zeugen(name),
+    setZeugenEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zeugen_enabled(name, v),
+    getZeugmaTension:           (name)              => Deno.core.ops.bsengine_get_zeugma_tension(name),
+    getZeugmaMaxTension:        (name)              => Deno.core.ops.bsengine_get_zeugma_max_tension(name),
+    getZeugmaTightenRate:       (name)              => Deno.core.ops.bsengine_get_zeugma_tighten_rate(name),
+    isZeugmaJustYoked:          (name)              => Deno.core.ops.bsengine_is_zeugma_just_yoked(name),
+    isZeugmaJustSevered:        (name)              => Deno.core.ops.bsengine_is_zeugma_just_severed(name),
+    isZeugmaEnabled:            (name)              => Deno.core.ops.bsengine_is_zeugma_enabled(name),
+    yokeZeugma:                 (name)              => Deno.core.ops.bsengine_yoke_zeugma(name),
+    severZeugma:                (name)              => Deno.core.ops.bsengine_sever_zeugma(name),
+    setZeugmaEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zeugma_enabled(name, v),
+    getZhoVigor:                (name)              => Deno.core.ops.bsengine_get_zho_vigor(name),
+    getZhoMaxVigor:             (name)              => Deno.core.ops.bsengine_get_zho_max_vigor(name),
+    getZhoCrossRate:            (name)              => Deno.core.ops.bsengine_get_zho_cross_rate(name),
+    isZhoJustThriving:          (name)              => Deno.core.ops.bsengine_is_zho_just_thriving(name),
+    isZhoJustExhausted:         (name)              => Deno.core.ops.bsengine_is_zho_just_exhausted(name),
+    isZhoEnabled:               (name)              => Deno.core.ops.bsengine_is_zho_enabled(name),
+    hybridizeZho:               (name)              => Deno.core.ops.bsengine_hybridize_zho(name),
+    weakenZho:                  (name)              => Deno.core.ops.bsengine_weaken_zho(name),
+    setZhoEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zho_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -88971,6 +89553,446 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GreaseZerk { name } if name == "Gear")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorrodeZerk { name } if name == "Gear")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZerkEnabled { name, enabled } if name == "Gear" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeroth_read_ops() {
+        super::ZEROTH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sensor".to_string(),
+                (45.0f32, 100.0f32, 4.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZerothDeviation("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "45");
+        let r = rt
+            .eval(r#"String(Bsengine.getZerothMaxDeviation("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZerothDriftRate("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isZerothJustSaturated("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZerothJustGrounded("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZerothEnabled("Sensor"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEROTH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeroth_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.driftZeroth("Sensor");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.correctZeroth("Sensor");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZerothEnabled("Sensor", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DriftZeroth { name } if name == "Sensor")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorrectZeroth { name } if name == "Sensor")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZerothEnabled { name, enabled } if name == "Sensor" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zester_read_ops() {
+        super::ZESTER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Citrus".to_string(),
+                (60.0f32, 100.0f32, 4.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZesterScraped("Citrus"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZesterMaxScraped("Citrus"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZesterGrateRate("Citrus"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isZesterJustZested("Citrus"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZesterJustDepleted("Citrus"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZesterEnabled("Citrus"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZESTER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zester_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.grateZester("Citrus");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.discardZester("Citrus");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZesterEnabled("Citrus", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GrateZester { name } if name == "Citrus")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DiscardZester { name } if name == "Citrus")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZesterEnabled { name, enabled } if name == "Citrus" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zestful_read_ops() {
+        super::ZESTFUL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Party".to_string(),
+                (75.0f32, 100.0f32, 3.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZestfulEnergy("Party"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getZestfulMaxEnergy("Party"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZestfulInvigorateRate("Party"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZestfulJustZestful("Party"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZestfulJustListless("Party"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZestfulEnabled("Party"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZESTFUL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zestful_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.invigorateZestful("Party");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.sapZestful("Party");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZestfulEnabled("Party", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InvigorateZestful { name } if name == "Party")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SapZestful { name } if name == "Party")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZestfulEnabled { name, enabled } if name == "Party" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeta_read_ops() {
+        super::ZETA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Plasma".to_string(),
+                (55.0f32, 100.0f32, 7.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZetaPotential("Plasma"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "55");
+        let r = rt
+            .eval(r#"String(Bsengine.getZetaMaxPotential("Plasma"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZetaFluxRate("Plasma"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt
+            .eval(r#"String(Bsengine.isZetaJustCritical("Plasma"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZetaJustNeutral("Plasma"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZetaEnabled("Plasma"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZETA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeta_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chargeZeta("Plasma");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dischargeZeta("Plasma");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZetaEnabled("Plasma", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChargeZeta { name } if name == "Plasma")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DischargeZeta { name } if name == "Plasma")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZetaEnabled { name, enabled } if name == "Plasma" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zetetic_read_ops() {
+        super::ZETETIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Scout".to_string(),
+                (35.0f32, 100.0f32, 2.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeteticInquiry("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "35");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeteticMaxInquiry("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeteticProbeRate("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeteticJustResolved("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeteticJustAbandoned("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeteticEnabled("Scout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZETETIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zetetic_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.investigateZetetic("Scout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.abandonZetetic("Scout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeteticEnabled("Scout", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InvestigateZetetic { name } if name == "Scout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AbandonZetetic { name } if name == "Scout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeteticEnabled { name, enabled } if name == "Scout" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeugen_read_ops() {
+        super::ZEUGEN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Mesa".to_string(),
+                (80.0f32, 100.0f32, 0.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeugenProminence("Mesa"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeugenMaxProminence("Mesa"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeugenDenudeRate("Mesa"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeugenJustProminent("Mesa"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeugenJustEroded("Mesa"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeugenEnabled("Mesa"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEUGEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeugen_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.upliftZeugen("Mesa");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.erodeZeugen("Mesa");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeugenEnabled("Mesa", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UpliftZeugen { name } if name == "Mesa")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ErodeZeugen { name } if name == "Mesa")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeugenEnabled { name, enabled } if name == "Mesa" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeugma_read_ops() {
+        super::ZEUGMA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Chain".to_string(),
+                (65.0f32, 100.0f32, 6.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeugmaTension("Chain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "65");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeugmaMaxTension("Chain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeugmaTightenRate("Chain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeugmaJustYoked("Chain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeugmaJustSevered("Chain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeugmaEnabled("Chain"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEUGMA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeugma_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yokeZeugma("Chain");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.severZeugma("Chain");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeugmaEnabled("Chain", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::YokeZeugma { name } if name == "Chain")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SeverZeugma { name } if name == "Chain")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeugmaEnabled { name, enabled } if name == "Chain" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zho_read_ops() {
+        super::ZHO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hybrid".to_string(),
+                (40.0f32, 100.0f32, 2.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZhoVigor("Hybrid"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZhoMaxVigor("Hybrid"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZhoCrossRate("Hybrid"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZhoJustThriving("Hybrid"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZhoJustExhausted("Hybrid"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZhoEnabled("Hybrid"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZHO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zho_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.hybridizeZho("Hybrid");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.weakenZho("Hybrid");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZhoEnabled("Hybrid", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HybridizeZho { name } if name == "Hybrid")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WeakenZho { name } if name == "Hybrid")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZhoEnabled { name, enabled } if name == "Hybrid" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -123,7 +123,9 @@ use crate::ops::{
     ZAP_SNAPSHOT, ZEALOTRY_SNAPSHOT, ZEALOT_SNAPSHOT, ZEALOUS_SNAPSHOT, ZEAL_SNAPSHOT,
     ZEATIN_SNAPSHOT, ZEAXANTHIN_SNAPSHOT, ZEBEC_SNAPSHOT, ZEBRAFISH_SNAPSHOT, ZEBRA_SNAPSHOT,
     ZEBRINE_SNAPSHOT, ZEBROID_SNAPSHOT, ZEBU_SNAPSHOT, ZECHIN_SNAPSHOT, ZED_SNAPSHOT,
-    ZEEKOE_SNAPSHOT, ZEIN_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    ZEEKOE_SNAPSHOT, ZEIN_SNAPSHOT, ZEITGEBER_SNAPSHOT, ZEITGEIST_SNAPSHOT, ZEK_SNAPSHOT,
+    ZELKOVA_SNAPSHOT, ZEMSTVO_SNAPSHOT, ZENANA_SNAPSHOT, ZENDO_SNAPSHOT, ZEN_SNAPSHOT,
+    Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -6666,6 +6668,158 @@ fn run_scripts(world: &mut World) {
             );
         }
         ZEIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeitgeber;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeitgeber)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.entrainment,
+                    c.max_entrainment,
+                    c.cue_rate,
+                    c.just_entrained,
+                    c.just_drifted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEITGEBER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeitgeist;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeitgeist)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.momentum,
+                    c.max_momentum,
+                    c.fade_rate,
+                    c.just_surged,
+                    c.just_faded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEITGEIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zek;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zek)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.output,
+                    c.max_output,
+                    c.toil_rate,
+                    c.just_fulfilled,
+                    c.just_exhausted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zelkova;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zelkova)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.canopy,
+                    c.max_canopy,
+                    c.grow_rate,
+                    c.just_canopied,
+                    c.just_bare,
+                    c.enabled,
+                ),
+            );
+        }
+        ZELKOVA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zemstvo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zemstvo)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.authority,
+                    c.max_authority,
+                    c.mandate_rate,
+                    c.just_empowered,
+                    c.just_abolished,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEMSTVO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zen;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zen)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zen_level,
+                    c.max_zen,
+                    c.restore_rate,
+                    c.just_achieved,
+                    c.just_broken,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zenana;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zenana)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.solace,
+                    c.max_solace,
+                    c.shelter_rate,
+                    c.just_secluded,
+                    c.just_disturbed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENANA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zendo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zendo)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.harmony,
+                    c.max_harmony,
+                    c.attune_rate,
+                    c.just_harmonized,
+                    c.just_discordant,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENDO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -32587,6 +32741,259 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Zein>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SignalZeitgeber { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeitgeber>(e) {
+                        w.signal(1.0);
+                    }
+                }
+            }
+            ScriptCommand::DriftZeitgeber { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeitgeber>(e) {
+                        w.drift(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZeitgeberEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeitgeber>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InfluenceZeitgeist { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeitgeist>(e) {
+                        w.influence(1.0);
+                    }
+                }
+            }
+            ScriptCommand::DissipateZeitgeist { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeitgeist>(e) {
+                        w.dissipate(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZeitgeistEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeitgeist>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::LaborZek { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zek>(e) {
+                        w.labor(1.0);
+                    }
+                }
+            }
+            ScriptCommand::ConfiscateZek { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zek>(e) {
+                        w.confiscate(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZekEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zek>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::BranchZelkova { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zelkova>(e) {
+                        w.branch(1.0);
+                    }
+                }
+            }
+            ScriptCommand::PruneZelkova { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zelkova>(e) {
+                        w.prune(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZelkovaEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zelkova>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ConveneZemstvo { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zemstvo>(e) {
+                        w.convene(1.0);
+                    }
+                }
+            }
+            ScriptCommand::DissolveZemstvo { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zemstvo>(e) {
+                        w.dissolve(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZemstvoEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zemstvo>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::DisturbZen { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zen>(e) {
+                        w.disturb(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZenEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zen>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RetreatZenana { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zenana>(e) {
+                        w.retreat(1.0);
+                    }
+                }
+            }
+            ScriptCommand::DisturbZenana { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zenana>(e) {
+                        w.disturb(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZenanaEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zenana>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AlignZendo { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zendo>(e) {
+                        w.align(1.0);
+                    }
+                }
+            }
+            ScriptCommand::DiscordZendo { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zendo>(e) {
+                        w.discord(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZendoEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zendo>(e) {
                         w.enabled = enabled;
                     }
                 }

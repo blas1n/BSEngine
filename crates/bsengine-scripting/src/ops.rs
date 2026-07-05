@@ -6585,6 +6585,83 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    BeginHeatingYule {
+        name: String,
+    },
+    StopHeatingYule {
+        name: String,
+    },
+    SetYuleEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EatYum {
+        name: String,
+    },
+    SetYumEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FlavorYummy {
+        name: String,
+    },
+    SpoilYummy {
+        name: String,
+    },
+    SetYummyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    YupYup {
+        name: String,
+    },
+    SetYupEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DeployYurt {
+        name: String,
+    },
+    CollapseYurt {
+        name: String,
+    },
+    DamageYurt {
+        name: String,
+    },
+    RepairYurt {
+        name: String,
+    },
+    SetYurtEnabled {
+        name: String,
+        enabled: bool,
+    },
+    RestZafu {
+        name: String,
+    },
+    FatigueZafu {
+        name: String,
+    },
+    SetZafuEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PushZag {
+        name: String,
+    },
+    SetZagEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AcquireZaibatsu {
+        name: String,
+    },
+    DivestZaibatsu {
+        name: String,
+    },
+    SetZaibatsuEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8170,6 +8247,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // yore: current_value, peak_value, just_peaked, enabled
     pub(crate) static YORE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yule: warmth, max_warmth, heat_rate, cool_rate, is_heating, just_peaked, just_frosted, enabled
+    pub(crate) static YULE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yum: fullness, max_fullness, hunger_rate, just_sated, just_starved, enabled
+    pub(crate) static YUM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yummy: appeal, max_appeal, spoil_rate, just_irresistible, just_spoiled, enabled
+    pub(crate) static YUMMY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yup: streak (as f32), max_streak (as f32), responded, just_peaked, just_broke, enabled
+    pub(crate) static YUP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // yurt: durability, max_durability, deployed, just_deployed, just_collapsed, enabled
+    pub(crate) static YURT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, bool, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zafu: support, max_support, recovery_rate, just_supported, just_exhausted, enabled
+    pub(crate) static ZAFU_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zag: offset, max_offset, drift_rate, just_peaked, just_bottomed, enabled
+    pub(crate) static ZAG_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zaibatsu: reach, max_reach, consolidate_rate, just_dominant, just_dissolved, enabled
+    pub(crate) static ZAIBATSU_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -21729,6 +21830,333 @@ pub fn bsengine_set_yore_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetYoreEnabled { name, enabled })
+    });
+}
+// ── Yule ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yule_warmth(#[string] name: String) -> f32 {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yule_max_warmth(#[string] name: String) -> f32 {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yule_heat_rate(#[string] name: String) -> f32 {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yule_cool_rate(#[string] name: String) -> f32 {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yule_heating(#[string] name: String) -> bool {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yule_just_peaked(#[string] name: String) -> bool {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yule_just_frosted(#[string] name: String) -> bool {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yule_enabled(#[string] name: String) -> bool {
+    YULE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.7).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_begin_heating_yule(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BeginHeatingYule { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stop_heating_yule(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopHeatingYule { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yule_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYuleEnabled { name, enabled })
+    });
+}
+// ── Yum ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yum_fullness(#[string] name: String) -> f32 {
+    YUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yum_max_fullness(#[string] name: String) -> f32 {
+    YUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yum_hunger_rate(#[string] name: String) -> f32 {
+    YUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yum_just_sated(#[string] name: String) -> bool {
+    YUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yum_just_starved(#[string] name: String) -> bool {
+    YUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yum_enabled(#[string] name: String) -> bool {
+    YUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_eat_yum(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::EatYum { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yum_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYumEnabled { name, enabled })
+    });
+}
+// ── Yummy ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yummy_appeal(#[string] name: String) -> f32 {
+    YUMMY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yummy_max_appeal(#[string] name: String) -> f32 {
+    YUMMY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yummy_spoil_rate(#[string] name: String) -> f32 {
+    YUMMY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yummy_just_irresistible(#[string] name: String) -> bool {
+    YUMMY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yummy_just_spoiled(#[string] name: String) -> bool {
+    YUMMY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yummy_enabled(#[string] name: String) -> bool {
+    YUMMY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_flavor_yummy(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FlavorYummy { name }));
+}
+#[op2(fast)]
+pub fn bsengine_spoil_yummy(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SpoilYummy { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yummy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYummyEnabled { name, enabled })
+    });
+}
+// ── Yup ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yup_streak(#[string] name: String) -> f32 {
+    YUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yup_max_streak(#[string] name: String) -> f32 {
+    YUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yup_responded(#[string] name: String) -> bool {
+    YUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yup_just_peaked(#[string] name: String) -> bool {
+    YUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yup_just_broke(#[string] name: String) -> bool {
+    YUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yup_enabled(#[string] name: String) -> bool {
+    YUP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_yup_yup(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::YupYup { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yup_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYupEnabled { name, enabled })
+    });
+}
+// ── Yurt ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_yurt_durability(#[string] name: String) -> f32 {
+    YURT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_yurt_max_durability(#[string] name: String) -> f32 {
+    YURT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_yurt_deployed(#[string] name: String) -> bool {
+    YURT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yurt_just_deployed(#[string] name: String) -> bool {
+    YURT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yurt_just_collapsed(#[string] name: String) -> bool {
+    YURT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_yurt_enabled(#[string] name: String) -> bool {
+    YURT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_deploy_yurt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeployYurt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_collapse_yurt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CollapseYurt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_damage_yurt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DamageYurt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_repair_yurt(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RepairYurt { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_yurt_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetYurtEnabled { name, enabled })
+    });
+}
+// ── Zafu ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zafu_support(#[string] name: String) -> f32 {
+    ZAFU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zafu_max_support(#[string] name: String) -> f32 {
+    ZAFU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zafu_recovery_rate(#[string] name: String) -> f32 {
+    ZAFU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zafu_just_supported(#[string] name: String) -> bool {
+    ZAFU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zafu_just_exhausted(#[string] name: String) -> bool {
+    ZAFU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zafu_enabled(#[string] name: String) -> bool {
+    ZAFU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_rest_zafu(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RestZafu { name }));
+}
+#[op2(fast)]
+pub fn bsengine_fatigue_zafu(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::FatigueZafu { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zafu_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZafuEnabled { name, enabled })
+    });
+}
+// ── Zag ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zag_offset(#[string] name: String) -> f32 {
+    ZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zag_max_offset(#[string] name: String) -> f32 {
+    ZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zag_drift_rate(#[string] name: String) -> f32 {
+    ZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zag_just_peaked(#[string] name: String) -> bool {
+    ZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zag_just_bottomed(#[string] name: String) -> bool {
+    ZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zag_enabled(#[string] name: String) -> bool {
+    ZAG_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_push_zag(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PushZag { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zag_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZagEnabled { name, enabled })
+    });
+}
+// ── Zaibatsu ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zaibatsu_reach(#[string] name: String) -> f32 {
+    ZAIBATSU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zaibatsu_max_reach(#[string] name: String) -> f32 {
+    ZAIBATSU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zaibatsu_consolidate_rate(#[string] name: String) -> f32 {
+    ZAIBATSU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zaibatsu_just_dominant(#[string] name: String) -> bool {
+    ZAIBATSU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zaibatsu_just_dissolved(#[string] name: String) -> bool {
+    ZAIBATSU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zaibatsu_enabled(#[string] name: String) -> bool {
+    ZAIBATSU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_acquire_zaibatsu(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AcquireZaibatsu { name }));
+}
+#[op2(fast)]
+pub fn bsengine_divest_zaibatsu(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DivestZaibatsu { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zaibatsu_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZaibatsuEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -43427,6 +43855,79 @@ deno_core::extension!(
         bsengine_observe_yore,
         bsengine_reset_peak_yore,
         bsengine_set_yore_enabled,
+        bsengine_get_yule_warmth,
+        bsengine_get_yule_max_warmth,
+        bsengine_get_yule_heat_rate,
+        bsengine_get_yule_cool_rate,
+        bsengine_is_yule_heating,
+        bsengine_is_yule_just_peaked,
+        bsengine_is_yule_just_frosted,
+        bsengine_is_yule_enabled,
+        bsengine_begin_heating_yule,
+        bsengine_stop_heating_yule,
+        bsengine_set_yule_enabled,
+        bsengine_get_yum_fullness,
+        bsengine_get_yum_max_fullness,
+        bsengine_get_yum_hunger_rate,
+        bsengine_is_yum_just_sated,
+        bsengine_is_yum_just_starved,
+        bsengine_is_yum_enabled,
+        bsengine_eat_yum,
+        bsengine_set_yum_enabled,
+        bsengine_get_yummy_appeal,
+        bsengine_get_yummy_max_appeal,
+        bsengine_get_yummy_spoil_rate,
+        bsengine_is_yummy_just_irresistible,
+        bsengine_is_yummy_just_spoiled,
+        bsengine_is_yummy_enabled,
+        bsengine_flavor_yummy,
+        bsengine_spoil_yummy,
+        bsengine_set_yummy_enabled,
+        bsengine_get_yup_streak,
+        bsengine_get_yup_max_streak,
+        bsengine_is_yup_responded,
+        bsengine_is_yup_just_peaked,
+        bsengine_is_yup_just_broke,
+        bsengine_is_yup_enabled,
+        bsengine_yup_yup,
+        bsengine_set_yup_enabled,
+        bsengine_get_yurt_durability,
+        bsengine_get_yurt_max_durability,
+        bsengine_is_yurt_deployed,
+        bsengine_is_yurt_just_deployed,
+        bsengine_is_yurt_just_collapsed,
+        bsengine_is_yurt_enabled,
+        bsengine_deploy_yurt,
+        bsengine_collapse_yurt,
+        bsengine_damage_yurt,
+        bsengine_repair_yurt,
+        bsengine_set_yurt_enabled,
+        bsengine_get_zafu_support,
+        bsengine_get_zafu_max_support,
+        bsengine_get_zafu_recovery_rate,
+        bsengine_is_zafu_just_supported,
+        bsengine_is_zafu_just_exhausted,
+        bsengine_is_zafu_enabled,
+        bsengine_rest_zafu,
+        bsengine_fatigue_zafu,
+        bsengine_set_zafu_enabled,
+        bsengine_get_zag_offset,
+        bsengine_get_zag_max_offset,
+        bsengine_get_zag_drift_rate,
+        bsengine_is_zag_just_peaked,
+        bsengine_is_zag_just_bottomed,
+        bsengine_is_zag_enabled,
+        bsengine_push_zag,
+        bsengine_set_zag_enabled,
+        bsengine_get_zaibatsu_reach,
+        bsengine_get_zaibatsu_max_reach,
+        bsengine_get_zaibatsu_consolidate_rate,
+        bsengine_is_zaibatsu_just_dominant,
+        bsengine_is_zaibatsu_just_dissolved,
+        bsengine_is_zaibatsu_enabled,
+        bsengine_acquire_zaibatsu,
+        bsengine_divest_zaibatsu,
+        bsengine_set_zaibatsu_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -48537,6 +49038,79 @@ const Bsengine = {
     observeYore:                (name)              => Deno.core.ops.bsengine_observe_yore(name),
     resetPeakYore:              (name)              => Deno.core.ops.bsengine_reset_peak_yore(name),
     setYoreEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yore_enabled(name, v),
+    getYuleWarmth:              (name)              => Deno.core.ops.bsengine_get_yule_warmth(name),
+    getYuleMaxWarmth:           (name)              => Deno.core.ops.bsengine_get_yule_max_warmth(name),
+    getYuleHeatRate:            (name)              => Deno.core.ops.bsengine_get_yule_heat_rate(name),
+    getYuleCoolRate:            (name)              => Deno.core.ops.bsengine_get_yule_cool_rate(name),
+    isYuleHeating:              (name)              => Deno.core.ops.bsengine_is_yule_heating(name),
+    isYuleJustPeaked:           (name)              => Deno.core.ops.bsengine_is_yule_just_peaked(name),
+    isYuleJustFrosted:          (name)              => Deno.core.ops.bsengine_is_yule_just_frosted(name),
+    isYuleEnabled:              (name)              => Deno.core.ops.bsengine_is_yule_enabled(name),
+    beginHeatingYule:           (name)              => Deno.core.ops.bsengine_begin_heating_yule(name),
+    stopHeatingYule:            (name)              => Deno.core.ops.bsengine_stop_heating_yule(name),
+    setYuleEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yule_enabled(name, v),
+    getYumFullness:             (name)              => Deno.core.ops.bsengine_get_yum_fullness(name),
+    getYumMaxFullness:          (name)              => Deno.core.ops.bsengine_get_yum_max_fullness(name),
+    getYumHungerRate:           (name)              => Deno.core.ops.bsengine_get_yum_hunger_rate(name),
+    isYumJustSated:             (name)              => Deno.core.ops.bsengine_is_yum_just_sated(name),
+    isYumJustStarved:           (name)              => Deno.core.ops.bsengine_is_yum_just_starved(name),
+    isYumEnabled:               (name)              => Deno.core.ops.bsengine_is_yum_enabled(name),
+    eatYum:                     (name)              => Deno.core.ops.bsengine_eat_yum(name),
+    setYumEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yum_enabled(name, v),
+    getYummyAppeal:             (name)              => Deno.core.ops.bsengine_get_yummy_appeal(name),
+    getYummyMaxAppeal:          (name)              => Deno.core.ops.bsengine_get_yummy_max_appeal(name),
+    getYummySpoilRate:          (name)              => Deno.core.ops.bsengine_get_yummy_spoil_rate(name),
+    isYummyJustIrresistible:    (name)              => Deno.core.ops.bsengine_is_yummy_just_irresistible(name),
+    isYummyJustSpoiled:         (name)              => Deno.core.ops.bsengine_is_yummy_just_spoiled(name),
+    isYummyEnabled:             (name)              => Deno.core.ops.bsengine_is_yummy_enabled(name),
+    flavorYummy:                (name)              => Deno.core.ops.bsengine_flavor_yummy(name),
+    spoilYummy:                 (name)              => Deno.core.ops.bsengine_spoil_yummy(name),
+    setYummyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_yummy_enabled(name, v),
+    getYupStreak:               (name)              => Deno.core.ops.bsengine_get_yup_streak(name),
+    getYupMaxStreak:            (name)              => Deno.core.ops.bsengine_get_yup_max_streak(name),
+    isYupResponded:             (name)              => Deno.core.ops.bsengine_is_yup_responded(name),
+    isYupJustPeaked:            (name)              => Deno.core.ops.bsengine_is_yup_just_peaked(name),
+    isYupJustBroke:             (name)              => Deno.core.ops.bsengine_is_yup_just_broke(name),
+    isYupEnabled:               (name)              => Deno.core.ops.bsengine_is_yup_enabled(name),
+    yupYup:                     (name)              => Deno.core.ops.bsengine_yup_yup(name),
+    setYupEnabled:              (name, v)           => Deno.core.ops.bsengine_set_yup_enabled(name, v),
+    getYurtDurability:          (name)              => Deno.core.ops.bsengine_get_yurt_durability(name),
+    getYurtMaxDurability:       (name)              => Deno.core.ops.bsengine_get_yurt_max_durability(name),
+    isYurtDeployed:             (name)              => Deno.core.ops.bsengine_is_yurt_deployed(name),
+    isYurtJustDeployed:         (name)              => Deno.core.ops.bsengine_is_yurt_just_deployed(name),
+    isYurtJustCollapsed:        (name)              => Deno.core.ops.bsengine_is_yurt_just_collapsed(name),
+    isYurtEnabled:              (name)              => Deno.core.ops.bsengine_is_yurt_enabled(name),
+    deployYurt:                 (name)              => Deno.core.ops.bsengine_deploy_yurt(name),
+    collapseYurt:               (name)              => Deno.core.ops.bsengine_collapse_yurt(name),
+    damageYurt:                 (name)              => Deno.core.ops.bsengine_damage_yurt(name),
+    repairYurt:                 (name)              => Deno.core.ops.bsengine_repair_yurt(name),
+    setYurtEnabled:             (name, v)           => Deno.core.ops.bsengine_set_yurt_enabled(name, v),
+    getZafuSupport:             (name)              => Deno.core.ops.bsengine_get_zafu_support(name),
+    getZafuMaxSupport:          (name)              => Deno.core.ops.bsengine_get_zafu_max_support(name),
+    getZafuRecoveryRate:        (name)              => Deno.core.ops.bsengine_get_zafu_recovery_rate(name),
+    isZafuJustSupported:        (name)              => Deno.core.ops.bsengine_is_zafu_just_supported(name),
+    isZafuJustExhausted:        (name)              => Deno.core.ops.bsengine_is_zafu_just_exhausted(name),
+    isZafuEnabled:              (name)              => Deno.core.ops.bsengine_is_zafu_enabled(name),
+    restZafu:                   (name)              => Deno.core.ops.bsengine_rest_zafu(name),
+    fatigueZafu:                (name)              => Deno.core.ops.bsengine_fatigue_zafu(name),
+    setZafuEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zafu_enabled(name, v),
+    getZagOffset:               (name)              => Deno.core.ops.bsengine_get_zag_offset(name),
+    getZagMaxOffset:            (name)              => Deno.core.ops.bsengine_get_zag_max_offset(name),
+    getZagDriftRate:            (name)              => Deno.core.ops.bsengine_get_zag_drift_rate(name),
+    isZagJustPeaked:            (name)              => Deno.core.ops.bsengine_is_zag_just_peaked(name),
+    isZagJustBottomed:          (name)              => Deno.core.ops.bsengine_is_zag_just_bottomed(name),
+    isZagEnabled:               (name)              => Deno.core.ops.bsengine_is_zag_enabled(name),
+    pushZag:                    (name)              => Deno.core.ops.bsengine_push_zag(name),
+    setZagEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zag_enabled(name, v),
+    getZaibatsuReach:           (name)              => Deno.core.ops.bsengine_get_zaibatsu_reach(name),
+    getZaibatsuMaxReach:        (name)              => Deno.core.ops.bsengine_get_zaibatsu_max_reach(name),
+    getZaibatsuConsolidateRate: (name)              => Deno.core.ops.bsengine_get_zaibatsu_consolidate_rate(name),
+    isZaibatsuJustDominant:     (name)              => Deno.core.ops.bsengine_is_zaibatsu_just_dominant(name),
+    isZaibatsuJustDissolved:    (name)              => Deno.core.ops.bsengine_is_zaibatsu_just_dissolved(name),
+    isZaibatsuEnabled:          (name)              => Deno.core.ops.bsengine_is_zaibatsu_enabled(name),
+    acquireZaibatsu:            (name)              => Deno.core.ops.bsengine_acquire_zaibatsu(name),
+    divestZaibatsu:             (name)              => Deno.core.ops.bsengine_divest_zaibatsu(name),
+    setZaibatsuEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zaibatsu_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -80360,6 +80934,75 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
     #[test]
+    fn test_yule_read_ops() {
+        super::YULE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hearth".to_string(),
+                (60.0f32, 100.0f32, 10.0f32, 5.0f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYuleWarmth("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getYuleMaxWarmth("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getYuleHeatRate("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getYuleCoolRate("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isYuleHeating("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYuleJustPeaked("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYuleJustFrosted("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYuleEnabled("Hearth"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YULE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yule_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.beginHeatingYule("Hearth");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stopHeatingYule("Hearth");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYuleEnabled("Hearth", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::BeginHeatingYule { name } if name == "Hearth")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::StopHeatingYule { name } if name == "Hearth")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetYuleEnabled { name, enabled } if name == "Hearth" && !enabled)
+            ));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
     fn test_yeast_read_ops() {
         super::YEAST_SNAPSHOT.with(|s| {
             s.borrow_mut().insert(
@@ -80465,6 +81108,311 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CeaseYell { name } if name == "Blast")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShoutYell { name } if name == "Blast")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYellEnabled { name, enabled } if name == "Blast" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yum_read_ops() {
+        super::YUM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Feast".to_string(),
+                (80.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYumFullness("Feast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getYumMaxFullness("Feast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getYumHungerRate("Feast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isYumJustSated("Feast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYumJustStarved("Feast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYumEnabled("Feast"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YUM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yum_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.eatYum("Feast");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYumEnabled("Feast", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::EatYum { name } if name == "Feast")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetYumEnabled { name, enabled } if name == "Feast" && !enabled)
+            ));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yummy_read_ops() {
+        super::YUMMY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cake".to_string(),
+                (75.0f32, 100.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYummyAppeal("Cake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getYummyMaxAppeal("Cake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getYummySpoilRate("Cake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isYummyJustIrresistible("Cake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYummyJustSpoiled("Cake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYummyEnabled("Cake"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YUMMY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yummy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.flavorYummy("Cake");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spoilYummy("Cake");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYummyEnabled("Cake", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::FlavorYummy { name } if name == "Cake")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SpoilYummy { name } if name == "Cake")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetYummyEnabled { name, enabled } if name == "Cake" && !enabled)
+            ));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yup_read_ops() {
+        super::YUP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Streak".to_string(),
+                (5.0f32, 10.0f32, false, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYupStreak("Streak"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getYupMaxStreak("Streak"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isYupResponded("Streak"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYupJustPeaked("Streak"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYupJustBroke("Streak"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYupEnabled("Streak"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YUP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yup_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.yupYup("Streak");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYupEnabled("Streak", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::YupYup { name } if name == "Streak")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetYupEnabled { name, enabled } if name == "Streak" && !enabled)
+            ));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yurt_read_ops() {
+        super::YURT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Tent".to_string(),
+                (80.0f32, 100.0f32, true, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getYurtDurability("Tent"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getYurtMaxDurability("Tent"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.isYurtDeployed("Tent"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isYurtJustDeployed("Tent"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYurtJustCollapsed("Tent"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isYurtEnabled("Tent"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::YURT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_yurt_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.deployYurt("Tent");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.collapseYurt("Tent");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.damageYurt("Tent");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repairYurt("Tent");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setYurtEnabled("Tent", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::DeployYurt { name } if name == "Tent")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::CollapseYurt { name } if name == "Tent")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::DamageYurt { name } if name == "Tent")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::RepairYurt { name } if name == "Tent")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetYurtEnabled { name, enabled } if name == "Tent" && !enabled)
+            ));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zafu_read_ops() {
+        super::ZAFU_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cushion".to_string(),
+                (70.0f32, 100.0f32, 3.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZafuSupport("Cushion"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "70");
+        let r = rt
+            .eval(r#"String(Bsengine.getZafuMaxSupport("Cushion"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZafuRecoveryRate("Cushion"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZafuJustSupported("Cushion"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZafuJustExhausted("Cushion"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZafuEnabled("Cushion"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAFU_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zafu_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.restZafu("Cushion");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.fatigueZafu("Cushion");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZafuEnabled("Cushion", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::RestZafu { name } if name == "Cushion")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::FatigueZafu { name } if name == "Cushion")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetZafuEnabled { name, enabled } if name == "Cushion" && !enabled)
+            ));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
@@ -80782,6 +81730,7 @@ JSON.stringify(received)
     }
     #[test]
     fn test_yeti_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
         rt.exec_source(r#"Bsengine.sightingYeti("Beast");"#, "<test>")
@@ -80795,6 +81744,62 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SightingYeti { name } if name == "Beast")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisperseYeti { name } if name == "Beast")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYetiEnabled { name, enabled } if name == "Beast" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zag_read_ops() {
+        super::ZAG_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Drift".to_string(),
+                (3.0f32, 10.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZagOffset("Drift"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getZagMaxOffset("Drift"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZagDriftRate("Drift"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZagJustPeaked("Drift"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZagJustBottomed("Drift"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZagEnabled("Drift"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAG_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zag_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pushZag("Drift");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZagEnabled("Drift", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::PushZag { name } if name == "Drift")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetZagEnabled { name, enabled } if name == "Drift" && !enabled)
+            ));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
@@ -81144,6 +82149,7 @@ JSON.stringify(received)
             .eval(r#"String(Bsengine.isYogaEnabled("Pose"))"#)
             .unwrap();
         assert_eq!(r.as_str(), "true");
+        super::YOGA_SNAPSHOT.with(|s| s.borrow_mut().clear());
     }
     #[test]
     fn test_yoga_write_ops_queue_commands() {
@@ -81426,6 +82432,67 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObserveYore { name } if name == "Record")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ResetPeakYore { name } if name == "Record")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetYoreEnabled { name, enabled } if name == "Record" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zaibatsu_read_ops() {
+        super::ZAIBATSU_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Corp".to_string(),
+                (80.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZaibatsuReach("Corp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZaibatsuMaxReach("Corp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZaibatsuConsolidateRate("Corp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZaibatsuJustDominant("Corp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZaibatsuJustDissolved("Corp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZaibatsuEnabled("Corp"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZAIBATSU_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zaibatsu_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.acquireZaibatsu("Corp");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.divestZaibatsu("Corp");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZaibatsuEnabled("Corp", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::AcquireZaibatsu { name } if name == "Corp")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::DivestZaibatsu { name } if name == "Corp")
+            ));
+            assert!(buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::SetZaibatsuEnabled { name, enabled } if name == "Corp" && !enabled)
+            ));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

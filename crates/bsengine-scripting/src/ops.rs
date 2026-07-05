@@ -7715,6 +7715,102 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    HouseZoo {
+        name: String,
+        amount: f32,
+    },
+    ReleaseZoo {
+        name: String,
+        amount: f32,
+    },
+    SetZooEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EmergeZoogenous {
+        name: String,
+        amount: f32,
+    },
+    DecayZoogenous {
+        name: String,
+        amount: f32,
+    },
+    SetZoogenousEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ChartZoogeography {
+        name: String,
+        amount: f32,
+    },
+    RetractZoogeography {
+        name: String,
+        amount: f32,
+    },
+    SetZoogeographyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CultureZooglea {
+        name: String,
+        amount: f32,
+    },
+    DisruptZooglea {
+        name: String,
+        amount: f32,
+    },
+    SetZoogleaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ChartZoography {
+        name: String,
+        amount: f32,
+    },
+    CullZoography {
+        name: String,
+        amount: f32,
+    },
+    SetZoographyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ConnectZooid {
+        name: String,
+        amount: f32,
+    },
+    DetachZooid {
+        name: String,
+        amount: f32,
+    },
+    SetZooidEnabled {
+        name: String,
+        enabled: bool,
+    },
+    TendZookeeper {
+        name: String,
+        amount: f32,
+    },
+    NeglectZookeeper {
+        name: String,
+        amount: f32,
+    },
+    SetZookeeperEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WorshipZoolatry {
+        name: String,
+        amount: f32,
+    },
+    DesecrateZoolatry {
+        name: String,
+        amount: f32,
+    },
+    SetZoolatryEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9612,6 +9708,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zonk: daze, max_daze, bonk_rate, just_knocked_out, just_cleared, enabled
     pub(crate) static ZONK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoo: population, max_population, breed_rate, just_full, just_empty, enabled
+    pub(crate) static ZOO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoogenous: genesis, max_genesis, origin_rate, just_emerged, just_inert, enabled
+    pub(crate) static ZOOGENOUS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoogeography: range, max_range, survey_rate, just_mapped, just_uncharted, enabled
+    pub(crate) static ZOOGEOGRAPHY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zooglea: biofilm, max_biofilm, culture_rate, just_encrusted, just_dispersed, enabled
+    pub(crate) static ZOOGLEA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoography: survey, max_survey, map_rate, just_mapped, just_void, enabled
+    pub(crate) static ZOOGRAPHY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zooid: integration, max_integration, bud_rate, just_integrated, just_isolated, enabled
+    pub(crate) static ZOOID_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zookeeper: care, max_care, tend_rate, just_thriving, just_neglected, enabled
+    pub(crate) static ZOOKEEPER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoolatry: devotion, max_devotion, revere_rate, just_revered, just_profaned, enabled
+    pub(crate) static ZOOLATRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -27530,6 +27650,374 @@ pub fn bsengine_set_zonk_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZonkEnabled { name, enabled })
+    });
+}
+// ── Zoo ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoo_0(#[string] name: String) -> f32 {
+    ZOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoo_1(#[string] name: String) -> f32 {
+    ZOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoo_2(#[string] name: String) -> f32 {
+    ZOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoo_3(#[string] name: String) -> bool {
+    ZOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoo_4(#[string] name: String) -> bool {
+    ZOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoo_enabled(#[string] name: String) -> bool {
+    ZOO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_house_zoo(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::HouseZoo { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_release_zoo(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ReleaseZoo { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoo_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZooEnabled { name, enabled })
+    });
+}
+// ── Zoogenous ────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoogenous_0(#[string] name: String) -> f32 {
+    ZOOGENOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogenous_1(#[string] name: String) -> f32 {
+    ZOOGENOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogenous_2(#[string] name: String) -> f32 {
+    ZOOGENOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogenous_3(#[string] name: String) -> bool {
+    ZOOGENOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogenous_4(#[string] name: String) -> bool {
+    ZOOGENOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoogenous_enabled(#[string] name: String) -> bool {
+    ZOOGENOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_emerge_zoogenous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EmergeZoogenous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_decay_zoogenous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DecayZoogenous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoogenous_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoogenousEnabled { name, enabled })
+    });
+}
+// ── Zoogeography ─────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoogeography_0(#[string] name: String) -> f32 {
+    ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogeography_1(#[string] name: String) -> f32 {
+    ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogeography_2(#[string] name: String) -> f32 {
+    ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogeography_3(#[string] name: String) -> bool {
+    ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoogeography_4(#[string] name: String) -> bool {
+    ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoogeography_enabled(#[string] name: String) -> bool {
+    ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_chart_zoogeography(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChartZoogeography { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_retract_zoogeography(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RetractZoogeography { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoogeography_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoogeographyEnabled { name, enabled })
+    });
+}
+// ── Zooglea ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zooglea_0(#[string] name: String) -> f32 {
+    ZOOGLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooglea_1(#[string] name: String) -> f32 {
+    ZOOGLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooglea_2(#[string] name: String) -> f32 {
+    ZOOGLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooglea_3(#[string] name: String) -> bool {
+    ZOOGLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooglea_4(#[string] name: String) -> bool {
+    ZOOGLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zooglea_enabled(#[string] name: String) -> bool {
+    ZOOGLEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_culture_zooglea(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CultureZooglea { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_disrupt_zooglea(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DisruptZooglea { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zooglea_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoogleaEnabled { name, enabled })
+    });
+}
+// ── Zoography ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoography_0(#[string] name: String) -> f32 {
+    ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoography_1(#[string] name: String) -> f32 {
+    ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoography_2(#[string] name: String) -> f32 {
+    ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoography_3(#[string] name: String) -> bool {
+    ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoography_4(#[string] name: String) -> bool {
+    ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoography_enabled(#[string] name: String) -> bool {
+    ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_chart_zoography(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChartZoography { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cull_zoography(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CullZoography { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoography_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoographyEnabled { name, enabled })
+    });
+}
+// ── Zooid ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zooid_0(#[string] name: String) -> f32 {
+    ZOOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooid_1(#[string] name: String) -> f32 {
+    ZOOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooid_2(#[string] name: String) -> f32 {
+    ZOOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooid_3(#[string] name: String) -> bool {
+    ZOOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zooid_4(#[string] name: String) -> bool {
+    ZOOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zooid_enabled(#[string] name: String) -> bool {
+    ZOOID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_connect_zooid(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConnectZooid { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_detach_zooid(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DetachZooid { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zooid_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZooidEnabled { name, enabled })
+    });
+}
+// ── Zookeeper ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zookeeper_0(#[string] name: String) -> f32 {
+    ZOOKEEPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zookeeper_1(#[string] name: String) -> f32 {
+    ZOOKEEPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zookeeper_2(#[string] name: String) -> f32 {
+    ZOOKEEPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zookeeper_3(#[string] name: String) -> bool {
+    ZOOKEEPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zookeeper_4(#[string] name: String) -> bool {
+    ZOOKEEPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zookeeper_enabled(#[string] name: String) -> bool {
+    ZOOKEEPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_tend_zookeeper(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TendZookeeper { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_neglect_zookeeper(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::NeglectZookeeper { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zookeeper_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZookeeperEnabled { name, enabled })
+    });
+}
+// ── Zoolatry ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoolatry_0(#[string] name: String) -> f32 {
+    ZOOLATRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoolatry_1(#[string] name: String) -> f32 {
+    ZOOLATRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoolatry_2(#[string] name: String) -> f32 {
+    ZOOLATRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoolatry_3(#[string] name: String) -> bool {
+    ZOOLATRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoolatry_4(#[string] name: String) -> bool {
+    ZOOLATRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoolatry_enabled(#[string] name: String) -> bool {
+    ZOOLATRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_worship_zoolatry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WorshipZoolatry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_desecrate_zoolatry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DesecrateZoolatry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoolatry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoolatryEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -50160,6 +50648,78 @@ deno_core::extension!(
         bsengine_bonk_zonk,
         bsengine_recover_zonk,
         bsengine_set_zonk_enabled,
+        bsengine_get_zoo_0,
+        bsengine_get_zoo_1,
+        bsengine_get_zoo_2,
+        bsengine_get_zoo_3,
+        bsengine_get_zoo_4,
+        bsengine_is_zoo_enabled,
+        bsengine_house_zoo,
+        bsengine_release_zoo,
+        bsengine_set_zoo_enabled,
+        bsengine_get_zoogenous_0,
+        bsengine_get_zoogenous_1,
+        bsengine_get_zoogenous_2,
+        bsengine_get_zoogenous_3,
+        bsengine_get_zoogenous_4,
+        bsengine_is_zoogenous_enabled,
+        bsengine_emerge_zoogenous,
+        bsengine_decay_zoogenous,
+        bsengine_set_zoogenous_enabled,
+        bsengine_get_zoogeography_0,
+        bsengine_get_zoogeography_1,
+        bsengine_get_zoogeography_2,
+        bsengine_get_zoogeography_3,
+        bsengine_get_zoogeography_4,
+        bsengine_is_zoogeography_enabled,
+        bsengine_chart_zoogeography,
+        bsengine_retract_zoogeography,
+        bsengine_set_zoogeography_enabled,
+        bsengine_get_zooglea_0,
+        bsengine_get_zooglea_1,
+        bsengine_get_zooglea_2,
+        bsengine_get_zooglea_3,
+        bsengine_get_zooglea_4,
+        bsengine_is_zooglea_enabled,
+        bsengine_culture_zooglea,
+        bsengine_disrupt_zooglea,
+        bsengine_set_zooglea_enabled,
+        bsengine_get_zoography_0,
+        bsengine_get_zoography_1,
+        bsengine_get_zoography_2,
+        bsengine_get_zoography_3,
+        bsengine_get_zoography_4,
+        bsengine_is_zoography_enabled,
+        bsengine_chart_zoography,
+        bsengine_cull_zoography,
+        bsengine_set_zoography_enabled,
+        bsengine_get_zooid_0,
+        bsengine_get_zooid_1,
+        bsengine_get_zooid_2,
+        bsengine_get_zooid_3,
+        bsengine_get_zooid_4,
+        bsengine_is_zooid_enabled,
+        bsengine_connect_zooid,
+        bsengine_detach_zooid,
+        bsengine_set_zooid_enabled,
+        bsengine_get_zookeeper_0,
+        bsengine_get_zookeeper_1,
+        bsengine_get_zookeeper_2,
+        bsengine_get_zookeeper_3,
+        bsengine_get_zookeeper_4,
+        bsengine_is_zookeeper_enabled,
+        bsengine_tend_zookeeper,
+        bsengine_neglect_zookeeper,
+        bsengine_set_zookeeper_enabled,
+        bsengine_get_zoolatry_0,
+        bsengine_get_zoolatry_1,
+        bsengine_get_zoolatry_2,
+        bsengine_get_zoolatry_3,
+        bsengine_get_zoolatry_4,
+        bsengine_is_zoolatry_enabled,
+        bsengine_worship_zoolatry,
+        bsengine_desecrate_zoolatry,
+        bsengine_set_zoolatry_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -56202,6 +56762,78 @@ const Bsengine = {
     bonkZonk:                   (name, amount)      => Deno.core.ops.bsengine_bonk_zonk(name, amount),
     recoverZonk:                (name, amount)      => Deno.core.ops.bsengine_recover_zonk(name, amount),
     setZonkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zonk_enabled(name, v),
+    getZooPopulation:           (name)              => Deno.core.ops.bsengine_get_zoo_0(name),
+    getZooMaxPopulation:        (name)              => Deno.core.ops.bsengine_get_zoo_1(name),
+    getZooBreedRate:            (name)              => Deno.core.ops.bsengine_get_zoo_2(name),
+    getZooJustFull:             (name)              => Deno.core.ops.bsengine_get_zoo_3(name),
+    getZooJustEmpty:            (name)              => Deno.core.ops.bsengine_get_zoo_4(name),
+    isZooEnabled:               (name)              => Deno.core.ops.bsengine_is_zoo_enabled(name),
+    houseZoo:                   (name, amount)      => Deno.core.ops.bsengine_house_zoo(name, amount),
+    releaseZoo:                 (name, amount)      => Deno.core.ops.bsengine_release_zoo(name, amount),
+    setZooEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zoo_enabled(name, v),
+    getZoogenousGenesis:        (name)              => Deno.core.ops.bsengine_get_zoogenous_0(name),
+    getZoogenousMaxGenesis:     (name)              => Deno.core.ops.bsengine_get_zoogenous_1(name),
+    getZoogenousOriginRate:     (name)              => Deno.core.ops.bsengine_get_zoogenous_2(name),
+    getZoogenousJustEmerged:    (name)              => Deno.core.ops.bsengine_get_zoogenous_3(name),
+    getZoogenousJustInert:      (name)              => Deno.core.ops.bsengine_get_zoogenous_4(name),
+    isZoogenousEnabled:         (name)              => Deno.core.ops.bsengine_is_zoogenous_enabled(name),
+    emergeZoogenous:            (name, amount)      => Deno.core.ops.bsengine_emerge_zoogenous(name, amount),
+    decayZoogenous:             (name, amount)      => Deno.core.ops.bsengine_decay_zoogenous(name, amount),
+    setZoogenousEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zoogenous_enabled(name, v),
+    getZoogeographyRange:       (name)              => Deno.core.ops.bsengine_get_zoogeography_0(name),
+    getZoogeographyMaxRange:    (name)              => Deno.core.ops.bsengine_get_zoogeography_1(name),
+    getZoogeographySurveyRate:  (name)              => Deno.core.ops.bsengine_get_zoogeography_2(name),
+    getZoogeographyJustMapped:  (name)              => Deno.core.ops.bsengine_get_zoogeography_3(name),
+    getZoogeographyJustUncharted: (name)            => Deno.core.ops.bsengine_get_zoogeography_4(name),
+    isZoogeographyEnabled:      (name)              => Deno.core.ops.bsengine_is_zoogeography_enabled(name),
+    chartZoogeography:          (name, amount)      => Deno.core.ops.bsengine_chart_zoogeography(name, amount),
+    retractZoogeography:        (name, amount)      => Deno.core.ops.bsengine_retract_zoogeography(name, amount),
+    setZoogeographyEnabled:     (name, v)           => Deno.core.ops.bsengine_set_zoogeography_enabled(name, v),
+    getZoogleaBiofilm:          (name)              => Deno.core.ops.bsengine_get_zooglea_0(name),
+    getZoogleaMaxBiofilm:       (name)              => Deno.core.ops.bsengine_get_zooglea_1(name),
+    getZoogleaCultureRate:      (name)              => Deno.core.ops.bsengine_get_zooglea_2(name),
+    getZoogleaJustEncrusted:    (name)              => Deno.core.ops.bsengine_get_zooglea_3(name),
+    getZoogleaJustDispersed:    (name)              => Deno.core.ops.bsengine_get_zooglea_4(name),
+    isZoogleaEnabled:           (name)              => Deno.core.ops.bsengine_is_zooglea_enabled(name),
+    cultureZooglea:             (name, amount)      => Deno.core.ops.bsengine_culture_zooglea(name, amount),
+    disruptZooglea:             (name, amount)      => Deno.core.ops.bsengine_disrupt_zooglea(name, amount),
+    setZoogleaEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zooglea_enabled(name, v),
+    getZoographySurvey:         (name)              => Deno.core.ops.bsengine_get_zoography_0(name),
+    getZoographyMaxSurvey:      (name)              => Deno.core.ops.bsengine_get_zoography_1(name),
+    getZoographyMapRate:        (name)              => Deno.core.ops.bsengine_get_zoography_2(name),
+    getZoographyJustMapped:     (name)              => Deno.core.ops.bsengine_get_zoography_3(name),
+    getZoographyJustVoid:       (name)              => Deno.core.ops.bsengine_get_zoography_4(name),
+    isZoographyEnabled:         (name)              => Deno.core.ops.bsengine_is_zoography_enabled(name),
+    chartZoography:             (name, amount)      => Deno.core.ops.bsengine_chart_zoography(name, amount),
+    cullZoography:              (name, amount)      => Deno.core.ops.bsengine_cull_zoography(name, amount),
+    setZoographyEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zoography_enabled(name, v),
+    getZooidIntegration:        (name)              => Deno.core.ops.bsengine_get_zooid_0(name),
+    getZooidMaxIntegration:     (name)              => Deno.core.ops.bsengine_get_zooid_1(name),
+    getZooidBudRate:            (name)              => Deno.core.ops.bsengine_get_zooid_2(name),
+    getZooidJustIntegrated:     (name)              => Deno.core.ops.bsengine_get_zooid_3(name),
+    getZooidJustIsolated:       (name)              => Deno.core.ops.bsengine_get_zooid_4(name),
+    isZooidEnabled:             (name)              => Deno.core.ops.bsengine_is_zooid_enabled(name),
+    connectZooid:               (name, amount)      => Deno.core.ops.bsengine_connect_zooid(name, amount),
+    detachZooid:                (name, amount)      => Deno.core.ops.bsengine_detach_zooid(name, amount),
+    setZooidEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zooid_enabled(name, v),
+    getZookeeperCare:           (name)              => Deno.core.ops.bsengine_get_zookeeper_0(name),
+    getZookeeperMaxCare:        (name)              => Deno.core.ops.bsengine_get_zookeeper_1(name),
+    getZookeeperTendRate:       (name)              => Deno.core.ops.bsengine_get_zookeeper_2(name),
+    getZookeeperJustThriving:   (name)              => Deno.core.ops.bsengine_get_zookeeper_3(name),
+    getZookeeperJustNeglected:  (name)              => Deno.core.ops.bsengine_get_zookeeper_4(name),
+    isZookeeperEnabled:         (name)              => Deno.core.ops.bsengine_is_zookeeper_enabled(name),
+    tendZookeeper:              (name, amount)      => Deno.core.ops.bsengine_tend_zookeeper(name, amount),
+    neglectZookeeper:           (name, amount)      => Deno.core.ops.bsengine_neglect_zookeeper(name, amount),
+    setZookeeperEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zookeeper_enabled(name, v),
+    getZoolatryDevotion:        (name)              => Deno.core.ops.bsengine_get_zoolatry_0(name),
+    getZoolatryMaxDevotion:     (name)              => Deno.core.ops.bsengine_get_zoolatry_1(name),
+    getZoolatryRevereRate:      (name)              => Deno.core.ops.bsengine_get_zoolatry_2(name),
+    getZoolatryJustRevered:     (name)              => Deno.core.ops.bsengine_get_zoolatry_3(name),
+    getZoolatryJustProfaned:    (name)              => Deno.core.ops.bsengine_get_zoolatry_4(name),
+    isZoolatryEnabled:          (name)              => Deno.core.ops.bsengine_is_zoolatry_enabled(name),
+    worshipZoolatry:            (name, amount)      => Deno.core.ops.bsengine_worship_zoolatry(name, amount),
+    desecrateZoolatry:          (name, amount)      => Deno.core.ops.bsengine_desecrate_zoolatry(name, amount),
+    setZoolatryEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoolatry_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -96171,6 +96803,353 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BonkZonk { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RecoverZonk { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZonkEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoo_read_ops() {
+        super::ZOO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZooPopulation("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZooJustFull("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZooEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoo_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.houseZoo("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseZoo("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZooEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HouseZoo { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseZoo { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZooEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoogenous_read_ops() {
+        super::ZOOGENOUS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoogenousGenesis("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoogenousJustEmerged("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoogenousEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOGENOUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoogenous_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.emergeZoogenous("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.decayZoogenous("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoogenousEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EmergeZoogenous { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DecayZoogenous { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoogenousEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoogeography_read_ops() {
+        super::ZOOGEOGRAPHY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoogeographyRange("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoogeographyJustMapped("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoogeographyEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOGEOGRAPHY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoogeography_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chartZoogeography("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.retractZoogeography("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZoogeographyEnabled("Aries", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChartZoogeography { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetractZoogeography { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoogeographyEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zooglea_read_ops() {
+        super::ZOOGLEA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoogleaBiofilm("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoogleaJustEncrusted("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoogleaEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOGLEA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zooglea_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.cultureZooglea("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disruptZooglea("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoogleaEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CultureZooglea { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisruptZooglea { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoogleaEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoography_read_ops() {
+        super::ZOOGRAPHY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoographySurvey("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoographyJustMapped("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoographyEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOGRAPHY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoography_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chartZoography("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cullZoography("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoographyEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChartZoography { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CullZoography { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoographyEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zooid_read_ops() {
+        super::ZOOID_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZooidIntegration("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZooidJustIntegrated("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZooidEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOID_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zooid_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.connectZooid("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.detachZooid("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZooidEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConnectZooid { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DetachZooid { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZooidEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zookeeper_read_ops() {
+        super::ZOOKEEPER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZookeeperCare("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZookeeperJustThriving("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZookeeperEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOKEEPER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zookeeper_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.tendZookeeper("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.neglectZookeeper("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZookeeperEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TendZookeeper { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::NeglectZookeeper { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZookeeperEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoolatry_read_ops() {
+        super::ZOOLATRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoolatryDevotion("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoolatryJustRevered("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoolatryEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOLATRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoolatry_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.worshipZoolatry("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.desecrateZoolatry("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoolatryEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WorshipZoolatry { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DesecrateZoolatry { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoolatryEnabled { name, enabled } if name == "Aries" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

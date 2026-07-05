@@ -7250,6 +7250,86 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AccumulateZillion {
+        name: String,
+    },
+    ExpendZillion {
+        name: String,
+    },
+    SetZillionEnabled {
+        name: String,
+        enabled: bool,
+    },
+    HatchZimb {
+        name: String,
+    },
+    DisperseZimb {
+        name: String,
+    },
+    SetZimbEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SupplementZinc {
+        name: String,
+    },
+    DepleteZinc {
+        name: String,
+    },
+    SetZincEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PlateZincate {
+        name: String,
+    },
+    RinseZincate {
+        name: String,
+    },
+    SetZincateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CrystallizeZincite {
+        name: String,
+    },
+    DissolveZincite {
+        name: String,
+    },
+    SetZinciteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WriteZine {
+        name: String,
+    },
+    ScrapZine {
+        name: String,
+    },
+    SetZineEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyZineb {
+        name: String,
+    },
+    WeatherZineb {
+        name: String,
+    },
+    SetZinebEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BrewZinfandel {
+        name: String,
+    },
+    RackZinfandel {
+        name: String,
+    },
+    SetZinfandelEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9027,6 +9107,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zill: ring, max_ring, sustain_rate, just_ringing, just_damped, enabled
     pub(crate) static ZILL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zillion: count, max_count, tally_rate, just_astronomical, just_zeroed, enabled
+    pub(crate) static ZILLION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zimb: swarm, max_swarm, swarm_rate, just_swarming, just_dispersed, enabled
+    pub(crate) static ZIMB_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zinc: mineral, max_mineral, metabolic_rate, just_optimal, just_deficient, enabled
+    pub(crate) static ZINC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zincate: concentration, max_concentration, deposit_rate, just_saturated, just_depleted, enabled
+    pub(crate) static ZINCATE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zincite: saturation, max_saturation, deposit_rate, just_crystallized, just_depleted, enabled
+    pub(crate) static ZINCITE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zine: content, max_content, draft_rate, just_published, just_blank, enabled
+    pub(crate) static ZINE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zineb: residue, max_residue, spray_rate, just_protected, just_exposed, enabled
+    pub(crate) static ZINEB_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zinfandel: ferment, max_ferment, mature_rate, just_matured, just_racked, enabled
+    pub(crate) static ZINFANDEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -25184,6 +25288,332 @@ pub fn bsengine_set_zill_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZillEnabled { name, enabled })
+    });
+}
+// ── Zillion ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zillion_count(#[string] name: String) -> f32 {
+    ZILLION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zillion_max_count(#[string] name: String) -> f32 {
+    ZILLION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zillion_tally_rate(#[string] name: String) -> f32 {
+    ZILLION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zillion_just_astronomical(#[string] name: String) -> bool {
+    ZILLION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zillion_just_zeroed(#[string] name: String) -> bool {
+    ZILLION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zillion_enabled(#[string] name: String) -> bool {
+    ZILLION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_accumulate_zillion(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AccumulateZillion { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_expend_zillion(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExpendZillion { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zillion_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZillionEnabled { name, enabled })
+    });
+}
+// ── Zimb ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zimb_swarm(#[string] name: String) -> f32 {
+    ZIMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zimb_max_swarm(#[string] name: String) -> f32 {
+    ZIMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zimb_swarm_rate(#[string] name: String) -> f32 {
+    ZIMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zimb_just_swarming(#[string] name: String) -> bool {
+    ZIMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zimb_just_dispersed(#[string] name: String) -> bool {
+    ZIMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zimb_enabled(#[string] name: String) -> bool {
+    ZIMB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_hatch_zimb(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HatchZimb { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disperse_zimb(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisperseZimb { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zimb_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZimbEnabled { name, enabled })
+    });
+}
+// ── Zinc ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zinc_mineral(#[string] name: String) -> f32 {
+    ZINC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinc_max_mineral(#[string] name: String) -> f32 {
+    ZINC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinc_metabolic_rate(#[string] name: String) -> f32 {
+    ZINC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinc_just_optimal(#[string] name: String) -> bool {
+    ZINC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinc_just_deficient(#[string] name: String) -> bool {
+    ZINC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinc_enabled(#[string] name: String) -> bool {
+    ZINC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_supplement_zinc(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SupplementZinc { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deplete_zinc(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DepleteZinc { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zinc_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZincEnabled { name, enabled })
+    });
+}
+// ── Zincate ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zincate_concentration(#[string] name: String) -> f32 {
+    ZINCATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zincate_max_concentration(#[string] name: String) -> f32 {
+    ZINCATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zincate_deposit_rate(#[string] name: String) -> f32 {
+    ZINCATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zincate_just_saturated(#[string] name: String) -> bool {
+    ZINCATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zincate_just_depleted(#[string] name: String) -> bool {
+    ZINCATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zincate_enabled(#[string] name: String) -> bool {
+    ZINCATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_plate_zincate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PlateZincate { name }));
+}
+#[op2(fast)]
+pub fn bsengine_rinse_zincate(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RinseZincate { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zincate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZincateEnabled { name, enabled })
+    });
+}
+// ── Zincite ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zincite_saturation(#[string] name: String) -> f32 {
+    ZINCITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zincite_max_saturation(#[string] name: String) -> f32 {
+    ZINCITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zincite_deposit_rate(#[string] name: String) -> f32 {
+    ZINCITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zincite_just_crystallized(#[string] name: String) -> bool {
+    ZINCITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zincite_just_depleted(#[string] name: String) -> bool {
+    ZINCITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zincite_enabled(#[string] name: String) -> bool {
+    ZINCITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crystallize_zincite(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrystallizeZincite { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dissolve_zincite(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DissolveZincite { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zincite_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZinciteEnabled { name, enabled })
+    });
+}
+// ── Zine ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zine_content(#[string] name: String) -> f32 {
+    ZINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zine_max_content(#[string] name: String) -> f32 {
+    ZINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zine_draft_rate(#[string] name: String) -> f32 {
+    ZINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zine_just_published(#[string] name: String) -> bool {
+    ZINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zine_just_blank(#[string] name: String) -> bool {
+    ZINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zine_enabled(#[string] name: String) -> bool {
+    ZINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_write_zine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WriteZine { name }));
+}
+#[op2(fast)]
+pub fn bsengine_scrap_zine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ScrapZine { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zine_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZineEnabled { name, enabled })
+    });
+}
+// ── Zineb ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zineb_residue(#[string] name: String) -> f32 {
+    ZINEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zineb_max_residue(#[string] name: String) -> f32 {
+    ZINEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zineb_spray_rate(#[string] name: String) -> f32 {
+    ZINEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zineb_just_protected(#[string] name: String) -> bool {
+    ZINEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zineb_just_exposed(#[string] name: String) -> bool {
+    ZINEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zineb_enabled(#[string] name: String) -> bool {
+    ZINEB_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_zineb(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyZineb { name }));
+}
+#[op2(fast)]
+pub fn bsengine_weather_zineb(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WeatherZineb { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zineb_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZinebEnabled { name, enabled })
+    });
+}
+// ── Zinfandel ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zinfandel_ferment(#[string] name: String) -> f32 {
+    ZINFANDEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinfandel_max_ferment(#[string] name: String) -> f32 {
+    ZINFANDEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinfandel_mature_rate(#[string] name: String) -> f32 {
+    ZINFANDEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinfandel_just_matured(#[string] name: String) -> bool {
+    ZINFANDEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinfandel_just_racked(#[string] name: String) -> bool {
+    ZINFANDEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinfandel_enabled(#[string] name: String) -> bool {
+    ZINFANDEL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_brew_zinfandel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BrewZinfandel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_rack_zinfandel(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RackZinfandel { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zinfandel_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZinfandelEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -47456,6 +47886,78 @@ deno_core::extension!(
         bsengine_strike_zill,
         bsengine_damp_zill,
         bsengine_set_zill_enabled,
+        bsengine_get_zillion_count,
+        bsengine_get_zillion_max_count,
+        bsengine_get_zillion_tally_rate,
+        bsengine_is_zillion_just_astronomical,
+        bsengine_is_zillion_just_zeroed,
+        bsengine_is_zillion_enabled,
+        bsengine_accumulate_zillion,
+        bsengine_expend_zillion,
+        bsengine_set_zillion_enabled,
+        bsengine_get_zimb_swarm,
+        bsengine_get_zimb_max_swarm,
+        bsengine_get_zimb_swarm_rate,
+        bsengine_is_zimb_just_swarming,
+        bsengine_is_zimb_just_dispersed,
+        bsengine_is_zimb_enabled,
+        bsengine_hatch_zimb,
+        bsengine_disperse_zimb,
+        bsengine_set_zimb_enabled,
+        bsengine_get_zinc_mineral,
+        bsengine_get_zinc_max_mineral,
+        bsengine_get_zinc_metabolic_rate,
+        bsengine_is_zinc_just_optimal,
+        bsengine_is_zinc_just_deficient,
+        bsengine_is_zinc_enabled,
+        bsengine_supplement_zinc,
+        bsengine_deplete_zinc,
+        bsengine_set_zinc_enabled,
+        bsengine_get_zincate_concentration,
+        bsengine_get_zincate_max_concentration,
+        bsengine_get_zincate_deposit_rate,
+        bsengine_is_zincate_just_saturated,
+        bsengine_is_zincate_just_depleted,
+        bsengine_is_zincate_enabled,
+        bsengine_plate_zincate,
+        bsengine_rinse_zincate,
+        bsengine_set_zincate_enabled,
+        bsengine_get_zincite_saturation,
+        bsengine_get_zincite_max_saturation,
+        bsengine_get_zincite_deposit_rate,
+        bsengine_is_zincite_just_crystallized,
+        bsengine_is_zincite_just_depleted,
+        bsengine_is_zincite_enabled,
+        bsengine_crystallize_zincite,
+        bsengine_dissolve_zincite,
+        bsengine_set_zincite_enabled,
+        bsengine_get_zine_content,
+        bsengine_get_zine_max_content,
+        bsengine_get_zine_draft_rate,
+        bsengine_is_zine_just_published,
+        bsengine_is_zine_just_blank,
+        bsengine_is_zine_enabled,
+        bsengine_write_zine,
+        bsengine_scrap_zine,
+        bsengine_set_zine_enabled,
+        bsengine_get_zineb_residue,
+        bsengine_get_zineb_max_residue,
+        bsengine_get_zineb_spray_rate,
+        bsengine_is_zineb_just_protected,
+        bsengine_is_zineb_just_exposed,
+        bsengine_is_zineb_enabled,
+        bsengine_apply_zineb,
+        bsengine_weather_zineb,
+        bsengine_set_zineb_enabled,
+        bsengine_get_zinfandel_ferment,
+        bsengine_get_zinfandel_max_ferment,
+        bsengine_get_zinfandel_mature_rate,
+        bsengine_is_zinfandel_just_matured,
+        bsengine_is_zinfandel_just_racked,
+        bsengine_is_zinfandel_enabled,
+        bsengine_brew_zinfandel,
+        bsengine_rack_zinfandel,
+        bsengine_set_zinfandel_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -53140,6 +53642,78 @@ const Bsengine = {
     strikeZill:                 (name)              => Deno.core.ops.bsengine_strike_zill(name),
     dampZill:                   (name)              => Deno.core.ops.bsengine_damp_zill(name),
     setZillEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zill_enabled(name, v),
+    getZillionCount:            (name)              => Deno.core.ops.bsengine_get_zillion_count(name),
+    getZillionMaxCount:         (name)              => Deno.core.ops.bsengine_get_zillion_max_count(name),
+    getZillionTallyRate:        (name)              => Deno.core.ops.bsengine_get_zillion_tally_rate(name),
+    isZillionJustAstronomical:  (name)              => Deno.core.ops.bsengine_is_zillion_just_astronomical(name),
+    isZillionJustZeroed:        (name)              => Deno.core.ops.bsengine_is_zillion_just_zeroed(name),
+    isZillionEnabled:           (name)              => Deno.core.ops.bsengine_is_zillion_enabled(name),
+    accumulateZillion:          (name)              => Deno.core.ops.bsengine_accumulate_zillion(name),
+    expendZillion:              (name)              => Deno.core.ops.bsengine_expend_zillion(name),
+    setZillionEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zillion_enabled(name, v),
+    getZimbSwarm:               (name)              => Deno.core.ops.bsengine_get_zimb_swarm(name),
+    getZimbMaxSwarm:            (name)              => Deno.core.ops.bsengine_get_zimb_max_swarm(name),
+    getZimbSwarmRate:           (name)              => Deno.core.ops.bsengine_get_zimb_swarm_rate(name),
+    isZimbJustSwarming:         (name)              => Deno.core.ops.bsengine_is_zimb_just_swarming(name),
+    isZimbJustDispersed:        (name)              => Deno.core.ops.bsengine_is_zimb_just_dispersed(name),
+    isZimbEnabled:              (name)              => Deno.core.ops.bsengine_is_zimb_enabled(name),
+    hatchZimb:                  (name)              => Deno.core.ops.bsengine_hatch_zimb(name),
+    disperseZimb:               (name)              => Deno.core.ops.bsengine_disperse_zimb(name),
+    setZimbEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zimb_enabled(name, v),
+    getZincMineral:             (name)              => Deno.core.ops.bsengine_get_zinc_mineral(name),
+    getZincMaxMineral:          (name)              => Deno.core.ops.bsengine_get_zinc_max_mineral(name),
+    getZincMetabolicRate:       (name)              => Deno.core.ops.bsengine_get_zinc_metabolic_rate(name),
+    isZincJustOptimal:          (name)              => Deno.core.ops.bsengine_is_zinc_just_optimal(name),
+    isZincJustDeficient:        (name)              => Deno.core.ops.bsengine_is_zinc_just_deficient(name),
+    isZincEnabled:              (name)              => Deno.core.ops.bsengine_is_zinc_enabled(name),
+    supplementZinc:             (name)              => Deno.core.ops.bsengine_supplement_zinc(name),
+    depleteZinc:                (name)              => Deno.core.ops.bsengine_deplete_zinc(name),
+    setZincEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zinc_enabled(name, v),
+    getZincateConcentration:    (name)              => Deno.core.ops.bsengine_get_zincate_concentration(name),
+    getZincateMaxConcentration: (name)              => Deno.core.ops.bsengine_get_zincate_max_concentration(name),
+    getZincateDepositRate:      (name)              => Deno.core.ops.bsengine_get_zincate_deposit_rate(name),
+    isZincateJustSaturated:     (name)              => Deno.core.ops.bsengine_is_zincate_just_saturated(name),
+    isZincateJustDepleted:      (name)              => Deno.core.ops.bsengine_is_zincate_just_depleted(name),
+    isZincateEnabled:           (name)              => Deno.core.ops.bsengine_is_zincate_enabled(name),
+    plateZincate:               (name)              => Deno.core.ops.bsengine_plate_zincate(name),
+    rinseZincate:               (name)              => Deno.core.ops.bsengine_rinse_zincate(name),
+    setZincateEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zincate_enabled(name, v),
+    getZinciteSaturation:       (name)              => Deno.core.ops.bsengine_get_zincite_saturation(name),
+    getZinciteMaxSaturation:    (name)              => Deno.core.ops.bsengine_get_zincite_max_saturation(name),
+    getZinciteDepositRate:      (name)              => Deno.core.ops.bsengine_get_zincite_deposit_rate(name),
+    isZinciteJustCrystallized:  (name)              => Deno.core.ops.bsengine_is_zincite_just_crystallized(name),
+    isZinciteJustDepleted:      (name)              => Deno.core.ops.bsengine_is_zincite_just_depleted(name),
+    isZinciteEnabled:           (name)              => Deno.core.ops.bsengine_is_zincite_enabled(name),
+    crystallizeZincite:         (name)              => Deno.core.ops.bsengine_crystallize_zincite(name),
+    dissolveZincite:            (name)              => Deno.core.ops.bsengine_dissolve_zincite(name),
+    setZinciteEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zincite_enabled(name, v),
+    getZineContent:             (name)              => Deno.core.ops.bsengine_get_zine_content(name),
+    getZineMaxContent:          (name)              => Deno.core.ops.bsengine_get_zine_max_content(name),
+    getZineDraftRate:           (name)              => Deno.core.ops.bsengine_get_zine_draft_rate(name),
+    isZineJustPublished:        (name)              => Deno.core.ops.bsengine_is_zine_just_published(name),
+    isZineJustBlank:            (name)              => Deno.core.ops.bsengine_is_zine_just_blank(name),
+    isZineEnabled:              (name)              => Deno.core.ops.bsengine_is_zine_enabled(name),
+    writeZine:                  (name)              => Deno.core.ops.bsengine_write_zine(name),
+    scrapZine:                  (name)              => Deno.core.ops.bsengine_scrap_zine(name),
+    setZineEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zine_enabled(name, v),
+    getZinebResidue:            (name)              => Deno.core.ops.bsengine_get_zineb_residue(name),
+    getZinebMaxResidue:         (name)              => Deno.core.ops.bsengine_get_zineb_max_residue(name),
+    getZinebSprayRate:          (name)              => Deno.core.ops.bsengine_get_zineb_spray_rate(name),
+    isZinebJustProtected:       (name)              => Deno.core.ops.bsengine_is_zineb_just_protected(name),
+    isZinebJustExposed:         (name)              => Deno.core.ops.bsengine_is_zineb_just_exposed(name),
+    isZinebEnabled:             (name)              => Deno.core.ops.bsengine_is_zineb_enabled(name),
+    applyZineb:                 (name)              => Deno.core.ops.bsengine_apply_zineb(name),
+    weatherZineb:               (name)              => Deno.core.ops.bsengine_weather_zineb(name),
+    setZinebEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zineb_enabled(name, v),
+    getZinfandelFerment:        (name)              => Deno.core.ops.bsengine_get_zinfandel_ferment(name),
+    getZinfandelMaxFerment:     (name)              => Deno.core.ops.bsengine_get_zinfandel_max_ferment(name),
+    getZinfandelMatureRate:     (name)              => Deno.core.ops.bsengine_get_zinfandel_mature_rate(name),
+    isZinfandelJustMatured:     (name)              => Deno.core.ops.bsengine_is_zinfandel_just_matured(name),
+    isZinfandelJustRacked:      (name)              => Deno.core.ops.bsengine_is_zinfandel_just_racked(name),
+    isZinfandelEnabled:         (name)              => Deno.core.ops.bsengine_is_zinfandel_enabled(name),
+    brewZinfandel:              (name)              => Deno.core.ops.bsengine_brew_zinfandel(name),
+    rackZinfandel:              (name)              => Deno.core.ops.bsengine_rack_zinfandel(name),
+    setZinfandelEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zinfandel_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -91008,6 +91582,449 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StrikeZill { name } if name == "Cymbal")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DampZill { name } if name == "Cymbal")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZillEnabled { name, enabled } if name == "Cymbal" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zillion_read_ops() {
+        super::ZILLION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Scorer".to_string(),
+                (40.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZillionCount("Scorer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZillionMaxCount("Scorer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZillionTallyRate("Scorer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZillionJustAstronomical("Scorer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZillionJustZeroed("Scorer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZillionEnabled("Scorer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZILLION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zillion_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.accumulateZillion("Scorer");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.expendZillion("Scorer");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZillionEnabled("Scorer", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AccumulateZillion { name } if name == "Scorer")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExpendZillion { name } if name == "Scorer")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZillionEnabled { name, enabled } if name == "Scorer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zimb_read_ops() {
+        super::ZIMB_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Swarm".to_string(),
+                (50.0f32, 100.0f32, 3.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZimbSwarm("Swarm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZimbMaxSwarm("Swarm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZimbSwarmRate("Swarm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZimbJustSwarming("Swarm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZimbJustDispersed("Swarm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZimbEnabled("Swarm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIMB_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zimb_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.hatchZimb("Swarm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disperseZimb("Swarm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZimbEnabled("Swarm", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HatchZimb { name } if name == "Swarm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisperseZimb { name } if name == "Swarm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZimbEnabled { name, enabled } if name == "Swarm" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinc_read_ops() {
+        super::ZINC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Nutrient".to_string(),
+                (60.0f32, 100.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZincMineral("Nutrient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZincMaxMineral("Nutrient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZincMetabolicRate("Nutrient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZincJustOptimal("Nutrient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZincJustDeficient("Nutrient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZincEnabled("Nutrient"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinc_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.supplementZinc("Nutrient");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.depleteZinc("Nutrient");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZincEnabled("Nutrient", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SupplementZinc { name } if name == "Nutrient")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepleteZinc { name } if name == "Nutrient")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZincEnabled { name, enabled } if name == "Nutrient" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zincate_read_ops() {
+        super::ZINCATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Bath".to_string(),
+                (70.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZincateConcentration("Bath"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "70");
+        let r = rt
+            .eval(r#"String(Bsengine.getZincateMaxConcentration("Bath"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZincateDepositRate("Bath"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZincateJustSaturated("Bath"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZincateJustDepleted("Bath"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZincateEnabled("Bath"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINCATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zincate_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.plateZincate("Bath");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.rinseZincate("Bath");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZincateEnabled("Bath", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PlateZincate { name } if name == "Bath")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RinseZincate { name } if name == "Bath")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZincateEnabled { name, enabled } if name == "Bath" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zincite_read_ops() {
+        super::ZINCITE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Crystal".to_string(),
+                (80.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZinciteSaturation("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinciteMaxSaturation("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinciteDepositRate("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinciteJustCrystallized("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinciteJustDepleted("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinciteEnabled("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINCITE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zincite_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crystallizeZincite("Crystal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissolveZincite("Crystal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZinciteEnabled("Crystal", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrystallizeZincite { name } if name == "Crystal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissolveZincite { name } if name == "Crystal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZinciteEnabled { name, enabled } if name == "Crystal" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zine_read_ops() {
+        super::ZINE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Magazine".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZineContent("Magazine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZineMaxContent("Magazine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZineDraftRate("Magazine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZineJustPublished("Magazine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZineJustBlank("Magazine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZineEnabled("Magazine"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zine_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.writeZine("Magazine");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.scrapZine("Magazine");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZineEnabled("Magazine", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WriteZine { name } if name == "Magazine")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ScrapZine { name } if name == "Magazine")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZineEnabled { name, enabled } if name == "Magazine" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zineb_read_ops() {
+        super::ZINEB_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Crop".to_string(),
+                (30.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZinebResidue("Crop"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinebMaxResidue("Crop"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinebSprayRate("Crop"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinebJustProtected("Crop"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinebJustExposed("Crop"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinebEnabled("Crop"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINEB_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zineb_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyZineb("Crop");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.weatherZineb("Crop");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZinebEnabled("Crop", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyZineb { name } if name == "Crop")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WeatherZineb { name } if name == "Crop")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZinebEnabled { name, enabled } if name == "Crop" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinfandel_read_ops() {
+        super::ZINFANDEL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Barrel".to_string(),
+                (20.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZinfandelFerment("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinfandelMaxFerment("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinfandelMatureRate("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinfandelJustMatured("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinfandelJustRacked("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinfandelEnabled("Barrel"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINFANDEL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinfandel_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.brewZinfandel("Barrel");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.rackZinfandel("Barrel");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZinfandelEnabled("Barrel", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BrewZinfandel { name } if name == "Barrel")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RackZinfandel { name } if name == "Barrel")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZinfandelEnabled { name, enabled } if name == "Barrel" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

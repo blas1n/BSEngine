@@ -7905,6 +7905,102 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    InfectZoonosis {
+        name: String,
+        amount: f32,
+    },
+    QuarantineZoonosis {
+        name: String,
+        amount: f32,
+    },
+    SetZoonosisEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ShedZoonotic {
+        name: String,
+        amount: f32,
+    },
+    ClearZoonotic {
+        name: String,
+        amount: f32,
+    },
+    SetZoonoticEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ConsumeZoophagous {
+        name: String,
+        amount: f32,
+    },
+    StarveZoophagous {
+        name: String,
+        amount: f32,
+    },
+    SetZoophagousEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BondZoophile {
+        name: String,
+        amount: f32,
+    },
+    EstrangeZoophile {
+        name: String,
+        amount: f32,
+    },
+    SetZoophileEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AttuneZoophilia {
+        name: String,
+        amount: f32,
+    },
+    AlienateZoophilia {
+        name: String,
+        amount: f32,
+    },
+    SetZoophiliaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AttractZoophilous {
+        name: String,
+        amount: f32,
+    },
+    RepelZoophilous {
+        name: String,
+        amount: f32,
+    },
+    SetZoophilousEnabled {
+        name: String,
+        enabled: bool,
+    },
+    VisitZoophily {
+        name: String,
+        amount: f32,
+    },
+    WaneZoophily {
+        name: String,
+        amount: f32,
+    },
+    SetZoophilyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BloomZoophyte {
+        name: String,
+        amount: f32,
+    },
+    BleachZoophyte {
+        name: String,
+        amount: f32,
+    },
+    SetZoophyteEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9850,6 +9946,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zoomorphism: expression, max_expression, channel_rate, just_manifested, just_lapsed, enabled
     pub(crate) static ZOOMORPHISM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoonosis: contagion, max_contagion, transmit_rate, just_spread, just_contained, enabled
+    pub(crate) static ZOONOSIS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoonotic: spillover, max_spillover, transmit_rate, just_emerged, just_contained, enabled
+    pub(crate) static ZOONOTIC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoophagous: feeding, max_feeding, prey_rate, just_satiated, just_famished, enabled
+    pub(crate) static ZOOPHAGOUS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoophile: affection, max_affection, empathy_rate, just_bonded, just_estranged, enabled
+    pub(crate) static ZOOPHILE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoophilia: affinity, max_affinity, bond_rate, just_bonded, just_estranged, enabled
+    pub(crate) static ZOOPHILIA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoophilous: affinity, max_affinity, attract_rate, just_adapted, just_repelled, enabled
+    pub(crate) static ZOOPHILOUS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoophily: pollination, max_pollination, visit_rate, just_fertilized, just_barren, enabled
+    pub(crate) static ZOOPHILY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoophyte: vitality, max_vitality, polyp_rate, just_flourished, just_withered, enabled
+    pub(crate) static ZOOPHYTE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -28494,6 +28614,374 @@ pub fn bsengine_set_zoomorphism_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZoomorphismEnabled { name, enabled })
+    });
+}
+// ── Zoonosis ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoonosis_0(#[string] name: String) -> f32 {
+    ZOONOSIS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoonosis_1(#[string] name: String) -> f32 {
+    ZOONOSIS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoonosis_2(#[string] name: String) -> f32 {
+    ZOONOSIS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoonosis_3(#[string] name: String) -> bool {
+    ZOONOSIS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoonosis_4(#[string] name: String) -> bool {
+    ZOONOSIS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoonosis_enabled(#[string] name: String) -> bool {
+    ZOONOSIS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_infect_zoonosis(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InfectZoonosis { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_quarantine_zoonosis(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::QuarantineZoonosis { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoonosis_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoonosisEnabled { name, enabled })
+    });
+}
+// ── Zoonotic ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoonotic_0(#[string] name: String) -> f32 {
+    ZOONOTIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoonotic_1(#[string] name: String) -> f32 {
+    ZOONOTIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoonotic_2(#[string] name: String) -> f32 {
+    ZOONOTIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoonotic_3(#[string] name: String) -> bool {
+    ZOONOTIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoonotic_4(#[string] name: String) -> bool {
+    ZOONOTIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoonotic_enabled(#[string] name: String) -> bool {
+    ZOONOTIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_shed_zoonotic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ShedZoonotic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_clear_zoonotic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClearZoonotic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoonotic_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoonoticEnabled { name, enabled })
+    });
+}
+// ── Zoophagous ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoophagous_0(#[string] name: String) -> f32 {
+    ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophagous_1(#[string] name: String) -> f32 {
+    ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophagous_2(#[string] name: String) -> f32 {
+    ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophagous_3(#[string] name: String) -> bool {
+    ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophagous_4(#[string] name: String) -> bool {
+    ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophagous_enabled(#[string] name: String) -> bool {
+    ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_consume_zoophagous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ConsumeZoophagous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_starve_zoophagous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StarveZoophagous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoophagous_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoophagousEnabled { name, enabled })
+    });
+}
+// ── Zoophile ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoophile_0(#[string] name: String) -> f32 {
+    ZOOPHILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophile_1(#[string] name: String) -> f32 {
+    ZOOPHILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophile_2(#[string] name: String) -> f32 {
+    ZOOPHILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophile_3(#[string] name: String) -> bool {
+    ZOOPHILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophile_4(#[string] name: String) -> bool {
+    ZOOPHILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophile_enabled(#[string] name: String) -> bool {
+    ZOOPHILE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bond_zoophile(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BondZoophile { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_estrange_zoophile(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EstrangeZoophile { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoophile_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoophileEnabled { name, enabled })
+    });
+}
+// ── Zoophilia ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoophilia_0(#[string] name: String) -> f32 {
+    ZOOPHILIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophilia_1(#[string] name: String) -> f32 {
+    ZOOPHILIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophilia_2(#[string] name: String) -> f32 {
+    ZOOPHILIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophilia_3(#[string] name: String) -> bool {
+    ZOOPHILIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophilia_4(#[string] name: String) -> bool {
+    ZOOPHILIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophilia_enabled(#[string] name: String) -> bool {
+    ZOOPHILIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_attune_zoophilia(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AttuneZoophilia { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_alienate_zoophilia(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AlienateZoophilia { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoophilia_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoophiliaEnabled { name, enabled })
+    });
+}
+// ── Zoophilous ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoophilous_0(#[string] name: String) -> f32 {
+    ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophilous_1(#[string] name: String) -> f32 {
+    ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophilous_2(#[string] name: String) -> f32 {
+    ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophilous_3(#[string] name: String) -> bool {
+    ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophilous_4(#[string] name: String) -> bool {
+    ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophilous_enabled(#[string] name: String) -> bool {
+    ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_attract_zoophilous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AttractZoophilous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_repel_zoophilous(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RepelZoophilous { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoophilous_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoophilousEnabled { name, enabled })
+    });
+}
+// ── Zoophily ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoophily_0(#[string] name: String) -> f32 {
+    ZOOPHILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophily_1(#[string] name: String) -> f32 {
+    ZOOPHILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophily_2(#[string] name: String) -> f32 {
+    ZOOPHILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophily_3(#[string] name: String) -> bool {
+    ZOOPHILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophily_4(#[string] name: String) -> bool {
+    ZOOPHILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophily_enabled(#[string] name: String) -> bool {
+    ZOOPHILY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_visit_zoophily(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::VisitZoophily { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_wane_zoophily(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WaneZoophily { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoophily_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoophilyEnabled { name, enabled })
+    });
+}
+// ── Zoophyte ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoophyte_0(#[string] name: String) -> f32 {
+    ZOOPHYTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophyte_1(#[string] name: String) -> f32 {
+    ZOOPHYTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoophyte_2(#[string] name: String) -> f32 {
+    ZOOPHYTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophyte_3(#[string] name: String) -> bool {
+    ZOOPHYTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophyte_4(#[string] name: String) -> bool {
+    ZOOPHYTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoophyte_enabled(#[string] name: String) -> bool {
+    ZOOPHYTE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bloom_zoophyte(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BloomZoophyte { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_bleach_zoophyte(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BleachZoophyte { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoophyte_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoophyteEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -51267,6 +51755,78 @@ deno_core::extension!(
         bsengine_channel_zoomorphism,
         bsengine_withdraw_zoomorphism,
         bsengine_set_zoomorphism_enabled,
+        bsengine_get_zoonosis_0,
+        bsengine_get_zoonosis_1,
+        bsengine_get_zoonosis_2,
+        bsengine_is_zoonosis_3,
+        bsengine_is_zoonosis_4,
+        bsengine_is_zoonosis_enabled,
+        bsengine_infect_zoonosis,
+        bsengine_quarantine_zoonosis,
+        bsengine_set_zoonosis_enabled,
+        bsengine_get_zoonotic_0,
+        bsengine_get_zoonotic_1,
+        bsengine_get_zoonotic_2,
+        bsengine_is_zoonotic_3,
+        bsengine_is_zoonotic_4,
+        bsengine_is_zoonotic_enabled,
+        bsengine_shed_zoonotic,
+        bsengine_clear_zoonotic,
+        bsengine_set_zoonotic_enabled,
+        bsengine_get_zoophagous_0,
+        bsengine_get_zoophagous_1,
+        bsengine_get_zoophagous_2,
+        bsengine_is_zoophagous_3,
+        bsengine_is_zoophagous_4,
+        bsengine_is_zoophagous_enabled,
+        bsengine_consume_zoophagous,
+        bsengine_starve_zoophagous,
+        bsengine_set_zoophagous_enabled,
+        bsengine_get_zoophile_0,
+        bsengine_get_zoophile_1,
+        bsengine_get_zoophile_2,
+        bsengine_is_zoophile_3,
+        bsengine_is_zoophile_4,
+        bsengine_is_zoophile_enabled,
+        bsengine_bond_zoophile,
+        bsengine_estrange_zoophile,
+        bsengine_set_zoophile_enabled,
+        bsengine_get_zoophilia_0,
+        bsengine_get_zoophilia_1,
+        bsengine_get_zoophilia_2,
+        bsengine_is_zoophilia_3,
+        bsengine_is_zoophilia_4,
+        bsengine_is_zoophilia_enabled,
+        bsengine_attune_zoophilia,
+        bsengine_alienate_zoophilia,
+        bsengine_set_zoophilia_enabled,
+        bsengine_get_zoophilous_0,
+        bsengine_get_zoophilous_1,
+        bsengine_get_zoophilous_2,
+        bsengine_is_zoophilous_3,
+        bsengine_is_zoophilous_4,
+        bsengine_is_zoophilous_enabled,
+        bsengine_attract_zoophilous,
+        bsengine_repel_zoophilous,
+        bsengine_set_zoophilous_enabled,
+        bsengine_get_zoophily_0,
+        bsengine_get_zoophily_1,
+        bsengine_get_zoophily_2,
+        bsengine_is_zoophily_3,
+        bsengine_is_zoophily_4,
+        bsengine_is_zoophily_enabled,
+        bsengine_visit_zoophily,
+        bsengine_wane_zoophily,
+        bsengine_set_zoophily_enabled,
+        bsengine_get_zoophyte_0,
+        bsengine_get_zoophyte_1,
+        bsengine_get_zoophyte_2,
+        bsengine_is_zoophyte_3,
+        bsengine_is_zoophyte_4,
+        bsengine_is_zoophyte_enabled,
+        bsengine_bloom_zoophyte,
+        bsengine_bleach_zoophyte,
+        bsengine_set_zoophyte_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -57452,6 +58012,78 @@ const Bsengine = {
     channelZoomorphism:         (name, amount)      => Deno.core.ops.bsengine_channel_zoomorphism(name, amount),
     withdrawZoomorphism:        (name, amount)      => Deno.core.ops.bsengine_withdraw_zoomorphism(name, amount),
     setZoomorphismEnabled:      (name, v)           => Deno.core.ops.bsengine_set_zoomorphism_enabled(name, v),
+    getZoonosis0:               (name)              => Deno.core.ops.bsengine_get_zoonosis_0(name),
+    getZoonosis1:               (name)              => Deno.core.ops.bsengine_get_zoonosis_1(name),
+    getZoonosis2:               (name)              => Deno.core.ops.bsengine_get_zoonosis_2(name),
+    isZoonosis3:                (name)              => Deno.core.ops.bsengine_is_zoonosis_3(name),
+    isZoonosis4:                (name)              => Deno.core.ops.bsengine_is_zoonosis_4(name),
+    isZoonosisEnabled:          (name)              => Deno.core.ops.bsengine_is_zoonosis_enabled(name),
+    infectZoonosis:             (name, amount)      => Deno.core.ops.bsengine_infect_zoonosis(name, amount),
+    quarantineZoonosis:         (name, amount)      => Deno.core.ops.bsengine_quarantine_zoonosis(name, amount),
+    setZoonosisEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoonosis_enabled(name, v),
+    getZoonotic0:               (name)              => Deno.core.ops.bsengine_get_zoonotic_0(name),
+    getZoonotic1:               (name)              => Deno.core.ops.bsengine_get_zoonotic_1(name),
+    getZoonotic2:               (name)              => Deno.core.ops.bsengine_get_zoonotic_2(name),
+    isZoonotic3:                (name)              => Deno.core.ops.bsengine_is_zoonotic_3(name),
+    isZoonotic4:                (name)              => Deno.core.ops.bsengine_is_zoonotic_4(name),
+    isZoonoticEnabled:          (name)              => Deno.core.ops.bsengine_is_zoonotic_enabled(name),
+    shedZoonotic:               (name, amount)      => Deno.core.ops.bsengine_shed_zoonotic(name, amount),
+    clearZoonotic:              (name, amount)      => Deno.core.ops.bsengine_clear_zoonotic(name, amount),
+    setZoonoticEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoonotic_enabled(name, v),
+    getZoophagous0:             (name)              => Deno.core.ops.bsengine_get_zoophagous_0(name),
+    getZoophagous1:             (name)              => Deno.core.ops.bsengine_get_zoophagous_1(name),
+    getZoophagous2:             (name)              => Deno.core.ops.bsengine_get_zoophagous_2(name),
+    isZoophagous3:              (name)              => Deno.core.ops.bsengine_is_zoophagous_3(name),
+    isZoophagous4:              (name)              => Deno.core.ops.bsengine_is_zoophagous_4(name),
+    isZoophagousEnabled:        (name)              => Deno.core.ops.bsengine_is_zoophagous_enabled(name),
+    consumeZoophagous:          (name, amount)      => Deno.core.ops.bsengine_consume_zoophagous(name, amount),
+    starveZoophagous:           (name, amount)      => Deno.core.ops.bsengine_starve_zoophagous(name, amount),
+    setZoophagousEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zoophagous_enabled(name, v),
+    getZoophile0:               (name)              => Deno.core.ops.bsengine_get_zoophile_0(name),
+    getZoophile1:               (name)              => Deno.core.ops.bsengine_get_zoophile_1(name),
+    getZoophile2:               (name)              => Deno.core.ops.bsengine_get_zoophile_2(name),
+    isZoophile3:                (name)              => Deno.core.ops.bsengine_is_zoophile_3(name),
+    isZoophile4:                (name)              => Deno.core.ops.bsengine_is_zoophile_4(name),
+    isZoophileEnabled:          (name)              => Deno.core.ops.bsengine_is_zoophile_enabled(name),
+    bondZoophile:               (name, amount)      => Deno.core.ops.bsengine_bond_zoophile(name, amount),
+    estrangeZoophile:           (name, amount)      => Deno.core.ops.bsengine_estrange_zoophile(name, amount),
+    setZoophileEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoophile_enabled(name, v),
+    getZoophilia0:              (name)              => Deno.core.ops.bsengine_get_zoophilia_0(name),
+    getZoophilia1:              (name)              => Deno.core.ops.bsengine_get_zoophilia_1(name),
+    getZoophilia2:              (name)              => Deno.core.ops.bsengine_get_zoophilia_2(name),
+    isZoophilia3:               (name)              => Deno.core.ops.bsengine_is_zoophilia_3(name),
+    isZoophilia4:               (name)              => Deno.core.ops.bsengine_is_zoophilia_4(name),
+    isZoophiliaEnabled:         (name)              => Deno.core.ops.bsengine_is_zoophilia_enabled(name),
+    attuneZoophilia:            (name, amount)      => Deno.core.ops.bsengine_attune_zoophilia(name, amount),
+    alienateZoophilia:          (name, amount)      => Deno.core.ops.bsengine_alienate_zoophilia(name, amount),
+    setZoophiliaEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zoophilia_enabled(name, v),
+    getZoophilous0:             (name)              => Deno.core.ops.bsengine_get_zoophilous_0(name),
+    getZoophilous1:             (name)              => Deno.core.ops.bsengine_get_zoophilous_1(name),
+    getZoophilous2:             (name)              => Deno.core.ops.bsengine_get_zoophilous_2(name),
+    isZoophilous3:              (name)              => Deno.core.ops.bsengine_is_zoophilous_3(name),
+    isZoophilous4:              (name)              => Deno.core.ops.bsengine_is_zoophilous_4(name),
+    isZoophilousEnabled:        (name)              => Deno.core.ops.bsengine_is_zoophilous_enabled(name),
+    attractZoophilous:          (name, amount)      => Deno.core.ops.bsengine_attract_zoophilous(name, amount),
+    repelZoophilous:            (name, amount)      => Deno.core.ops.bsengine_repel_zoophilous(name, amount),
+    setZoophilousEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zoophilous_enabled(name, v),
+    getZoophily0:               (name)              => Deno.core.ops.bsengine_get_zoophily_0(name),
+    getZoophily1:               (name)              => Deno.core.ops.bsengine_get_zoophily_1(name),
+    getZoophily2:               (name)              => Deno.core.ops.bsengine_get_zoophily_2(name),
+    isZoophily3:                (name)              => Deno.core.ops.bsengine_is_zoophily_3(name),
+    isZoophily4:                (name)              => Deno.core.ops.bsengine_is_zoophily_4(name),
+    isZoophilyEnabled:          (name)              => Deno.core.ops.bsengine_is_zoophily_enabled(name),
+    visitZoophily:              (name, amount)      => Deno.core.ops.bsengine_visit_zoophily(name, amount),
+    waneZoophily:               (name, amount)      => Deno.core.ops.bsengine_wane_zoophily(name, amount),
+    setZoophilyEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoophily_enabled(name, v),
+    getZoophyte0:               (name)              => Deno.core.ops.bsengine_get_zoophyte_0(name),
+    getZoophyte1:               (name)              => Deno.core.ops.bsengine_get_zoophyte_1(name),
+    getZoophyte2:               (name)              => Deno.core.ops.bsengine_get_zoophyte_2(name),
+    isZoophyte3:                (name)              => Deno.core.ops.bsengine_is_zoophyte_3(name),
+    isZoophyte4:                (name)              => Deno.core.ops.bsengine_is_zoophyte_4(name),
+    isZoophyteEnabled:          (name)              => Deno.core.ops.bsengine_is_zoophyte_enabled(name),
+    bloomZoophyte:              (name, amount)      => Deno.core.ops.bsengine_bloom_zoophyte(name, amount),
+    bleachZoophyte:             (name, amount)      => Deno.core.ops.bsengine_bleach_zoophyte(name, amount),
+    setZoophyteEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoophyte_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -98121,6 +98753,490 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChannelZoomorphism { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WithdrawZoomorphism { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoomorphismEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoonosis_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOONOSIS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoonosis0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoonosis1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoonosis2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoonosis3("Aries"))"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoonosis4("Aries"))"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoonosisEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOONOSIS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoonosis_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.infectZoonosis("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.quarantineZoonosis("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoonosisEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InfectZoonosis { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuarantineZoonosis { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoonosisEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoonotic_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOONOTIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoonotic0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoonotic1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoonotic2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoonotic3("Aries"))"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoonotic4("Aries"))"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoonoticEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOONOTIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoonotic_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.shedZoonotic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearZoonotic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoonoticEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShedZoonotic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearZoonotic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoonoticEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophagous_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOOPHAGOUS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophagous0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophagous1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophagous2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophagous3("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophagous4("Aries"))"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophagousEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOOPHAGOUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophagous_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.consumeZoophagous("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.starveZoophagous("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZoophagousEnabled("Aries", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConsumeZoophagous { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StarveZoophagous { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoophagousEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophile_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOOPHILE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophile0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophile1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophile2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophile3("Aries"))"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophile4("Aries"))"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophileEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOOPHILE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophile_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.bondZoophile("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.estrangeZoophile("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoophileEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BondZoophile { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EstrangeZoophile { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoophileEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophilia_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOOPHILIA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophilia0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophilia1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophilia2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophilia3("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophilia4("Aries"))"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophiliaEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOOPHILIA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophilia_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.attuneZoophilia("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.alienateZoophilia("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoophiliaEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AttuneZoophilia { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AlienateZoophilia { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoophiliaEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophilous_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOOPHILOUS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophilous0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophilous1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophilous2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophilous3("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophilous4("Aries"))"#)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophilousEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOOPHILOUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophilous_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.attractZoophilous("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.repelZoophilous("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZoophilousEnabled("Aries", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AttractZoophilous { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RepelZoophilous { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoophilousEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophily_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOOPHILY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophily0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophily1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophily2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophily3("Aries"))"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophily4("Aries"))"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophilyEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOOPHILY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophily_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.visitZoophily("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.waneZoophily("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoophilyEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VisitZoophily { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WaneZoophily { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoophilyEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophyte_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOOPHYTE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (1.0f32, 2.0f32, 0.5f32, true, false, true),
+            );
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophyte0("Aries"))"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophyte1("Aries"))"#)
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getZoophyte2("Aries"))"#)
+                .unwrap(),
+            "0.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophyte3("Aries"))"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophyte4("Aries"))"#).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.isZoophyteEnabled("Aries"))"#)
+                .unwrap(),
+            "true"
+        );
+        super::ZOOPHYTE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoophyte_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.bloomZoophyte("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.bleachZoophyte("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoophyteEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BloomZoophyte { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BleachZoophyte { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoophyteEnabled { name, enabled } if name == "Aries" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

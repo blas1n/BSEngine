@@ -120,7 +120,8 @@ use crate::ops::{
     YONDER_SNAPSHOT, YORE_SNAPSHOT, YULE_SNAPSHOT, YUMMY_SNAPSHOT, YUM_SNAPSHOT, YUP_SNAPSHOT,
     YURT_SNAPSHOT, ZAFU_SNAPSHOT, ZAG_SNAPSHOT, ZAIBATSU_SNAPSHOT, ZAKAT_SNAPSHOT, ZAMIA_SNAPSHOT,
     ZANILY_SNAPSHOT, ZANINESS_SNAPSHOT, ZANY_SNAPSHOT, ZAPPER_SNAPSHOT, ZAPPY_SNAPSHOT,
-    ZAP_SNAPSHOT, Z_INDEX_SNAPSHOT,
+    ZAP_SNAPSHOT, ZEALOTRY_SNAPSHOT, ZEALOT_SNAPSHOT, ZEALOUS_SNAPSHOT, ZEAL_SNAPSHOT,
+    ZEATIN_SNAPSHOT, ZEAXANTHIN_SNAPSHOT, ZEBEC_SNAPSHOT, ZEBRA_SNAPSHOT, Z_INDEX_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -6358,6 +6359,159 @@ fn run_scripts(world: &mut World) {
             );
         }
         ZAPPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeal)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zeal_level,
+                    c.max_zeal,
+                    c.threshold,
+                    c.decay_rate,
+                    c.just_devoted,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zealot;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zealot)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fervor,
+                    c.max_fervor,
+                    c.zeal_rate,
+                    c.just_zealous,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEALOT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zealotry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zealotry)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fervor,
+                    c.max_fervor,
+                    c.dogma_rate,
+                    c.just_fanatical,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEALOTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zealous;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zealous)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.conviction,
+                    c.max_conviction,
+                    c.devote_rate,
+                    c.just_zealous,
+                    c.just_wavered,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEALOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeatin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeatin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.division,
+                    c.max_division,
+                    c.proliferate_rate,
+                    c.just_proliferating,
+                    c.just_arrested,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEATIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeaxanthin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeaxanthin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.pigment,
+                    c.max_pigment,
+                    c.absorb_rate,
+                    c.just_saturated,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEAXANTHIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebec;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebec)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.bearing,
+                    c.max_bearing,
+                    c.drift_rate,
+                    c.just_on_course,
+                    c.just_adrift,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBEC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebra;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebra)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.phase,
+                    c.stripe_width,
+                    c.speed,
+                    c.dark_stripe,
+                    c.just_switched,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBRA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -31773,6 +31927,248 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Zappy>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::InspireZeal { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeal>(e) {
+                        w.inspire(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZealEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeal>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::DevoteZealot { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealot>(e) {
+                        w.devote(1.0);
+                    }
+                }
+            }
+            ScriptCommand::WaverZealot { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealot>(e) {
+                        w.waver(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZealotEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealot>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::RadicalizeZealotry { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealotry>(e) {
+                        w.radicalize(1.0);
+                    }
+                }
+            }
+            ScriptCommand::ModerateZealotry { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealotry>(e) {
+                        w.moderate(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZealotryEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealotry>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::CommitZealous { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealous>(e) {
+                        w.commit(1.0);
+                    }
+                }
+            }
+            ScriptCommand::WaverZealous { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealous>(e) {
+                        w.waver(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZealousEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zealous>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::StimulateZeatin { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeatin>(e) {
+                        w.stimulate(1.0);
+                    }
+                }
+            }
+            ScriptCommand::ArrestZeatin { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeatin>(e) {
+                        w.arrest(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZeatinEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeatin>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::DepositZeaxanthin { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeaxanthin>(e) {
+                        w.deposit(1.0);
+                    }
+                }
+            }
+            ScriptCommand::BleachZeaxanthin { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeaxanthin>(e) {
+                        w.bleach(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZeaxanthinEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zeaxanthin>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::TackZebec { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zebec>(e) {
+                        w.tack(1.0);
+                    }
+                }
+            }
+            ScriptCommand::VeerZebec { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zebec>(e) {
+                        w.veer(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZebecEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zebec>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AdvanceZebra { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zebra>(e) {
+                        w.advance(1.0);
+                    }
+                }
+            }
+            ScriptCommand::SetZebraEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zebra>(e) {
                         w.enabled = enabled;
                     }
                 }

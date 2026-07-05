@@ -6739,6 +6739,88 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Zeal ─────────────────────────────────────────────────────────────────
+    InspireZeal {
+        name: String,
+    },
+    SetZealEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zealot ───────────────────────────────────────────────────────────────
+    DevoteZealot {
+        name: String,
+    },
+    WaverZealot {
+        name: String,
+    },
+    SetZealotEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zealotry ─────────────────────────────────────────────────────────────
+    RadicalizeZealotry {
+        name: String,
+    },
+    ModerateZealotry {
+        name: String,
+    },
+    SetZealotryEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zealous ──────────────────────────────────────────────────────────────
+    CommitZealous {
+        name: String,
+    },
+    WaverZealous {
+        name: String,
+    },
+    SetZealousEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeatin ───────────────────────────────────────────────────────────────
+    StimulateZeatin {
+        name: String,
+    },
+    ArrestZeatin {
+        name: String,
+    },
+    SetZeatinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeaxanthin ───────────────────────────────────────────────────────────
+    DepositZeaxanthin {
+        name: String,
+    },
+    BleachZeaxanthin {
+        name: String,
+    },
+    SetZeaxanthinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zebec ────────────────────────────────────────────────────────────────
+    TackZebec {
+        name: String,
+    },
+    VeerZebec {
+        name: String,
+    },
+    SetZebecEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zebra ────────────────────────────────────────────────────────────────
+    AdvanceZebra {
+        name: String,
+    },
+    SetZebraEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8372,6 +8454,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zappy: vitality, max_vitality, spark_rate, just_sparked, just_fizzled, enabled
     pub(crate) static ZAPPY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeal: zeal_level, max_zeal, threshold, decay_rate, just_devoted, just_lapsed, enabled
+    pub(crate) static ZEAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zealot: fervor, max_fervor, zeal_rate, just_zealous, just_lapsed, enabled
+    pub(crate) static ZEALOT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zealotry: fervor, max_fervor, dogma_rate, just_fanatical, just_lapsed, enabled
+    pub(crate) static ZEALOTRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zealous: conviction, max_conviction, devote_rate, just_zealous, just_wavered, enabled
+    pub(crate) static ZEALOUS_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeatin: division, max_division, proliferate_rate, just_proliferating, just_arrested, enabled
+    pub(crate) static ZEATIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeaxanthin: pigment, max_pigment, absorb_rate, just_saturated, just_depleted, enabled
+    pub(crate) static ZEAXANTHIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zebec: bearing, max_bearing, drift_rate, just_on_course, just_adrift, enabled
+    pub(crate) static ZEBEC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zebra: phase, stripe_width, speed, dark_stripe, just_switched, enabled
+    pub(crate) static ZEBRA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -22574,6 +22680,334 @@ pub fn bsengine_set_zappy_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZappyEnabled { name, enabled })
+    });
+}
+// ── Zeal ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeal_level(#[string] name: String) -> f32 {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeal_max_zeal(#[string] name: String) -> f32 {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeal_threshold(#[string] name: String) -> f32 {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeal_decay_rate(#[string] name: String) -> f32 {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeal_just_devoted(#[string] name: String) -> bool {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeal_just_lapsed(#[string] name: String) -> bool {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeal_enabled(#[string] name: String) -> bool {
+    ZEAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.6).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_inspire_zeal(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::InspireZeal { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZealEnabled { name, enabled })
+    });
+}
+// ── Zealot ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zealot_fervor(#[string] name: String) -> f32 {
+    ZEALOT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zealot_max_fervor(#[string] name: String) -> f32 {
+    ZEALOT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zealot_zeal_rate(#[string] name: String) -> f32 {
+    ZEALOT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealot_just_zealous(#[string] name: String) -> bool {
+    ZEALOT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealot_just_lapsed(#[string] name: String) -> bool {
+    ZEALOT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealot_enabled(#[string] name: String) -> bool {
+    ZEALOT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_devote_zealot(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DevoteZealot { name }));
+}
+#[op2(fast)]
+pub fn bsengine_waver_zealot(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WaverZealot { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zealot_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZealotEnabled { name, enabled })
+    });
+}
+// ── Zealotry ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zealotry_fervor(#[string] name: String) -> f32 {
+    ZEALOTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zealotry_max_fervor(#[string] name: String) -> f32 {
+    ZEALOTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zealotry_dogma_rate(#[string] name: String) -> f32 {
+    ZEALOTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealotry_just_fanatical(#[string] name: String) -> bool {
+    ZEALOTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealotry_just_lapsed(#[string] name: String) -> bool {
+    ZEALOTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealotry_enabled(#[string] name: String) -> bool {
+    ZEALOTRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_radicalize_zealotry(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RadicalizeZealotry { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_moderate_zealotry(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ModerateZealotry { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zealotry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZealotryEnabled { name, enabled })
+    });
+}
+// ── Zealous ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zealous_conviction(#[string] name: String) -> f32 {
+    ZEALOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zealous_max_conviction(#[string] name: String) -> f32 {
+    ZEALOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zealous_devote_rate(#[string] name: String) -> f32 {
+    ZEALOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealous_just_zealous(#[string] name: String) -> bool {
+    ZEALOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealous_just_wavered(#[string] name: String) -> bool {
+    ZEALOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zealous_enabled(#[string] name: String) -> bool {
+    ZEALOUS_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_commit_zealous(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CommitZealous { name }));
+}
+#[op2(fast)]
+pub fn bsengine_waver_zealous(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WaverZealous { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zealous_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZealousEnabled { name, enabled })
+    });
+}
+// ── Zeatin ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeatin_division(#[string] name: String) -> f32 {
+    ZEATIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeatin_max_division(#[string] name: String) -> f32 {
+    ZEATIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeatin_proliferate_rate(#[string] name: String) -> f32 {
+    ZEATIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeatin_just_proliferating(#[string] name: String) -> bool {
+    ZEATIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeatin_just_arrested(#[string] name: String) -> bool {
+    ZEATIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeatin_enabled(#[string] name: String) -> bool {
+    ZEATIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_stimulate_zeatin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StimulateZeatin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_arrest_zeatin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ArrestZeatin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeatin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeatinEnabled { name, enabled })
+    });
+}
+// ── Zeaxanthin ───────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeaxanthin_pigment(#[string] name: String) -> f32 {
+    ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeaxanthin_max_pigment(#[string] name: String) -> f32 {
+    ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeaxanthin_absorb_rate(#[string] name: String) -> f32 {
+    ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeaxanthin_just_saturated(#[string] name: String) -> bool {
+    ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeaxanthin_just_depleted(#[string] name: String) -> bool {
+    ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeaxanthin_enabled(#[string] name: String) -> bool {
+    ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_deposit_zeaxanthin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DepositZeaxanthin { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_bleach_zeaxanthin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BleachZeaxanthin { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zeaxanthin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeaxanthinEnabled { name, enabled })
+    });
+}
+// ── Zebec ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zebec_bearing(#[string] name: String) -> f32 {
+    ZEBEC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebec_max_bearing(#[string] name: String) -> f32 {
+    ZEBEC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebec_drift_rate(#[string] name: String) -> f32 {
+    ZEBEC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebec_just_on_course(#[string] name: String) -> bool {
+    ZEBEC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebec_just_adrift(#[string] name: String) -> bool {
+    ZEBEC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebec_enabled(#[string] name: String) -> bool {
+    ZEBEC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_tack_zebec(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::TackZebec { name }));
+}
+#[op2(fast)]
+pub fn bsengine_veer_zebec(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::VeerZebec { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zebec_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZebecEnabled { name, enabled })
+    });
+}
+// ── Zebra ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zebra_phase(#[string] name: String) -> f32 {
+    ZEBRA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebra_stripe_width(#[string] name: String) -> f32 {
+    ZEBRA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebra_speed(#[string] name: String) -> f32 {
+    ZEBRA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebra_dark_stripe(#[string] name: String) -> bool {
+    ZEBRA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebra_just_switched(#[string] name: String) -> bool {
+    ZEBRA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebra_enabled(#[string] name: String) -> bool {
+    ZEBRA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_advance_zebra(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AdvanceZebra { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zebra_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZebraEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -44416,6 +44850,77 @@ deno_core::extension!(
         bsengine_energize_zappy,
         bsengine_fizzle_zappy,
         bsengine_set_zappy_enabled,
+        bsengine_get_zeal_level,
+        bsengine_get_zeal_max_zeal,
+        bsengine_get_zeal_threshold,
+        bsengine_get_zeal_decay_rate,
+        bsengine_is_zeal_just_devoted,
+        bsengine_is_zeal_just_lapsed,
+        bsengine_is_zeal_enabled,
+        bsengine_inspire_zeal,
+        bsengine_set_zeal_enabled,
+        bsengine_get_zealot_fervor,
+        bsengine_get_zealot_max_fervor,
+        bsengine_get_zealot_zeal_rate,
+        bsengine_is_zealot_just_zealous,
+        bsengine_is_zealot_just_lapsed,
+        bsengine_is_zealot_enabled,
+        bsengine_devote_zealot,
+        bsengine_waver_zealot,
+        bsengine_set_zealot_enabled,
+        bsengine_get_zealotry_fervor,
+        bsengine_get_zealotry_max_fervor,
+        bsengine_get_zealotry_dogma_rate,
+        bsengine_is_zealotry_just_fanatical,
+        bsengine_is_zealotry_just_lapsed,
+        bsengine_is_zealotry_enabled,
+        bsengine_radicalize_zealotry,
+        bsengine_moderate_zealotry,
+        bsengine_set_zealotry_enabled,
+        bsengine_get_zealous_conviction,
+        bsengine_get_zealous_max_conviction,
+        bsengine_get_zealous_devote_rate,
+        bsengine_is_zealous_just_zealous,
+        bsengine_is_zealous_just_wavered,
+        bsengine_is_zealous_enabled,
+        bsengine_commit_zealous,
+        bsengine_waver_zealous,
+        bsengine_set_zealous_enabled,
+        bsengine_get_zeatin_division,
+        bsengine_get_zeatin_max_division,
+        bsengine_get_zeatin_proliferate_rate,
+        bsengine_is_zeatin_just_proliferating,
+        bsengine_is_zeatin_just_arrested,
+        bsengine_is_zeatin_enabled,
+        bsengine_stimulate_zeatin,
+        bsengine_arrest_zeatin,
+        bsengine_set_zeatin_enabled,
+        bsengine_get_zeaxanthin_pigment,
+        bsengine_get_zeaxanthin_max_pigment,
+        bsengine_get_zeaxanthin_absorb_rate,
+        bsengine_is_zeaxanthin_just_saturated,
+        bsengine_is_zeaxanthin_just_depleted,
+        bsengine_is_zeaxanthin_enabled,
+        bsengine_deposit_zeaxanthin,
+        bsengine_bleach_zeaxanthin,
+        bsengine_set_zeaxanthin_enabled,
+        bsengine_get_zebec_bearing,
+        bsengine_get_zebec_max_bearing,
+        bsengine_get_zebec_drift_rate,
+        bsengine_is_zebec_just_on_course,
+        bsengine_is_zebec_just_adrift,
+        bsengine_is_zebec_enabled,
+        bsengine_tack_zebec,
+        bsengine_veer_zebec,
+        bsengine_set_zebec_enabled,
+        bsengine_get_zebra_phase,
+        bsengine_get_zebra_stripe_width,
+        bsengine_get_zebra_speed,
+        bsengine_is_zebra_dark_stripe,
+        bsengine_is_zebra_just_switched,
+        bsengine_is_zebra_enabled,
+        bsengine_advance_zebra,
+        bsengine_set_zebra_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -49670,6 +50175,77 @@ const Bsengine = {
     energizeZappy:              (name)              => Deno.core.ops.bsengine_energize_zappy(name),
     fizzleZappy:                (name)              => Deno.core.ops.bsengine_fizzle_zappy(name),
     setZappyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zappy_enabled(name, v),
+    getZealLevel:               (name)              => Deno.core.ops.bsengine_get_zeal_level(name),
+    getZealMaxZeal:             (name)              => Deno.core.ops.bsengine_get_zeal_max_zeal(name),
+    getZealThreshold:           (name)              => Deno.core.ops.bsengine_get_zeal_threshold(name),
+    getZealDecayRate:           (name)              => Deno.core.ops.bsengine_get_zeal_decay_rate(name),
+    isZealJustDevoted:          (name)              => Deno.core.ops.bsengine_is_zeal_just_devoted(name),
+    isZealJustLapsed:           (name)              => Deno.core.ops.bsengine_is_zeal_just_lapsed(name),
+    isZealEnabled:              (name)              => Deno.core.ops.bsengine_is_zeal_enabled(name),
+    inspireZeal:                (name)              => Deno.core.ops.bsengine_inspire_zeal(name),
+    setZealEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zeal_enabled(name, v),
+    getZealotFervor:            (name)              => Deno.core.ops.bsengine_get_zealot_fervor(name),
+    getZealotMaxFervor:         (name)              => Deno.core.ops.bsengine_get_zealot_max_fervor(name),
+    getZealotZealRate:          (name)              => Deno.core.ops.bsengine_get_zealot_zeal_rate(name),
+    isZealotJustZealous:        (name)              => Deno.core.ops.bsengine_is_zealot_just_zealous(name),
+    isZealotJustLapsed:         (name)              => Deno.core.ops.bsengine_is_zealot_just_lapsed(name),
+    isZealotEnabled:            (name)              => Deno.core.ops.bsengine_is_zealot_enabled(name),
+    devoteZealot:               (name)              => Deno.core.ops.bsengine_devote_zealot(name),
+    waverZealot:                (name)              => Deno.core.ops.bsengine_waver_zealot(name),
+    setZealotEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zealot_enabled(name, v),
+    getZealotryFervor:          (name)              => Deno.core.ops.bsengine_get_zealotry_fervor(name),
+    getZealotryMaxFervor:       (name)              => Deno.core.ops.bsengine_get_zealotry_max_fervor(name),
+    getZealotryDogmaRate:       (name)              => Deno.core.ops.bsengine_get_zealotry_dogma_rate(name),
+    isZealotryJustFanatical:    (name)              => Deno.core.ops.bsengine_is_zealotry_just_fanatical(name),
+    isZealotryJustLapsed:       (name)              => Deno.core.ops.bsengine_is_zealotry_just_lapsed(name),
+    isZealotryEnabled:          (name)              => Deno.core.ops.bsengine_is_zealotry_enabled(name),
+    radicalizeZealotry:         (name)              => Deno.core.ops.bsengine_radicalize_zealotry(name),
+    moderateZealotry:           (name)              => Deno.core.ops.bsengine_moderate_zealotry(name),
+    setZealotryEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zealotry_enabled(name, v),
+    getZealousConviction:       (name)              => Deno.core.ops.bsengine_get_zealous_conviction(name),
+    getZealousMaxConviction:    (name)              => Deno.core.ops.bsengine_get_zealous_max_conviction(name),
+    getZealousDevoteRate:       (name)              => Deno.core.ops.bsengine_get_zealous_devote_rate(name),
+    isZealousJustZealous:       (name)              => Deno.core.ops.bsengine_is_zealous_just_zealous(name),
+    isZealousJustWavered:       (name)              => Deno.core.ops.bsengine_is_zealous_just_wavered(name),
+    isZealousEnabled:           (name)              => Deno.core.ops.bsengine_is_zealous_enabled(name),
+    commitZealous:              (name)              => Deno.core.ops.bsengine_commit_zealous(name),
+    waverZealous:               (name)              => Deno.core.ops.bsengine_waver_zealous(name),
+    setZealousEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zealous_enabled(name, v),
+    getZeatinDivision:          (name)              => Deno.core.ops.bsengine_get_zeatin_division(name),
+    getZeatinMaxDivision:       (name)              => Deno.core.ops.bsengine_get_zeatin_max_division(name),
+    getZeatinProliferateRate:   (name)              => Deno.core.ops.bsengine_get_zeatin_proliferate_rate(name),
+    isZeatinJustProliferating:  (name)              => Deno.core.ops.bsengine_is_zeatin_just_proliferating(name),
+    isZeatinJustArrested:       (name)              => Deno.core.ops.bsengine_is_zeatin_just_arrested(name),
+    isZeatinEnabled:            (name)              => Deno.core.ops.bsengine_is_zeatin_enabled(name),
+    stimulateZeatin:            (name)              => Deno.core.ops.bsengine_stimulate_zeatin(name),
+    arrestZeatin:               (name)              => Deno.core.ops.bsengine_arrest_zeatin(name),
+    setZeatinEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zeatin_enabled(name, v),
+    getZeaxanthinPigment:       (name)              => Deno.core.ops.bsengine_get_zeaxanthin_pigment(name),
+    getZeaxanthinMaxPigment:    (name)              => Deno.core.ops.bsengine_get_zeaxanthin_max_pigment(name),
+    getZeaxanthinAbsorbRate:    (name)              => Deno.core.ops.bsengine_get_zeaxanthin_absorb_rate(name),
+    isZeaxanthinJustSaturated:  (name)              => Deno.core.ops.bsengine_is_zeaxanthin_just_saturated(name),
+    isZeaxanthinJustDepleted:   (name)              => Deno.core.ops.bsengine_is_zeaxanthin_just_depleted(name),
+    isZeaxanthinEnabled:        (name)              => Deno.core.ops.bsengine_is_zeaxanthin_enabled(name),
+    depositZeaxanthin:          (name)              => Deno.core.ops.bsengine_deposit_zeaxanthin(name),
+    bleachZeaxanthin:           (name)              => Deno.core.ops.bsengine_bleach_zeaxanthin(name),
+    setZeaxanthinEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zeaxanthin_enabled(name, v),
+    getZebecBearing:            (name)              => Deno.core.ops.bsengine_get_zebec_bearing(name),
+    getZebecMaxBearing:         (name)              => Deno.core.ops.bsengine_get_zebec_max_bearing(name),
+    getZebecDriftRate:          (name)              => Deno.core.ops.bsengine_get_zebec_drift_rate(name),
+    isZebecJustOnCourse:        (name)              => Deno.core.ops.bsengine_is_zebec_just_on_course(name),
+    isZebecJustAdrift:          (name)              => Deno.core.ops.bsengine_is_zebec_just_adrift(name),
+    isZebecEnabled:             (name)              => Deno.core.ops.bsengine_is_zebec_enabled(name),
+    tackZebec:                  (name)              => Deno.core.ops.bsengine_tack_zebec(name),
+    veerZebec:                  (name)              => Deno.core.ops.bsengine_veer_zebec(name),
+    setZebecEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zebec_enabled(name, v),
+    getZebraPhase:              (name)              => Deno.core.ops.bsengine_get_zebra_phase(name),
+    getZebraStripeWidth:        (name)              => Deno.core.ops.bsengine_get_zebra_stripe_width(name),
+    getZebraSpeed:              (name)              => Deno.core.ops.bsengine_get_zebra_speed(name),
+    isZebraDarkStripe:          (name)              => Deno.core.ops.bsengine_is_zebra_dark_stripe(name),
+    isZebraJustSwitched:        (name)              => Deno.core.ops.bsengine_is_zebra_just_switched(name),
+    isZebraEnabled:             (name)              => Deno.core.ops.bsengine_is_zebra_enabled(name),
+    advanceZebra:               (name)              => Deno.core.ops.bsengine_advance_zebra(name),
+    setZebraEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zebra_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -83483,6 +84059,447 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EnergizeZappy { name } if name == "Spark")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FizzleZappy { name } if name == "Spark")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZappyEnabled { name, enabled } if name == "Spark" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeal_read_ops() {
+        super::ZEAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Faith".to_string(),
+                (40.0f32, 100.0f32, 0.5f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZealLevel("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealMaxZeal("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealThreshold("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealDecayRate("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealJustDevoted("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealJustLapsed("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealEnabled("Faith"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeal_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.inspireZeal("Faith");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZealEnabled("Faith", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InspireZeal { name } if name == "Faith")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZealEnabled { name, enabled } if name == "Faith" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zealot_read_ops() {
+        super::ZEALOT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Monk".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZealotFervor("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealotMaxFervor("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealotZealRate("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealotJustZealous("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealotJustLapsed("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealotEnabled("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEALOT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zealot_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.devoteZealot("Monk");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.waverZealot("Monk");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZealotEnabled("Monk", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DevoteZealot { name } if name == "Monk")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WaverZealot { name } if name == "Monk")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZealotEnabled { name, enabled } if name == "Monk" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zealotry_read_ops() {
+        super::ZEALOTRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cult".to_string(),
+                (70.0f32, 100.0f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZealotryFervor("Cult"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "70");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealotryMaxFervor("Cult"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealotryDogmaRate("Cult"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealotryJustFanatical("Cult"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealotryJustLapsed("Cult"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealotryEnabled("Cult"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEALOTRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zealotry_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.radicalizeZealotry("Cult");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.moderateZealotry("Cult");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZealotryEnabled("Cult", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RadicalizeZealotry { name } if name == "Cult")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ModerateZealotry { name } if name == "Cult")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZealotryEnabled { name, enabled } if name == "Cult" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zealous_read_ops() {
+        super::ZEALOUS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Devout".to_string(),
+                (60.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZealousConviction("Devout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealousMaxConviction("Devout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZealousDevoteRate("Devout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealousJustZealous("Devout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealousJustWavered("Devout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZealousEnabled("Devout"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEALOUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zealous_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.commitZealous("Devout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.waverZealous("Devout");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZealousEnabled("Devout", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CommitZealous { name } if name == "Devout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WaverZealous { name } if name == "Devout")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZealousEnabled { name, enabled } if name == "Devout" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeatin_read_ops() {
+        super::ZEATIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cell".to_string(),
+                (25.0f32, 100.0f32, 2.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeatinDivision("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "25");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeatinMaxDivision("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeatinProliferateRate("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeatinJustProliferating("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeatinJustArrested("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeatinEnabled("Cell"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEATIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeatin_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.stimulateZeatin("Cell");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.arrestZeatin("Cell");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeatinEnabled("Cell", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StimulateZeatin { name } if name == "Cell")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ArrestZeatin { name } if name == "Cell")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeatinEnabled { name, enabled } if name == "Cell" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeaxanthin_read_ops() {
+        super::ZEAXANTHIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pigment".to_string(),
+                (80.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeaxanthinPigment("Pigment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeaxanthinMaxPigment("Pigment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeaxanthinAbsorbRate("Pigment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeaxanthinJustSaturated("Pigment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeaxanthinJustDepleted("Pigment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeaxanthinEnabled("Pigment"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEAXANTHIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeaxanthin_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.depositZeaxanthin("Pigment");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.bleachZeaxanthin("Pigment");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZeaxanthinEnabled("Pigment", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepositZeaxanthin { name } if name == "Pigment")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BleachZeaxanthin { name } if name == "Pigment")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeaxanthinEnabled { name, enabled } if name == "Pigment" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebec_read_ops() {
+        super::ZEBEC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dhow".to_string(),
+                (45.0f32, 360.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZebecBearing("Dhow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "45");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebecMaxBearing("Dhow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "360");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebecDriftRate("Dhow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebecJustOnCourse("Dhow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebecJustAdrift("Dhow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebecEnabled("Dhow"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEBEC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebec_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.tackZebec("Dhow");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.veerZebec("Dhow");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZebecEnabled("Dhow", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TackZebec { name } if name == "Dhow")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VeerZebec { name } if name == "Dhow")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZebecEnabled { name, enabled } if name == "Dhow" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebra_read_ops() {
+        super::ZEBRA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Stripe".to_string(),
+                (0.5f32, 10.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZebraPhase("Stripe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "0.5");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebraStripeWidth("Stripe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebraSpeed("Stripe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebraDarkStripe("Stripe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebraJustSwitched("Stripe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebraEnabled("Stripe"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEBRA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebra_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.advanceZebra("Stripe");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZebraEnabled("Stripe", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdvanceZebra { name } if name == "Stripe")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZebraEnabled { name, enabled } if name == "Stripe" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

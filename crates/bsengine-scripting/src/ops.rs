@@ -7621,6 +7621,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    InfectZombify {
+        name: String,
+        amount: f32,
+    },
+    PurifyZombify {
+        name: String,
+        amount: f32,
+    },
+    SetZombifyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DemarcateZonal {
+        name: String,
+        amount: f32,
+    },
+    DissolveZonal {
+        name: String,
+        amount: f32,
+    },
+    SetZonalEnabled {
+        name: String,
+        enabled: bool,
+    },
+    LayerZonate {
+        name: String,
+        amount: f32,
+    },
+    DisperseZonate {
+        name: String,
+        amount: f32,
+    },
+    SetZonateEnabled {
+        name: String,
+        enabled: bool,
+    },
+    StratifyZonation {
+        name: String,
+        amount: f32,
+    },
+    CollapseZonation {
+        name: String,
+        amount: f32,
+    },
+    SetZonationEnabled {
+        name: String,
+        enabled: bool,
+    },
+    HoldZone {
+        name: String,
+    },
+    ReleaseZone {
+        name: String,
+    },
+    SetZoneEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ClaimZoner {
+        name: String,
+        amount: f32,
+    },
+    CedeZoner {
+        name: String,
+        amount: f32,
+    },
+    SetZonerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ClaimZoning {
+        name: String,
+        amount: f32,
+    },
+    ContestZoning {
+        name: String,
+        amount: f32,
+    },
+    SetZoningEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BonkZonk {
+        name: String,
+        amount: f32,
+    },
+    RecoverZonk {
+        name: String,
+        amount: f32,
+    },
+    SetZonkEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9494,6 +9588,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zombie: shamble, max_shamble, rot_rate, just_risen, just_decayed, enabled
     pub(crate) static ZOMBIE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zombify: taint, max_taint, spread_rate, just_zombified, just_purified, enabled
+    pub(crate) static ZOMBIFY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zonal: coverage, max_coverage, zone_rate, just_zoned, just_unzoned, enabled
+    pub(crate) static ZONAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zonate: zonation, max_zonation, band_rate, just_banded, just_dispersed, enabled
+    pub(crate) static ZONATE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zonation: distribution, max_distribution, layer_rate, just_stratified, just_collapsed, enabled
+    pub(crate) static ZONATION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zone: zone_control, max_zone, advance_rate, just_captured, just_lost, enabled
+    pub(crate) static ZONE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoner: control, max_control, expand_rate, just_dominant, just_yielded, enabled
+    pub(crate) static ZONER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoning: influence, max_influence, spread_rate, just_dominant, just_neutral, enabled
+    pub(crate) static ZONING_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zonk: daze, max_daze, bonk_rate, just_knocked_out, just_cleared, enabled
+    pub(crate) static ZONK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -27050,6 +27168,368 @@ pub fn bsengine_set_zombie_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZombieEnabled { name, enabled })
+    });
+}
+// ── Zombify ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zombify_0(#[string] name: String) -> f32 {
+    ZOMBIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zombify_1(#[string] name: String) -> f32 {
+    ZOMBIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zombify_2(#[string] name: String) -> f32 {
+    ZOMBIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zombify_3(#[string] name: String) -> bool {
+    ZOMBIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zombify_4(#[string] name: String) -> bool {
+    ZOMBIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zombify_enabled(#[string] name: String) -> bool {
+    ZOMBIFY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_infect_zombify(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InfectZombify { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_purify_zombify(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PurifyZombify { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zombify_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZombifyEnabled { name, enabled })
+    });
+}
+// ── Zonal ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zonal_0(#[string] name: String) -> f32 {
+    ZONAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonal_1(#[string] name: String) -> f32 {
+    ZONAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonal_2(#[string] name: String) -> f32 {
+    ZONAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonal_3(#[string] name: String) -> bool {
+    ZONAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonal_4(#[string] name: String) -> bool {
+    ZONAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zonal_enabled(#[string] name: String) -> bool {
+    ZONAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_demarcate_zonal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DemarcateZonal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dissolve_zonal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DissolveZonal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zonal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZonalEnabled { name, enabled })
+    });
+}
+// ── Zonate ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zonate_0(#[string] name: String) -> f32 {
+    ZONATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonate_1(#[string] name: String) -> f32 {
+    ZONATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonate_2(#[string] name: String) -> f32 {
+    ZONATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonate_3(#[string] name: String) -> bool {
+    ZONATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonate_4(#[string] name: String) -> bool {
+    ZONATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zonate_enabled(#[string] name: String) -> bool {
+    ZONATE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_layer_zonate(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LayerZonate { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_disperse_zonate(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DisperseZonate { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zonate_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZonateEnabled { name, enabled })
+    });
+}
+// ── Zonation ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zonation_0(#[string] name: String) -> f32 {
+    ZONATION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonation_1(#[string] name: String) -> f32 {
+    ZONATION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonation_2(#[string] name: String) -> f32 {
+    ZONATION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonation_3(#[string] name: String) -> bool {
+    ZONATION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonation_4(#[string] name: String) -> bool {
+    ZONATION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zonation_enabled(#[string] name: String) -> bool {
+    ZONATION_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_stratify_zonation(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StratifyZonation { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_collapse_zonation(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CollapseZonation { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zonation_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZonationEnabled { name, enabled })
+    });
+}
+// ── Zone ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zone_0(#[string] name: String) -> f32 {
+    ZONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zone_1(#[string] name: String) -> f32 {
+    ZONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zone_2(#[string] name: String) -> f32 {
+    ZONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zone_3(#[string] name: String) -> bool {
+    ZONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zone_4(#[string] name: String) -> bool {
+    ZONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zone_enabled(#[string] name: String) -> bool {
+    ZONE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_hold_zone(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HoldZone { name }));
+}
+#[op2(fast)]
+pub fn bsengine_release_zone(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ReleaseZone { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zone_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoneEnabled { name, enabled })
+    });
+}
+// ── Zoner ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoner_0(#[string] name: String) -> f32 {
+    ZONER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoner_1(#[string] name: String) -> f32 {
+    ZONER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoner_2(#[string] name: String) -> f32 {
+    ZONER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoner_3(#[string] name: String) -> bool {
+    ZONER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoner_4(#[string] name: String) -> bool {
+    ZONER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoner_enabled(#[string] name: String) -> bool {
+    ZONER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_claim_zoner(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClaimZoner { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cede_zoner(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CedeZoner { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoner_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZonerEnabled { name, enabled })
+    });
+}
+// ── Zoning ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoning_0(#[string] name: String) -> f32 {
+    ZONING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoning_1(#[string] name: String) -> f32 {
+    ZONING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoning_2(#[string] name: String) -> f32 {
+    ZONING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoning_3(#[string] name: String) -> bool {
+    ZONING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoning_4(#[string] name: String) -> bool {
+    ZONING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoning_enabled(#[string] name: String) -> bool {
+    ZONING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_claim_zoning(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ClaimZoning { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_contest_zoning(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ContestZoning { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoning_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoningEnabled { name, enabled })
+    });
+}
+// ── Zonk ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zonk_0(#[string] name: String) -> f32 {
+    ZONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonk_1(#[string] name: String) -> f32 {
+    ZONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonk_2(#[string] name: String) -> f32 {
+    ZONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonk_3(#[string] name: String) -> bool {
+    ZONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zonk_4(#[string] name: String) -> bool {
+    ZONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zonk_enabled(#[string] name: String) -> bool {
+    ZONK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bonk_zonk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BonkZonk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_recover_zonk(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RecoverZonk { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zonk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZonkEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -49608,6 +50088,78 @@ deno_core::extension!(
         bsengine_lurch_zombie,
         bsengine_decay_zombie,
         bsengine_set_zombie_enabled,
+        bsengine_get_zombify_0,
+        bsengine_get_zombify_1,
+        bsengine_get_zombify_2,
+        bsengine_get_zombify_3,
+        bsengine_get_zombify_4,
+        bsengine_is_zombify_enabled,
+        bsengine_infect_zombify,
+        bsengine_purify_zombify,
+        bsengine_set_zombify_enabled,
+        bsengine_get_zonal_0,
+        bsengine_get_zonal_1,
+        bsengine_get_zonal_2,
+        bsengine_get_zonal_3,
+        bsengine_get_zonal_4,
+        bsengine_is_zonal_enabled,
+        bsengine_demarcate_zonal,
+        bsengine_dissolve_zonal,
+        bsengine_set_zonal_enabled,
+        bsengine_get_zonate_0,
+        bsengine_get_zonate_1,
+        bsengine_get_zonate_2,
+        bsengine_get_zonate_3,
+        bsengine_get_zonate_4,
+        bsengine_is_zonate_enabled,
+        bsengine_layer_zonate,
+        bsengine_disperse_zonate,
+        bsengine_set_zonate_enabled,
+        bsengine_get_zonation_0,
+        bsengine_get_zonation_1,
+        bsengine_get_zonation_2,
+        bsengine_get_zonation_3,
+        bsengine_get_zonation_4,
+        bsengine_is_zonation_enabled,
+        bsengine_stratify_zonation,
+        bsengine_collapse_zonation,
+        bsengine_set_zonation_enabled,
+        bsengine_get_zone_0,
+        bsengine_get_zone_1,
+        bsengine_get_zone_2,
+        bsengine_get_zone_3,
+        bsengine_get_zone_4,
+        bsengine_is_zone_enabled,
+        bsengine_hold_zone,
+        bsengine_release_zone,
+        bsengine_set_zone_enabled,
+        bsengine_get_zoner_0,
+        bsengine_get_zoner_1,
+        bsengine_get_zoner_2,
+        bsengine_get_zoner_3,
+        bsengine_get_zoner_4,
+        bsengine_is_zoner_enabled,
+        bsengine_claim_zoner,
+        bsengine_cede_zoner,
+        bsengine_set_zoner_enabled,
+        bsengine_get_zoning_0,
+        bsengine_get_zoning_1,
+        bsengine_get_zoning_2,
+        bsengine_get_zoning_3,
+        bsengine_get_zoning_4,
+        bsengine_is_zoning_enabled,
+        bsengine_claim_zoning,
+        bsengine_contest_zoning,
+        bsengine_set_zoning_enabled,
+        bsengine_get_zonk_0,
+        bsengine_get_zonk_1,
+        bsengine_get_zonk_2,
+        bsengine_get_zonk_3,
+        bsengine_get_zonk_4,
+        bsengine_is_zonk_enabled,
+        bsengine_bonk_zonk,
+        bsengine_recover_zonk,
+        bsengine_set_zonk_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -55578,6 +56130,78 @@ const Bsengine = {
     lurchZombie:                (name, amount)      => Deno.core.ops.bsengine_lurch_zombie(name, amount),
     decayZombie:                (name, amount)      => Deno.core.ops.bsengine_decay_zombie(name, amount),
     setZombieEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zombie_enabled(name, v),
+    getZombifyTaint:            (name)              => Deno.core.ops.bsengine_get_zombify_0(name),
+    getZombifyMaxTaint:         (name)              => Deno.core.ops.bsengine_get_zombify_1(name),
+    getZombifySpreadRate:       (name)              => Deno.core.ops.bsengine_get_zombify_2(name),
+    getZombifyJustZombified:    (name)              => Deno.core.ops.bsengine_get_zombify_3(name),
+    getZombifyJustPurified:     (name)              => Deno.core.ops.bsengine_get_zombify_4(name),
+    isZombifyEnabled:           (name)              => Deno.core.ops.bsengine_is_zombify_enabled(name),
+    infectZombify:              (name, amount)      => Deno.core.ops.bsengine_infect_zombify(name, amount),
+    purifyZombify:              (name, amount)      => Deno.core.ops.bsengine_purify_zombify(name, amount),
+    setZombifyEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zombify_enabled(name, v),
+    getZonalCoverage:           (name)              => Deno.core.ops.bsengine_get_zonal_0(name),
+    getZonalMaxCoverage:        (name)              => Deno.core.ops.bsengine_get_zonal_1(name),
+    getZonalZoneRate:           (name)              => Deno.core.ops.bsengine_get_zonal_2(name),
+    getZonalJustZoned:          (name)              => Deno.core.ops.bsengine_get_zonal_3(name),
+    getZonalJustUnzoned:        (name)              => Deno.core.ops.bsengine_get_zonal_4(name),
+    isZonalEnabled:             (name)              => Deno.core.ops.bsengine_is_zonal_enabled(name),
+    demarcateZonal:             (name, amount)      => Deno.core.ops.bsengine_demarcate_zonal(name, amount),
+    dissolveZonal:              (name, amount)      => Deno.core.ops.bsengine_dissolve_zonal(name, amount),
+    setZonalEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zonal_enabled(name, v),
+    getZonateZonation:          (name)              => Deno.core.ops.bsengine_get_zonate_0(name),
+    getZonateMaxZonation:       (name)              => Deno.core.ops.bsengine_get_zonate_1(name),
+    getZonateBandRate:          (name)              => Deno.core.ops.bsengine_get_zonate_2(name),
+    getZonateJustBanded:        (name)              => Deno.core.ops.bsengine_get_zonate_3(name),
+    getZonateJustDispersed:     (name)              => Deno.core.ops.bsengine_get_zonate_4(name),
+    isZonateEnabled:            (name)              => Deno.core.ops.bsengine_is_zonate_enabled(name),
+    layerZonate:                (name, amount)      => Deno.core.ops.bsengine_layer_zonate(name, amount),
+    disperseZonate:             (name, amount)      => Deno.core.ops.bsengine_disperse_zonate(name, amount),
+    setZonateEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zonate_enabled(name, v),
+    getZonationDistribution:    (name)              => Deno.core.ops.bsengine_get_zonation_0(name),
+    getZonationMaxDistribution: (name)              => Deno.core.ops.bsengine_get_zonation_1(name),
+    getZonationLayerRate:       (name)              => Deno.core.ops.bsengine_get_zonation_2(name),
+    getZonationJustStratified:  (name)              => Deno.core.ops.bsengine_get_zonation_3(name),
+    getZonationJustCollapsed:   (name)              => Deno.core.ops.bsengine_get_zonation_4(name),
+    isZonationEnabled:          (name)              => Deno.core.ops.bsengine_is_zonation_enabled(name),
+    stratifyZonation:           (name, amount)      => Deno.core.ops.bsengine_stratify_zonation(name, amount),
+    collapseZonation:           (name, amount)      => Deno.core.ops.bsengine_collapse_zonation(name, amount),
+    setZonationEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zonation_enabled(name, v),
+    getZoneControl:             (name)              => Deno.core.ops.bsengine_get_zone_0(name),
+    getZoneMaxZone:             (name)              => Deno.core.ops.bsengine_get_zone_1(name),
+    getZoneAdvanceRate:         (name)              => Deno.core.ops.bsengine_get_zone_2(name),
+    getZoneJustCaptured:        (name)              => Deno.core.ops.bsengine_get_zone_3(name),
+    getZoneJustLost:            (name)              => Deno.core.ops.bsengine_get_zone_4(name),
+    isZoneEnabled:              (name)              => Deno.core.ops.bsengine_is_zone_enabled(name),
+    holdZone:                   (name)              => Deno.core.ops.bsengine_hold_zone(name),
+    releaseZone:                (name)              => Deno.core.ops.bsengine_release_zone(name),
+    setZoneEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zone_enabled(name, v),
+    getZonerControl:            (name)              => Deno.core.ops.bsengine_get_zoner_0(name),
+    getZonerMaxControl:         (name)              => Deno.core.ops.bsengine_get_zoner_1(name),
+    getZonerExpandRate:         (name)              => Deno.core.ops.bsengine_get_zoner_2(name),
+    getZonerJustDominant:       (name)              => Deno.core.ops.bsengine_get_zoner_3(name),
+    getZonerJustYielded:        (name)              => Deno.core.ops.bsengine_get_zoner_4(name),
+    isZonerEnabled:             (name)              => Deno.core.ops.bsengine_is_zoner_enabled(name),
+    claimZoner:                 (name, amount)      => Deno.core.ops.bsengine_claim_zoner(name, amount),
+    cedeZoner:                  (name, amount)      => Deno.core.ops.bsengine_cede_zoner(name, amount),
+    setZonerEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zoner_enabled(name, v),
+    getZoningInfluence:         (name)              => Deno.core.ops.bsengine_get_zoning_0(name),
+    getZoningMaxInfluence:      (name)              => Deno.core.ops.bsengine_get_zoning_1(name),
+    getZoningSpreadRate:        (name)              => Deno.core.ops.bsengine_get_zoning_2(name),
+    getZoningJustDominant:      (name)              => Deno.core.ops.bsengine_get_zoning_3(name),
+    getZoningJustNeutral:       (name)              => Deno.core.ops.bsengine_get_zoning_4(name),
+    isZoningEnabled:            (name)              => Deno.core.ops.bsengine_is_zoning_enabled(name),
+    claimZoning:                (name, amount)      => Deno.core.ops.bsengine_claim_zoning(name, amount),
+    contestZoning:              (name, amount)      => Deno.core.ops.bsengine_contest_zoning(name, amount),
+    setZoningEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zoning_enabled(name, v),
+    getZonkDaze:                (name)              => Deno.core.ops.bsengine_get_zonk_0(name),
+    getZonkMaxDaze:             (name)              => Deno.core.ops.bsengine_get_zonk_1(name),
+    getZonkBonkRate:            (name)              => Deno.core.ops.bsengine_get_zonk_2(name),
+    getZonkJustKnockedOut:      (name)              => Deno.core.ops.bsengine_get_zonk_3(name),
+    getZonkJustCleared:         (name)              => Deno.core.ops.bsengine_get_zonk_4(name),
+    isZonkEnabled:              (name)              => Deno.core.ops.bsengine_is_zonk_enabled(name),
+    bonkZonk:                   (name, amount)      => Deno.core.ops.bsengine_bonk_zonk(name, amount),
+    recoverZonk:                (name, amount)      => Deno.core.ops.bsengine_recover_zonk(name, amount),
+    setZonkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zonk_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -95205,6 +95829,348 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LurchZombie { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DecayZombie { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZombieEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zombify_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZOMBIFY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 4.0f32, true, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZombifyTaint("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZombifyJustZombified("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZombifyEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOMBIFY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zombify_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.infectZombify("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.purifyZombify("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZombifyEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InfectZombify { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PurifyZombify { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZombifyEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonal_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZonalCoverage("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZonalJustZoned("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZonalEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonal_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.demarcateZonal("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissolveZonal("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZonalEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DemarcateZonal { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissolveZonal { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZonalEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonate_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONATE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZonateZonation("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZonateJustBanded("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZonateEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonate_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.layerZonate("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disperseZonate("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZonateEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LayerZonate { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisperseZonate { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZonateEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonation_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONATION_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZonationDistribution("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZonationJustStratified("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZonationEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONATION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonation_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.stratifyZonation("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.collapseZonation("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZonationEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StratifyZonation { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CollapseZonation { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZonationEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zone_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (5.0f32, 10.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZoneControl("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoneJustCaptured("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoneEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zone_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.holdZone("Aries");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.releaseZone("Aries");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoneEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HoldZone { name } if name == "Aries")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ReleaseZone { name } if name == "Aries")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoneEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoner_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZonerControl("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZonerJustDominant("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZonerEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoner_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.claimZoner("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.cedeZoner("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZonerEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClaimZoner { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CedeZoner { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZonerEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoning_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let r = rt
+            .eval(r#"String(Bsengine.getZoningInfluence("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoningJustDominant("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoningEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONING_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoning_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.claimZoning("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.contestZoning("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoningEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClaimZoning { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ContestZoning { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoningEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonk_read_ops() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::ZONK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let r = rt.eval(r#"String(Bsengine.getZonkDaze("Aries"))"#).unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZonkJustKnockedOut("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZonkEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZONK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zonk_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.bonkZonk("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.recoverZonk("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZonkEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BonkZonk { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RecoverZonk { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZonkEnabled { name, enabled } if name == "Aries" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

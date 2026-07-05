@@ -6909,6 +6909,91 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Zeitgeber ─────────────────────────────────────────────────────────────
+    SignalZeitgeber {
+        name: String,
+    },
+    DriftZeitgeber {
+        name: String,
+    },
+    SetZeitgeberEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeitgeist ─────────────────────────────────────────────────────────────
+    InfluenceZeitgeist {
+        name: String,
+    },
+    DissipateZeitgeist {
+        name: String,
+    },
+    SetZeitgeistEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zek ───────────────────────────────────────────────────────────────────
+    LaborZek {
+        name: String,
+    },
+    ConfiscateZek {
+        name: String,
+    },
+    SetZekEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zelkova ───────────────────────────────────────────────────────────────
+    BranchZelkova {
+        name: String,
+    },
+    PruneZelkova {
+        name: String,
+    },
+    SetZelkovaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zemstvo ───────────────────────────────────────────────────────────────
+    ConveneZemstvo {
+        name: String,
+    },
+    DissolveZemstvo {
+        name: String,
+    },
+    SetZemstvoEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zen ───────────────────────────────────────────────────────────────────
+    DisturbZen {
+        name: String,
+    },
+    SetZenEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zenana ────────────────────────────────────────────────────────────────
+    RetreatZenana {
+        name: String,
+    },
+    DisturbZenana {
+        name: String,
+    },
+    SetZenanaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zendo ─────────────────────────────────────────────────────────────────
+    AlignZendo {
+        name: String,
+    },
+    DiscordZendo {
+        name: String,
+    },
+    SetZendoEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8590,6 +8675,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zein: protein, max_protein, store_rate, just_loaded, just_depleted, enabled
     pub(crate) static ZEIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeitgeber: entrainment, max_entrainment, cue_rate, just_entrained, just_drifted, enabled
+    pub(crate) static ZEITGEBER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeitgeist: momentum, max_momentum, fade_rate, just_surged, just_faded, enabled
+    pub(crate) static ZEITGEIST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zek: output, max_output, toil_rate, just_fulfilled, just_exhausted, enabled
+    pub(crate) static ZEK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zelkova: canopy, max_canopy, grow_rate, just_canopied, just_bare, enabled
+    pub(crate) static ZELKOVA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zemstvo: authority, max_authority, mandate_rate, just_empowered, just_abolished, enabled
+    pub(crate) static ZEMSTVO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zen: zen_level, max_zen, restore_rate, just_achieved, just_broken, enabled
+    pub(crate) static ZEN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zenana: solace, max_solace, shelter_rate, just_secluded, just_disturbed, enabled
+    pub(crate) static ZENANA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zendo: harmony, max_harmony, attune_rate, just_harmonized, just_discordant, enabled
+    pub(crate) static ZENDO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -23446,6 +23555,328 @@ pub fn bsengine_set_zein_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZeinEnabled { name, enabled })
+    });
+}
+// ── Zeitgeber ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeitgeber_entrainment(#[string] name: String) -> f32 {
+    ZEITGEBER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeitgeber_max_entrainment(#[string] name: String) -> f32 {
+    ZEITGEBER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeitgeber_cue_rate(#[string] name: String) -> f32 {
+    ZEITGEBER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeitgeber_just_entrained(#[string] name: String) -> bool {
+    ZEITGEBER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeitgeber_just_drifted(#[string] name: String) -> bool {
+    ZEITGEBER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeitgeber_enabled(#[string] name: String) -> bool {
+    ZEITGEBER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_signal_zeitgeber(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SignalZeitgeber { name }));
+}
+#[op2(fast)]
+pub fn bsengine_drift_zeitgeber(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DriftZeitgeber { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeitgeber_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeitgeberEnabled { name, enabled })
+    });
+}
+// ── Zeitgeist ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeitgeist_momentum(#[string] name: String) -> f32 {
+    ZEITGEIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeitgeist_max_momentum(#[string] name: String) -> f32 {
+    ZEITGEIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeitgeist_fade_rate(#[string] name: String) -> f32 {
+    ZEITGEIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeitgeist_just_surged(#[string] name: String) -> bool {
+    ZEITGEIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeitgeist_just_faded(#[string] name: String) -> bool {
+    ZEITGEIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeitgeist_enabled(#[string] name: String) -> bool {
+    ZEITGEIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_influence_zeitgeist(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InfluenceZeitgeist { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dissipate_zeitgeist(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DissipateZeitgeist { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zeitgeist_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeitgeistEnabled { name, enabled })
+    });
+}
+// ── Zek ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zek_output(#[string] name: String) -> f32 {
+    ZEK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zek_max_output(#[string] name: String) -> f32 {
+    ZEK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zek_toil_rate(#[string] name: String) -> f32 {
+    ZEK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zek_just_fulfilled(#[string] name: String) -> bool {
+    ZEK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zek_just_exhausted(#[string] name: String) -> bool {
+    ZEK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zek_enabled(#[string] name: String) -> bool {
+    ZEK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_labor_zek(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LaborZek { name }));
+}
+#[op2(fast)]
+pub fn bsengine_confiscate_zek(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConfiscateZek { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zek_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZekEnabled { name, enabled })
+    });
+}
+// ── Zelkova ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zelkova_canopy(#[string] name: String) -> f32 {
+    ZELKOVA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zelkova_max_canopy(#[string] name: String) -> f32 {
+    ZELKOVA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zelkova_grow_rate(#[string] name: String) -> f32 {
+    ZELKOVA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zelkova_just_canopied(#[string] name: String) -> bool {
+    ZELKOVA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zelkova_just_bare(#[string] name: String) -> bool {
+    ZELKOVA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zelkova_enabled(#[string] name: String) -> bool {
+    ZELKOVA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_branch_zelkova(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BranchZelkova { name }));
+}
+#[op2(fast)]
+pub fn bsengine_prune_zelkova(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PruneZelkova { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zelkova_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZelkovaEnabled { name, enabled })
+    });
+}
+// ── Zemstvo ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zemstvo_authority(#[string] name: String) -> f32 {
+    ZEMSTVO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zemstvo_max_authority(#[string] name: String) -> f32 {
+    ZEMSTVO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zemstvo_mandate_rate(#[string] name: String) -> f32 {
+    ZEMSTVO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zemstvo_just_empowered(#[string] name: String) -> bool {
+    ZEMSTVO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zemstvo_just_abolished(#[string] name: String) -> bool {
+    ZEMSTVO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zemstvo_enabled(#[string] name: String) -> bool {
+    ZEMSTVO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_convene_zemstvo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ConveneZemstvo { name }));
+}
+#[op2(fast)]
+pub fn bsengine_dissolve_zemstvo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DissolveZemstvo { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zemstvo_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZemstvoEnabled { name, enabled })
+    });
+}
+// ── Zen ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zen_zen_level(#[string] name: String) -> f32 {
+    ZEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zen_max_zen(#[string] name: String) -> f32 {
+    ZEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zen_restore_rate(#[string] name: String) -> f32 {
+    ZEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zen_just_achieved(#[string] name: String) -> bool {
+    ZEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zen_just_broken(#[string] name: String) -> bool {
+    ZEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zen_enabled(#[string] name: String) -> bool {
+    ZEN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_disturb_zen(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisturbZen { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zen_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZenEnabled { name, enabled })
+    });
+}
+// ── Zenana ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zenana_solace(#[string] name: String) -> f32 {
+    ZENANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zenana_max_solace(#[string] name: String) -> f32 {
+    ZENANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zenana_shelter_rate(#[string] name: String) -> f32 {
+    ZENANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenana_just_secluded(#[string] name: String) -> bool {
+    ZENANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenana_just_disturbed(#[string] name: String) -> bool {
+    ZENANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenana_enabled(#[string] name: String) -> bool {
+    ZENANA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_retreat_zenana(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RetreatZenana { name }));
+}
+#[op2(fast)]
+pub fn bsengine_disturb_zenana(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DisturbZenana { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zenana_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZenanaEnabled { name, enabled })
+    });
+}
+// ── Zendo ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zendo_harmony(#[string] name: String) -> f32 {
+    ZENDO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zendo_max_harmony(#[string] name: String) -> f32 {
+    ZENDO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zendo_attune_rate(#[string] name: String) -> f32 {
+    ZENDO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zendo_just_harmonized(#[string] name: String) -> bool {
+    ZENDO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zendo_just_discordant(#[string] name: String) -> bool {
+    ZENDO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zendo_enabled(#[string] name: String) -> bool {
+    ZENDO_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_align_zendo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AlignZendo { name }));
+}
+#[op2(fast)]
+pub fn bsengine_discord_zendo(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DiscordZendo { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zendo_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZendoEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -45431,6 +45862,77 @@ deno_core::extension!(
         bsengine_deposit_zein,
         bsengine_hydrolyse_zein,
         bsengine_set_zein_enabled,
+        bsengine_get_zeitgeber_entrainment,
+        bsengine_get_zeitgeber_max_entrainment,
+        bsengine_get_zeitgeber_cue_rate,
+        bsengine_is_zeitgeber_just_entrained,
+        bsengine_is_zeitgeber_just_drifted,
+        bsengine_is_zeitgeber_enabled,
+        bsengine_signal_zeitgeber,
+        bsengine_drift_zeitgeber,
+        bsengine_set_zeitgeber_enabled,
+        bsengine_get_zeitgeist_momentum,
+        bsengine_get_zeitgeist_max_momentum,
+        bsengine_get_zeitgeist_fade_rate,
+        bsengine_is_zeitgeist_just_surged,
+        bsengine_is_zeitgeist_just_faded,
+        bsengine_is_zeitgeist_enabled,
+        bsengine_influence_zeitgeist,
+        bsengine_dissipate_zeitgeist,
+        bsengine_set_zeitgeist_enabled,
+        bsengine_get_zek_output,
+        bsengine_get_zek_max_output,
+        bsengine_get_zek_toil_rate,
+        bsengine_is_zek_just_fulfilled,
+        bsengine_is_zek_just_exhausted,
+        bsengine_is_zek_enabled,
+        bsengine_labor_zek,
+        bsengine_confiscate_zek,
+        bsengine_set_zek_enabled,
+        bsengine_get_zelkova_canopy,
+        bsengine_get_zelkova_max_canopy,
+        bsengine_get_zelkova_grow_rate,
+        bsengine_is_zelkova_just_canopied,
+        bsengine_is_zelkova_just_bare,
+        bsengine_is_zelkova_enabled,
+        bsengine_branch_zelkova,
+        bsengine_prune_zelkova,
+        bsengine_set_zelkova_enabled,
+        bsengine_get_zemstvo_authority,
+        bsengine_get_zemstvo_max_authority,
+        bsengine_get_zemstvo_mandate_rate,
+        bsengine_is_zemstvo_just_empowered,
+        bsengine_is_zemstvo_just_abolished,
+        bsengine_is_zemstvo_enabled,
+        bsengine_convene_zemstvo,
+        bsengine_dissolve_zemstvo,
+        bsengine_set_zemstvo_enabled,
+        bsengine_get_zen_zen_level,
+        bsengine_get_zen_max_zen,
+        bsengine_get_zen_restore_rate,
+        bsengine_is_zen_just_achieved,
+        bsengine_is_zen_just_broken,
+        bsengine_is_zen_enabled,
+        bsengine_disturb_zen,
+        bsengine_set_zen_enabled,
+        bsengine_get_zenana_solace,
+        bsengine_get_zenana_max_solace,
+        bsengine_get_zenana_shelter_rate,
+        bsengine_is_zenana_just_secluded,
+        bsengine_is_zenana_just_disturbed,
+        bsengine_is_zenana_enabled,
+        bsengine_retreat_zenana,
+        bsengine_disturb_zenana,
+        bsengine_set_zenana_enabled,
+        bsengine_get_zendo_harmony,
+        bsengine_get_zendo_max_harmony,
+        bsengine_get_zendo_attune_rate,
+        bsengine_is_zendo_just_harmonized,
+        bsengine_is_zendo_just_discordant,
+        bsengine_is_zendo_enabled,
+        bsengine_align_zendo,
+        bsengine_discord_zendo,
+        bsengine_set_zendo_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -50828,6 +51330,77 @@ const Bsengine = {
     depositZein:                (name)              => Deno.core.ops.bsengine_deposit_zein(name),
     hydrolyseZein:              (name)              => Deno.core.ops.bsengine_hydrolyse_zein(name),
     setZeinEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zein_enabled(name, v),
+    getZeitgeberEntrainment:    (name)              => Deno.core.ops.bsengine_get_zeitgeber_entrainment(name),
+    getZeitgeberMaxEntrainment: (name)              => Deno.core.ops.bsengine_get_zeitgeber_max_entrainment(name),
+    getZeitgeberCueRate:        (name)              => Deno.core.ops.bsengine_get_zeitgeber_cue_rate(name),
+    isZeitgeberJustEntrained:   (name)              => Deno.core.ops.bsengine_is_zeitgeber_just_entrained(name),
+    isZeitgeberJustDrifted:     (name)              => Deno.core.ops.bsengine_is_zeitgeber_just_drifted(name),
+    isZeitgeberEnabled:         (name)              => Deno.core.ops.bsengine_is_zeitgeber_enabled(name),
+    signalZeitgeber:            (name)              => Deno.core.ops.bsengine_signal_zeitgeber(name),
+    driftZeitgeber:             (name)              => Deno.core.ops.bsengine_drift_zeitgeber(name),
+    setZeitgeberEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zeitgeber_enabled(name, v),
+    getZeitgeistMomentum:       (name)              => Deno.core.ops.bsengine_get_zeitgeist_momentum(name),
+    getZeitgeistMaxMomentum:    (name)              => Deno.core.ops.bsengine_get_zeitgeist_max_momentum(name),
+    getZeitgeistFadeRate:       (name)              => Deno.core.ops.bsengine_get_zeitgeist_fade_rate(name),
+    isZeitgeistJustSurged:      (name)              => Deno.core.ops.bsengine_is_zeitgeist_just_surged(name),
+    isZeitgeistJustFaded:       (name)              => Deno.core.ops.bsengine_is_zeitgeist_just_faded(name),
+    isZeitgeistEnabled:         (name)              => Deno.core.ops.bsengine_is_zeitgeist_enabled(name),
+    influenceZeitgeist:         (name)              => Deno.core.ops.bsengine_influence_zeitgeist(name),
+    dissipateZeitgeist:         (name)              => Deno.core.ops.bsengine_dissipate_zeitgeist(name),
+    setZeitgeistEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zeitgeist_enabled(name, v),
+    getZekOutput:               (name)              => Deno.core.ops.bsengine_get_zek_output(name),
+    getZekMaxOutput:            (name)              => Deno.core.ops.bsengine_get_zek_max_output(name),
+    getZekToilRate:             (name)              => Deno.core.ops.bsengine_get_zek_toil_rate(name),
+    isZekJustFulfilled:         (name)              => Deno.core.ops.bsengine_is_zek_just_fulfilled(name),
+    isZekJustExhausted:         (name)              => Deno.core.ops.bsengine_is_zek_just_exhausted(name),
+    isZekEnabled:               (name)              => Deno.core.ops.bsengine_is_zek_enabled(name),
+    laborZek:                   (name)              => Deno.core.ops.bsengine_labor_zek(name),
+    confiscateZek:              (name)              => Deno.core.ops.bsengine_confiscate_zek(name),
+    setZekEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zek_enabled(name, v),
+    getZelkovaCanopy:           (name)              => Deno.core.ops.bsengine_get_zelkova_canopy(name),
+    getZelkovaMaxCanopy:        (name)              => Deno.core.ops.bsengine_get_zelkova_max_canopy(name),
+    getZelkovaGrowRate:         (name)              => Deno.core.ops.bsengine_get_zelkova_grow_rate(name),
+    isZelkovaJustCanopied:      (name)              => Deno.core.ops.bsengine_is_zelkova_just_canopied(name),
+    isZelkovaJustBare:          (name)              => Deno.core.ops.bsengine_is_zelkova_just_bare(name),
+    isZelkovaEnabled:           (name)              => Deno.core.ops.bsengine_is_zelkova_enabled(name),
+    branchZelkova:              (name)              => Deno.core.ops.bsengine_branch_zelkova(name),
+    pruneZelkova:               (name)              => Deno.core.ops.bsengine_prune_zelkova(name),
+    setZelkovaEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zelkova_enabled(name, v),
+    getZemstvoAuthority:        (name)              => Deno.core.ops.bsengine_get_zemstvo_authority(name),
+    getZemstvoMaxAuthority:     (name)              => Deno.core.ops.bsengine_get_zemstvo_max_authority(name),
+    getZemstvoMandateRate:      (name)              => Deno.core.ops.bsengine_get_zemstvo_mandate_rate(name),
+    isZemstvoJustEmpowered:     (name)              => Deno.core.ops.bsengine_is_zemstvo_just_empowered(name),
+    isZemstvoJustAbolished:     (name)              => Deno.core.ops.bsengine_is_zemstvo_just_abolished(name),
+    isZemstvoEnabled:           (name)              => Deno.core.ops.bsengine_is_zemstvo_enabled(name),
+    conveneZemstvo:             (name)              => Deno.core.ops.bsengine_convene_zemstvo(name),
+    dissolveZemstvo:            (name)              => Deno.core.ops.bsengine_dissolve_zemstvo(name),
+    setZemstvoEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zemstvo_enabled(name, v),
+    getZenZenLevel:             (name)              => Deno.core.ops.bsengine_get_zen_zen_level(name),
+    getZenMaxZen:               (name)              => Deno.core.ops.bsengine_get_zen_max_zen(name),
+    getZenRestoreRate:          (name)              => Deno.core.ops.bsengine_get_zen_restore_rate(name),
+    isZenJustAchieved:          (name)              => Deno.core.ops.bsengine_is_zen_just_achieved(name),
+    isZenJustBroken:            (name)              => Deno.core.ops.bsengine_is_zen_just_broken(name),
+    isZenEnabled:               (name)              => Deno.core.ops.bsengine_is_zen_enabled(name),
+    disturbZen:                 (name)              => Deno.core.ops.bsengine_disturb_zen(name),
+    setZenEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zen_enabled(name, v),
+    getZenanaSolace:            (name)              => Deno.core.ops.bsengine_get_zenana_solace(name),
+    getZenanaMaxSolace:         (name)              => Deno.core.ops.bsengine_get_zenana_max_solace(name),
+    getZenanaShelterRate:       (name)              => Deno.core.ops.bsengine_get_zenana_shelter_rate(name),
+    isZenanaJustSecluded:       (name)              => Deno.core.ops.bsengine_is_zenana_just_secluded(name),
+    isZenanaJustDisturbed:      (name)              => Deno.core.ops.bsengine_is_zenana_just_disturbed(name),
+    isZenanaEnabled:            (name)              => Deno.core.ops.bsengine_is_zenana_enabled(name),
+    retreatZenana:              (name)              => Deno.core.ops.bsengine_retreat_zenana(name),
+    disturbZenana:              (name)              => Deno.core.ops.bsengine_disturb_zenana(name),
+    setZenanaEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zenana_enabled(name, v),
+    getZendoHarmony:            (name)              => Deno.core.ops.bsengine_get_zendo_harmony(name),
+    getZendoMaxHarmony:         (name)              => Deno.core.ops.bsengine_get_zendo_max_harmony(name),
+    getZendoAttuneRate:         (name)              => Deno.core.ops.bsengine_get_zendo_attune_rate(name),
+    isZendoJustHarmonized:      (name)              => Deno.core.ops.bsengine_is_zendo_just_harmonized(name),
+    isZendoJustDiscordant:      (name)              => Deno.core.ops.bsengine_is_zendo_just_discordant(name),
+    isZendoEnabled:             (name)              => Deno.core.ops.bsengine_is_zendo_enabled(name),
+    alignZendo:                 (name)              => Deno.core.ops.bsengine_align_zendo(name),
+    discordZendo:               (name)              => Deno.core.ops.bsengine_discord_zendo(name),
+    setZendoEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zendo_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -86925,6 +87498,445 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepositZein { name } if name == "Endosperm")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HydrolyseZein { name } if name == "Endosperm")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeinEnabled { name, enabled } if name == "Endosperm" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeitgeber_read_ops() {
+        super::ZEITGEBER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Clock".to_string(),
+                (50.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeitgeberEntrainment("Clock"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeitgeberMaxEntrainment("Clock"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeitgeberCueRate("Clock"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeitgeberJustEntrained("Clock"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeitgeberJustDrifted("Clock"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeitgeberEnabled("Clock"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEITGEBER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeitgeber_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.signalZeitgeber("Clock");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.driftZeitgeber("Clock");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeitgeberEnabled("Clock", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SignalZeitgeber { name } if name == "Clock")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DriftZeitgeber { name } if name == "Clock")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeitgeberEnabled { name, enabled } if name == "Clock" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeitgeist_read_ops() {
+        super::ZEITGEIST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Spirit".to_string(),
+                (60.0f32, 100.0f32, 6.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeitgeistMomentum("Spirit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeitgeistMaxMomentum("Spirit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeitgeistFadeRate("Spirit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeitgeistJustSurged("Spirit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeitgeistJustFaded("Spirit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeitgeistEnabled("Spirit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEITGEIST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeitgeist_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.influenceZeitgeist("Spirit");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissipateZeitgeist("Spirit");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZeitgeistEnabled("Spirit", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InfluenceZeitgeist { name } if name == "Spirit")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissipateZeitgeist { name } if name == "Spirit")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeitgeistEnabled { name, enabled } if name == "Spirit" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zek_read_ops() {
+        super::ZEK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Prisoner".to_string(),
+                (40.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZekOutput("Prisoner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZekMaxOutput("Prisoner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZekToilRate("Prisoner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZekJustFulfilled("Prisoner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZekJustExhausted("Prisoner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZekEnabled("Prisoner"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zek_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.laborZek("Prisoner");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.confiscateZek("Prisoner");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZekEnabled("Prisoner", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LaborZek { name } if name == "Prisoner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConfiscateZek { name } if name == "Prisoner")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZekEnabled { name, enabled } if name == "Prisoner" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zelkova_read_ops() {
+        super::ZELKOVA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Keyaki".to_string(),
+                (75.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZelkovaCanopy("Keyaki"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getZelkovaMaxCanopy("Keyaki"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZelkovaGrowRate("Keyaki"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZelkovaJustCanopied("Keyaki"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZelkovaJustBare("Keyaki"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZelkovaEnabled("Keyaki"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZELKOVA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zelkova_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.branchZelkova("Keyaki");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.pruneZelkova("Keyaki");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZelkovaEnabled("Keyaki", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BranchZelkova { name } if name == "Keyaki")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PruneZelkova { name } if name == "Keyaki")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZelkovaEnabled { name, enabled } if name == "Keyaki" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zemstvo_read_ops() {
+        super::ZEMSTVO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Council".to_string(),
+                (55.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZemstvoAuthority("Council"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "55");
+        let r = rt
+            .eval(r#"String(Bsengine.getZemstvoMaxAuthority("Council"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZemstvoMandateRate("Council"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZemstvoJustEmpowered("Council"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZemstvoJustAbolished("Council"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZemstvoEnabled("Council"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEMSTVO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zemstvo_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.conveneZemstvo("Council");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissolveZemstvo("Council");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZemstvoEnabled("Council", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ConveneZemstvo { name } if name == "Council")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissolveZemstvo { name } if name == "Council")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZemstvoEnabled { name, enabled } if name == "Council" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zen_read_ops() {
+        super::ZEN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Monk".to_string(),
+                (7.0f32, 10.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZenZenLevel("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt.eval(r#"String(Bsengine.getZenMaxZen("Monk"))"#).unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenRestoreRate("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenJustAchieved("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenJustBroken("Monk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isZenEnabled("Monk"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zen_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.disturbZen("Monk");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZenEnabled("Monk", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisturbZen { name } if name == "Monk")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZenEnabled { name, enabled } if name == "Monk" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zenana_read_ops() {
+        super::ZENANA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sanctuary".to_string(),
+                (65.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZenanaSolace("Sanctuary"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "65");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenanaMaxSolace("Sanctuary"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenanaShelterRate("Sanctuary"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenanaJustSecluded("Sanctuary"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenanaJustDisturbed("Sanctuary"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenanaEnabled("Sanctuary"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZENANA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zenana_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.retreatZenana("Sanctuary");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.disturbZenana("Sanctuary");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZenanaEnabled("Sanctuary", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RetreatZenana { name } if name == "Sanctuary")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DisturbZenana { name } if name == "Sanctuary")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZenanaEnabled { name, enabled } if name == "Sanctuary" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zendo_read_ops() {
+        super::ZENDO_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dojo".to_string(),
+                (80.0f32, 100.0f32, 6.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZendoHarmony("Dojo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZendoMaxHarmony("Dojo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZendoAttuneRate("Dojo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.isZendoJustHarmonized("Dojo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZendoJustDiscordant("Dojo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZendoEnabled("Dojo"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZENDO_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zendo_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.alignZendo("Dojo");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.discordZendo("Dojo");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZendoEnabled("Dojo", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AlignZendo { name } if name == "Dojo")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DiscordZendo { name } if name == "Dojo")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZendoEnabled { name, enabled } if name == "Dojo" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

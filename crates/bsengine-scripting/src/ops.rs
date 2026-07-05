@@ -6994,6 +6994,94 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Zener ─────────────────────────────────────────────────────────────────
+    SurgeZener {
+        name: String,
+    },
+    DischargeZener {
+        name: String,
+    },
+    SetZenerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zenith ────────────────────────────────────────────────────────────────
+    AscendZenith {
+        name: String,
+    },
+    DescendZenith {
+        name: String,
+    },
+    SetZenithEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zenithal ──────────────────────────────────────────────────────────────
+    AscendZenithal {
+        name: String,
+    },
+    DescendZenithal {
+        name: String,
+    },
+    SetZenithalEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeolite ───────────────────────────────────────────────────────────────
+    PurifyZeolite {
+        name: String,
+    },
+    ContaminateZeolite {
+        name: String,
+    },
+    SetZeoliteEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeolitic ──────────────────────────────────────────────────────────────
+    CrystallizeZeolitic {
+        name: String,
+    },
+    CollapseZeolitic {
+        name: String,
+    },
+    SetZeoliticEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zephyr ────────────────────────────────────────────────────────────────
+    BreatheZephyr {
+        name: String,
+    },
+    LullZephyr {
+        name: String,
+    },
+    SetZephyrEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeppelin ──────────────────────────────────────────────────────────────
+    InflateZeppelin {
+        name: String,
+    },
+    VentZeppelin {
+        name: String,
+    },
+    SetZeppelinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zerk ──────────────────────────────────────────────────────────────────
+    GreaseZerk {
+        name: String,
+    },
+    CorrodeZerk {
+        name: String,
+    },
+    SetZerkEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8699,6 +8787,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zendo: harmony, max_harmony, attune_rate, just_harmonized, just_discordant, enabled
     pub(crate) static ZENDO_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zener: voltage, max_voltage, charge_rate, just_critical, just_depleted, enabled
+    pub(crate) static ZENER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zenith: altitude, max_altitude, descent_rate, just_peaked, just_grounded, enabled
+    pub(crate) static ZENITH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zenithal: elevation, max_elevation, rise_rate, just_peaked, just_nadir, enabled
+    pub(crate) static ZENITHAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeolite: purity, max_purity, cleanse_rate, just_cleansed, just_fouled, enabled
+    pub(crate) static ZEOLITE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeolitic: microporosity, max_microporosity, sieve_rate, just_ordered, just_amorphous, enabled
+    pub(crate) static ZEOLITIC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zephyr: gust, max_gust, calm_rate, just_surged, just_stilled, enabled
+    pub(crate) static ZEPHYR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeppelin: lift, max_lift, leak_rate, just_aloft, just_grounded, enabled
+    pub(crate) static ZEPPELIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zerk: lubrication, max_lubrication, flow_rate, just_serviced, just_seized, enabled
+    pub(crate) static ZERK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -23877,6 +23989,335 @@ pub fn bsengine_set_zendo_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZendoEnabled { name, enabled })
+    });
+}
+// ── Zener ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zener_voltage(#[string] name: String) -> f32 {
+    ZENER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zener_max_voltage(#[string] name: String) -> f32 {
+    ZENER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zener_charge_rate(#[string] name: String) -> f32 {
+    ZENER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zener_just_critical(#[string] name: String) -> bool {
+    ZENER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zener_just_depleted(#[string] name: String) -> bool {
+    ZENER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zener_enabled(#[string] name: String) -> bool {
+    ZENER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_surge_zener(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SurgeZener { name }));
+}
+#[op2(fast)]
+pub fn bsengine_discharge_zener(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DischargeZener { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zener_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZenerEnabled { name, enabled })
+    });
+}
+// ── Zenith ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zenith_altitude(#[string] name: String) -> f32 {
+    ZENITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zenith_max_altitude(#[string] name: String) -> f32 {
+    ZENITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zenith_descent_rate(#[string] name: String) -> f32 {
+    ZENITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenith_just_peaked(#[string] name: String) -> bool {
+    ZENITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenith_just_grounded(#[string] name: String) -> bool {
+    ZENITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenith_enabled(#[string] name: String) -> bool {
+    ZENITH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ascend_zenith(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AscendZenith { name }));
+}
+#[op2(fast)]
+pub fn bsengine_descend_zenith(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DescendZenith { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zenith_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZenithEnabled { name, enabled })
+    });
+}
+// ── Zenithal ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zenithal_elevation(#[string] name: String) -> f32 {
+    ZENITHAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zenithal_max_elevation(#[string] name: String) -> f32 {
+    ZENITHAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zenithal_rise_rate(#[string] name: String) -> f32 {
+    ZENITHAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenithal_just_peaked(#[string] name: String) -> bool {
+    ZENITHAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenithal_just_nadir(#[string] name: String) -> bool {
+    ZENITHAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zenithal_enabled(#[string] name: String) -> bool {
+    ZENITHAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_ascend_zenithal(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::AscendZenithal { name }));
+}
+#[op2(fast)]
+pub fn bsengine_descend_zenithal(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DescendZenithal { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zenithal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZenithalEnabled { name, enabled })
+    });
+}
+// ── Zeolite ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeolite_purity(#[string] name: String) -> f32 {
+    ZEOLITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeolite_max_purity(#[string] name: String) -> f32 {
+    ZEOLITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeolite_cleanse_rate(#[string] name: String) -> f32 {
+    ZEOLITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeolite_just_cleansed(#[string] name: String) -> bool {
+    ZEOLITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeolite_just_fouled(#[string] name: String) -> bool {
+    ZEOLITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeolite_enabled(#[string] name: String) -> bool {
+    ZEOLITE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_purify_zeolite(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PurifyZeolite { name }));
+}
+#[op2(fast)]
+pub fn bsengine_contaminate_zeolite(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ContaminateZeolite { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zeolite_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeoliteEnabled { name, enabled })
+    });
+}
+// ── Zeolitic ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeolitic_microporosity(#[string] name: String) -> f32 {
+    ZEOLITIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeolitic_max_microporosity(#[string] name: String) -> f32 {
+    ZEOLITIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeolitic_sieve_rate(#[string] name: String) -> f32 {
+    ZEOLITIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeolitic_just_ordered(#[string] name: String) -> bool {
+    ZEOLITIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeolitic_just_amorphous(#[string] name: String) -> bool {
+    ZEOLITIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeolitic_enabled(#[string] name: String) -> bool {
+    ZEOLITIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crystallize_zeolitic(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrystallizeZeolitic { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_collapse_zeolitic(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CollapseZeolitic { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zeolitic_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeoliticEnabled { name, enabled })
+    });
+}
+// ── Zephyr ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zephyr_gust(#[string] name: String) -> f32 {
+    ZEPHYR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zephyr_max_gust(#[string] name: String) -> f32 {
+    ZEPHYR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zephyr_calm_rate(#[string] name: String) -> f32 {
+    ZEPHYR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zephyr_just_surged(#[string] name: String) -> bool {
+    ZEPHYR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zephyr_just_stilled(#[string] name: String) -> bool {
+    ZEPHYR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zephyr_enabled(#[string] name: String) -> bool {
+    ZEPHYR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_breathe_zephyr(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BreatheZephyr { name }));
+}
+#[op2(fast)]
+pub fn bsengine_lull_zephyr(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LullZephyr { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zephyr_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZephyrEnabled { name, enabled })
+    });
+}
+// ── Zeppelin ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeppelin_lift(#[string] name: String) -> f32 {
+    ZEPPELIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeppelin_max_lift(#[string] name: String) -> f32 {
+    ZEPPELIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeppelin_leak_rate(#[string] name: String) -> f32 {
+    ZEPPELIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeppelin_just_aloft(#[string] name: String) -> bool {
+    ZEPPELIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeppelin_just_grounded(#[string] name: String) -> bool {
+    ZEPPELIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeppelin_enabled(#[string] name: String) -> bool {
+    ZEPPELIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_inflate_zeppelin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::InflateZeppelin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_vent_zeppelin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::VentZeppelin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeppelin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeppelinEnabled { name, enabled })
+    });
+}
+// ── Zerk ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zerk_lubrication(#[string] name: String) -> f32 {
+    ZERK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zerk_max_lubrication(#[string] name: String) -> f32 {
+    ZERK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zerk_flow_rate(#[string] name: String) -> f32 {
+    ZERK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zerk_just_serviced(#[string] name: String) -> bool {
+    ZERK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zerk_just_seized(#[string] name: String) -> bool {
+    ZERK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zerk_enabled(#[string] name: String) -> bool {
+    ZERK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_grease_zerk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::GreaseZerk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_corrode_zerk(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::CorrodeZerk { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zerk_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZerkEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -45933,6 +46374,78 @@ deno_core::extension!(
         bsengine_align_zendo,
         bsengine_discord_zendo,
         bsengine_set_zendo_enabled,
+        bsengine_get_zener_voltage,
+        bsengine_get_zener_max_voltage,
+        bsengine_get_zener_charge_rate,
+        bsengine_is_zener_just_critical,
+        bsengine_is_zener_just_depleted,
+        bsengine_is_zener_enabled,
+        bsengine_surge_zener,
+        bsengine_discharge_zener,
+        bsengine_set_zener_enabled,
+        bsengine_get_zenith_altitude,
+        bsengine_get_zenith_max_altitude,
+        bsengine_get_zenith_descent_rate,
+        bsengine_is_zenith_just_peaked,
+        bsengine_is_zenith_just_grounded,
+        bsengine_is_zenith_enabled,
+        bsengine_ascend_zenith,
+        bsengine_descend_zenith,
+        bsengine_set_zenith_enabled,
+        bsengine_get_zenithal_elevation,
+        bsengine_get_zenithal_max_elevation,
+        bsengine_get_zenithal_rise_rate,
+        bsengine_is_zenithal_just_peaked,
+        bsengine_is_zenithal_just_nadir,
+        bsengine_is_zenithal_enabled,
+        bsengine_ascend_zenithal,
+        bsengine_descend_zenithal,
+        bsengine_set_zenithal_enabled,
+        bsengine_get_zeolite_purity,
+        bsengine_get_zeolite_max_purity,
+        bsengine_get_zeolite_cleanse_rate,
+        bsengine_is_zeolite_just_cleansed,
+        bsengine_is_zeolite_just_fouled,
+        bsengine_is_zeolite_enabled,
+        bsengine_purify_zeolite,
+        bsengine_contaminate_zeolite,
+        bsengine_set_zeolite_enabled,
+        bsengine_get_zeolitic_microporosity,
+        bsengine_get_zeolitic_max_microporosity,
+        bsengine_get_zeolitic_sieve_rate,
+        bsengine_is_zeolitic_just_ordered,
+        bsengine_is_zeolitic_just_amorphous,
+        bsengine_is_zeolitic_enabled,
+        bsengine_crystallize_zeolitic,
+        bsengine_collapse_zeolitic,
+        bsengine_set_zeolitic_enabled,
+        bsengine_get_zephyr_gust,
+        bsengine_get_zephyr_max_gust,
+        bsengine_get_zephyr_calm_rate,
+        bsengine_is_zephyr_just_surged,
+        bsengine_is_zephyr_just_stilled,
+        bsengine_is_zephyr_enabled,
+        bsengine_breathe_zephyr,
+        bsengine_lull_zephyr,
+        bsengine_set_zephyr_enabled,
+        bsengine_get_zeppelin_lift,
+        bsengine_get_zeppelin_max_lift,
+        bsengine_get_zeppelin_leak_rate,
+        bsengine_is_zeppelin_just_aloft,
+        bsengine_is_zeppelin_just_grounded,
+        bsengine_is_zeppelin_enabled,
+        bsengine_inflate_zeppelin,
+        bsengine_vent_zeppelin,
+        bsengine_set_zeppelin_enabled,
+        bsengine_get_zerk_lubrication,
+        bsengine_get_zerk_max_lubrication,
+        bsengine_get_zerk_flow_rate,
+        bsengine_is_zerk_just_serviced,
+        bsengine_is_zerk_just_seized,
+        bsengine_is_zerk_enabled,
+        bsengine_grease_zerk,
+        bsengine_corrode_zerk,
+        bsengine_set_zerk_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -51401,6 +51914,78 @@ const Bsengine = {
     alignZendo:                 (name)              => Deno.core.ops.bsengine_align_zendo(name),
     discordZendo:               (name)              => Deno.core.ops.bsengine_discord_zendo(name),
     setZendoEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zendo_enabled(name, v),
+    getZenerVoltage:            (name)              => Deno.core.ops.bsengine_get_zener_voltage(name),
+    getZenerMaxVoltage:         (name)              => Deno.core.ops.bsengine_get_zener_max_voltage(name),
+    getZenerChargeRate:         (name)              => Deno.core.ops.bsengine_get_zener_charge_rate(name),
+    isZenerJustCritical:        (name)              => Deno.core.ops.bsengine_is_zener_just_critical(name),
+    isZenerJustDepleted:        (name)              => Deno.core.ops.bsengine_is_zener_just_depleted(name),
+    isZenerEnabled:             (name)              => Deno.core.ops.bsengine_is_zener_enabled(name),
+    surgeZener:                 (name)              => Deno.core.ops.bsengine_surge_zener(name),
+    dischargeZener:             (name)              => Deno.core.ops.bsengine_discharge_zener(name),
+    setZenerEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zener_enabled(name, v),
+    getZenithAltitude:          (name)              => Deno.core.ops.bsengine_get_zenith_altitude(name),
+    getZenithMaxAltitude:       (name)              => Deno.core.ops.bsengine_get_zenith_max_altitude(name),
+    getZenithDescentRate:       (name)              => Deno.core.ops.bsengine_get_zenith_descent_rate(name),
+    isZenithJustPeaked:         (name)              => Deno.core.ops.bsengine_is_zenith_just_peaked(name),
+    isZenithJustGrounded:       (name)              => Deno.core.ops.bsengine_is_zenith_just_grounded(name),
+    isZenithEnabled:            (name)              => Deno.core.ops.bsengine_is_zenith_enabled(name),
+    ascendZenith:               (name)              => Deno.core.ops.bsengine_ascend_zenith(name),
+    descendZenith:              (name)              => Deno.core.ops.bsengine_descend_zenith(name),
+    setZenithEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zenith_enabled(name, v),
+    getZenithalElevation:       (name)              => Deno.core.ops.bsengine_get_zenithal_elevation(name),
+    getZenithalMaxElevation:    (name)              => Deno.core.ops.bsengine_get_zenithal_max_elevation(name),
+    getZenithalRiseRate:        (name)              => Deno.core.ops.bsengine_get_zenithal_rise_rate(name),
+    isZenithalJustPeaked:       (name)              => Deno.core.ops.bsengine_is_zenithal_just_peaked(name),
+    isZenithalJustNadir:        (name)              => Deno.core.ops.bsengine_is_zenithal_just_nadir(name),
+    isZenithalEnabled:          (name)              => Deno.core.ops.bsengine_is_zenithal_enabled(name),
+    ascendZenithal:             (name)              => Deno.core.ops.bsengine_ascend_zenithal(name),
+    descendZenithal:            (name)              => Deno.core.ops.bsengine_descend_zenithal(name),
+    setZenithalEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zenithal_enabled(name, v),
+    getZeolitePurity:           (name)              => Deno.core.ops.bsengine_get_zeolite_purity(name),
+    getZeoliteMaxPurity:        (name)              => Deno.core.ops.bsengine_get_zeolite_max_purity(name),
+    getZeoliteCleanseRate:      (name)              => Deno.core.ops.bsengine_get_zeolite_cleanse_rate(name),
+    isZeoliteJustCleansed:      (name)              => Deno.core.ops.bsengine_is_zeolite_just_cleansed(name),
+    isZeoliteJustFouled:        (name)              => Deno.core.ops.bsengine_is_zeolite_just_fouled(name),
+    isZeoliteEnabled:           (name)              => Deno.core.ops.bsengine_is_zeolite_enabled(name),
+    purifyZeolite:              (name)              => Deno.core.ops.bsengine_purify_zeolite(name),
+    contaminateZeolite:         (name)              => Deno.core.ops.bsengine_contaminate_zeolite(name),
+    setZeoliteEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zeolite_enabled(name, v),
+    getZeoliticMicroporosity:   (name)              => Deno.core.ops.bsengine_get_zeolitic_microporosity(name),
+    getZeoliticMaxMicroporosity:(name)              => Deno.core.ops.bsengine_get_zeolitic_max_microporosity(name),
+    getZeoliticSieveRate:       (name)              => Deno.core.ops.bsengine_get_zeolitic_sieve_rate(name),
+    isZeoliticJustOrdered:      (name)              => Deno.core.ops.bsengine_is_zeolitic_just_ordered(name),
+    isZeoliticJustAmorphous:    (name)              => Deno.core.ops.bsengine_is_zeolitic_just_amorphous(name),
+    isZeoliticEnabled:          (name)              => Deno.core.ops.bsengine_is_zeolitic_enabled(name),
+    crystallizeZeolitic:        (name)              => Deno.core.ops.bsengine_crystallize_zeolitic(name),
+    collapseZeolitic:           (name)              => Deno.core.ops.bsengine_collapse_zeolitic(name),
+    setZeoliticEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zeolitic_enabled(name, v),
+    getZephyrGust:              (name)              => Deno.core.ops.bsengine_get_zephyr_gust(name),
+    getZephyrMaxGust:           (name)              => Deno.core.ops.bsengine_get_zephyr_max_gust(name),
+    getZephyrCalmRate:          (name)              => Deno.core.ops.bsengine_get_zephyr_calm_rate(name),
+    isZephyrJustSurged:         (name)              => Deno.core.ops.bsengine_is_zephyr_just_surged(name),
+    isZephyrJustStilled:        (name)              => Deno.core.ops.bsengine_is_zephyr_just_stilled(name),
+    isZephyrEnabled:            (name)              => Deno.core.ops.bsengine_is_zephyr_enabled(name),
+    breatheZephyr:              (name)              => Deno.core.ops.bsengine_breathe_zephyr(name),
+    lullZephyr:                 (name)              => Deno.core.ops.bsengine_lull_zephyr(name),
+    setZephyrEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zephyr_enabled(name, v),
+    getZeppelinLift:            (name)              => Deno.core.ops.bsengine_get_zeppelin_lift(name),
+    getZeppelinMaxLift:         (name)              => Deno.core.ops.bsengine_get_zeppelin_max_lift(name),
+    getZeppelinLeakRate:        (name)              => Deno.core.ops.bsengine_get_zeppelin_leak_rate(name),
+    isZeppelinJustAloft:        (name)              => Deno.core.ops.bsengine_is_zeppelin_just_aloft(name),
+    isZeppelinJustGrounded:     (name)              => Deno.core.ops.bsengine_is_zeppelin_just_grounded(name),
+    isZeppelinEnabled:          (name)              => Deno.core.ops.bsengine_is_zeppelin_enabled(name),
+    inflateZeppelin:            (name)              => Deno.core.ops.bsengine_inflate_zeppelin(name),
+    ventZeppelin:               (name)              => Deno.core.ops.bsengine_vent_zeppelin(name),
+    setZeppelinEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zeppelin_enabled(name, v),
+    getZerkLubrication:         (name)              => Deno.core.ops.bsengine_get_zerk_lubrication(name),
+    getZerkMaxLubrication:      (name)              => Deno.core.ops.bsengine_get_zerk_max_lubrication(name),
+    getZerkFlowRate:            (name)              => Deno.core.ops.bsengine_get_zerk_flow_rate(name),
+    isZerkJustServiced:         (name)              => Deno.core.ops.bsengine_is_zerk_just_serviced(name),
+    isZerkJustSeized:           (name)              => Deno.core.ops.bsengine_is_zerk_just_seized(name),
+    isZerkEnabled:              (name)              => Deno.core.ops.bsengine_is_zerk_enabled(name),
+    greaseZerk:                 (name)              => Deno.core.ops.bsengine_grease_zerk(name),
+    corrodeZerk:                (name)              => Deno.core.ops.bsengine_corrode_zerk(name),
+    setZerkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zerk_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -87937,6 +88522,455 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AlignZendo { name } if name == "Dojo")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DiscordZendo { name } if name == "Dojo")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZendoEnabled { name, enabled } if name == "Dojo" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zener_read_ops() {
+        super::ZENER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Battery".to_string(),
+                (50.0f32, 100.0f32, 9.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZenerVoltage("Battery"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenerMaxVoltage("Battery"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenerChargeRate("Battery"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "9");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenerJustCritical("Battery"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenerJustDepleted("Battery"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenerEnabled("Battery"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZENER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zener_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.surgeZener("Battery");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dischargeZener("Battery");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZenerEnabled("Battery", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SurgeZener { name } if name == "Battery")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DischargeZener { name } if name == "Battery")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZenerEnabled { name, enabled } if name == "Battery" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zenith_read_ops() {
+        super::ZENITH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Summit".to_string(),
+                (70.0f32, 100.0f32, 10.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZenithAltitude("Summit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "70");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenithMaxAltitude("Summit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenithDescentRate("Summit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenithJustPeaked("Summit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenithJustGrounded("Summit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenithEnabled("Summit"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZENITH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zenith_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.ascendZenith("Summit");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.descendZenith("Summit");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZenithEnabled("Summit", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AscendZenith { name } if name == "Summit")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DescendZenith { name } if name == "Summit")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZenithEnabled { name, enabled } if name == "Summit" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zenithal_read_ops() {
+        super::ZENITHAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Observatory".to_string(),
+                (60.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZenithalElevation("Observatory"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenithalMaxElevation("Observatory"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZenithalRiseRate("Observatory"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenithalJustPeaked("Observatory"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenithalJustNadir("Observatory"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZenithalEnabled("Observatory"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZENITHAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zenithal_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.ascendZenithal("Observatory");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.descendZenithal("Observatory");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZenithalEnabled("Observatory", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AscendZenithal { name } if name == "Observatory")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DescendZenithal { name } if name == "Observatory")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZenithalEnabled { name, enabled } if name == "Observatory" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeolite_read_ops() {
+        super::ZEOLITE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Filter".to_string(),
+                (40.0f32, 100.0f32, 7.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeolitePurity("Filter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeoliteMaxPurity("Filter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeoliteCleanseRate("Filter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "7");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeoliteJustCleansed("Filter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeoliteJustFouled("Filter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeoliteEnabled("Filter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEOLITE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeolite_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.purifyZeolite("Filter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.contaminateZeolite("Filter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeoliteEnabled("Filter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PurifyZeolite { name } if name == "Filter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ContaminateZeolite { name } if name == "Filter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeoliteEnabled { name, enabled } if name == "Filter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeolitic_read_ops() {
+        super::ZEOLITIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Crystal".to_string(),
+                (30.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeoliticMicroporosity("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeoliticMaxMicroporosity("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeoliticSieveRate("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeoliticJustOrdered("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeoliticJustAmorphous("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeoliticEnabled("Crystal"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEOLITIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeolitic_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crystallizeZeolitic("Crystal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.collapseZeolitic("Crystal");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZeoliticEnabled("Crystal", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrystallizeZeolitic { name } if name == "Crystal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CollapseZeolitic { name } if name == "Crystal")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeoliticEnabled { name, enabled } if name == "Crystal" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zephyr_read_ops() {
+        super::ZEPHYR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wind".to_string(),
+                (60.0f32, 100.0f32, 8.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZephyrGust("Wind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZephyrMaxGust("Wind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZephyrCalmRate("Wind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.isZephyrJustSurged("Wind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZephyrJustStilled("Wind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZephyrEnabled("Wind"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEPHYR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zephyr_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.breatheZephyr("Wind");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.lullZephyr("Wind");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZephyrEnabled("Wind", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BreatheZephyr { name } if name == "Wind")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LullZephyr { name } if name == "Wind")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZephyrEnabled { name, enabled } if name == "Wind" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeppelin_read_ops() {
+        super::ZEPPELIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Airship".to_string(),
+                (80.0f32, 100.0f32, 4.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeppelinLift("Airship"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeppelinMaxLift("Airship"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeppelinLeakRate("Airship"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeppelinJustAloft("Airship"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeppelinJustGrounded("Airship"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeppelinEnabled("Airship"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEPPELIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeppelin_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.inflateZeppelin("Airship");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.ventZeppelin("Airship");"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZeppelinEnabled("Airship", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InflateZeppelin { name } if name == "Airship")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::VentZeppelin { name } if name == "Airship")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeppelinEnabled { name, enabled } if name == "Airship" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zerk_read_ops() {
+        super::ZERK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gear".to_string(),
+                (20.0f32, 100.0f32, 3.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZerkLubrication("Gear"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.getZerkMaxLubrication("Gear"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZerkFlowRate("Gear"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZerkJustServiced("Gear"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZerkJustSeized("Gear"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZerkEnabled("Gear"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZERK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zerk_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.greaseZerk("Gear");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.corrodeZerk("Gear");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZerkEnabled("Gear", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GreaseZerk { name } if name == "Gear")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorrodeZerk { name } if name == "Gear")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZerkEnabled { name, enabled } if name == "Gear" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

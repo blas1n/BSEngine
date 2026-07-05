@@ -7525,6 +7525,102 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AspectZodiacal {
+        name: String,
+        amount: f32,
+    },
+    DepartZodiacal {
+        name: String,
+        amount: f32,
+    },
+    SetZodiacalEnabled {
+        name: String,
+        enabled: bool,
+    },
+    GrowZoea {
+        name: String,
+        amount: f32,
+    },
+    ShedZoea {
+        name: String,
+        amount: f32,
+    },
+    SetZoeaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    BudZoecium {
+        name: String,
+        amount: f32,
+    },
+    DissolveZoecium {
+        name: String,
+        amount: f32,
+    },
+    SetZoeciumEnabled {
+        name: String,
+        enabled: bool,
+    },
+    QuickenZoetic {
+        name: String,
+        amount: f32,
+    },
+    DiminishZoetic {
+        name: String,
+        amount: f32,
+    },
+    SetZoeticEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AdvanceZoetrope {
+        name: String,
+        amount: f32,
+    },
+    StallZoetrope {
+        name: String,
+        amount: f32,
+    },
+    SetZoetropeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AnimateZoic {
+        name: String,
+        amount: f32,
+    },
+    DiminishZoic {
+        name: String,
+        amount: f32,
+    },
+    SetZoicEnabled {
+        name: String,
+        enabled: bool,
+    },
+    DigZokor {
+        name: String,
+        amount: f32,
+    },
+    CaveInZokor {
+        name: String,
+        amount: f32,
+    },
+    SetZokorEnabled {
+        name: String,
+        enabled: bool,
+    },
+    LurchZombie {
+        name: String,
+        amount: f32,
+    },
+    DecayZombie {
+        name: String,
+        amount: f32,
+    },
+    SetZombieEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9374,6 +9470,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zodiac: alignment, max_alignment, transit_rate, just_aligned, just_voided, enabled
     pub(crate) static ZODIAC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zodiacal: alignment, max_alignment, aspect_rate, just_aligned, just_discordant, enabled
+    pub(crate) static ZODIACAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoea: molt, max_molt, grow_rate, just_metamorphosed, just_shed, enabled
+    pub(crate) static ZOEA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoecium: colony, max_colony, encrust_rate, just_established, just_dispersed, enabled
+    pub(crate) static ZOECIUM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoetic: vitality, max_vitality, quicken_rate, just_vital, just_dormant, enabled
+    pub(crate) static ZOETIC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoetrope: frame, max_frame, spin_rate, just_cycling, just_stalled, enabled
+    pub(crate) static ZOETROPE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoic: vitality, max_vitality, fauna_rate, just_teeming, just_barren, enabled
+    pub(crate) static ZOIC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zokor: burrow, max_burrow, tunnel_rate, just_entrenched, just_collapsed, enabled
+    pub(crate) static ZOKOR_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zombie: shamble, max_shamble, rot_rate, just_risen, just_decayed, enabled
+    pub(crate) static ZOMBIE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -26570,6 +26690,366 @@ pub fn bsengine_set_zodiac_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZodiacEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zodiacal_alignment(#[string] name: String) -> f32 {
+    ZODIACAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zodiacal_max_alignment(#[string] name: String) -> f32 {
+    ZODIACAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zodiacal_aspect_rate(#[string] name: String) -> f32 {
+    ZODIACAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zodiacal_just_aligned(#[string] name: String) -> bool {
+    ZODIACAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zodiacal_just_discordant(#[string] name: String) -> bool {
+    ZODIACAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zodiacal_enabled(#[string] name: String) -> bool {
+    ZODIACAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_aspect_zodiacal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AspectZodiacal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_depart_zodiacal(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DepartZodiacal { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zodiacal_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZodiacalEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zoea_molt(#[string] name: String) -> f32 {
+    ZOEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoea_max_molt(#[string] name: String) -> f32 {
+    ZOEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoea_grow_rate(#[string] name: String) -> f32 {
+    ZOEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoea_just_metamorphosed(#[string] name: String) -> bool {
+    ZOEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoea_just_shed(#[string] name: String) -> bool {
+    ZOEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoea_enabled(#[string] name: String) -> bool {
+    ZOEA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_grow_zoea(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::GrowZoea { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_shed_zoea(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ShedZoea { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoea_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoeaEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zoecium_colony(#[string] name: String) -> f32 {
+    ZOECIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoecium_max_colony(#[string] name: String) -> f32 {
+    ZOECIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoecium_encrust_rate(#[string] name: String) -> f32 {
+    ZOECIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoecium_just_established(#[string] name: String) -> bool {
+    ZOECIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoecium_just_dispersed(#[string] name: String) -> bool {
+    ZOECIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoecium_enabled(#[string] name: String) -> bool {
+    ZOECIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_bud_zoecium(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BudZoecium { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dissolve_zoecium(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DissolveZoecium { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoecium_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoeciumEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zoetic_vitality(#[string] name: String) -> f32 {
+    ZOETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoetic_max_vitality(#[string] name: String) -> f32 {
+    ZOETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoetic_quicken_rate(#[string] name: String) -> f32 {
+    ZOETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoetic_just_vital(#[string] name: String) -> bool {
+    ZOETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoetic_just_dormant(#[string] name: String) -> bool {
+    ZOETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoetic_enabled(#[string] name: String) -> bool {
+    ZOETIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_quicken_zoetic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::QuickenZoetic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_diminish_zoetic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DiminishZoetic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoetic_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoeticEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zoetrope_frame(#[string] name: String) -> f32 {
+    ZOETROPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoetrope_max_frame(#[string] name: String) -> f32 {
+    ZOETROPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoetrope_spin_rate(#[string] name: String) -> f32 {
+    ZOETROPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoetrope_just_cycling(#[string] name: String) -> bool {
+    ZOETROPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoetrope_just_stalled(#[string] name: String) -> bool {
+    ZOETROPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoetrope_enabled(#[string] name: String) -> bool {
+    ZOETROPE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_advance_zoetrope(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AdvanceZoetrope { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_stall_zoetrope(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::StallZoetrope { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoetrope_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoetropeEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zoic_vitality(#[string] name: String) -> f32 {
+    ZOIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoic_max_vitality(#[string] name: String) -> f32 {
+    ZOIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoic_fauna_rate(#[string] name: String) -> f32 {
+    ZOIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoic_just_teeming(#[string] name: String) -> bool {
+    ZOIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoic_just_barren(#[string] name: String) -> bool {
+    ZOIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoic_enabled(#[string] name: String) -> bool {
+    ZOIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_animate_zoic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AnimateZoic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_diminish_zoic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DiminishZoic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoic_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoicEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zokor_burrow(#[string] name: String) -> f32 {
+    ZOKOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zokor_max_burrow(#[string] name: String) -> f32 {
+    ZOKOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zokor_tunnel_rate(#[string] name: String) -> f32 {
+    ZOKOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zokor_just_entrenched(#[string] name: String) -> bool {
+    ZOKOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zokor_just_collapsed(#[string] name: String) -> bool {
+    ZOKOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zokor_enabled(#[string] name: String) -> bool {
+    ZOKOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_dig_zokor(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DigZokor { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cave_in_zokor(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CaveInZokor { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zokor_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZokorEnabled { name, enabled })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_get_zombie_shamble(#[string] name: String) -> f32 {
+    ZOMBIE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zombie_max_shamble(#[string] name: String) -> f32 {
+    ZOMBIE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zombie_rot_rate(#[string] name: String) -> f32 {
+    ZOMBIE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zombie_just_risen(#[string] name: String) -> bool {
+    ZOMBIE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zombie_just_decayed(#[string] name: String) -> bool {
+    ZOMBIE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zombie_enabled(#[string] name: String) -> bool {
+    ZOMBIE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_lurch_zombie(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LurchZombie { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_decay_zombie(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DecayZombie { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zombie_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZombieEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -49056,6 +49536,78 @@ deno_core::extension!(
         bsengine_attune_zodiac,
         bsengine_dispel_zodiac,
         bsengine_set_zodiac_enabled,
+        bsengine_get_zodiacal_alignment,
+        bsengine_get_zodiacal_max_alignment,
+        bsengine_get_zodiacal_aspect_rate,
+        bsengine_is_zodiacal_just_aligned,
+        bsengine_is_zodiacal_just_discordant,
+        bsengine_is_zodiacal_enabled,
+        bsengine_aspect_zodiacal,
+        bsengine_depart_zodiacal,
+        bsengine_set_zodiacal_enabled,
+        bsengine_get_zoea_molt,
+        bsengine_get_zoea_max_molt,
+        bsengine_get_zoea_grow_rate,
+        bsengine_is_zoea_just_metamorphosed,
+        bsengine_is_zoea_just_shed,
+        bsengine_is_zoea_enabled,
+        bsengine_grow_zoea,
+        bsengine_shed_zoea,
+        bsengine_set_zoea_enabled,
+        bsengine_get_zoecium_colony,
+        bsengine_get_zoecium_max_colony,
+        bsengine_get_zoecium_encrust_rate,
+        bsengine_is_zoecium_just_established,
+        bsengine_is_zoecium_just_dispersed,
+        bsengine_is_zoecium_enabled,
+        bsengine_bud_zoecium,
+        bsengine_dissolve_zoecium,
+        bsengine_set_zoecium_enabled,
+        bsengine_get_zoetic_vitality,
+        bsengine_get_zoetic_max_vitality,
+        bsengine_get_zoetic_quicken_rate,
+        bsengine_is_zoetic_just_vital,
+        bsengine_is_zoetic_just_dormant,
+        bsengine_is_zoetic_enabled,
+        bsengine_quicken_zoetic,
+        bsengine_diminish_zoetic,
+        bsengine_set_zoetic_enabled,
+        bsengine_get_zoetrope_frame,
+        bsengine_get_zoetrope_max_frame,
+        bsengine_get_zoetrope_spin_rate,
+        bsengine_is_zoetrope_just_cycling,
+        bsengine_is_zoetrope_just_stalled,
+        bsengine_is_zoetrope_enabled,
+        bsengine_advance_zoetrope,
+        bsengine_stall_zoetrope,
+        bsengine_set_zoetrope_enabled,
+        bsengine_get_zoic_vitality,
+        bsengine_get_zoic_max_vitality,
+        bsengine_get_zoic_fauna_rate,
+        bsengine_is_zoic_just_teeming,
+        bsengine_is_zoic_just_barren,
+        bsengine_is_zoic_enabled,
+        bsengine_animate_zoic,
+        bsengine_diminish_zoic,
+        bsengine_set_zoic_enabled,
+        bsengine_get_zokor_burrow,
+        bsengine_get_zokor_max_burrow,
+        bsengine_get_zokor_tunnel_rate,
+        bsengine_is_zokor_just_entrenched,
+        bsengine_is_zokor_just_collapsed,
+        bsengine_is_zokor_enabled,
+        bsengine_dig_zokor,
+        bsengine_cave_in_zokor,
+        bsengine_set_zokor_enabled,
+        bsengine_get_zombie_shamble,
+        bsengine_get_zombie_max_shamble,
+        bsengine_get_zombie_rot_rate,
+        bsengine_is_zombie_just_risen,
+        bsengine_is_zombie_just_decayed,
+        bsengine_is_zombie_enabled,
+        bsengine_lurch_zombie,
+        bsengine_decay_zombie,
+        bsengine_set_zombie_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -54954,6 +55506,78 @@ const Bsengine = {
     attuneZodiac:               (name, amount)      => Deno.core.ops.bsengine_attune_zodiac(name, amount),
     dispelZodiac:               (name, amount)      => Deno.core.ops.bsengine_dispel_zodiac(name, amount),
     setZodiacEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zodiac_enabled(name, v),
+    getZodiacalAlignment:       (name)              => Deno.core.ops.bsengine_get_zodiacal_alignment(name),
+    getZodiacalMaxAlignment:    (name)              => Deno.core.ops.bsengine_get_zodiacal_max_alignment(name),
+    getZodiacalAspectRate:      (name)              => Deno.core.ops.bsengine_get_zodiacal_aspect_rate(name),
+    isZodiacalJustAligned:      (name)              => Deno.core.ops.bsengine_is_zodiacal_just_aligned(name),
+    isZodiacalJustDiscordant:   (name)              => Deno.core.ops.bsengine_is_zodiacal_just_discordant(name),
+    isZodiacalEnabled:          (name)              => Deno.core.ops.bsengine_is_zodiacal_enabled(name),
+    aspectZodiacal:             (name, amount)      => Deno.core.ops.bsengine_aspect_zodiacal(name, amount),
+    departZodiacal:             (name, amount)      => Deno.core.ops.bsengine_depart_zodiacal(name, amount),
+    setZodiacalEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zodiacal_enabled(name, v),
+    getZoeaMolt:                (name)              => Deno.core.ops.bsengine_get_zoea_molt(name),
+    getZoeaMaxMolt:             (name)              => Deno.core.ops.bsengine_get_zoea_max_molt(name),
+    getZoeaGrowRate:            (name)              => Deno.core.ops.bsengine_get_zoea_grow_rate(name),
+    isZoeaJustMetamorphosed:    (name)              => Deno.core.ops.bsengine_is_zoea_just_metamorphosed(name),
+    isZoeaJustShed:             (name)              => Deno.core.ops.bsengine_is_zoea_just_shed(name),
+    isZoeaEnabled:              (name)              => Deno.core.ops.bsengine_is_zoea_enabled(name),
+    growZoea:                   (name, amount)      => Deno.core.ops.bsengine_grow_zoea(name, amount),
+    shedZoea:                   (name, amount)      => Deno.core.ops.bsengine_shed_zoea(name, amount),
+    setZoeaEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zoea_enabled(name, v),
+    getZoeciumColony:           (name)              => Deno.core.ops.bsengine_get_zoecium_colony(name),
+    getZoeciumMaxColony:        (name)              => Deno.core.ops.bsengine_get_zoecium_max_colony(name),
+    getZoeciumEncrustRate:      (name)              => Deno.core.ops.bsengine_get_zoecium_encrust_rate(name),
+    isZoeciumJustEstablished:   (name)              => Deno.core.ops.bsengine_is_zoecium_just_established(name),
+    isZoeciumJustDispersed:     (name)              => Deno.core.ops.bsengine_is_zoecium_just_dispersed(name),
+    isZoeciumEnabled:           (name)              => Deno.core.ops.bsengine_is_zoecium_enabled(name),
+    budZoecium:                 (name, amount)      => Deno.core.ops.bsengine_bud_zoecium(name, amount),
+    dissolveZoecium:            (name, amount)      => Deno.core.ops.bsengine_dissolve_zoecium(name, amount),
+    setZoeciumEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zoecium_enabled(name, v),
+    getZoeticVitality:          (name)              => Deno.core.ops.bsengine_get_zoetic_vitality(name),
+    getZoeticMaxVitality:       (name)              => Deno.core.ops.bsengine_get_zoetic_max_vitality(name),
+    getZoeticQuickenRate:       (name)              => Deno.core.ops.bsengine_get_zoetic_quicken_rate(name),
+    isZoeticJustVital:          (name)              => Deno.core.ops.bsengine_is_zoetic_just_vital(name),
+    isZoeticJustDormant:        (name)              => Deno.core.ops.bsengine_is_zoetic_just_dormant(name),
+    isZoeticEnabled:            (name)              => Deno.core.ops.bsengine_is_zoetic_enabled(name),
+    quickenZoetic:              (name, amount)      => Deno.core.ops.bsengine_quicken_zoetic(name, amount),
+    diminishZoetic:             (name, amount)      => Deno.core.ops.bsengine_diminish_zoetic(name, amount),
+    setZoeticEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zoetic_enabled(name, v),
+    getZoetropeFrame:           (name)              => Deno.core.ops.bsengine_get_zoetrope_frame(name),
+    getZoetropeMaxFrame:        (name)              => Deno.core.ops.bsengine_get_zoetrope_max_frame(name),
+    getZoetropeSpinRate:        (name)              => Deno.core.ops.bsengine_get_zoetrope_spin_rate(name),
+    isZoetropeJustCycling:      (name)              => Deno.core.ops.bsengine_is_zoetrope_just_cycling(name),
+    isZoetropeJustStalled:      (name)              => Deno.core.ops.bsengine_is_zoetrope_just_stalled(name),
+    isZoetropeEnabled:          (name)              => Deno.core.ops.bsengine_is_zoetrope_enabled(name),
+    advanceZoetrope:            (name, amount)      => Deno.core.ops.bsengine_advance_zoetrope(name, amount),
+    stallZoetrope:              (name, amount)      => Deno.core.ops.bsengine_stall_zoetrope(name, amount),
+    setZoetropeEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoetrope_enabled(name, v),
+    getZoicVitality:            (name)              => Deno.core.ops.bsengine_get_zoic_vitality(name),
+    getZoicMaxVitality:         (name)              => Deno.core.ops.bsengine_get_zoic_max_vitality(name),
+    getZoicFaunaRate:           (name)              => Deno.core.ops.bsengine_get_zoic_fauna_rate(name),
+    isZoicJustTeeming:          (name)              => Deno.core.ops.bsengine_is_zoic_just_teeming(name),
+    isZoicJustBarren:           (name)              => Deno.core.ops.bsengine_is_zoic_just_barren(name),
+    isZoicEnabled:              (name)              => Deno.core.ops.bsengine_is_zoic_enabled(name),
+    animateZoic:                (name, amount)      => Deno.core.ops.bsengine_animate_zoic(name, amount),
+    diminishZoic:               (name, amount)      => Deno.core.ops.bsengine_diminish_zoic(name, amount),
+    setZoicEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zoic_enabled(name, v),
+    getZokorBurrow:             (name)              => Deno.core.ops.bsengine_get_zokor_burrow(name),
+    getZokorMaxBurrow:          (name)              => Deno.core.ops.bsengine_get_zokor_max_burrow(name),
+    getZokorTunnelRate:         (name)              => Deno.core.ops.bsengine_get_zokor_tunnel_rate(name),
+    isZokorJustEntrenched:      (name)              => Deno.core.ops.bsengine_is_zokor_just_entrenched(name),
+    isZokorJustCollapsed:       (name)              => Deno.core.ops.bsengine_is_zokor_just_collapsed(name),
+    isZokorEnabled:             (name)              => Deno.core.ops.bsengine_is_zokor_enabled(name),
+    digZokor:                   (name, amount)      => Deno.core.ops.bsengine_dig_zokor(name, amount),
+    caveInZokor:                (name, amount)      => Deno.core.ops.bsengine_cave_in_zokor(name, amount),
+    setZokorEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zokor_enabled(name, v),
+    getZombieShamble:           (name)              => Deno.core.ops.bsengine_get_zombie_shamble(name),
+    getZombieMaxShamble:        (name)              => Deno.core.ops.bsengine_get_zombie_max_shamble(name),
+    getZombieRotRate:           (name)              => Deno.core.ops.bsengine_get_zombie_rot_rate(name),
+    isZombieJustRisen:          (name)              => Deno.core.ops.bsengine_is_zombie_just_risen(name),
+    isZombieJustDecayed:        (name)              => Deno.core.ops.bsengine_is_zombie_just_decayed(name),
+    isZombieEnabled:            (name)              => Deno.core.ops.bsengine_is_zombie_enabled(name),
+    lurchZombie:                (name, amount)      => Deno.core.ops.bsengine_lurch_zombie(name, amount),
+    decayZombie:                (name, amount)      => Deno.core.ops.bsengine_decay_zombie(name, amount),
+    setZombieEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zombie_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -94143,6 +94767,444 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AttuneZodiac { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DispelZodiac { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZodiacEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zodiacal_read_ops() {
+        super::ZODIACAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZodiacalAlignment("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZodiacalMaxAlignment("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZodiacalAspectRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZodiacalJustAligned("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZodiacalJustDiscordant("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZodiacalEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZODIACAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zodiacal_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.aspectZodiacal("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.departZodiacal("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZodiacalEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AspectZodiacal { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepartZodiacal { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZodiacalEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoea_read_ops() {
+        super::ZOEA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 4.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getZoeaMolt("Aries"))"#).unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeaMaxMolt("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeaGrowRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeaJustMetamorphosed("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeaJustShed("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeaEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOEA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoea_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.growZoea("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shedZoea("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoeaEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::GrowZoea { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShedZoea { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoeaEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoecium_read_ops() {
+        super::ZOECIUM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeciumColony("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeciumMaxColony("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeciumEncrustRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeciumJustEstablished("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeciumJustDispersed("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeciumEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOECIUM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoecium_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.budZoecium("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dissolveZoecium("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoeciumEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BudZoecium { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DissolveZoecium { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoeciumEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoetic_read_ops() {
+        super::ZOETIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeticVitality("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeticMaxVitality("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoeticQuickenRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeticJustVital("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeticJustDormant("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoeticEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOETIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoetic_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.quickenZoetic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.diminishZoetic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoeticEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::QuickenZoetic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DiminishZoetic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoeticEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoetrope_read_ops() {
+        super::ZOETROPE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 6.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoetropeFrame("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoetropeMaxFrame("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoetropeSpinRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoetropeJustCycling("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoetropeJustStalled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoetropeEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOETROPE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoetrope_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.advanceZoetrope("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.stallZoetrope("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoetropeEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AdvanceZoetrope { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::StallZoetrope { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoetropeEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoic_read_ops() {
+        super::ZOIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoicVitality("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoicMaxVitality("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoicFaunaRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoicJustTeeming("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoicJustBarren("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoicEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoic_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.animateZoic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.diminishZoic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoicEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AnimateZoic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DiminishZoic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoicEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zokor_read_ops() {
+        super::ZOKOR_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 3.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZokorBurrow("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZokorMaxBurrow("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZokorTunnelRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZokorJustEntrenched("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZokorJustCollapsed("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZokorEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOKOR_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zokor_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.digZokor("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.caveInZokor("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZokorEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DigZokor { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CaveInZokor { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZokorEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zombie_read_ops() {
+        super::ZOMBIE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 8.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZombieShamble("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZombieMaxShamble("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZombieRotRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "8");
+        let r = rt
+            .eval(r#"String(Bsengine.isZombieJustRisen("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZombieJustDecayed("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZombieEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOMBIE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zombie_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.lurchZombie("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.decayZombie("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZombieEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LurchZombie { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DecayZombie { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZombieEnabled { name, enabled } if name == "Aries" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

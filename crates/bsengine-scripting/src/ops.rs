@@ -6821,6 +6821,94 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Zebrafish ─────────────────────────────────────────────────────────────
+    ExposeZebrafish {
+        name: String,
+    },
+    OccludeZebrafish {
+        name: String,
+    },
+    SetZebrafishEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zebrine ───────────────────────────────────────────────────────────────
+    MarkZebrine {
+        name: String,
+    },
+    BleachZebrine {
+        name: String,
+    },
+    SetZebrineEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zebroid ───────────────────────────────────────────────────────────────
+    CrossbreedZebroid {
+        name: String,
+    },
+    DiluteZebroid {
+        name: String,
+    },
+    SetZebroidEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zebu ──────────────────────────────────────────────────────────────────
+    LoadZebu {
+        name: String,
+    },
+    ShedZebu {
+        name: String,
+    },
+    SetZebuEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zechin ────────────────────────────────────────────────────────────────
+    MintZechin {
+        name: String,
+    },
+    SpendZechin {
+        name: String,
+    },
+    SetZechinEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zed ───────────────────────────────────────────────────────────────────
+    WearyZed {
+        name: String,
+    },
+    RallyZed {
+        name: String,
+    },
+    SetZedEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zeekoe ────────────────────────────────────────────────────────────────
+    ClaimZeekoe {
+        name: String,
+    },
+    ContestZeekoe {
+        name: String,
+    },
+    SetZeekoeEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zein ──────────────────────────────────────────────────────────────────
+    DepositZein {
+        name: String,
+    },
+    HydrolyseZein {
+        name: String,
+    },
+    SetZeinEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -8478,6 +8566,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zebra: phase, stripe_width, speed, dark_stripe, just_switched, enabled
     pub(crate) static ZEBRA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zebrafish: transparency, max_transparency, develop_rate, just_transparent, just_opaque, enabled
+    pub(crate) static ZEBRAFISH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zebrine: striping, max_striping, pattern_rate, just_banded, just_blank, enabled
+    pub(crate) static ZEBRINE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zebroid: hybridization, max_hybridization, blend_rate, just_hybrid, just_pure, enabled
+    pub(crate) static ZEBROID_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zebu: burden, max_burden, strain_rate, just_overwhelmed, just_unburdened, enabled
+    pub(crate) static ZEBU_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zechin: gold, max_gold, earn_rate, just_wealthy, just_bankrupt, enabled
+    pub(crate) static ZECHIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zed: fatigue, max_fatigue, wind_down_rate, just_spent, just_rallied, enabled
+    pub(crate) static ZED_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zeekoe: territory, max_territory, wallow_rate, just_dominant, just_displaced, enabled
+    pub(crate) static ZEEKOE_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zein: protein, max_protein, store_rate, just_loaded, just_depleted, enabled
+    pub(crate) static ZEIN_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -23008,6 +23120,332 @@ pub fn bsengine_set_zebra_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZebraEnabled { name, enabled })
+    });
+}
+// ── Zebrafish ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zebrafish_transparency(#[string] name: String) -> f32 {
+    ZEBRAFISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebrafish_max_transparency(#[string] name: String) -> f32 {
+    ZEBRAFISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebrafish_develop_rate(#[string] name: String) -> f32 {
+    ZEBRAFISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebrafish_just_transparent(#[string] name: String) -> bool {
+    ZEBRAFISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebrafish_just_opaque(#[string] name: String) -> bool {
+    ZEBRAFISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebrafish_enabled(#[string] name: String) -> bool {
+    ZEBRAFISH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_expose_zebrafish(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ExposeZebrafish { name }));
+}
+#[op2(fast)]
+pub fn bsengine_occlude_zebrafish(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::OccludeZebrafish { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zebrafish_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZebrafishEnabled { name, enabled })
+    });
+}
+// ── Zebrine ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zebrine_striping(#[string] name: String) -> f32 {
+    ZEBRINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebrine_max_striping(#[string] name: String) -> f32 {
+    ZEBRINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebrine_pattern_rate(#[string] name: String) -> f32 {
+    ZEBRINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebrine_just_banded(#[string] name: String) -> bool {
+    ZEBRINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebrine_just_blank(#[string] name: String) -> bool {
+    ZEBRINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebrine_enabled(#[string] name: String) -> bool {
+    ZEBRINE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_mark_zebrine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::MarkZebrine { name }));
+}
+#[op2(fast)]
+pub fn bsengine_bleach_zebrine(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::BleachZebrine { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zebrine_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZebrineEnabled { name, enabled })
+    });
+}
+// ── Zebroid ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zebroid_hybridization(#[string] name: String) -> f32 {
+    ZEBROID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebroid_max_hybridization(#[string] name: String) -> f32 {
+    ZEBROID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebroid_blend_rate(#[string] name: String) -> f32 {
+    ZEBROID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebroid_just_hybrid(#[string] name: String) -> bool {
+    ZEBROID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebroid_just_pure(#[string] name: String) -> bool {
+    ZEBROID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebroid_enabled(#[string] name: String) -> bool {
+    ZEBROID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crossbreed_zebroid(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrossbreedZebroid { name })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dilute_zebroid(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DiluteZebroid { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zebroid_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZebroidEnabled { name, enabled })
+    });
+}
+// ── Zebu ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zebu_burden(#[string] name: String) -> f32 {
+    ZEBU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebu_max_burden(#[string] name: String) -> f32 {
+    ZEBU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zebu_strain_rate(#[string] name: String) -> f32 {
+    ZEBU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebu_just_overwhelmed(#[string] name: String) -> bool {
+    ZEBU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebu_just_unburdened(#[string] name: String) -> bool {
+    ZEBU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zebu_enabled(#[string] name: String) -> bool {
+    ZEBU_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_load_zebu(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LoadZebu { name }));
+}
+#[op2(fast)]
+pub fn bsengine_shed_zebu(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ShedZebu { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zebu_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZebuEnabled { name, enabled })
+    });
+}
+// ── Zechin ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zechin_gold(#[string] name: String) -> f32 {
+    ZECHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zechin_max_gold(#[string] name: String) -> f32 {
+    ZECHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zechin_earn_rate(#[string] name: String) -> f32 {
+    ZECHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zechin_just_wealthy(#[string] name: String) -> bool {
+    ZECHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zechin_just_bankrupt(#[string] name: String) -> bool {
+    ZECHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zechin_enabled(#[string] name: String) -> bool {
+    ZECHIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_mint_zechin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::MintZechin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_spend_zechin(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SpendZechin { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zechin_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZechinEnabled { name, enabled })
+    });
+}
+// ── Zed ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zed_fatigue(#[string] name: String) -> f32 {
+    ZED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zed_max_fatigue(#[string] name: String) -> f32 {
+    ZED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zed_wind_down_rate(#[string] name: String) -> f32 {
+    ZED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zed_just_spent(#[string] name: String) -> bool {
+    ZED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zed_just_rallied(#[string] name: String) -> bool {
+    ZED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zed_enabled(#[string] name: String) -> bool {
+    ZED_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_weary_zed(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WearyZed { name }));
+}
+#[op2(fast)]
+pub fn bsengine_rally_zed(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RallyZed { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zed_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZedEnabled { name, enabled })
+    });
+}
+// ── Zeekoe ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zeekoe_territory(#[string] name: String) -> f32 {
+    ZEEKOE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeekoe_max_territory(#[string] name: String) -> f32 {
+    ZEEKOE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zeekoe_wallow_rate(#[string] name: String) -> f32 {
+    ZEEKOE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeekoe_just_dominant(#[string] name: String) -> bool {
+    ZEEKOE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeekoe_just_displaced(#[string] name: String) -> bool {
+    ZEEKOE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zeekoe_enabled(#[string] name: String) -> bool {
+    ZEEKOE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_claim_zeekoe(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClaimZeekoe { name }));
+}
+#[op2(fast)]
+pub fn bsengine_contest_zeekoe(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ContestZeekoe { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zeekoe_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeekoeEnabled { name, enabled })
+    });
+}
+// ── Zein ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zein_protein(#[string] name: String) -> f32 {
+    ZEIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zein_max_protein(#[string] name: String) -> f32 {
+    ZEIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zein_store_rate(#[string] name: String) -> f32 {
+    ZEIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zein_just_loaded(#[string] name: String) -> bool {
+    ZEIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zein_just_depleted(#[string] name: String) -> bool {
+    ZEIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zein_enabled(#[string] name: String) -> bool {
+    ZEIN_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_deposit_zein(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DepositZein { name }));
+}
+#[op2(fast)]
+pub fn bsengine_hydrolyse_zein(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::HydrolyseZein { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zein_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZeinEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -44921,6 +45359,78 @@ deno_core::extension!(
         bsengine_is_zebra_enabled,
         bsengine_advance_zebra,
         bsengine_set_zebra_enabled,
+        bsengine_get_zebrafish_transparency,
+        bsengine_get_zebrafish_max_transparency,
+        bsengine_get_zebrafish_develop_rate,
+        bsengine_is_zebrafish_just_transparent,
+        bsengine_is_zebrafish_just_opaque,
+        bsengine_is_zebrafish_enabled,
+        bsengine_expose_zebrafish,
+        bsengine_occlude_zebrafish,
+        bsengine_set_zebrafish_enabled,
+        bsengine_get_zebrine_striping,
+        bsengine_get_zebrine_max_striping,
+        bsengine_get_zebrine_pattern_rate,
+        bsengine_is_zebrine_just_banded,
+        bsengine_is_zebrine_just_blank,
+        bsengine_is_zebrine_enabled,
+        bsengine_mark_zebrine,
+        bsengine_bleach_zebrine,
+        bsengine_set_zebrine_enabled,
+        bsengine_get_zebroid_hybridization,
+        bsengine_get_zebroid_max_hybridization,
+        bsengine_get_zebroid_blend_rate,
+        bsengine_is_zebroid_just_hybrid,
+        bsengine_is_zebroid_just_pure,
+        bsengine_is_zebroid_enabled,
+        bsengine_crossbreed_zebroid,
+        bsengine_dilute_zebroid,
+        bsengine_set_zebroid_enabled,
+        bsengine_get_zebu_burden,
+        bsengine_get_zebu_max_burden,
+        bsengine_get_zebu_strain_rate,
+        bsengine_is_zebu_just_overwhelmed,
+        bsengine_is_zebu_just_unburdened,
+        bsengine_is_zebu_enabled,
+        bsengine_load_zebu,
+        bsengine_shed_zebu,
+        bsengine_set_zebu_enabled,
+        bsengine_get_zechin_gold,
+        bsengine_get_zechin_max_gold,
+        bsengine_get_zechin_earn_rate,
+        bsengine_is_zechin_just_wealthy,
+        bsengine_is_zechin_just_bankrupt,
+        bsengine_is_zechin_enabled,
+        bsengine_mint_zechin,
+        bsengine_spend_zechin,
+        bsengine_set_zechin_enabled,
+        bsengine_get_zed_fatigue,
+        bsengine_get_zed_max_fatigue,
+        bsengine_get_zed_wind_down_rate,
+        bsengine_is_zed_just_spent,
+        bsengine_is_zed_just_rallied,
+        bsengine_is_zed_enabled,
+        bsengine_weary_zed,
+        bsengine_rally_zed,
+        bsengine_set_zed_enabled,
+        bsengine_get_zeekoe_territory,
+        bsengine_get_zeekoe_max_territory,
+        bsengine_get_zeekoe_wallow_rate,
+        bsengine_is_zeekoe_just_dominant,
+        bsengine_is_zeekoe_just_displaced,
+        bsengine_is_zeekoe_enabled,
+        bsengine_claim_zeekoe,
+        bsengine_contest_zeekoe,
+        bsengine_set_zeekoe_enabled,
+        bsengine_get_zein_protein,
+        bsengine_get_zein_max_protein,
+        bsengine_get_zein_store_rate,
+        bsengine_is_zein_just_loaded,
+        bsengine_is_zein_just_depleted,
+        bsengine_is_zein_enabled,
+        bsengine_deposit_zein,
+        bsengine_hydrolyse_zein,
+        bsengine_set_zein_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -50246,6 +50756,78 @@ const Bsengine = {
     isZebraEnabled:             (name)              => Deno.core.ops.bsengine_is_zebra_enabled(name),
     advanceZebra:               (name)              => Deno.core.ops.bsengine_advance_zebra(name),
     setZebraEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zebra_enabled(name, v),
+    getZebrafishTransparency:   (name)              => Deno.core.ops.bsengine_get_zebrafish_transparency(name),
+    getZebrafishMaxTransparency:(name)              => Deno.core.ops.bsengine_get_zebrafish_max_transparency(name),
+    getZebrafishDevelopRate:    (name)              => Deno.core.ops.bsengine_get_zebrafish_develop_rate(name),
+    isZebrafishJustTransparent: (name)              => Deno.core.ops.bsengine_is_zebrafish_just_transparent(name),
+    isZebrafishJustOpaque:      (name)              => Deno.core.ops.bsengine_is_zebrafish_just_opaque(name),
+    isZebrafishEnabled:         (name)              => Deno.core.ops.bsengine_is_zebrafish_enabled(name),
+    exposeZebrafish:            (name)              => Deno.core.ops.bsengine_expose_zebrafish(name),
+    occludeZebrafish:           (name)              => Deno.core.ops.bsengine_occlude_zebrafish(name),
+    setZebrafishEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zebrafish_enabled(name, v),
+    getZebrineStriping:         (name)              => Deno.core.ops.bsengine_get_zebrine_striping(name),
+    getZebrineMaxStriping:      (name)              => Deno.core.ops.bsengine_get_zebrine_max_striping(name),
+    getZebrinePatternRate:      (name)              => Deno.core.ops.bsengine_get_zebrine_pattern_rate(name),
+    isZebrineJustBanded:        (name)              => Deno.core.ops.bsengine_is_zebrine_just_banded(name),
+    isZebrineJustBlank:         (name)              => Deno.core.ops.bsengine_is_zebrine_just_blank(name),
+    isZebrineEnabled:           (name)              => Deno.core.ops.bsengine_is_zebrine_enabled(name),
+    markZebrine:                (name)              => Deno.core.ops.bsengine_mark_zebrine(name),
+    bleachZebrine:              (name)              => Deno.core.ops.bsengine_bleach_zebrine(name),
+    setZebrineEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zebrine_enabled(name, v),
+    getZebroidHybridization:    (name)              => Deno.core.ops.bsengine_get_zebroid_hybridization(name),
+    getZebroidMaxHybridization: (name)              => Deno.core.ops.bsengine_get_zebroid_max_hybridization(name),
+    getZebroidBlendRate:        (name)              => Deno.core.ops.bsengine_get_zebroid_blend_rate(name),
+    isZebroidJustHybrid:        (name)              => Deno.core.ops.bsengine_is_zebroid_just_hybrid(name),
+    isZebroidJustPure:          (name)              => Deno.core.ops.bsengine_is_zebroid_just_pure(name),
+    isZebroidEnabled:           (name)              => Deno.core.ops.bsengine_is_zebroid_enabled(name),
+    crossbreedZebroid:          (name)              => Deno.core.ops.bsengine_crossbreed_zebroid(name),
+    diluteZebroid:              (name)              => Deno.core.ops.bsengine_dilute_zebroid(name),
+    setZebroidEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zebroid_enabled(name, v),
+    getZebuBurden:              (name)              => Deno.core.ops.bsengine_get_zebu_burden(name),
+    getZebuMaxBurden:           (name)              => Deno.core.ops.bsengine_get_zebu_max_burden(name),
+    getZebuStrainRate:          (name)              => Deno.core.ops.bsengine_get_zebu_strain_rate(name),
+    isZebuJustOverwhelmed:      (name)              => Deno.core.ops.bsengine_is_zebu_just_overwhelmed(name),
+    isZebuJustUnburdened:       (name)              => Deno.core.ops.bsengine_is_zebu_just_unburdened(name),
+    isZebuEnabled:              (name)              => Deno.core.ops.bsengine_is_zebu_enabled(name),
+    loadZebu:                   (name)              => Deno.core.ops.bsengine_load_zebu(name),
+    shedZebu:                   (name)              => Deno.core.ops.bsengine_shed_zebu(name),
+    setZebuEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zebu_enabled(name, v),
+    getZechinGold:              (name)              => Deno.core.ops.bsengine_get_zechin_gold(name),
+    getZechinMaxGold:           (name)              => Deno.core.ops.bsengine_get_zechin_max_gold(name),
+    getZechinEarnRate:          (name)              => Deno.core.ops.bsengine_get_zechin_earn_rate(name),
+    isZechinJustWealthy:        (name)              => Deno.core.ops.bsengine_is_zechin_just_wealthy(name),
+    isZechinJustBankrupt:       (name)              => Deno.core.ops.bsengine_is_zechin_just_bankrupt(name),
+    isZechinEnabled:            (name)              => Deno.core.ops.bsengine_is_zechin_enabled(name),
+    mintZechin:                 (name)              => Deno.core.ops.bsengine_mint_zechin(name),
+    spendZechin:                (name)              => Deno.core.ops.bsengine_spend_zechin(name),
+    setZechinEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zechin_enabled(name, v),
+    getZedFatigue:              (name)              => Deno.core.ops.bsengine_get_zed_fatigue(name),
+    getZedMaxFatigue:           (name)              => Deno.core.ops.bsengine_get_zed_max_fatigue(name),
+    getZedWindDownRate:         (name)              => Deno.core.ops.bsengine_get_zed_wind_down_rate(name),
+    isZedJustSpent:             (name)              => Deno.core.ops.bsengine_is_zed_just_spent(name),
+    isZedJustRallied:           (name)              => Deno.core.ops.bsengine_is_zed_just_rallied(name),
+    isZedEnabled:               (name)              => Deno.core.ops.bsengine_is_zed_enabled(name),
+    wearyZed:                   (name)              => Deno.core.ops.bsengine_weary_zed(name),
+    rallyZed:                   (name)              => Deno.core.ops.bsengine_rally_zed(name),
+    setZedEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zed_enabled(name, v),
+    getZeekoeTerritory:         (name)              => Deno.core.ops.bsengine_get_zeekoe_territory(name),
+    getZeekoeMaxTerritory:      (name)              => Deno.core.ops.bsengine_get_zeekoe_max_territory(name),
+    getZeekoeWallowRate:        (name)              => Deno.core.ops.bsengine_get_zeekoe_wallow_rate(name),
+    isZeekoeJustDominant:       (name)              => Deno.core.ops.bsengine_is_zeekoe_just_dominant(name),
+    isZeekoeJustDisplaced:      (name)              => Deno.core.ops.bsengine_is_zeekoe_just_displaced(name),
+    isZeekoeEnabled:            (name)              => Deno.core.ops.bsengine_is_zeekoe_enabled(name),
+    claimZeekoe:                (name)              => Deno.core.ops.bsengine_claim_zeekoe(name),
+    contestZeekoe:              (name)              => Deno.core.ops.bsengine_contest_zeekoe(name),
+    setZeekoeEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zeekoe_enabled(name, v),
+    getZeinProtein:             (name)              => Deno.core.ops.bsengine_get_zein_protein(name),
+    getZeinMaxProtein:          (name)              => Deno.core.ops.bsengine_get_zein_max_protein(name),
+    getZeinStoreRate:           (name)              => Deno.core.ops.bsengine_get_zein_store_rate(name),
+    isZeinJustLoaded:           (name)              => Deno.core.ops.bsengine_is_zein_just_loaded(name),
+    isZeinJustDepleted:         (name)              => Deno.core.ops.bsengine_is_zein_just_depleted(name),
+    isZeinEnabled:              (name)              => Deno.core.ops.bsengine_is_zein_enabled(name),
+    depositZein:                (name)              => Deno.core.ops.bsengine_deposit_zein(name),
+    hydrolyseZein:              (name)              => Deno.core.ops.bsengine_hydrolyse_zein(name),
+    setZeinEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zein_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -85909,6 +86491,440 @@ JSON.stringify(received)
             let buf = c.borrow();
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyRupture { name, count } if name == "Victim" && *count == 3)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetRuptureEnabled { name, enabled } if name == "Victim" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebrafish_read_ops() {
+        super::ZEBRAFISH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Larva".to_string(),
+                (50.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZebrafishTransparency("Larva"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebrafishMaxTransparency("Larva"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebrafishDevelopRate("Larva"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebrafishJustTransparent("Larva"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebrafishJustOpaque("Larva"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebrafishEnabled("Larva"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEBRAFISH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebrafish_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.exposeZebrafish("Larva");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.occludeZebrafish("Larva");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZebrafishEnabled("Larva", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExposeZebrafish { name } if name == "Larva")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::OccludeZebrafish { name } if name == "Larva")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZebrafishEnabled { name, enabled } if name == "Larva" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebrine_read_ops() {
+        super::ZEBRINE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Hide".to_string(),
+                (40.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZebrineStriping("Hide"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebrineMaxStriping("Hide"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebrinePatternRate("Hide"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebrineJustBanded("Hide"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebrineJustBlank("Hide"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebrineEnabled("Hide"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEBRINE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebrine_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.markZebrine("Hide");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.bleachZebrine("Hide");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZebrineEnabled("Hide", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MarkZebrine { name } if name == "Hide")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BleachZebrine { name } if name == "Hide")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZebrineEnabled { name, enabled } if name == "Hide" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebroid_read_ops() {
+        super::ZEBROID_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Zorse".to_string(),
+                (60.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZebroidHybridization("Zorse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebroidMaxHybridization("Zorse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebroidBlendRate("Zorse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebroidJustHybrid("Zorse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebroidJustPure("Zorse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebroidEnabled("Zorse"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEBROID_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebroid_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crossbreedZebroid("Zorse");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.diluteZebroid("Zorse");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZebroidEnabled("Zorse", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrossbreedZebroid { name } if name == "Zorse")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DiluteZebroid { name } if name == "Zorse")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZebroidEnabled { name, enabled } if name == "Zorse" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebu_read_ops() {
+        super::ZEBU_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ox".to_string(),
+                (30.0f32, 100.0f32, 3.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"String(Bsengine.getZebuBurden("Ox"))"#).unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebuMaxBurden("Ox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZebuStrainRate("Ox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebuJustOverwhelmed("Ox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZebuJustUnburdened("Ox"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isZebuEnabled("Ox"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEBU_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zebu_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.loadZebu("Ox");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.shedZebu("Ox");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZebuEnabled("Ox", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LoadZebu { name } if name == "Ox")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShedZebu { name } if name == "Ox")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZebuEnabled { name, enabled } if name == "Ox" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zechin_read_ops() {
+        super::ZECHIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Vault".to_string(),
+                (75.0f32, 100.0f32, 1.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZechinGold("Vault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getZechinMaxGold("Vault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZechinEarnRate("Vault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZechinJustWealthy("Vault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZechinJustBankrupt("Vault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZechinEnabled("Vault"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZECHIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zechin_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.mintZechin("Vault");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.spendZechin("Vault");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZechinEnabled("Vault", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MintZechin { name } if name == "Vault")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SpendZechin { name } if name == "Vault")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZechinEnabled { name, enabled } if name == "Vault" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zed_read_ops() {
+        super::ZED_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Dusk".to_string(),
+                (20.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZedFatigue("Dusk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "20");
+        let r = rt
+            .eval(r#"String(Bsengine.getZedMaxFatigue("Dusk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZedWindDownRate("Dusk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZedJustSpent("Dusk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZedJustRallied("Dusk"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt.eval(r#"String(Bsengine.isZedEnabled("Dusk"))"#).unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZED_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zed_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.wearyZed("Dusk");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.rallyZed("Dusk");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZedEnabled("Dusk", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WearyZed { name } if name == "Dusk")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RallyZed { name } if name == "Dusk")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZedEnabled { name, enabled } if name == "Dusk" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeekoe_read_ops() {
+        super::ZEEKOE_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Pool".to_string(),
+                (80.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeekoeTerritory("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeekoeMaxTerritory("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeekoeWallowRate("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeekoeJustDominant("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeekoeJustDisplaced("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeekoeEnabled("Pool"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEEKOE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zeekoe_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.claimZeekoe("Pool");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.contestZeekoe("Pool");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeekoeEnabled("Pool", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClaimZeekoe { name } if name == "Pool")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ContestZeekoe { name } if name == "Pool")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeekoeEnabled { name, enabled } if name == "Pool" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zein_read_ops() {
+        super::ZEIN_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Endosperm".to_string(),
+                (45.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZeinProtein("Endosperm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "45");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeinMaxProtein("Endosperm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZeinStoreRate("Endosperm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeinJustLoaded("Endosperm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeinJustDepleted("Endosperm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZeinEnabled("Endosperm"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZEIN_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zein_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.depositZein("Endosperm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.hydrolyseZein("Endosperm");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZeinEnabled("Endosperm", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DepositZein { name } if name == "Endosperm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::HydrolyseZein { name } if name == "Endosperm")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZeinEnabled { name, enabled } if name == "Endosperm" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

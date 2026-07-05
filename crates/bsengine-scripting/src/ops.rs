@@ -7811,6 +7811,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    AcquireZoological {
+        name: String,
+        amount: f32,
+    },
+    DeaccessionZoological {
+        name: String,
+        amount: f32,
+    },
+    SetZoologicalEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ObserveZoologist {
+        name: String,
+        amount: f32,
+    },
+    LapseZoologist {
+        name: String,
+        amount: f32,
+    },
+    SetZoologistEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ObserveZoology {
+        name: String,
+        amount: f32,
+    },
+    ExtirpateZoology {
+        name: String,
+        amount: f32,
+    },
+    SetZoologyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ZoomIn {
+        name: String,
+    },
+    ZoomOut {
+        name: String,
+    },
+    SetZoomEnabled {
+        name: String,
+        enabled: bool,
+    },
+    CalibrateZoometry {
+        name: String,
+        amount: f32,
+    },
+    DriftZoometry {
+        name: String,
+        amount: f32,
+    },
+    SetZoometryEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ShiftZoomorph {
+        name: String,
+        amount: f32,
+    },
+    RevertZoomorph {
+        name: String,
+        amount: f32,
+    },
+    SetZoomorphEnabled {
+        name: String,
+        enabled: bool,
+    },
+    EngraveZoomorphic {
+        name: String,
+        amount: f32,
+    },
+    ErodeZoomorphic {
+        name: String,
+        amount: f32,
+    },
+    SetZoomorphicEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ChannelZoomorphism {
+        name: String,
+        amount: f32,
+    },
+    WithdrawZoomorphism {
+        name: String,
+        amount: f32,
+    },
+    SetZoomorphismEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9732,6 +9826,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zoolatry: devotion, max_devotion, revere_rate, just_revered, just_profaned, enabled
     pub(crate) static ZOOLATRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoological: catalogue, max_catalogue, accession_rate, just_complete, just_depleted, enabled
+    pub(crate) static ZOOLOGICAL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoologist: expertise, max_expertise, study_rate, just_mastered, just_lapsed, enabled
+    pub(crate) static ZOOLOGIST_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoology: specimens, max_specimens, catalog_rate, just_cataloged, just_extinct, enabled
+    pub(crate) static ZOOLOGY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoom: zoom_steps as f32, max_steps as f32, 0.0, just_stepped_in, just_maxed, enabled
+    pub(crate) static ZOOM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoometry: measurement, max_measurement, calibrate_rate, just_calibrated, just_uncalibrated, enabled
+    pub(crate) static ZOOMETRY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoomorph: morph, max_morph, flux_rate, just_shifted, just_reverted, enabled
+    pub(crate) static ZOOMORPH_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoomorphic: iconography, max_iconography, depict_rate, just_engraved, just_eroded, enabled
+    pub(crate) static ZOOMORPHIC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoomorphism: expression, max_expression, channel_rate, just_manifested, just_lapsed, enabled
+    pub(crate) static ZOOMORPHISM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -28018,6 +28136,364 @@ pub fn bsengine_set_zoolatry_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZoolatryEnabled { name, enabled })
+    });
+}
+// ── Zoological ────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoological_0(#[string] name: String) -> f32 {
+    ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoological_1(#[string] name: String) -> f32 {
+    ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoological_2(#[string] name: String) -> f32 {
+    ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoological_3(#[string] name: String) -> bool {
+    ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoological_4(#[string] name: String) -> bool {
+    ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoological_enabled(#[string] name: String) -> bool {
+    ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_acquire_zoological(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AcquireZoological { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_deaccession_zoological(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DeaccessionZoological { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoological_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoologicalEnabled { name, enabled })
+    });
+}
+// ── Zoologist ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoologist_0(#[string] name: String) -> f32 {
+    ZOOLOGIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoologist_1(#[string] name: String) -> f32 {
+    ZOOLOGIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoologist_2(#[string] name: String) -> f32 {
+    ZOOLOGIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoologist_3(#[string] name: String) -> bool {
+    ZOOLOGIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoologist_4(#[string] name: String) -> bool {
+    ZOOLOGIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoologist_enabled(#[string] name: String) -> bool {
+    ZOOLOGIST_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_observe_zoologist(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ObserveZoologist { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_lapse_zoologist(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LapseZoologist { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoologist_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoologistEnabled { name, enabled })
+    });
+}
+// ── Zoology ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoology_0(#[string] name: String) -> f32 {
+    ZOOLOGY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoology_1(#[string] name: String) -> f32 {
+    ZOOLOGY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoology_2(#[string] name: String) -> f32 {
+    ZOOLOGY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoology_3(#[string] name: String) -> bool {
+    ZOOLOGY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoology_4(#[string] name: String) -> bool {
+    ZOOLOGY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoology_enabled(#[string] name: String) -> bool {
+    ZOOLOGY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_observe_zoology(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ObserveZoology { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_extirpate_zoology(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExtirpateZoology { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoology_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoologyEnabled { name, enabled })
+    });
+}
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoom_0(#[string] name: String) -> f32 {
+    ZOOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoom_1(#[string] name: String) -> f32 {
+    ZOOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoom_3(#[string] name: String) -> bool {
+    ZOOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoom_4(#[string] name: String) -> bool {
+    ZOOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoom_enabled(#[string] name: String) -> bool {
+    ZOOM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_zoom_in(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ZoomIn { name }));
+}
+#[op2(fast)]
+pub fn bsengine_zoom_out(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ZoomOut { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zoom_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoomEnabled { name, enabled })
+    });
+}
+// ── Zoometry ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoometry_0(#[string] name: String) -> f32 {
+    ZOOMETRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoometry_1(#[string] name: String) -> f32 {
+    ZOOMETRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoometry_2(#[string] name: String) -> f32 {
+    ZOOMETRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoometry_3(#[string] name: String) -> bool {
+    ZOOMETRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoometry_4(#[string] name: String) -> bool {
+    ZOOMETRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoometry_enabled(#[string] name: String) -> bool {
+    ZOOMETRY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_calibrate_zoometry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CalibrateZoometry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_drift_zoometry(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DriftZoometry { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoometry_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoometryEnabled { name, enabled })
+    });
+}
+// ── Zoomorph ──────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoomorph_0(#[string] name: String) -> f32 {
+    ZOOMORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorph_1(#[string] name: String) -> f32 {
+    ZOOMORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorph_2(#[string] name: String) -> f32 {
+    ZOOMORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorph_3(#[string] name: String) -> bool {
+    ZOOMORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorph_4(#[string] name: String) -> bool {
+    ZOOMORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoomorph_enabled(#[string] name: String) -> bool {
+    ZOOMORPH_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_shift_zoomorph(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ShiftZoomorph { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_revert_zoomorph(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::RevertZoomorph { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoomorph_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoomorphEnabled { name, enabled })
+    });
+}
+// ── Zoomorphic ────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoomorphic_0(#[string] name: String) -> f32 {
+    ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphic_1(#[string] name: String) -> f32 {
+    ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphic_2(#[string] name: String) -> f32 {
+    ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphic_3(#[string] name: String) -> bool {
+    ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphic_4(#[string] name: String) -> bool {
+    ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoomorphic_enabled(#[string] name: String) -> bool {
+    ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_engrave_zoomorphic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::EngraveZoomorphic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_erode_zoomorphic(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ErodeZoomorphic { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoomorphic_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoomorphicEnabled { name, enabled })
+    });
+}
+// ── Zoomorphism ───────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoomorphism_0(#[string] name: String) -> f32 {
+    ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphism_1(#[string] name: String) -> f32 {
+    ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphism_2(#[string] name: String) -> f32 {
+    ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphism_3(#[string] name: String) -> bool {
+    ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoomorphism_4(#[string] name: String) -> bool {
+    ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoomorphism_enabled(#[string] name: String) -> bool {
+    ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_channel_zoomorphism(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChannelZoomorphism { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_withdraw_zoomorphism(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WithdrawZoomorphism { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoomorphism_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoomorphismEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -50720,6 +51196,77 @@ deno_core::extension!(
         bsengine_worship_zoolatry,
         bsengine_desecrate_zoolatry,
         bsengine_set_zoolatry_enabled,
+        bsengine_get_zoological_0,
+        bsengine_get_zoological_1,
+        bsengine_get_zoological_2,
+        bsengine_get_zoological_3,
+        bsengine_get_zoological_4,
+        bsengine_is_zoological_enabled,
+        bsengine_acquire_zoological,
+        bsengine_deaccession_zoological,
+        bsengine_set_zoological_enabled,
+        bsengine_get_zoologist_0,
+        bsengine_get_zoologist_1,
+        bsengine_get_zoologist_2,
+        bsengine_get_zoologist_3,
+        bsengine_get_zoologist_4,
+        bsengine_is_zoologist_enabled,
+        bsengine_observe_zoologist,
+        bsengine_lapse_zoologist,
+        bsengine_set_zoologist_enabled,
+        bsengine_get_zoology_0,
+        bsengine_get_zoology_1,
+        bsengine_get_zoology_2,
+        bsengine_get_zoology_3,
+        bsengine_get_zoology_4,
+        bsengine_is_zoology_enabled,
+        bsengine_observe_zoology,
+        bsengine_extirpate_zoology,
+        bsengine_set_zoology_enabled,
+        bsengine_get_zoom_0,
+        bsengine_get_zoom_1,
+        bsengine_get_zoom_3,
+        bsengine_get_zoom_4,
+        bsengine_is_zoom_enabled,
+        bsengine_zoom_in,
+        bsengine_zoom_out,
+        bsengine_set_zoom_enabled,
+        bsengine_get_zoometry_0,
+        bsengine_get_zoometry_1,
+        bsengine_get_zoometry_2,
+        bsengine_get_zoometry_3,
+        bsengine_get_zoometry_4,
+        bsengine_is_zoometry_enabled,
+        bsengine_calibrate_zoometry,
+        bsengine_drift_zoometry,
+        bsengine_set_zoometry_enabled,
+        bsengine_get_zoomorph_0,
+        bsengine_get_zoomorph_1,
+        bsengine_get_zoomorph_2,
+        bsengine_get_zoomorph_3,
+        bsengine_get_zoomorph_4,
+        bsengine_is_zoomorph_enabled,
+        bsengine_shift_zoomorph,
+        bsengine_revert_zoomorph,
+        bsengine_set_zoomorph_enabled,
+        bsengine_get_zoomorphic_0,
+        bsengine_get_zoomorphic_1,
+        bsengine_get_zoomorphic_2,
+        bsengine_get_zoomorphic_3,
+        bsengine_get_zoomorphic_4,
+        bsengine_is_zoomorphic_enabled,
+        bsengine_engrave_zoomorphic,
+        bsengine_erode_zoomorphic,
+        bsengine_set_zoomorphic_enabled,
+        bsengine_get_zoomorphism_0,
+        bsengine_get_zoomorphism_1,
+        bsengine_get_zoomorphism_2,
+        bsengine_get_zoomorphism_3,
+        bsengine_get_zoomorphism_4,
+        bsengine_is_zoomorphism_enabled,
+        bsengine_channel_zoomorphism,
+        bsengine_withdraw_zoomorphism,
+        bsengine_set_zoomorphism_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -56834,6 +57381,77 @@ const Bsengine = {
     worshipZoolatry:            (name, amount)      => Deno.core.ops.bsengine_worship_zoolatry(name, amount),
     desecrateZoolatry:          (name, amount)      => Deno.core.ops.bsengine_desecrate_zoolatry(name, amount),
     setZoolatryEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoolatry_enabled(name, v),
+    getZoologicalCatalogue:     (name)              => Deno.core.ops.bsengine_get_zoological_0(name),
+    getZoologicalMaxCatalogue:  (name)              => Deno.core.ops.bsengine_get_zoological_1(name),
+    getZoologicalAccessionRate: (name)              => Deno.core.ops.bsengine_get_zoological_2(name),
+    getZoologicalJustComplete:  (name)              => Deno.core.ops.bsengine_get_zoological_3(name),
+    getZoologicalJustDepleted:  (name)              => Deno.core.ops.bsengine_get_zoological_4(name),
+    isZoologicalEnabled:        (name)              => Deno.core.ops.bsengine_is_zoological_enabled(name),
+    acquireZoological:          (name, amount)      => Deno.core.ops.bsengine_acquire_zoological(name, amount),
+    deaccessionZoological:      (name, amount)      => Deno.core.ops.bsengine_deaccession_zoological(name, amount),
+    setZoologicalEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zoological_enabled(name, v),
+    getZoologistExpertise:      (name)              => Deno.core.ops.bsengine_get_zoologist_0(name),
+    getZoologistMaxExpertise:   (name)              => Deno.core.ops.bsengine_get_zoologist_1(name),
+    getZoologistStudyRate:      (name)              => Deno.core.ops.bsengine_get_zoologist_2(name),
+    getZoologistJustMastered:   (name)              => Deno.core.ops.bsengine_get_zoologist_3(name),
+    getZoologistJustLapsed:     (name)              => Deno.core.ops.bsengine_get_zoologist_4(name),
+    isZoologistEnabled:         (name)              => Deno.core.ops.bsengine_is_zoologist_enabled(name),
+    observeZoologist:           (name, amount)      => Deno.core.ops.bsengine_observe_zoologist(name, amount),
+    lapseZoologist:             (name, amount)      => Deno.core.ops.bsengine_lapse_zoologist(name, amount),
+    setZoologistEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zoologist_enabled(name, v),
+    getZoologySpecimens:        (name)              => Deno.core.ops.bsengine_get_zoology_0(name),
+    getZoologyMaxSpecimens:     (name)              => Deno.core.ops.bsengine_get_zoology_1(name),
+    getZoologyCatalogRate:      (name)              => Deno.core.ops.bsengine_get_zoology_2(name),
+    getZoologyJustCataloged:    (name)              => Deno.core.ops.bsengine_get_zoology_3(name),
+    getZoologyJustExtinct:      (name)              => Deno.core.ops.bsengine_get_zoology_4(name),
+    isZoologyEnabled:           (name)              => Deno.core.ops.bsengine_is_zoology_enabled(name),
+    observeZoology:             (name, amount)      => Deno.core.ops.bsengine_observe_zoology(name, amount),
+    extirpateZoology:           (name, amount)      => Deno.core.ops.bsengine_extirpate_zoology(name, amount),
+    setZoologyEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zoology_enabled(name, v),
+    getZoomSteps:               (name)              => Deno.core.ops.bsengine_get_zoom_0(name),
+    getZoomMaxSteps:            (name)              => Deno.core.ops.bsengine_get_zoom_1(name),
+    getZoomJustSteppedIn:       (name)              => Deno.core.ops.bsengine_get_zoom_3(name),
+    getZoomJustMaxed:           (name)              => Deno.core.ops.bsengine_get_zoom_4(name),
+    isZoomEnabled:              (name)              => Deno.core.ops.bsengine_is_zoom_enabled(name),
+    zoomIn:                     (name)              => Deno.core.ops.bsengine_zoom_in(name),
+    zoomOut:                    (name)              => Deno.core.ops.bsengine_zoom_out(name),
+    setZoomEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zoom_enabled(name, v),
+    getZoometryMeasurement:     (name)              => Deno.core.ops.bsengine_get_zoometry_0(name),
+    getZoometryMaxMeasurement:  (name)              => Deno.core.ops.bsengine_get_zoometry_1(name),
+    getZoometryCalibrateRate:   (name)              => Deno.core.ops.bsengine_get_zoometry_2(name),
+    getZoometryJustCalibrated:  (name)              => Deno.core.ops.bsengine_get_zoometry_3(name),
+    getZoometryJustUncalibrated: (name)             => Deno.core.ops.bsengine_get_zoometry_4(name),
+    isZoometryEnabled:          (name)              => Deno.core.ops.bsengine_is_zoometry_enabled(name),
+    calibrateZoometry:          (name, amount)      => Deno.core.ops.bsengine_calibrate_zoometry(name, amount),
+    driftZoometry:              (name, amount)      => Deno.core.ops.bsengine_drift_zoometry(name, amount),
+    setZoometryEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoometry_enabled(name, v),
+    getZoomorphMorph:           (name)              => Deno.core.ops.bsengine_get_zoomorph_0(name),
+    getZoomorphMaxMorph:        (name)              => Deno.core.ops.bsengine_get_zoomorph_1(name),
+    getZoomorphFluxRate:        (name)              => Deno.core.ops.bsengine_get_zoomorph_2(name),
+    getZoomorphJustShifted:     (name)              => Deno.core.ops.bsengine_get_zoomorph_3(name),
+    getZoomorphJustReverted:    (name)              => Deno.core.ops.bsengine_get_zoomorph_4(name),
+    isZoomorphEnabled:          (name)              => Deno.core.ops.bsengine_is_zoomorph_enabled(name),
+    shiftZoomorph:              (name, amount)      => Deno.core.ops.bsengine_shift_zoomorph(name, amount),
+    revertZoomorph:             (name, amount)      => Deno.core.ops.bsengine_revert_zoomorph(name, amount),
+    setZoomorphEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zoomorph_enabled(name, v),
+    getZoomorphicIconography:   (name)              => Deno.core.ops.bsengine_get_zoomorphic_0(name),
+    getZoomorphicMaxIconography: (name)             => Deno.core.ops.bsengine_get_zoomorphic_1(name),
+    getZoomorphicDepictRate:    (name)              => Deno.core.ops.bsengine_get_zoomorphic_2(name),
+    getZoomorphicJustEngraved:  (name)              => Deno.core.ops.bsengine_get_zoomorphic_3(name),
+    getZoomorphicJustEroded:    (name)              => Deno.core.ops.bsengine_get_zoomorphic_4(name),
+    isZoomorphicEnabled:        (name)              => Deno.core.ops.bsengine_is_zoomorphic_enabled(name),
+    engraveZoomorphic:          (name, amount)      => Deno.core.ops.bsengine_engrave_zoomorphic(name, amount),
+    erodeZoomorphic:            (name, amount)      => Deno.core.ops.bsengine_erode_zoomorphic(name, amount),
+    setZoomorphicEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zoomorphic_enabled(name, v),
+    getZoomorphismExpression:   (name)              => Deno.core.ops.bsengine_get_zoomorphism_0(name),
+    getZoomorphismMaxExpression: (name)             => Deno.core.ops.bsengine_get_zoomorphism_1(name),
+    getZoomorphismChannelRate:  (name)              => Deno.core.ops.bsengine_get_zoomorphism_2(name),
+    getZoomorphismJustManifested: (name)            => Deno.core.ops.bsengine_get_zoomorphism_3(name),
+    getZoomorphismJustLapsed:   (name)              => Deno.core.ops.bsengine_get_zoomorphism_4(name),
+    isZoomorphismEnabled:       (name)              => Deno.core.ops.bsengine_is_zoomorphism_enabled(name),
+    channelZoomorphism:         (name, amount)      => Deno.core.ops.bsengine_channel_zoomorphism(name, amount),
+    withdrawZoomorphism:        (name, amount)      => Deno.core.ops.bsengine_withdraw_zoomorphism(name, amount),
+    setZoomorphismEnabled:      (name, v)           => Deno.core.ops.bsengine_set_zoomorphism_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -97150,6 +97768,359 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WorshipZoolatry { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DesecrateZoolatry { name, amount } if name == "Aries" && *amount == 1.5)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoolatryEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoological_read_ops() {
+        super::ZOOLOGICAL_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoologicalCatalogue("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoologicalJustComplete("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoologicalEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOLOGICAL_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoological_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.acquireZoological("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deaccessionZoological("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZoologicalEnabled("Aries", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AcquireZoological { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeaccessionZoological { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoologicalEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoologist_read_ops() {
+        super::ZOOLOGIST_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoologistExpertise("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoologistJustMastered("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoologistEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOLOGIST_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoologist_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.observeZoologist("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.lapseZoologist("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoologistEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObserveZoologist { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::LapseZoologist { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoologistEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoology_read_ops() {
+        super::ZOOLOGY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoologySpecimens("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoologyJustCataloged("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoologyEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOLOGY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoology_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.observeZoology("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.extirpateZoology("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoologyEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ObserveZoology { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExtirpateZoology { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoologyEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoom_read_ops() {
+        super::ZOOM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (3.0f32, 10.0f32, 0.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomSteps("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomJustSteppedIn("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoomEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoom_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.zoomIn("Aries");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.zoomOut("Aries");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoomEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ZoomIn { name } if name == "Aries")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ZoomOut { name } if name == "Aries")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoomEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoometry_read_ops() {
+        super::ZOOMETRY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoometryMeasurement("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoometryJustCalibrated("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoometryEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOMETRY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoometry_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.calibrateZoometry("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.driftZoometry("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoometryEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CalibrateZoometry { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DriftZoometry { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoometryEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoomorph_read_ops() {
+        super::ZOOMORPH_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomorphMorph("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomorphJustShifted("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoomorphEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOMORPH_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoomorph_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.shiftZoomorph("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.revertZoomorph("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoomorphEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ShiftZoomorph { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RevertZoomorph { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoomorphEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoomorphic_read_ops() {
+        super::ZOOMORPHIC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomorphicIconography("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomorphicJustEngraved("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoomorphicEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOMORPHIC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoomorphic_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.engraveZoomorphic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.erodeZoomorphic("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZoomorphicEnabled("Aries", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::EngraveZoomorphic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ErodeZoomorphic { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoomorphicEnabled { name, enabled } if name == "Aries" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoomorphism_read_ops() {
+        super::ZOOMORPHISM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 5.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomorphismExpression("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoomorphismJustManifested("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoomorphismEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOOMORPHISM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoomorphism_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.channelZoomorphism("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.withdrawZoomorphism("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZoomorphismEnabled("Aries", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChannelZoomorphism { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WithdrawZoomorphism { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoomorphismEnabled { name, enabled } if name == "Aries" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

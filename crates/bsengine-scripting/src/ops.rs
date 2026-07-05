@@ -7431,6 +7431,100 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    CrystallizeZircon {
+        name: String,
+        amount: f32,
+    },
+    FractureZircon {
+        name: String,
+        amount: f32,
+    },
+    SetZirconEnabled {
+        name: String,
+        enabled: bool,
+    },
+    FireZirconia {
+        name: String,
+        amount: f32,
+    },
+    CrackZirconia {
+        name: String,
+        amount: f32,
+    },
+    SetZirconiaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    SmeltZirconium {
+        name: String,
+        amount: f32,
+    },
+    CorrodeZirconium {
+        name: String,
+        amount: f32,
+    },
+    SetZirconiumEnabled {
+        name: String,
+        enabled: bool,
+    },
+    ApplyZit {
+        name: String,
+    },
+    ClearOneZit {
+        name: String,
+    },
+    SetZitEnabled {
+        name: String,
+        enabled: bool,
+    },
+    PluckZither {
+        name: String,
+        amount: f32,
+    },
+    MuteZither {
+        name: String,
+        amount: f32,
+    },
+    SetZitherEnabled {
+        name: String,
+        enabled: bool,
+    },
+    WarmZiti {
+        name: String,
+        amount: f32,
+    },
+    CoolZiti {
+        name: String,
+        amount: f32,
+    },
+    SetZitiEnabled {
+        name: String,
+        enabled: bool,
+    },
+    InhabitZoanthropy {
+        name: String,
+        amount: f32,
+    },
+    DispelZoanthropy {
+        name: String,
+        amount: f32,
+    },
+    SetZoanthropyEnabled {
+        name: String,
+        enabled: bool,
+    },
+    AttuneZodiac {
+        name: String,
+        amount: f32,
+    },
+    DispelZodiac {
+        name: String,
+        amount: f32,
+    },
+    SetZodiacEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9256,6 +9350,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zippy: pep, max_pep, perk_rate, just_peppy, just_tired, enabled
     pub(crate) static ZIPPY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zircon: hardness, max_hardness, harden_rate, just_flawless, just_fractured, enabled
+    pub(crate) static ZIRCON_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zirconia: hardness, max_hardness, sinter_rate, just_sintered, just_cracked, enabled
+    pub(crate) static ZIRCONIA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zirconium: purity, max_purity, refine_rate, just_refined, just_tarnished, enabled
+    pub(crate) static ZIRCONIUM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zit: zit_count as f32, max_zits as f32, 0.0 (placeholder), just_inflamed, just_cleared, enabled
+    pub(crate) static ZIT_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zither: resonance, max_resonance, decay_rate, just_harmonized, just_silenced, enabled
+    pub(crate) static ZITHER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // ziti: heat_level, max_heat, simmer_rate, just_scorching, just_raw, enabled
+    pub(crate) static ZITI_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zoanthropy: delusion, max_delusion, inhabit_rate, just_feral, just_lucid, enabled
+    pub(crate) static ZOANTHROPY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zodiac: alignment, max_alignment, transit_rate, just_aligned, just_voided, enabled
+    pub(crate) static ZODIAC_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -26094,6 +26212,364 @@ pub fn bsengine_set_zippy_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZippyEnabled { name, enabled })
+    });
+}
+// ── Zircon ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zircon_hardness(#[string] name: String) -> f32 {
+    ZIRCON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zircon_max_hardness(#[string] name: String) -> f32 {
+    ZIRCON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zircon_harden_rate(#[string] name: String) -> f32 {
+    ZIRCON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zircon_just_flawless(#[string] name: String) -> bool {
+    ZIRCON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zircon_just_fractured(#[string] name: String) -> bool {
+    ZIRCON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zircon_enabled(#[string] name: String) -> bool {
+    ZIRCON_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_crystallize_zircon(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrystallizeZircon { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_fracture_zircon(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FractureZircon { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zircon_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZirconEnabled { name, enabled })
+    });
+}
+// ── Zirconia ─────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zirconia_hardness(#[string] name: String) -> f32 {
+    ZIRCONIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zirconia_max_hardness(#[string] name: String) -> f32 {
+    ZIRCONIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zirconia_sinter_rate(#[string] name: String) -> f32 {
+    ZIRCONIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zirconia_just_sintered(#[string] name: String) -> bool {
+    ZIRCONIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zirconia_just_cracked(#[string] name: String) -> bool {
+    ZIRCONIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zirconia_enabled(#[string] name: String) -> bool {
+    ZIRCONIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_fire_zirconia(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::FireZirconia { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_crack_zirconia(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CrackZirconia { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zirconia_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZirconiaEnabled { name, enabled })
+    });
+}
+// ── Zirconium ────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zirconium_purity(#[string] name: String) -> f32 {
+    ZIRCONIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zirconium_max_purity(#[string] name: String) -> f32 {
+    ZIRCONIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zirconium_refine_rate(#[string] name: String) -> f32 {
+    ZIRCONIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zirconium_just_refined(#[string] name: String) -> bool {
+    ZIRCONIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zirconium_just_tarnished(#[string] name: String) -> bool {
+    ZIRCONIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zirconium_enabled(#[string] name: String) -> bool {
+    ZIRCONIUM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_smelt_zirconium(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SmeltZirconium { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_corrode_zirconium(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CorrodeZirconium { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zirconium_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZirconiumEnabled { name, enabled })
+    });
+}
+// ── Zit ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zit_count(#[string] name: String) -> f32 {
+    ZIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zit_max_zits(#[string] name: String) -> f32 {
+    ZIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zit_just_inflamed(#[string] name: String) -> bool {
+    ZIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zit_just_cleared(#[string] name: String) -> bool {
+    ZIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zit_enabled(#[string] name: String) -> bool {
+    ZIT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_apply_zit(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ApplyZit { name }));
+}
+#[op2(fast)]
+pub fn bsengine_clear_one_zit(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearOneZit { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zit_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZitEnabled { name, enabled })
+    });
+}
+// ── Zither ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zither_resonance(#[string] name: String) -> f32 {
+    ZITHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zither_max_resonance(#[string] name: String) -> f32 {
+    ZITHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zither_decay_rate(#[string] name: String) -> f32 {
+    ZITHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zither_just_harmonized(#[string] name: String) -> bool {
+    ZITHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zither_just_silenced(#[string] name: String) -> bool {
+    ZITHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zither_enabled(#[string] name: String) -> bool {
+    ZITHER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pluck_zither(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PluckZither { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_mute_zither(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MuteZither { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zither_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZitherEnabled { name, enabled })
+    });
+}
+// ── Ziti ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_ziti_heat_level(#[string] name: String) -> f32 {
+    ZITI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ziti_max_heat(#[string] name: String) -> f32 {
+    ZITI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_ziti_simmer_rate(#[string] name: String) -> f32 {
+    ZITI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_ziti_just_scorching(#[string] name: String) -> bool {
+    ZITI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ziti_just_raw(#[string] name: String) -> bool {
+    ZITI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_ziti_enabled(#[string] name: String) -> bool {
+    ZITI_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_warm_ziti(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WarmZiti { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_cool_ziti(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::CoolZiti { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_ziti_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZitiEnabled { name, enabled })
+    });
+}
+// ── Zoanthropy ───────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zoanthropy_delusion(#[string] name: String) -> f32 {
+    ZOANTHROPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoanthropy_max_delusion(#[string] name: String) -> f32 {
+    ZOANTHROPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zoanthropy_inhabit_rate(#[string] name: String) -> f32 {
+    ZOANTHROPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoanthropy_just_feral(#[string] name: String) -> bool {
+    ZOANTHROPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoanthropy_just_lucid(#[string] name: String) -> bool {
+    ZOANTHROPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zoanthropy_enabled(#[string] name: String) -> bool {
+    ZOANTHROPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_inhabit_zoanthropy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InhabitZoanthropy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dispel_zoanthropy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DispelZoanthropy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zoanthropy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZoanthropyEnabled { name, enabled })
+    });
+}
+// ── Zodiac ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zodiac_alignment(#[string] name: String) -> f32 {
+    ZODIAC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zodiac_max_alignment(#[string] name: String) -> f32 {
+    ZODIAC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zodiac_transit_rate(#[string] name: String) -> f32 {
+    ZODIAC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zodiac_just_aligned(#[string] name: String) -> bool {
+    ZODIAC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zodiac_just_voided(#[string] name: String) -> bool {
+    ZODIAC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zodiac_enabled(#[string] name: String) -> bool {
+    ZODIAC_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_attune_zodiac(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AttuneZodiac { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_dispel_zodiac(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DispelZodiac { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zodiac_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZodiacEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -48509,6 +48985,77 @@ deno_core::extension!(
         bsengine_invigorate_zippy,
         bsengine_tire_zippy,
         bsengine_set_zippy_enabled,
+        bsengine_get_zircon_hardness,
+        bsengine_get_zircon_max_hardness,
+        bsengine_get_zircon_harden_rate,
+        bsengine_is_zircon_just_flawless,
+        bsengine_is_zircon_just_fractured,
+        bsengine_is_zircon_enabled,
+        bsengine_crystallize_zircon,
+        bsengine_fracture_zircon,
+        bsengine_set_zircon_enabled,
+        bsengine_get_zirconia_hardness,
+        bsengine_get_zirconia_max_hardness,
+        bsengine_get_zirconia_sinter_rate,
+        bsengine_is_zirconia_just_sintered,
+        bsengine_is_zirconia_just_cracked,
+        bsengine_is_zirconia_enabled,
+        bsengine_fire_zirconia,
+        bsengine_crack_zirconia,
+        bsengine_set_zirconia_enabled,
+        bsengine_get_zirconium_purity,
+        bsengine_get_zirconium_max_purity,
+        bsengine_get_zirconium_refine_rate,
+        bsengine_is_zirconium_just_refined,
+        bsengine_is_zirconium_just_tarnished,
+        bsengine_is_zirconium_enabled,
+        bsengine_smelt_zirconium,
+        bsengine_corrode_zirconium,
+        bsengine_set_zirconium_enabled,
+        bsengine_get_zit_count,
+        bsengine_get_zit_max_zits,
+        bsengine_is_zit_just_inflamed,
+        bsengine_is_zit_just_cleared,
+        bsengine_is_zit_enabled,
+        bsengine_apply_zit,
+        bsengine_clear_one_zit,
+        bsengine_set_zit_enabled,
+        bsengine_get_zither_resonance,
+        bsengine_get_zither_max_resonance,
+        bsengine_get_zither_decay_rate,
+        bsengine_is_zither_just_harmonized,
+        bsengine_is_zither_just_silenced,
+        bsengine_is_zither_enabled,
+        bsengine_pluck_zither,
+        bsengine_mute_zither,
+        bsengine_set_zither_enabled,
+        bsengine_get_ziti_heat_level,
+        bsengine_get_ziti_max_heat,
+        bsengine_get_ziti_simmer_rate,
+        bsengine_is_ziti_just_scorching,
+        bsengine_is_ziti_just_raw,
+        bsengine_is_ziti_enabled,
+        bsengine_warm_ziti,
+        bsengine_cool_ziti,
+        bsengine_set_ziti_enabled,
+        bsengine_get_zoanthropy_delusion,
+        bsengine_get_zoanthropy_max_delusion,
+        bsengine_get_zoanthropy_inhabit_rate,
+        bsengine_is_zoanthropy_just_feral,
+        bsengine_is_zoanthropy_just_lucid,
+        bsengine_is_zoanthropy_enabled,
+        bsengine_inhabit_zoanthropy,
+        bsengine_dispel_zoanthropy,
+        bsengine_set_zoanthropy_enabled,
+        bsengine_get_zodiac_alignment,
+        bsengine_get_zodiac_max_alignment,
+        bsengine_get_zodiac_transit_rate,
+        bsengine_is_zodiac_just_aligned,
+        bsengine_is_zodiac_just_voided,
+        bsengine_is_zodiac_enabled,
+        bsengine_attune_zodiac,
+        bsengine_dispel_zodiac,
+        bsengine_set_zodiac_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -54336,6 +54883,77 @@ const Bsengine = {
     invigorateZippy:            (name, amount)      => Deno.core.ops.bsengine_invigorate_zippy(name, amount),
     tireZippy:                  (name, amount)      => Deno.core.ops.bsengine_tire_zippy(name, amount),
     setZippyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zippy_enabled(name, v),
+    getZirconHardness:          (name)              => Deno.core.ops.bsengine_get_zircon_hardness(name),
+    getZirconMaxHardness:       (name)              => Deno.core.ops.bsengine_get_zircon_max_hardness(name),
+    getZirconHardenRate:        (name)              => Deno.core.ops.bsengine_get_zircon_harden_rate(name),
+    isZirconJustFlawless:       (name)              => Deno.core.ops.bsengine_is_zircon_just_flawless(name),
+    isZirconJustFractured:      (name)              => Deno.core.ops.bsengine_is_zircon_just_fractured(name),
+    isZirconEnabled:            (name)              => Deno.core.ops.bsengine_is_zircon_enabled(name),
+    crystallizeZircon:          (name, amount)      => Deno.core.ops.bsengine_crystallize_zircon(name, amount),
+    fractureZircon:             (name, amount)      => Deno.core.ops.bsengine_fracture_zircon(name, amount),
+    setZirconEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zircon_enabled(name, v),
+    getZirconiaHardness:        (name)              => Deno.core.ops.bsengine_get_zirconia_hardness(name),
+    getZirconiaMaxHardness:     (name)              => Deno.core.ops.bsengine_get_zirconia_max_hardness(name),
+    getZirconiaSinterRate:      (name)              => Deno.core.ops.bsengine_get_zirconia_sinter_rate(name),
+    isZirconiaJustSintered:     (name)              => Deno.core.ops.bsengine_is_zirconia_just_sintered(name),
+    isZirconiaJustCracked:      (name)              => Deno.core.ops.bsengine_is_zirconia_just_cracked(name),
+    isZirconiaEnabled:          (name)              => Deno.core.ops.bsengine_is_zirconia_enabled(name),
+    fireZirconia:               (name, amount)      => Deno.core.ops.bsengine_fire_zirconia(name, amount),
+    crackZirconia:              (name, amount)      => Deno.core.ops.bsengine_crack_zirconia(name, amount),
+    setZirconiaEnabled:         (name, v)           => Deno.core.ops.bsengine_set_zirconia_enabled(name, v),
+    getZirconiumPurity:         (name)              => Deno.core.ops.bsengine_get_zirconium_purity(name),
+    getZirconiumMaxPurity:      (name)              => Deno.core.ops.bsengine_get_zirconium_max_purity(name),
+    getZirconiumRefineRate:     (name)              => Deno.core.ops.bsengine_get_zirconium_refine_rate(name),
+    isZirconiumJustRefined:     (name)              => Deno.core.ops.bsengine_is_zirconium_just_refined(name),
+    isZirconiumJustTarnished:   (name)              => Deno.core.ops.bsengine_is_zirconium_just_tarnished(name),
+    isZirconiumEnabled:         (name)              => Deno.core.ops.bsengine_is_zirconium_enabled(name),
+    smeltZirconium:             (name, amount)      => Deno.core.ops.bsengine_smelt_zirconium(name, amount),
+    corrodeZirconium:           (name, amount)      => Deno.core.ops.bsengine_corrode_zirconium(name, amount),
+    setZirconiumEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zirconium_enabled(name, v),
+    getZitCount:                (name)              => Deno.core.ops.bsengine_get_zit_count(name),
+    getZitMaxZits:              (name)              => Deno.core.ops.bsengine_get_zit_max_zits(name),
+    isZitJustInflamed:          (name)              => Deno.core.ops.bsengine_is_zit_just_inflamed(name),
+    isZitJustCleared:           (name)              => Deno.core.ops.bsengine_is_zit_just_cleared(name),
+    isZitEnabled:               (name)              => Deno.core.ops.bsengine_is_zit_enabled(name),
+    applyZit:                   (name)              => Deno.core.ops.bsengine_apply_zit(name),
+    clearOneZit:                (name)              => Deno.core.ops.bsengine_clear_one_zit(name),
+    setZitEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zit_enabled(name, v),
+    getZitherResonance:         (name)              => Deno.core.ops.bsengine_get_zither_resonance(name),
+    getZitherMaxResonance:      (name)              => Deno.core.ops.bsengine_get_zither_max_resonance(name),
+    getZitherDecayRate:         (name)              => Deno.core.ops.bsengine_get_zither_decay_rate(name),
+    isZitherJustHarmonized:     (name)              => Deno.core.ops.bsengine_is_zither_just_harmonized(name),
+    isZitherJustSilenced:       (name)              => Deno.core.ops.bsengine_is_zither_just_silenced(name),
+    isZitherEnabled:            (name)              => Deno.core.ops.bsengine_is_zither_enabled(name),
+    pluckZither:                (name, amount)      => Deno.core.ops.bsengine_pluck_zither(name, amount),
+    muteZither:                 (name, amount)      => Deno.core.ops.bsengine_mute_zither(name, amount),
+    setZitherEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zither_enabled(name, v),
+    getZitiHeatLevel:           (name)              => Deno.core.ops.bsengine_get_ziti_heat_level(name),
+    getZitiMaxHeat:             (name)              => Deno.core.ops.bsengine_get_ziti_max_heat(name),
+    getZitiSimmerRate:          (name)              => Deno.core.ops.bsengine_get_ziti_simmer_rate(name),
+    isZitiJustScorching:        (name)              => Deno.core.ops.bsengine_is_ziti_just_scorching(name),
+    isZitiJustRaw:              (name)              => Deno.core.ops.bsengine_is_ziti_just_raw(name),
+    isZitiEnabled:              (name)              => Deno.core.ops.bsengine_is_ziti_enabled(name),
+    warmZiti:                   (name, amount)      => Deno.core.ops.bsengine_warm_ziti(name, amount),
+    coolZiti:                   (name, amount)      => Deno.core.ops.bsengine_cool_ziti(name, amount),
+    setZitiEnabled:             (name, v)           => Deno.core.ops.bsengine_set_ziti_enabled(name, v),
+    getZoanthropyDelusion:      (name)              => Deno.core.ops.bsengine_get_zoanthropy_delusion(name),
+    getZoanthropyMaxDelusion:   (name)              => Deno.core.ops.bsengine_get_zoanthropy_max_delusion(name),
+    getZoanthropyInhabitRate:   (name)              => Deno.core.ops.bsengine_get_zoanthropy_inhabit_rate(name),
+    isZoanthropyJustFeral:      (name)              => Deno.core.ops.bsengine_is_zoanthropy_just_feral(name),
+    isZoanthropyJustLucid:      (name)              => Deno.core.ops.bsengine_is_zoanthropy_just_lucid(name),
+    isZoanthropyEnabled:        (name)              => Deno.core.ops.bsengine_is_zoanthropy_enabled(name),
+    inhabitZoanthropy:          (name, amount)      => Deno.core.ops.bsengine_inhabit_zoanthropy(name, amount),
+    dispelZoanthropy:           (name, amount)      => Deno.core.ops.bsengine_dispel_zoanthropy(name, amount),
+    setZoanthropyEnabled:       (name, v)           => Deno.core.ops.bsengine_set_zoanthropy_enabled(name, v),
+    getZodiacAlignment:         (name)              => Deno.core.ops.bsengine_get_zodiac_alignment(name),
+    getZodiacMaxAlignment:      (name)              => Deno.core.ops.bsengine_get_zodiac_max_alignment(name),
+    getZodiacTransitRate:       (name)              => Deno.core.ops.bsengine_get_zodiac_transit_rate(name),
+    isZodiacJustAligned:        (name)              => Deno.core.ops.bsengine_is_zodiac_just_aligned(name),
+    isZodiacJustVoided:         (name)              => Deno.core.ops.bsengine_is_zodiac_just_voided(name),
+    isZodiacEnabled:            (name)              => Deno.core.ops.bsengine_is_zodiac_enabled(name),
+    attuneZodiac:               (name, amount)      => Deno.core.ops.bsengine_attune_zodiac(name, amount),
+    dispelZodiac:               (name, amount)      => Deno.core.ops.bsengine_dispel_zodiac(name, amount),
+    setZodiacEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zodiac_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -93086,6 +93704,445 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InvigorateZippy { name, amount } if name == "Cheerleader" && *amount == 1.0)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TireZippy { name, amount } if name == "Cheerleader" && *amount == 1.0)));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZippyEnabled { name, enabled } if name == "Cheerleader" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zircon_read_ops() {
+        super::ZIRCON_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Gem".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconHardness("Gem"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconMaxHardness("Gem"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconHardenRate("Gem"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconJustFlawless("Gem"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconJustFractured("Gem"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconEnabled("Gem"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIRCON_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zircon_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.crystallizeZircon("Gem", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.fractureZircon("Gem", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZirconEnabled("Gem", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrystallizeZircon { name, amount } if name == "Gem" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FractureZircon { name, amount } if name == "Gem" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZirconEnabled { name, enabled } if name == "Gem" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zirconia_read_ops() {
+        super::ZIRCONIA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Ceramic".to_string(),
+                (75.0f32, 100.0f32, 1.5f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconiaHardness("Ceramic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconiaMaxHardness("Ceramic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconiaSinterRate("Ceramic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconiaJustSintered("Ceramic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconiaJustCracked("Ceramic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconiaEnabled("Ceramic"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIRCONIA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zirconia_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.fireZirconia("Ceramic", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.crackZirconia("Ceramic", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZirconiaEnabled("Ceramic", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::FireZirconia { name, amount } if name == "Ceramic" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CrackZirconia { name, amount } if name == "Ceramic" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZirconiaEnabled { name, enabled } if name == "Ceramic" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zirconium_read_ops() {
+        super::ZIRCONIUM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Rod".to_string(),
+                (60.0f32, 100.0f32, 1.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconiumPurity("Rod"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconiumMaxPurity("Rod"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZirconiumRefineRate("Rod"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconiumJustRefined("Rod"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconiumJustTarnished("Rod"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZirconiumEnabled("Rod"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIRCONIUM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zirconium_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.smeltZirconium("Rod", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.corrodeZirconium("Rod", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZirconiumEnabled("Rod", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SmeltZirconium { name, amount } if name == "Rod" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CorrodeZirconium { name, amount } if name == "Rod" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZirconiumEnabled { name, enabled } if name == "Rod" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zit_read_ops() {
+        super::ZIT_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Blemish".to_string(),
+                (3.0f32, 5.0f32, 0.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZitCount("Blemish"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.getZitMaxZits("Blemish"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitJustInflamed("Blemish"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitJustCleared("Blemish"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitEnabled("Blemish"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zit_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.applyZit("Blemish");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.clearOneZit("Blemish");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZitEnabled("Blemish", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ApplyZit { name } if name == "Blemish")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ClearOneZit { name } if name == "Blemish")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZitEnabled { name, enabled } if name == "Blemish" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zither_read_ops() {
+        super::ZITHER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "String".to_string(),
+                (80.0f32, 100.0f32, 15.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZitherResonance("String"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZitherMaxResonance("String"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZitherDecayRate("String"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "15");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitherJustHarmonized("String"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitherJustSilenced("String"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitherEnabled("String"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZITHER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zither_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pluckZither("String", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.muteZither("String", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZitherEnabled("String", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PluckZither { name, amount } if name == "String" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::MuteZither { name, amount } if name == "String" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZitherEnabled { name, enabled } if name == "String" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ziti_read_ops() {
+        super::ZITI_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Oven".to_string(),
+                (40.0f32, 100.0f32, 5.0f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZitiHeatLevel("Oven"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZitiMaxHeat("Oven"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZitiSimmerRate("Oven"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitiJustScorching("Oven"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitiJustRaw("Oven"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZitiEnabled("Oven"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZITI_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_ziti_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.warmZiti("Oven", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.coolZiti("Oven", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZitiEnabled("Oven", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WarmZiti { name, amount } if name == "Oven" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::CoolZiti { name, amount } if name == "Oven" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZitiEnabled { name, enabled } if name == "Oven" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoanthropy_read_ops() {
+        super::ZOANTHROPY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Wolf".to_string(),
+                (30.0f32, 100.0f32, 1.5f32, false, true, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZoanthropyDelusion("Wolf"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "30");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoanthropyMaxDelusion("Wolf"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZoanthropyInhabitRate("Wolf"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoanthropyJustFeral("Wolf"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoanthropyJustLucid("Wolf"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZoanthropyEnabled("Wolf"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZOANTHROPY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zoanthropy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.inhabitZoanthropy("Wolf", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dispelZoanthropy("Wolf", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZoanthropyEnabled("Wolf", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InhabitZoanthropy { name, amount } if name == "Wolf" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DispelZoanthropy { name, amount } if name == "Wolf" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZoanthropyEnabled { name, enabled } if name == "Wolf" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zodiac_read_ops() {
+        super::ZODIAC_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Aries".to_string(),
+                (50.0f32, 100.0f32, 1.0f32, true, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZodiacAlignment("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZodiacMaxAlignment("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZodiacTransitRate("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1");
+        let r = rt
+            .eval(r#"String(Bsengine.isZodiacJustAligned("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        let r = rt
+            .eval(r#"String(Bsengine.isZodiacJustVoided("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZodiacEnabled("Aries"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZODIAC_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zodiac_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.attuneZodiac("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.dispelZodiac("Aries", 1.5);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZodiacEnabled("Aries", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AttuneZodiac { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DispelZodiac { name, amount } if name == "Aries" && *amount == 1.5)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZodiacEnabled { name, enabled } if name == "Aries" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

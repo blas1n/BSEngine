@@ -7330,6 +7330,107 @@ pub enum ScriptCommand {
         name: String,
         enabled: bool,
     },
+    // ── Zing ─────────────────────────────────────────────────────────────────
+    ChargeZing {
+        name: String,
+        amount: f32,
+    },
+    DrainZing {
+        name: String,
+    },
+    SetZingEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zinger ───────────────────────────────────────────────────────────────
+    BarbZinger {
+        name: String,
+        amount: f32,
+    },
+    SootheZinger {
+        name: String,
+        amount: f32,
+    },
+    SetZingerEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zink ─────────────────────────────────────────────────────────────────
+    BlowZink {
+        name: String,
+        amount: f32,
+    },
+    ExhaleZink {
+        name: String,
+        amount: f32,
+    },
+    SetZinkEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zinnia ───────────────────────────────────────────────────────────────
+    UnfurlZinnia {
+        name: String,
+        amount: f32,
+    },
+    WiltZinnia {
+        name: String,
+        amount: f32,
+    },
+    SetZinniaEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zip ──────────────────────────────────────────────────────────────────
+    ActivateZip {
+        name: String,
+    },
+    DeactivateZip {
+        name: String,
+    },
+    SetZipEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zipper ───────────────────────────────────────────────────────────────
+    PullZipper {
+        name: String,
+        amount: f32,
+    },
+    UnzipZipper {
+        name: String,
+        amount: f32,
+    },
+    SetZipperEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zippier ──────────────────────────────────────────────────────────────
+    AccelerateZippier {
+        name: String,
+        amount: f32,
+    },
+    DecelerateZippier {
+        name: String,
+        amount: f32,
+    },
+    SetZippierEnabled {
+        name: String,
+        enabled: bool,
+    },
+    // ── Zippy ────────────────────────────────────────────────────────────────
+    InvigorateZippy {
+        name: String,
+        amount: f32,
+    },
+    TireZippy {
+        name: String,
+        amount: f32,
+    },
+    SetZippyEnabled {
+        name: String,
+        enabled: bool,
+    },
     // ── Quest ────────────────────────────────────────────────────────────────
     SetQuestXpReward {
         name: String,
@@ -9131,6 +9232,30 @@ thread_local! {
         RefCell::new(HashMap::new());
     // zinfandel: ferment, max_ferment, mature_rate, just_matured, just_racked, enabled
     pub(crate) static ZINFANDEL_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zing: zing_charge, zing_threshold, zing_count, just_zinged, false, enabled
+    pub(crate) static ZING_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zinger: sting, max_sting, sharpen_rate, just_stinging, just_soothed, enabled
+    pub(crate) static ZINGER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zink: breath, max_breath, breath_rate, just_resonant, just_breathless, enabled
+    pub(crate) static ZINK_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zinnia: petals, max_petals, bloom_rate, just_blooming, just_wilted, enabled
+    pub(crate) static ZINNIA_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zip: zip_charge, max_charge, drain_rate, just_activated, just_exhausted, enabled
+    pub(crate) static ZIP_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zipper: closure, max_closure, slide_rate, just_sealed, just_open, enabled
+    pub(crate) static ZIPPER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zippier: pace, max_pace, sprint_rate, just_fastest, just_stalled, enabled
+    pub(crate) static ZIPPIER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
+        RefCell::new(HashMap::new());
+    // zippy: pep, max_pep, perk_rate, just_peppy, just_tired, enabled
+    pub(crate) static ZIPPY_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool, bool)>> =
         RefCell::new(HashMap::new());
     // entity name → (current, max)
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
@@ -25614,6 +25739,361 @@ pub fn bsengine_set_zinfandel_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetZinfandelEnabled { name, enabled })
+    });
+}
+// ── Zing ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zing_charge(#[string] name: String) -> f32 {
+    ZING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zing_threshold(#[string] name: String) -> f32 {
+    ZING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zing_count(#[string] name: String) -> f32 {
+    ZING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_just_zinged(#[string] name: String) -> bool {
+    ZING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zing_enabled(#[string] name: String) -> bool {
+    ZING_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_charge_zing(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ChargeZing { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_drain_zing(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DrainZing { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zing_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZingEnabled { name, enabled })
+    });
+}
+// ── Zinger ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zinger_sting(#[string] name: String) -> f32 {
+    ZINGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinger_max_sting(#[string] name: String) -> f32 {
+    ZINGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinger_sharpen_rate(#[string] name: String) -> f32 {
+    ZINGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinger_just_stinging(#[string] name: String) -> bool {
+    ZINGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinger_just_soothed(#[string] name: String) -> bool {
+    ZINGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinger_enabled(#[string] name: String) -> bool {
+    ZINGER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_barb_zinger(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BarbZinger { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_soothe_zinger(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SootheZinger { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zinger_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZingerEnabled { name, enabled })
+    });
+}
+// ── Zink ──────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zink_breath(#[string] name: String) -> f32 {
+    ZINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zink_max_breath(#[string] name: String) -> f32 {
+    ZINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zink_breath_rate(#[string] name: String) -> f32 {
+    ZINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zink_just_resonant(#[string] name: String) -> bool {
+    ZINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zink_just_breathless(#[string] name: String) -> bool {
+    ZINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zink_enabled(#[string] name: String) -> bool {
+    ZINK_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_blow_zink(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::BlowZink { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_exhale_zink(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::ExhaleZink { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zink_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZinkEnabled { name, enabled })
+    });
+}
+// ── Zinnia ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zinnia_petals(#[string] name: String) -> f32 {
+    ZINNIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinnia_max_petals(#[string] name: String) -> f32 {
+    ZINNIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zinnia_bloom_rate(#[string] name: String) -> f32 {
+    ZINNIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinnia_just_blooming(#[string] name: String) -> bool {
+    ZINNIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinnia_just_wilted(#[string] name: String) -> bool {
+    ZINNIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zinnia_enabled(#[string] name: String) -> bool {
+    ZINNIA_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_unfurl_zinnia(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UnfurlZinnia { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_wilt_zinnia(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::WiltZinnia { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zinnia_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZinniaEnabled { name, enabled })
+    });
+}
+// ── Zip ───────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zip_charge(#[string] name: String) -> f32 {
+    ZIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zip_max_charge(#[string] name: String) -> f32 {
+    ZIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zip_drain_rate(#[string] name: String) -> f32 {
+    ZIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zip_just_activated(#[string] name: String) -> bool {
+    ZIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zip_just_exhausted(#[string] name: String) -> bool {
+    ZIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zip_enabled(#[string] name: String) -> bool {
+    ZIP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_activate_zip(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ActivateZip { name }));
+}
+#[op2(fast)]
+pub fn bsengine_deactivate_zip(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::DeactivateZip { name }));
+}
+#[op2(fast)]
+pub fn bsengine_set_zip_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZipEnabled { name, enabled })
+    });
+}
+// ── Zipper ────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zipper_closure(#[string] name: String) -> f32 {
+    ZIPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zipper_max_closure(#[string] name: String) -> f32 {
+    ZIPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zipper_slide_rate(#[string] name: String) -> f32 {
+    ZIPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zipper_just_sealed(#[string] name: String) -> bool {
+    ZIPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zipper_just_open(#[string] name: String) -> bool {
+    ZIPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zipper_enabled(#[string] name: String) -> bool {
+    ZIPPER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_pull_zipper(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::PullZipper { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_unzip_zipper(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::UnzipZipper { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zipper_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZipperEnabled { name, enabled })
+    });
+}
+// ── Zippier ───────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zippier_pace(#[string] name: String) -> f32 {
+    ZIPPIER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zippier_max_pace(#[string] name: String) -> f32 {
+    ZIPPIER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zippier_sprint_rate(#[string] name: String) -> f32 {
+    ZIPPIER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zippier_just_fastest(#[string] name: String) -> bool {
+    ZIPPIER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zippier_just_stalled(#[string] name: String) -> bool {
+    ZIPPIER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zippier_enabled(#[string] name: String) -> bool {
+    ZIPPIER_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_accelerate_zippier(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AccelerateZippier { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_decelerate_zippier(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::DecelerateZippier { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zippier_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZippierEnabled { name, enabled })
+    });
+}
+// ── Zippy ─────────────────────────────────────────────────────────────────────
+#[op2(fast)]
+pub fn bsengine_get_zippy_pep(#[string] name: String) -> f32 {
+    ZIPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.0).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zippy_max_pep(#[string] name: String) -> f32 {
+    ZIPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.1).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_get_zippy_perk_rate(#[string] name: String) -> f32 {
+    ZIPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.2).unwrap_or(0.0))
+}
+#[op2(fast)]
+pub fn bsengine_is_zippy_just_peppy(#[string] name: String) -> bool {
+    ZIPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.3).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zippy_just_tired(#[string] name: String) -> bool {
+    ZIPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.4).unwrap_or(false))
+}
+#[op2(fast)]
+pub fn bsengine_is_zippy_enabled(#[string] name: String) -> bool {
+    ZIPPY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| v.5).unwrap_or(true))
+}
+#[op2(fast)]
+pub fn bsengine_invigorate_zippy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::InvigorateZippy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_tire_zippy(#[string] name: String, amount: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::TireZippy { name, amount })
+    });
+}
+#[op2(fast)]
+pub fn bsengine_set_zippy_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetZippyEnabled { name, enabled })
     });
 }
 // ── Silence ──────────────────────────────────────────────────────────────────
@@ -47958,6 +48438,77 @@ deno_core::extension!(
         bsengine_brew_zinfandel,
         bsengine_rack_zinfandel,
         bsengine_set_zinfandel_enabled,
+        bsengine_get_zing_charge,
+        bsengine_get_zing_threshold,
+        bsengine_get_zing_count,
+        bsengine_is_just_zinged,
+        bsengine_is_zing_enabled,
+        bsengine_charge_zing,
+        bsengine_drain_zing,
+        bsengine_set_zing_enabled,
+        bsengine_get_zinger_sting,
+        bsengine_get_zinger_max_sting,
+        bsengine_get_zinger_sharpen_rate,
+        bsengine_is_zinger_just_stinging,
+        bsengine_is_zinger_just_soothed,
+        bsengine_is_zinger_enabled,
+        bsengine_barb_zinger,
+        bsengine_soothe_zinger,
+        bsengine_set_zinger_enabled,
+        bsengine_get_zink_breath,
+        bsengine_get_zink_max_breath,
+        bsengine_get_zink_breath_rate,
+        bsengine_is_zink_just_resonant,
+        bsengine_is_zink_just_breathless,
+        bsengine_is_zink_enabled,
+        bsengine_blow_zink,
+        bsengine_exhale_zink,
+        bsengine_set_zink_enabled,
+        bsengine_get_zinnia_petals,
+        bsengine_get_zinnia_max_petals,
+        bsengine_get_zinnia_bloom_rate,
+        bsengine_is_zinnia_just_blooming,
+        bsengine_is_zinnia_just_wilted,
+        bsengine_is_zinnia_enabled,
+        bsengine_unfurl_zinnia,
+        bsengine_wilt_zinnia,
+        bsengine_set_zinnia_enabled,
+        bsengine_get_zip_charge,
+        bsengine_get_zip_max_charge,
+        bsengine_get_zip_drain_rate,
+        bsengine_is_zip_just_activated,
+        bsengine_is_zip_just_exhausted,
+        bsengine_is_zip_enabled,
+        bsengine_activate_zip,
+        bsengine_deactivate_zip,
+        bsengine_set_zip_enabled,
+        bsengine_get_zipper_closure,
+        bsengine_get_zipper_max_closure,
+        bsengine_get_zipper_slide_rate,
+        bsengine_is_zipper_just_sealed,
+        bsengine_is_zipper_just_open,
+        bsengine_is_zipper_enabled,
+        bsengine_pull_zipper,
+        bsengine_unzip_zipper,
+        bsengine_set_zipper_enabled,
+        bsengine_get_zippier_pace,
+        bsengine_get_zippier_max_pace,
+        bsengine_get_zippier_sprint_rate,
+        bsengine_is_zippier_just_fastest,
+        bsengine_is_zippier_just_stalled,
+        bsengine_is_zippier_enabled,
+        bsengine_accelerate_zippier,
+        bsengine_decelerate_zippier,
+        bsengine_set_zippier_enabled,
+        bsengine_get_zippy_pep,
+        bsengine_get_zippy_max_pep,
+        bsengine_get_zippy_perk_rate,
+        bsengine_is_zippy_just_peppy,
+        bsengine_is_zippy_just_tired,
+        bsengine_is_zippy_enabled,
+        bsengine_invigorate_zippy,
+        bsengine_tire_zippy,
+        bsengine_set_zippy_enabled,
         bsengine_damage_shield,
         bsengine_restore_shield,
         bsengine_set_max_shield,
@@ -53714,6 +54265,77 @@ const Bsengine = {
     brewZinfandel:              (name)              => Deno.core.ops.bsengine_brew_zinfandel(name),
     rackZinfandel:              (name)              => Deno.core.ops.bsengine_rack_zinfandel(name),
     setZinfandelEnabled:        (name, v)           => Deno.core.ops.bsengine_set_zinfandel_enabled(name, v),
+    getZingCharge:              (name)              => Deno.core.ops.bsengine_get_zing_charge(name),
+    getZingThreshold:           (name)              => Deno.core.ops.bsengine_get_zing_threshold(name),
+    getZingCount:               (name)              => Deno.core.ops.bsengine_get_zing_count(name),
+    isJustZinged:               (name)              => Deno.core.ops.bsengine_is_just_zinged(name),
+    isZingEnabled:              (name)              => Deno.core.ops.bsengine_is_zing_enabled(name),
+    chargeZing:                 (name, amount)      => Deno.core.ops.bsengine_charge_zing(name, amount),
+    drainZing:                  (name)              => Deno.core.ops.bsengine_drain_zing(name),
+    setZingEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zing_enabled(name, v),
+    getZingerSting:             (name)              => Deno.core.ops.bsengine_get_zinger_sting(name),
+    getZingerMaxSting:          (name)              => Deno.core.ops.bsengine_get_zinger_max_sting(name),
+    getZingerSharpenRate:       (name)              => Deno.core.ops.bsengine_get_zinger_sharpen_rate(name),
+    isZingerJustStinging:       (name)              => Deno.core.ops.bsengine_is_zinger_just_stinging(name),
+    isZingerJustSoothed:        (name)              => Deno.core.ops.bsengine_is_zinger_just_soothed(name),
+    isZingerEnabled:            (name)              => Deno.core.ops.bsengine_is_zinger_enabled(name),
+    barbZinger:                 (name, amount)      => Deno.core.ops.bsengine_barb_zinger(name, amount),
+    sootheZinger:               (name, amount)      => Deno.core.ops.bsengine_soothe_zinger(name, amount),
+    setZingerEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zinger_enabled(name, v),
+    getZinkBreath:              (name)              => Deno.core.ops.bsengine_get_zink_breath(name),
+    getZinkMaxBreath:           (name)              => Deno.core.ops.bsengine_get_zink_max_breath(name),
+    getZinkBreathRate:          (name)              => Deno.core.ops.bsengine_get_zink_breath_rate(name),
+    isZinkJustResonant:         (name)              => Deno.core.ops.bsengine_is_zink_just_resonant(name),
+    isZinkJustBreathless:       (name)              => Deno.core.ops.bsengine_is_zink_just_breathless(name),
+    isZinkEnabled:              (name)              => Deno.core.ops.bsengine_is_zink_enabled(name),
+    blowZink:                   (name, amount)      => Deno.core.ops.bsengine_blow_zink(name, amount),
+    exhaleZink:                 (name, amount)      => Deno.core.ops.bsengine_exhale_zink(name, amount),
+    setZinkEnabled:             (name, v)           => Deno.core.ops.bsengine_set_zink_enabled(name, v),
+    getZinniaPetals:            (name)              => Deno.core.ops.bsengine_get_zinnia_petals(name),
+    getZinniaMaxPetals:         (name)              => Deno.core.ops.bsengine_get_zinnia_max_petals(name),
+    getZinniaBloomRate:         (name)              => Deno.core.ops.bsengine_get_zinnia_bloom_rate(name),
+    isZinniaJustBlooming:       (name)              => Deno.core.ops.bsengine_is_zinnia_just_blooming(name),
+    isZinniaJustWilted:         (name)              => Deno.core.ops.bsengine_is_zinnia_just_wilted(name),
+    isZinniaEnabled:            (name)              => Deno.core.ops.bsengine_is_zinnia_enabled(name),
+    unfurlZinnia:               (name, amount)      => Deno.core.ops.bsengine_unfurl_zinnia(name, amount),
+    wiltZinnia:                 (name, amount)      => Deno.core.ops.bsengine_wilt_zinnia(name, amount),
+    setZinniaEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zinnia_enabled(name, v),
+    getZipCharge:               (name)              => Deno.core.ops.bsengine_get_zip_charge(name),
+    getZipMaxCharge:            (name)              => Deno.core.ops.bsengine_get_zip_max_charge(name),
+    getZipDrainRate:            (name)              => Deno.core.ops.bsengine_get_zip_drain_rate(name),
+    isZipJustActivated:         (name)              => Deno.core.ops.bsengine_is_zip_just_activated(name),
+    isZipJustExhausted:         (name)              => Deno.core.ops.bsengine_is_zip_just_exhausted(name),
+    isZipEnabled:               (name)              => Deno.core.ops.bsengine_is_zip_enabled(name),
+    activateZip:                (name)              => Deno.core.ops.bsengine_activate_zip(name),
+    deactivateZip:              (name)              => Deno.core.ops.bsengine_deactivate_zip(name),
+    setZipEnabled:              (name, v)           => Deno.core.ops.bsengine_set_zip_enabled(name, v),
+    getZipperClosure:           (name)              => Deno.core.ops.bsengine_get_zipper_closure(name),
+    getZipperMaxClosure:        (name)              => Deno.core.ops.bsengine_get_zipper_max_closure(name),
+    getZipperSlideRate:         (name)              => Deno.core.ops.bsengine_get_zipper_slide_rate(name),
+    isZipperJustSealed:         (name)              => Deno.core.ops.bsengine_is_zipper_just_sealed(name),
+    isZipperJustOpen:           (name)              => Deno.core.ops.bsengine_is_zipper_just_open(name),
+    isZipperEnabled:            (name)              => Deno.core.ops.bsengine_is_zipper_enabled(name),
+    pullZipper:                 (name, amount)      => Deno.core.ops.bsengine_pull_zipper(name, amount),
+    unzipZipper:                (name, amount)      => Deno.core.ops.bsengine_unzip_zipper(name, amount),
+    setZipperEnabled:           (name, v)           => Deno.core.ops.bsengine_set_zipper_enabled(name, v),
+    getZippierPace:             (name)              => Deno.core.ops.bsengine_get_zippier_pace(name),
+    getZippierMaxPace:          (name)              => Deno.core.ops.bsengine_get_zippier_max_pace(name),
+    getZippierSprintRate:       (name)              => Deno.core.ops.bsengine_get_zippier_sprint_rate(name),
+    isZippierJustFastest:       (name)              => Deno.core.ops.bsengine_is_zippier_just_fastest(name),
+    isZippierJustStalled:       (name)              => Deno.core.ops.bsengine_is_zippier_just_stalled(name),
+    isZippierEnabled:           (name)              => Deno.core.ops.bsengine_is_zippier_enabled(name),
+    accelerateZippier:          (name, amount)      => Deno.core.ops.bsengine_accelerate_zippier(name, amount),
+    decelerateZippier:          (name, amount)      => Deno.core.ops.bsengine_decelerate_zippier(name, amount),
+    setZippierEnabled:          (name, v)           => Deno.core.ops.bsengine_set_zippier_enabled(name, v),
+    getZippyPep:                (name)              => Deno.core.ops.bsengine_get_zippy_pep(name),
+    getZippyMaxPep:             (name)              => Deno.core.ops.bsengine_get_zippy_max_pep(name),
+    getZippyPerkRate:           (name)              => Deno.core.ops.bsengine_get_zippy_perk_rate(name),
+    isZippyJustPeppy:           (name)              => Deno.core.ops.bsengine_is_zippy_just_peppy(name),
+    isZippyJustTired:           (name)              => Deno.core.ops.bsengine_is_zippy_just_tired(name),
+    isZippyEnabled:             (name)              => Deno.core.ops.bsengine_is_zippy_enabled(name),
+    invigorateZippy:            (name, amount)      => Deno.core.ops.bsengine_invigorate_zippy(name, amount),
+    tireZippy:                  (name, amount)      => Deno.core.ops.bsengine_tire_zippy(name, amount),
+    setZippyEnabled:            (name, v)           => Deno.core.ops.bsengine_set_zippy_enabled(name, v),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
@@ -92025,6 +92647,445 @@ JSON.stringify(received)
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BrewZinfandel { name } if name == "Barrel")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::RackZinfandel { name } if name == "Barrel")));
             assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZinfandelEnabled { name, enabled } if name == "Barrel" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zing_read_ops() {
+        super::ZING_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sparker".to_string(),
+                (5.0f32, 10.0f32, 3.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZingCharge("Sparker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.getZingThreshold("Sparker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZingCount("Sparker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "3");
+        let r = rt
+            .eval(r#"String(Bsengine.isJustZinged("Sparker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZingEnabled("Sparker"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZING_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zing_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.chargeZing("Sparker", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.drainZing("Sparker");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZingEnabled("Sparker", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ChargeZing { name, amount } if name == "Sparker" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DrainZing { name } if name == "Sparker")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZingEnabled { name, enabled } if name == "Sparker" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinger_read_ops() {
+        super::ZINGER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Jester".to_string(),
+                (40.0f32, 100.0f32, 9.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZingerSting("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "40");
+        let r = rt
+            .eval(r#"String(Bsengine.getZingerMaxSting("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZingerSharpenRate("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "9");
+        let r = rt
+            .eval(r#"String(Bsengine.isZingerJustStinging("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZingerJustSoothed("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZingerEnabled("Jester"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINGER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinger_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.barbZinger("Jester", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.sootheZinger("Jester", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZingerEnabled("Jester", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BarbZinger { name, amount } if name == "Jester" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SootheZinger { name, amount } if name == "Jester" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZingerEnabled { name, enabled } if name == "Jester" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zink_read_ops() {
+        super::ZINK_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Flautist".to_string(),
+                (60.0f32, 100.0f32, 1.5f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZinkBreath("Flautist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "60");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinkMaxBreath("Flautist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinkBreathRate("Flautist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "1.5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinkJustResonant("Flautist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinkJustBreathless("Flautist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinkEnabled("Flautist"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINK_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zink_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.blowZink("Flautist", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.exhaleZink("Flautist", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZinkEnabled("Flautist", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::BlowZink { name, amount } if name == "Flautist" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ExhaleZink { name, amount } if name == "Flautist" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZinkEnabled { name, enabled } if name == "Flautist" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinnia_read_ops() {
+        super::ZINNIA_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Garden".to_string(),
+                (50.0f32, 100.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZinniaPetals("Garden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "50");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinniaMaxPetals("Garden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZinniaBloomRate("Garden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinniaJustBlooming("Garden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinniaJustWilted("Garden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZinniaEnabled("Garden"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZINNIA_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zinnia_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.unfurlZinnia("Garden", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.wiltZinnia("Garden", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZinniaEnabled("Garden", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnfurlZinnia { name, amount } if name == "Garden" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::WiltZinnia { name, amount } if name == "Garden" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZinniaEnabled { name, enabled } if name == "Garden" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zip_read_ops() {
+        super::ZIP_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Sprinter".to_string(),
+                (10.0f32, 10.0f32, 2.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZipCharge("Sprinter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZipMaxCharge("Sprinter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "10");
+        let r = rt
+            .eval(r#"String(Bsengine.getZipDrainRate("Sprinter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "2");
+        let r = rt
+            .eval(r#"String(Bsengine.isZipJustActivated("Sprinter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZipJustExhausted("Sprinter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZipEnabled("Sprinter"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIP_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zip_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.activateZip("Sprinter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.deactivateZip("Sprinter");"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZipEnabled("Sprinter", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::ActivateZip { name } if name == "Sprinter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DeactivateZip { name } if name == "Sprinter")));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZipEnabled { name, enabled } if name == "Sprinter" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zipper_read_ops() {
+        super::ZIPPER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Jacket".to_string(),
+                (75.0f32, 100.0f32, 5.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZipperClosure("Jacket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "75");
+        let r = rt
+            .eval(r#"String(Bsengine.getZipperMaxClosure("Jacket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZipperSlideRate("Jacket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "5");
+        let r = rt
+            .eval(r#"String(Bsengine.isZipperJustSealed("Jacket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZipperJustOpen("Jacket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZipperEnabled("Jacket"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIPPER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zipper_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pullZipper("Jacket", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.unzipZipper("Jacket", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZipperEnabled("Jacket", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::PullZipper { name, amount } if name == "Jacket" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::UnzipZipper { name, amount } if name == "Jacket" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZipperEnabled { name, enabled } if name == "Jacket" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zippier_read_ops() {
+        super::ZIPPIER_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Racer".to_string(),
+                (80.0f32, 100.0f32, 4.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZippierPace("Racer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "80");
+        let r = rt
+            .eval(r#"String(Bsengine.getZippierMaxPace("Racer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZippierSprintRate("Racer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "4");
+        let r = rt
+            .eval(r#"String(Bsengine.isZippierJustFastest("Racer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZippierJustStalled("Racer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZippierEnabled("Racer"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIPPIER_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zippier_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.accelerateZippier("Racer", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.decelerateZippier("Racer", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.setZippierEnabled("Racer", false);"#, "<test>")
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::AccelerateZippier { name, amount } if name == "Racer" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::DecelerateZippier { name, amount } if name == "Racer" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZippierEnabled { name, enabled } if name == "Racer" && !enabled)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zippy_read_ops() {
+        super::ZIPPY_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Cheerleader".to_string(),
+                (70.0f32, 100.0f32, 6.0f32, false, false, true),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"String(Bsengine.getZippyPep("Cheerleader"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "70");
+        let r = rt
+            .eval(r#"String(Bsengine.getZippyMaxPep("Cheerleader"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "100");
+        let r = rt
+            .eval(r#"String(Bsengine.getZippyPerkRate("Cheerleader"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "6");
+        let r = rt
+            .eval(r#"String(Bsengine.isZippyJustPeppy("Cheerleader"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZippyJustTired("Cheerleader"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "false");
+        let r = rt
+            .eval(r#"String(Bsengine.isZippyEnabled("Cheerleader"))"#)
+            .unwrap();
+        assert_eq!(r.as_str(), "true");
+        super::ZIPPY_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+    #[test]
+    fn test_zippy_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.invigorateZippy("Cheerleader", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(r#"Bsengine.tireZippy("Cheerleader", 1.0);"#, "<test>")
+            .unwrap();
+        rt.exec_source(
+            r#"Bsengine.setZippyEnabled("Cheerleader", false);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::InvigorateZippy { name, amount } if name == "Cheerleader" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::TireZippy { name, amount } if name == "Cheerleader" && *amount == 1.0)));
+            assert!(buf.iter().any(|cmd| matches!(cmd, super::ScriptCommand::SetZippyEnabled { name, enabled } if name == "Cheerleader" && !enabled)));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

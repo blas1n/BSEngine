@@ -447,6 +447,8 @@ pub struct WgpuSurface {
     egui_renderer: egui_wgpu::Renderer,
     skybox: Option<SkyboxState>,
     loaded_skybox_path: Option<String>,
+    pipeline_layout: wgpu::PipelineLayout,
+    custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
 }
 
 impl WgpuSurface {
@@ -803,6 +805,8 @@ impl WgpuSurface {
             egui_renderer,
             skybox: None,
             loaded_skybox_path: None,
+            pipeline_layout,
+            custom_pipelines: std::collections::HashMap::new(),
         })
     }
 
@@ -1109,7 +1113,7 @@ impl WgpuSurface {
         cam_pos: Vec3,
         light_view_proj: Mat4,
         sky_vp_inv: Option<Mat4>,
-        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams)],
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
         registry: &GpuMeshRegistry,
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
@@ -1196,7 +1200,7 @@ impl WgpuSurface {
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));
 
-        for (i, (_, model, _, mat)) in draw_calls.iter().enumerate() {
+        for (i, (_, model, _, mat, _)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
             }
@@ -1249,7 +1253,7 @@ impl WgpuSurface {
             });
             shadow_pass.set_pipeline(&self.shadow_pipeline);
             shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            for (i, (mesh_id, _, _, _)) in draw_calls.iter().enumerate() {
+            for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
                 if i >= MAX_OBJECTS {
                     break;
                 }
@@ -1294,17 +1298,21 @@ impl WgpuSurface {
                 occlusion_query_set: None,
             });
 
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            for (i, (mesh_id, _, tex_id, _)) in draw_calls.iter().enumerate() {
+            for (i, (mesh_id, _, tex_id, _, custom_path)) in draw_calls.iter().enumerate() {
                 if i >= MAX_OBJECTS {
                     break;
                 }
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
+                let pipeline = custom_path
+                    .as_deref()
+                    .and_then(|p| self.custom_pipelines.get(p))
+                    .unwrap_or(&self.pipeline);
+                pass.set_pipeline(pipeline);
                 let tex_bg = tex_id
                     .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
                     .unwrap_or(&self.default_texture_bind_group);
@@ -1560,6 +1568,85 @@ impl WgpuSurface {
         self.depth_view = depth_view;
     }
 
+    pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) {
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("custom shader"),
+                source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+            });
+        let vertex_attrs = [
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 0,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 12,
+                shader_location: 1,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 24,
+                shader_location: 2,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 36,
+                shader_location: 3,
+            },
+        ];
+        let vbl = wgpu::VertexBufferLayout {
+            array_stride: VERTEX_STRIDE,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &vertex_attrs,
+        };
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("custom pipeline"),
+                layout: Some(&self.pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[vbl],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: self.config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    front_face: wgpu::FrontFace::Ccw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+        self.custom_pipelines.insert(path.to_string(), pipeline);
+    }
+
+    pub fn has_custom_shader(&self, path: &str) -> bool {
+        self.custom_pipelines.contains_key(path)
+    }
+
     pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {
         device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("wgsl shader"),
@@ -1586,5 +1673,25 @@ mod tests {
     fn skybox_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
         let _module = WgpuSurface::compile_shader(&rhi.device, SKYBOX_WGSL);
+    }
+
+    #[test]
+    fn custom_shader_wgsl_compiles() {
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+        let wgsl = r#"
+@vertex fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+@fragment fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+"#;
+        let _module = WgpuSurface::compile_shader(&rhi.device, wgsl);
+    }
+
+    #[test]
+    fn shadow_shader_compiles() {
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+        let _module = WgpuSurface::compile_shader(&rhi.device, SHADOW_WGSL);
     }
 }

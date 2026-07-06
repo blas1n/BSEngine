@@ -41,28 +41,28 @@
 
 ---
 
-### 3. Pathfinding ← **현재 작업**
+### 3. Pathfinding ✅
 
 **목표:** NavMesh 빌드 + 에이전트 자동 경로 탐색
 
 **완료 조건:**
-- [ ] NavMesh 빌드 (recast-rs 또는 동등 라이브러리)
-- [ ] `NavMeshAgent` 컴포넌트: 목적지 설정 → 자동 이동
-- [ ] 동적 장애물 회피 (기본 수준)
-- [ ] Scripting API: `Bsengine.navmesh.*` 로 경로 제어
-- [ ] 테스트 추가, CI 통과
+- [x] NavMesh 빌드 (순수 Rust A* on uniform XZ grid, 8방향)
+- [x] `NavMeshAgent` 컴포넌트: 목적지 설정 → 자동 이동
+- [x] 동적 장애물 회피 (기본 수준)
+- [x] Scripting API: `Bsengine.navmesh.*` 로 경로 제어
+- [x] 테스트 추가, CI 통과
 
 ---
 
-### 4. Save / Serialization
+### 4. Save / Serialization ← **현재 작업**
 
 **목표:** 게임 상태를 파일에 저장하고 복원
 
 **완료 조건:**
-- [ ] 지정 컴포넌트 집합을 JSON/RON으로 직렬화
-- [ ] 저장 파일 로드 후 엔티티 복원
-- [ ] Scripting API: `Bsengine.save()` / `Bsengine.load()`
-- [ ] 테스트 추가, CI 통과
+- [x] 지정 컴포넌트 집합을 JSON으로 직렬화 (Name, Transform, SaveData)
+- [x] 저장 파일 로드 후 엔티티 복원 (기존 업데이트 or 새로 스폰)
+- [x] Scripting API: `Bsengine.save()` / `Bsengine.load()`
+- [x] 테스트 추가, CI 통과
 
 ---
 
@@ -124,3 +124,4 @@
 |------|--------|----|
 | 1. UI System | 2026-07-06 | [#1662](https://github.com/blas1n/BSEngine/pull/1662) |
 | 2. Animation State Machine | 2026-07-06 | [#1663](https://github.com/blas1n/BSEngine/pull/1663) |
+| 3. Pathfinding | 2026-07-06 | [#1664](https://github.com/blas1n/BSEngine/pull/1664) |

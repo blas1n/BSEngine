@@ -93,20 +93,20 @@
 
 ---
 
-### 7. Networking ← **현재 작업**
+### 7. Networking ✅
 
 **목표:** 기본 클라이언트-서버 엔티티 동기화
 
 **완료 조건:**
-- [ ] 서버/클라이언트 역할 구분
-- [ ] Transform 등 지정 컴포넌트 네트워크 동기화
-- [ ] Scripting API: `Bsengine.network.*`
-- [ ] 2인 로컬 멀티 데모
-- [ ] CI 통과
+- [x] 서버/클라이언트 역할 구분
+- [x] Transform 등 지정 컴포넌트 네트워크 동기화
+- [x] Scripting API: `Bsengine.network.*`
+- [x] 2인 로컬 멀티 데모
+- [x] CI 통과
 
 ---
 
-### 8. Runtime Inspector / Editor
+### 8. Runtime Inspector / Editor ← **현재 작업**
 
 **목표:** 런타임에 엔티티/컴포넌트를 inspect 및 수정 가능
 
@@ -128,3 +128,4 @@
 | 4. Save / Serialization | 2026-07-06 | [#1665](https://github.com/blas1n/BSEngine/pull/1665) |
 | 5. Custom Shaders | 2026-07-06 | [#1666](https://github.com/blas1n/BSEngine/pull/1666) |
 | 6. Post-Processing | 2026-07-06 | [#1667](https://github.com/blas1n/BSEngine/pull/1667) |
+| 7. Networking | 2026-07-06 | [#1668](https://github.com/blas1n/BSEngine/pull/1668) |

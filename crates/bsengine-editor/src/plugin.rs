@@ -4,9 +4,10 @@ use crate::snapshot::{
     Visible,
 };
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::{Commands, Entity, ParamSet, Query};
+use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, Parent, PointLight, SpotLight, Transform,
+    Camera, DirectionalLight, GlobalTransform, InspectorCmd, InspectorEntityInfo, InspectorState,
+    Parent, PointLight, SpotLight, Transform,
 };
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
@@ -499,6 +500,54 @@ fn parse_position(s: &str) -> Option<[f32; 3]> {
     }
 }
 
+fn populate_inspector(
+    snapshot_res: Res<EditorSnapshotResource>,
+    mut inspector: Option<ResMut<InspectorState>>,
+) {
+    let Some(mut inspector) = inspector else {
+        return;
+    };
+    let snapshot = snapshot_res.0.lock().unwrap();
+    inspector.entities = snapshot
+        .entities
+        .iter()
+        .map(|e| InspectorEntityInfo {
+            id: e.id,
+            name: e.name.clone(),
+            position: e.position,
+            rotation: e.rotation,
+            scale: e.scale,
+        })
+        .collect();
+}
+
+fn apply_inspector_cmds(
+    mut inspector: Option<ResMut<InspectorState>>,
+    queue_res: Res<EditorCommandQueueResource>,
+) {
+    let Some(mut inspector) = inspector else {
+        return;
+    };
+    let cmds: Vec<InspectorCmd> = inspector.cmd_queue.drain(..).collect();
+    if cmds.is_empty() {
+        return;
+    }
+    let mut queue = queue_res.0.lock().unwrap();
+    for cmd in cmds {
+        match cmd {
+            InspectorCmd::SetPosition { id, x, y, z } => {
+                queue.push(EditorCommand::SetPosition { entity_id: id, x, y, z });
+            }
+            InspectorCmd::SetRotation { id, rx, ry, rz } => {
+                queue.push(EditorCommand::SetRotation { entity_id: id, rx, ry, rz });
+            }
+            InspectorCmd::SetScale { id, sx, sy, sz } => {
+                queue.push(EditorCommand::SetScale { entity_id: id, sx, sy, sz });
+            }
+        }
+    }
+}
+
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
@@ -510,7 +559,10 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
         app.insert_resource(EditorSelectionResource(selection.clone()));
+        app.insert_resource(InspectorState::default());
         app.add_systems(Update, update_editor_snapshot);
+        app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
+        app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {

@@ -2,7 +2,8 @@ use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, GlobalTransform, HudTexts,
-    Material, Parent, PointLight, SkyboxPath, SpotLight, ToneMap, Transform, UiState, Visible,
+    InspectorState, Material, Parent, PointLight, SkyboxPath, SpotLight, ToneMap, Transform,
+    UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, MouseButton, MouseState};
@@ -87,6 +88,7 @@ fn render_frame(
     hud_texts: Option<Res<HudTexts>>,
     skybox_path: Option<Res<SkyboxPath>>,
     mut ui_state: Option<ResMut<UiState>>,
+    mut inspector: Option<ResMut<InspectorState>>,
     mouse_state: Option<Res<MouseState>>,
     mouse_buttons: Option<Res<Input<MouseButton>>>,
     camera_query: Query<(
@@ -297,6 +299,7 @@ fn render_frame(
         bloom,
         tone_map,
         ambient_occlusion,
+        inspector.as_deref_mut(),
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

@@ -54,7 +54,7 @@
 
 ---
 
-### 4. Save / Serialization ← **현재 작업**
+### 4. Save / Serialization ✅
 
 **목표:** 게임 상태를 파일에 저장하고 복원
 
@@ -66,16 +66,16 @@
 
 ---
 
-### 5. Custom Shaders
+### 5. Custom Shaders ← **현재 작업**
 
 **목표:** WGSL 셰이더 에셋을 로드하여 머테리얼에 적용
 
 **완료 조건:**
-- [ ] `.wgsl` 파일 에셋 로더
-- [ ] `CustomMaterial` 컴포넌트: 셰이더 + 파라미터 바인딩
-- [ ] 렌더 파이프라인에서 custom material 경로 처리
-- [ ] 예제: 물결 셰이더 또는 outline 셰이더
-- [ ] 테스트 추가, CI 통과
+- [x] `.wgsl` 파일 에셋 로더 (런타임 lazy load)
+- [x] `CustomShader` 컴포넌트: WGSL 파일 경로 바인딩
+- [x] 렌더 파이프라인에서 custom shader 경로 처리 (per-draw-call pipeline 선택)
+- [x] Scripting API: `Bsengine.setShader()` / `Bsengine.clearShader()`
+- [x] 테스트 추가, CI 통과
 
 ---
 
@@ -125,3 +125,4 @@
 | 1. UI System | 2026-07-06 | [#1662](https://github.com/blas1n/BSEngine/pull/1662) |
 | 2. Animation State Machine | 2026-07-06 | [#1663](https://github.com/blas1n/BSEngine/pull/1663) |
 | 3. Pathfinding | 2026-07-06 | [#1664](https://github.com/blas1n/BSEngine/pull/1664) |
+| 4. Save / Serialization | 2026-07-06 | [#1665](https://github.com/blas1n/BSEngine/pull/1665) |

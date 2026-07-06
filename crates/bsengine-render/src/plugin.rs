@@ -1,8 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, HudTexts, Material, Parent, PointLight, SkyboxPath,
-    SpotLight, Transform, UiState, Visible,
+    Camera, CustomShader, DirectionalLight, GlobalTransform, HudTexts, Material, Parent,
+    PointLight, SkyboxPath, SpotLight, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, MouseButton, MouseState};
@@ -96,6 +96,7 @@ fn render_frame(
         Option<&GlobalTransform>,
         Option<&Material>,
         Option<&Visible>,
+        Option<&CustomShader>,
     )>,
     light_query: Query<&DirectionalLight>,
     point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
@@ -155,9 +156,21 @@ fn render_frame(
         None
     };
 
-    let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams)> = mesh_query
+    // Lazy-compile any custom shaders not yet cached in the surface
+    for (_, _, _, _, _, cs) in mesh_query.iter() {
+        if let Some(cs) = cs {
+            if !surface.0.has_custom_shader(&cs.path) {
+                match std::fs::read_to_string(&cs.path) {
+                    Ok(wgsl) => surface.0.compile_and_store_shader(&cs.path, &wgsl),
+                    Err(e) => tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path),
+                }
+            }
+        }
+    }
+
+    let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = mesh_query
         .iter()
-        .filter_map(|(mr, t, gt, mat, vis)| {
+        .filter_map(|(mr, t, gt, mat, vis, cs)| {
             if !vis.map(|v| v.is_visible).unwrap_or(true) {
                 return None;
             }
@@ -184,7 +197,13 @@ fn render_frame(
                     base_color: m.base_color,
                 })
                 .unwrap_or_default();
-            Some((mr.mesh_id, model, tex_id, mat_params))
+            Some((
+                mr.mesh_id,
+                model,
+                tex_id,
+                mat_params,
+                cs.map(|c| c.path.clone()),
+            ))
         })
         .collect();
 

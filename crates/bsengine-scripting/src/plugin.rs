@@ -4,8 +4,8 @@ use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    CursorConfig, GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Tag,
-    Transform, UiState, UiWidget, Visible,
+    CursorConfig, CustomShader, GlobalTransform, HudTexts, Material, Parent, ScreenSize,
+    SkyboxPath, Tag, Transform, UiState, UiWidget, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
@@ -15025,6 +15025,24 @@ fn run_scripts(world: &mut World) {
             ScriptCommand::LoadGame { path } => {
                 if let Err(e) = crate::save::load_world(world, &path) {
                     tracing::warn!("[load] {}", e);
+                }
+            }
+            ScriptCommand::SetCustomShader { name, path } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    world.entity_mut(e).insert(CustomShader { path });
+                }
+            }
+            ScriptCommand::ClearCustomShader { name } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    world.entity_mut(e).remove::<CustomShader>();
                 }
             }
             ScriptCommand::ApplyKnockbackDir {

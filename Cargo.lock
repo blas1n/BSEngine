@@ -599,6 +599,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bsengine-network"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bsengine-core",
+ "glam 0.29.3",
+ "tracing",
+]
+
+[[package]]
 name = "bsengine-physics"
 version = "0.1.0"
 dependencies = [
@@ -682,6 +693,7 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",
+ "bsengine-network",
  "bsengine-physics",
  "bsengine-render",
  "bsengine-rhi-wgpu",
@@ -721,6 +733,7 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",
+ "bsengine-network",
  "bsengine-physics",
  "bsengine-scene",
  "deno_core",

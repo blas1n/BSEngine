@@ -7,6 +7,7 @@ edition.workspace = true
 [dependencies]
 bsengine-audio.workspace = true
 bsengine-core.workspace = true
+bsengine-network.workspace = true
 bsengine-ecs.workspace = true
 bsengine-input.workspace = true
 bsengine-physics.workspace = true

@@ -1,0 +1,8 @@
+[project]
+name = "net-2p-demo-client"
+entry_scene = "scene.ron"
+
+[window]
+title = "Net 2P Demo - Client"
+width = 800
+height = 600

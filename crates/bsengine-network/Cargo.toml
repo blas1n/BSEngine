@@ -1,0 +1,14 @@
+[package]
+name = "bsengine-network"
+description = "UDP client-server entity sync for BSEngine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+bsengine-core = { workspace = true }
+bevy_app       = { workspace = true }
+bevy_ecs       = { workspace = true }
+glam           = { workspace = true }
+tracing        = { workspace = true }

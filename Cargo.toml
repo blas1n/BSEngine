@@ -22,6 +22,7 @@ members = [
     "crates/bsengine-runtime",
     "games/cube-roller",
     "games/cube-evader",
+    "crates/bsengine-network",
 ]
 
 [workspace.package]
@@ -65,6 +66,7 @@ bsengine-runtime  = { path = "crates/bsengine-runtime" }
 bsengine-editor   = { path = "crates/bsengine-editor" }
 bsengine-physics  = { path = "crates/bsengine-physics" }
 bsengine-audio    = { path = "crates/bsengine-audio" }
+bsengine-network  = { path = "crates/bsengine-network" }
 rapier3d          = { version = "0.33", features = ["default"] }
 kira              = { version = "0.12", default-features = false, features = ["cpal", "wav", "ogg", "mp3", "flac"] }
 egui              = "0.29"

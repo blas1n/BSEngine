@@ -21,6 +21,7 @@ bsengine-render    = { workspace = true }
 bsengine-rhi-wgpu  = { workspace = true }
 bsengine-scene     = { workspace = true }
 bsengine-network   = { workspace = true }
+bsengine-editor    = { workspace = true }
 bsengine-scripting = { workspace = true }
 bsengine-window    = { workspace = true }
 bevy_ecs        = { workspace = true }

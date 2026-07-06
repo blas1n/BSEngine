@@ -1137,6 +1137,7 @@ impl WgpuSurface {
         bloom: Option<bsengine_core::Bloom>,
         tone_map: Option<bsengine_core::ToneMap>,
         ambient_occlusion: Option<bsengine_core::AmbientOcclusion>,
+        mut inspector: Option<&mut bsengine_core::InspectorState>,
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1418,7 +1419,7 @@ impl WgpuSurface {
         self.post_process.apply(&mut encoder, &view);
 
         // UI + HUD overlay via egui
-        let has_ui = !hud_texts.is_empty() || !ui_state.widgets.is_empty();
+        let has_ui = !hud_texts.is_empty() || !ui_state.widgets.is_empty() || inspector.is_some();
         let mut clicked = std::collections::HashSet::<String>::new();
         if has_ui {
             let screen_rect = egui::Rect::from_min_size(
@@ -1560,6 +1561,136 @@ impl WgpuSurface {
                                         egui::Sense::hover(),
                                     );
                                 });
+                        }
+                    }
+                }
+
+                // Runtime inspector panels
+                if let Some(insp) = inspector.as_deref_mut() {
+                    let entities_snapshot = insp.entities.clone();
+                    let current_sel = insp.selected_id;
+                    let mut new_sel = insp.selected_id;
+
+                    egui::SidePanel::left("bse_insp_entities")
+                        .default_width(200.0)
+                        .show(ctx, |ui| {
+                            ui.heading("Entities");
+                            ui.separator();
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                for info in &entities_snapshot {
+                                    let label = info.name.as_deref().unwrap_or("(unnamed)");
+                                    let text = format!("[{}] {}", info.id, label);
+                                    if ui
+                                        .selectable_label(current_sel == Some(info.id), text)
+                                        .clicked()
+                                    {
+                                        new_sel = Some(info.id);
+                                    }
+                                }
+                            });
+                        });
+
+                    if new_sel != insp.selected_id {
+                        insp.selected_id = new_sel;
+                        insp.sync_selection();
+                    }
+
+                    if let Some(sel_id) = insp.selected_id {
+                        let entity_name = insp
+                            .entities
+                            .iter()
+                            .find(|e| e.id == sel_id)
+                            .and_then(|e| e.name.as_deref().map(String::from))
+                            .unwrap_or_else(|| format!("Entity {sel_id}"));
+
+                        let mut pos_changed = false;
+                        let mut rot_changed = false;
+                        let mut scale_changed = false;
+
+                        egui::SidePanel::right("bse_insp_props")
+                            .default_width(220.0)
+                            .show(ctx, |ui| {
+                                ui.heading(&entity_name);
+                                ui.separator();
+                                ui.strong("Transform");
+                                ui.horizontal(|ui| {
+                                    ui.label("Pos");
+                                    pos_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut insp.edit_pos[0]).speed(0.05),
+                                        )
+                                        .changed();
+                                    pos_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut insp.edit_pos[1]).speed(0.05),
+                                        )
+                                        .changed();
+                                    pos_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut insp.edit_pos[2]).speed(0.05),
+                                        )
+                                        .changed();
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Rot°");
+                                    rot_changed |= ui
+                                        .add(egui::DragValue::new(&mut insp.edit_rot[0]).speed(0.5))
+                                        .changed();
+                                    rot_changed |= ui
+                                        .add(egui::DragValue::new(&mut insp.edit_rot[1]).speed(0.5))
+                                        .changed();
+                                    rot_changed |= ui
+                                        .add(egui::DragValue::new(&mut insp.edit_rot[2]).speed(0.5))
+                                        .changed();
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Scale");
+                                    scale_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut insp.edit_scale[0])
+                                                .speed(0.01),
+                                        )
+                                        .changed();
+                                    scale_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut insp.edit_scale[1])
+                                                .speed(0.01),
+                                        )
+                                        .changed();
+                                    scale_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut insp.edit_scale[2])
+                                                .speed(0.01),
+                                        )
+                                        .changed();
+                                });
+                            });
+
+                        if pos_changed {
+                            insp.cmd_queue
+                                .push(bsengine_core::InspectorCmd::SetPosition {
+                                    id: sel_id,
+                                    x: insp.edit_pos[0],
+                                    y: insp.edit_pos[1],
+                                    z: insp.edit_pos[2],
+                                });
+                        }
+                        if rot_changed {
+                            insp.cmd_queue
+                                .push(bsengine_core::InspectorCmd::SetRotation {
+                                    id: sel_id,
+                                    rx: insp.edit_rot[0],
+                                    ry: insp.edit_rot[1],
+                                    rz: insp.edit_rot[2],
+                                });
+                        }
+                        if scale_changed {
+                            insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
+                                id: sel_id,
+                                sx: insp.edit_scale[0],
+                                sy: insp.edit_scale[1],
+                                sz: insp.edit_scale[2],
+                            });
                         }
                     }
                 }

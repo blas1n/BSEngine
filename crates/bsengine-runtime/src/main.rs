@@ -6,6 +6,7 @@ use bsengine_app::new_app;
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{HudTexts, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
+use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
 use bsengine_network::NetworkPlugin;
 use bsengine_physics::{Collider, PhysicsInput, PhysicsPlugin, RigidBody};
@@ -88,6 +89,7 @@ fn main() {
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(NetworkPlugin)
+        .add_plugins(EditorPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {

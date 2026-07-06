@@ -15,20 +15,20 @@
 
 ## 작업 목록
 
-### 1. UI System ← **현재 작업**
+### 1. UI System ✅
 
 **목표:** egui를 엔진에 완전 통합하여 게임 내 UI와 스크립팅 API를 제공
 
 **완료 조건:**
-- [ ] `bsengine-ui` 크레이트 (또는 `bsengine-editor`에 통합) 에서 egui 렌더링 동작
-- [ ] 기본 위젯: Panel, Button, Label, TextInput, Image
-- [ ] Scripting API: `Bsengine.ui.*` 로 JS에서 UI 조작 가능
-- [ ] 예제 게임 또는 데모에서 인게임 HUD 동작 확인
-- [ ] 테스트 추가, CI 통과
+- [x] `bsengine-ui` 크레이트 (또는 `bsengine-editor`에 통합) 에서 egui 렌더링 동작
+- [x] 기본 위젯: Panel, Button, Label, TextInput, Image
+- [x] Scripting API: `Bsengine.ui.*` 로 JS에서 UI 조작 가능
+- [x] 예제 게임 또는 데모에서 인게임 HUD 동작 확인
+- [x] 테스트 추가, CI 통과
 
 ---
 
-### 2. Animation State Machine
+### 2. Animation State Machine ← **현재 작업**
 
 **목표:** GLTF 애니메이션 클립을 상태 기계로 조합 (blend tree, 전이 조건)
 
@@ -122,4 +122,4 @@
 
 | 항목 | 완료일 | PR |
 |------|--------|----|
-| (없음) | | |
+| 1. UI System | 2026-07-06 | [#1662](https://github.com/blas1n/BSEngine/pull/1662) |

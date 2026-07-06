@@ -12,6 +12,7 @@ path = "src/main.rs"
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bevy_app.workspace = true
+bevy_ecs.workspace = true
 bsengine-window.workspace = true
 bsengine-input.workspace = true
 bsengine-rhi-wgpu.workspace = true

@@ -1,5 +1,6 @@
 pub mod angular_velocity;
 pub mod animation_player;
+pub mod animation_state_machine;
 pub mod app;
 pub mod damping;
 pub mod external_impulse;
@@ -14,6 +15,7 @@ pub mod velocity;
 
 pub use angular_velocity::AngularVelocityPlugin;
 pub use animation_player::AnimationPlugin;
+pub use animation_state_machine::AnimationStateMachinePlugin;
 pub use app::{new_app, App, BsPlugin, Last, PostUpdate, PreUpdate, Startup, Update};
 pub use damping::DampingPlugin;
 pub use external_impulse::ExternalImpulsePlugin;

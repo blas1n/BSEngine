@@ -28,20 +28,20 @@
 
 ---
 
-### 2. Animation State Machine ← **현재 작업**
+### 2. Animation State Machine ✅
 
 **목표:** GLTF 애니메이션 클립을 상태 기계로 조합 (blend tree, 전이 조건)
 
 **완료 조건:**
-- [ ] `AnimationStateMachine` 컴포넌트: 상태, 전이 조건, 현재 상태 정의
-- [ ] 상태 간 blend (crossfade) 동작
-- [ ] Scripting API: 상태 전환 트리거 가능
-- [ ] 캐릭터 idle→walk→run 전환 예제
-- [ ] 테스트 추가, CI 통과
+- [x] `AnimationStateMachine` 컴포넌트: 상태, 전이 조건, 현재 상태 정의
+- [x] 상태 간 blend (crossfade) 동작
+- [x] Scripting API: 상태 전환 트리거 가능
+- [x] 캐릭터 idle→walk→run 전환 예제
+- [x] 테스트 추가, CI 통과
 
 ---
 
-### 3. Pathfinding
+### 3. Pathfinding ← **현재 작업**
 
 **목표:** NavMesh 빌드 + 에이전트 자동 경로 탐색
 
@@ -123,3 +123,4 @@
 | 항목 | 완료일 | PR |
 |------|--------|----|
 | 1. UI System | 2026-07-06 | [#1662](https://github.com/blas1n/BSEngine/pull/1662) |
+| 2. Animation State Machine | 2026-07-06 | [#1663](https://github.com/blas1n/BSEngine/pull/1663) |

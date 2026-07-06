@@ -14995,6 +14995,28 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::NavmeshInit {
+                width,
+                depth,
+                cell_size,
+                origin_x,
+                origin_y,
+                origin_z,
+            } => {
+                use bsengine_core::NavMesh;
+                world.insert_resource(NavMesh::new(
+                    width,
+                    depth,
+                    cell_size,
+                    glam::Vec3::new(origin_x, origin_y, origin_z),
+                ));
+            }
+            ScriptCommand::NavmeshSetWalkable { x, z, walkable } => {
+                use bsengine_core::NavMesh;
+                if let Some(mut nm) = world.get_resource_mut::<NavMesh>() {
+                    nm.set_walkable(x, z, walkable);
+                }
+            }
             ScriptCommand::ApplyKnockbackDir {
                 name,
                 dx,
@@ -34769,17 +34791,6 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Yolk>(e) {
-                        w.enabled = enabled;
-                    }
-                }
-            }
-            ScriptCommand::SetYurtEnabled { name, enabled } => {
-                let entity = {
-                    let mut q = world.query::<(Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let Some(e) = entity {
-                    if let Some(mut w) = world.get_mut::<bsengine_core::Yurt>(e) {
                         w.enabled = enabled;
                     }
                 }

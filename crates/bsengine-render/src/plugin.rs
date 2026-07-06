@@ -1,8 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
-    Camera, CustomShader, DirectionalLight, GlobalTransform, HudTexts, Material, Parent,
-    PointLight, SkyboxPath, SpotLight, Transform, UiState, Visible,
+    AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, GlobalTransform, HudTexts,
+    Material, Parent, PointLight, SkyboxPath, SpotLight, ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, MouseButton, MouseState};
@@ -89,7 +89,13 @@ fn render_frame(
     mut ui_state: Option<ResMut<UiState>>,
     mouse_state: Option<Res<MouseState>>,
     mouse_buttons: Option<Res<Input<MouseButton>>>,
-    camera_query: Query<(&Camera, &Transform)>,
+    camera_query: Query<(
+        &Camera,
+        &Transform,
+        Option<&Bloom>,
+        Option<&ToneMap>,
+        Option<&AmbientOcclusion>,
+    )>,
     mesh_query: Query<(
         &MeshRenderer,
         &Transform,
@@ -138,15 +144,25 @@ fn render_frame(
         }
     }
 
-    let (view_proj, cam_pos) = camera_query
+    let (view_proj, cam_pos, cam_proj, bloom, tone_map, ambient_occlusion) = camera_query
         .iter()
         .next()
-        .map(|(cam, t)| (cam.projection_matrix() * t.view_matrix(), t.translation))
-        .unwrap_or((Mat4::IDENTITY, Vec3::ZERO));
+        .map(|(cam, t, b, tm, ao)| {
+            let proj = cam.projection_matrix();
+            (
+                proj * t.view_matrix(),
+                t.translation,
+                proj,
+                b.copied(),
+                tm.copied(),
+                ao.copied(),
+            )
+        })
+        .unwrap_or((Mat4::IDENTITY, Vec3::ZERO, Mat4::IDENTITY, None, None, None));
 
     // Rotation-only VP inverse for skybox (no translation → direction-only)
     let sky_vp_inv: Option<Mat4> = if surface.0.has_skybox() {
-        camera_query.iter().next().map(|(cam, t)| {
+        camera_query.iter().next().map(|(cam, t, _, _, _)| {
             let proj = cam.projection_matrix();
             let view = t.view_matrix();
             let view_rot = Mat4::from_cols(view.x_axis, view.y_axis, view.z_axis, Vec4::W);
@@ -277,6 +293,10 @@ fn render_frame(
         cursor_y,
         left_just_pressed,
         left_just_released,
+        cam_proj,
+        bloom,
+        tone_map,
+        ambient_occlusion,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

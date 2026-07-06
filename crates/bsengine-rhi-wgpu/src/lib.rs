@@ -1,5 +1,6 @@
 pub mod mesh;
 pub mod plugin;
+pub mod post_process;
 pub mod rhi;
 pub mod surface;
 pub mod texture;

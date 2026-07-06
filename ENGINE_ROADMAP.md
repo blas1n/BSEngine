@@ -106,15 +106,15 @@
 
 ---
 
-### 8. Runtime Inspector / Editor ← **현재 작업**
+### 8. Runtime Inspector / Editor ✅
 
 **목표:** 런타임에 엔티티/컴포넌트를 inspect 및 수정 가능
 
 **완료 조건:**
-- [ ] 엔티티 목록 패널
-- [ ] 컴포넌트 프로퍼티 인라인 편집
-- [ ] 플레이 중 값 변경이 즉시 반영
-- [ ] CI 통과
+- [x] 엔티티 목록 패널
+- [x] 컴포넌트 프로퍼티 인라인 편집
+- [x] 플레이 중 값 변경이 즉시 반영
+- [x] CI 통과
 
 ---
 
@@ -129,3 +129,4 @@
 | 5. Custom Shaders | 2026-07-06 | [#1666](https://github.com/blas1n/BSEngine/pull/1666) |
 | 6. Post-Processing | 2026-07-06 | [#1667](https://github.com/blas1n/BSEngine/pull/1667) |
 | 7. Networking | 2026-07-06 | [#1668](https://github.com/blas1n/BSEngine/pull/1668) |
+| 8. Runtime Inspector / Editor | 2026-07-06 | [#1669](https://github.com/blas1n/BSEngine/pull/1669) |

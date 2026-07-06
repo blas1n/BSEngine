@@ -11,6 +11,7 @@ pub mod amplify;
 pub mod anchor;
 pub mod angular_velocity;
 pub mod animation_player;
+pub mod animation_state_machine;
 pub mod armor;
 pub mod attach_point;
 pub mod audio_emitter;
@@ -938,6 +939,9 @@ pub use amplify::Amplify;
 pub use anchor::{Anchor, AnchorPreset};
 pub use angular_velocity::AngularVelocity;
 pub use animation_player::AnimationPlayer;
+pub use animation_state_machine::{
+    AnimationStateMachine, AsmState, AsmTransition, TransitionCondition,
+};
 pub use armor::{Armor, ArmorType};
 pub use attach_point::AttachPoint;
 pub use audio_emitter::{AudioEmitter, AudioListener};

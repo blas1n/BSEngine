@@ -17,9 +17,9 @@ use crate::ops::{
     ScriptCommand, SpawnParams, ABILITY_SNAPSHOT, ABSORPTION_SNAPSHOT, ALARM_SNAPSHOT,
     AMBIENT_OCCLUSION_SNAPSHOT, AMMO_SNAPSHOT, AMPLIFY_SNAPSHOT, ANCHOR_SNAPSHOT,
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ARMOR_SNAPSHOT,
-    BARRIER_SNAPSHOT, BEACON_SNAPSHOT, BILLBOARD_SNAPSHOT, BLEED_SNAPSHOT, BLIND_SNAPSHOT,
-    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT, BURN_SNAPSHOT,
-    CHARGE_SNAPSHOT, CHARM_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT,
+    ASM_STATE_SNAPSHOT, BARRIER_SNAPSHOT, BEACON_SNAPSHOT, BILLBOARD_SNAPSHOT, BLEED_SNAPSHOT,
+    BLIND_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUOYANCY_SNAPSHOT,
+    BURN_SNAPSHOT, CHARGE_SNAPSHOT, CHARM_SNAPSHOT, CHILDREN_SNAPSHOT, CHROM_AB_SNAPSHOT,
     COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COLOR_GRADING_SNAPSHOT, COMMAND_BUFFER,
     CONCUSS_SNAPSHOT, CONFUSE_SNAPSHOT, COOLDOWN_SNAPSHOT, CORROSION_SNAPSHOT, CRIPPLE_SNAPSHOT,
     CROSSHAIR_SNAPSHOT, CURSE_SNAPSHOT, DAMAGE_SNAPSHOT, DASH_SNAPSHOT, DAZE_SNAPSHOT,
@@ -800,6 +800,15 @@ fn run_scripts(world: &mut World) {
             );
         }
         ANIMATION_SNAPSHOT.with(|s| *s.borrow_mut() = anim_map);
+    }
+    {
+        use bsengine_core::AnimationStateMachine;
+        let mut asm_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &AnimationStateMachine)>();
+        for (name, asm) in q.iter(world) {
+            asm_map.insert(name.0.clone(), asm.current_state.clone());
+        }
+        ASM_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = asm_map);
     }
     {
         use bsengine_core::Lifetime;
@@ -14211,6 +14220,42 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut ap) = world.get_mut::<AnimationPlayer>(e) {
                         ap.looping = looping;
+                    }
+                }
+            }
+            ScriptCommand::AsmSetTrigger { name, trigger } => {
+                use bsengine_core::AnimationStateMachine;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut asm) = world.get_mut::<AnimationStateMachine>(e) {
+                        asm.set_trigger(trigger);
+                    }
+                }
+            }
+            ScriptCommand::AsmSetFloat { name, param, value } => {
+                use bsengine_core::AnimationStateMachine;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut asm) = world.get_mut::<AnimationStateMachine>(e) {
+                        asm.set_float(param, value);
+                    }
+                }
+            }
+            ScriptCommand::AsmSetBool { name, param, value } => {
+                use bsengine_core::AnimationStateMachine;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut asm) = world.get_mut::<AnimationStateMachine>(e) {
+                        asm.set_bool(param, value);
                     }
                 }
             }

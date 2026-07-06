@@ -66,7 +66,7 @@
 
 ---
 
-### 5. Custom Shaders ← **현재 작업**
+### 5. Custom Shaders ✅
 
 **목표:** WGSL 셰이더 에셋을 로드하여 머테리얼에 적용
 
@@ -79,21 +79,21 @@
 
 ---
 
-### 6. Post-Processing
+### 6. Post-Processing ✅
 
 **목표:** 렌더 파이프라인에 post-process 패스 통합
 
 **완료 조건:**
-- [ ] Bloom
-- [ ] Tone-mapping (ACES 또는 동등)
-- [ ] SSAO (Screen Space Ambient Occlusion)
-- [ ] 각 효과 on/off 및 파라미터 조절 가능
-- [ ] Scripting API: `Bsengine.postprocess.*`
-- [ ] CI 통과
+- [x] Bloom
+- [x] Tone-mapping (ACES 또는 동등)
+- [x] SSAO (Screen Space Ambient Occlusion)
+- [x] 각 효과 on/off 및 파라미터 조절 가능
+- [x] Scripting API: `Bsengine.postprocess.*`
+- [x] CI 통과
 
 ---
 
-### 7. Networking
+### 7. Networking ← **현재 작업**
 
 **목표:** 기본 클라이언트-서버 엔티티 동기화
 
@@ -126,3 +126,5 @@
 | 2. Animation State Machine | 2026-07-06 | [#1663](https://github.com/blas1n/BSEngine/pull/1663) |
 | 3. Pathfinding | 2026-07-06 | [#1664](https://github.com/blas1n/BSEngine/pull/1664) |
 | 4. Save / Serialization | 2026-07-06 | [#1665](https://github.com/blas1n/BSEngine/pull/1665) |
+| 5. Custom Shaders | 2026-07-06 | [#1666](https://github.com/blas1n/BSEngine/pull/1666) |
+| 6. Post-Processing | 2026-07-06 | [#1667](https://github.com/blas1n/BSEngine/pull/1667) |

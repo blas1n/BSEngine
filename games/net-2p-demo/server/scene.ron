@@ -1,0 +1,22 @@
+(
+    entities: [
+        (
+            name: "Cam",
+            transform: (translation: (x: 0.0, y: 5.0, z: 10.0), rotation: (x: 0.0, y: 0.0, z: 0.0, w: 1.0), scale: (x: 1.0, y: 1.0, z: 1.0)),
+            camera: Some((fov_degrees: 60.0, near: 0.1, far: 1000.0)),
+            scripts: ["main.js"],
+        ),
+        (
+            name: "ServerPlayer",
+            transform: (translation: (x: -2.0, y: 0.5, z: 0.0), rotation: (x: 0.0, y: 0.0, z: 0.0, w: 1.0), scale: (x: 1.0, y: 1.0, z: 1.0)),
+            mesh: Some(Cube),
+            material: Some((color: (r: 0.2, g: 0.6, b: 1.0, a: 1.0), metallic: 0.0, roughness: 0.8, emissive: (r: 0.0, g: 0.0, b: 0.0))),
+        ),
+        (
+            name: "ClientPlayer",
+            transform: (translation: (x: 2.0, y: 0.5, z: 0.0), rotation: (x: 0.0, y: 0.0, z: 0.0, w: 1.0), scale: (x: 1.0, y: 1.0, z: 1.0)),
+            mesh: Some(Cube),
+            material: Some((color: (r: 1.0, g: 0.3, b: 0.2, a: 1.0), metallic: 0.0, roughness: 0.8, emissive: (r: 0.0, g: 0.0, b: 0.0))),
+        ),
+    ]
+)

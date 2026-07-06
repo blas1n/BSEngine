@@ -15017,6 +15017,16 @@ fn run_scripts(world: &mut World) {
                     nm.set_walkable(x, z, walkable);
                 }
             }
+            ScriptCommand::SaveGame { path } => {
+                if let Err(e) = crate::save::save_world(world, &path) {
+                    tracing::warn!("[save] {}", e);
+                }
+            }
+            ScriptCommand::LoadGame { path } => {
+                if let Err(e) = crate::save::load_world(world, &path) {
+                    tracing::warn!("[load] {}", e);
+                }
+            }
             ScriptCommand::ApplyKnockbackDir {
                 name,
                 dx,

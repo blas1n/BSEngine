@@ -449,6 +449,7 @@ pub struct WgpuSurface {
     loaded_skybox_path: Option<String>,
     pipeline_layout: wgpu::PipelineLayout,
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
+    post_process: crate::post_process::PostProcessState,
 }
 
 impl WgpuSurface {
@@ -752,7 +753,7 @@ impl WgpuSurface {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format,
+                    format: crate::post_process::HDR_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -778,6 +779,14 @@ impl WgpuSurface {
 
         let egui_ctx = egui::Context::default();
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
+
+        let post_process = crate::post_process::PostProcessState::new(
+            &device,
+            config.width,
+            config.height,
+            &depth_view,
+            format,
+        );
 
         Ok(Self {
             _window: window,
@@ -807,6 +816,7 @@ impl WgpuSurface {
             loaded_skybox_path: None,
             pipeline_layout,
             custom_pipelines: std::collections::HashMap::new(),
+            post_process,
         })
     }
 
@@ -826,7 +836,7 @@ impl WgpuSurface {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1123,6 +1133,10 @@ impl WgpuSurface {
         cursor_y: f32,
         left_just_pressed: bool,
         left_just_released: bool,
+        cam_proj: Mat4,
+        bloom: Option<bsengine_core::Bloom>,
+        tone_map: Option<bsengine_core::ToneMap>,
+        ambient_occlusion: Option<bsengine_core::AmbientOcclusion>,
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1235,6 +1249,47 @@ impl WgpuSurface {
                 label: Some("render encoder"),
             });
 
+        // --- post-process config upload ---
+        {
+            let b = bloom.unwrap_or_default();
+            let tm = tone_map.unwrap_or_default();
+            let ao = ambient_occlusion.unwrap_or_default();
+            let tonemap_mode = match tm.mode {
+                bsengine_core::ToneMappingMode::None => 0u32,
+                bsengine_core::ToneMappingMode::Reinhard => 1,
+                bsengine_core::ToneMappingMode::ReinhardLuminance => 2,
+                bsengine_core::ToneMappingMode::Aces => 3,
+                bsengine_core::ToneMappingMode::Filmic => 4,
+            };
+            let pp_config = crate::post_process::PostProcessConfigGpu {
+                bloom_threshold: b.threshold,
+                bloom_softness: b.softness,
+                bloom_intensity: b.intensity,
+                bloom_radius: b.radius,
+                bloom_enabled: b.enabled as u32,
+                tonemap_mode,
+                tonemap_exposure: tm.exposure,
+                tonemap_enabled: tm.enabled as u32,
+                ssao_radius: ao.radius,
+                ssao_bias: ao.bias,
+                ssao_intensity: ao.intensity,
+                ssao_sample_count: ao.sample_count,
+                ssao_enabled: ao.enabled as u32,
+                _pad0: 0.0,
+                _pad1: 0.0,
+                _pad2: 0.0,
+            };
+            self.post_process.update_config(&self.queue, pp_config);
+            let inv_proj = cam_proj.inverse();
+            self.post_process.update_ssao_camera(
+                &self.queue,
+                crate::post_process::SsaoCameraGpu {
+                    proj: cam_proj.to_cols_array_2d(),
+                    inv_proj: inv_proj.to_cols_array_2d(),
+                },
+            );
+        }
+
         // --- shadow pass ---
         {
             let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1269,12 +1324,12 @@ impl WgpuSurface {
             }
         }
 
-        // --- main pass ---
+        // --- main pass (into HDR buffer) ---
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &self.post_process.hdr_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -1335,7 +1390,7 @@ impl WgpuSurface {
             let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("skybox pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &self.post_process.hdr_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
@@ -1358,6 +1413,9 @@ impl WgpuSurface {
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
         }
+
+        // --- post-process passes: bloom → SSAO → composite → surface ---
+        self.post_process.apply(&mut encoder, &view);
 
         // UI + HUD overlay via egui
         let has_ui = !hud_texts.is_empty() || !ui_state.widgets.is_empty();
@@ -1566,6 +1624,8 @@ impl WgpuSurface {
         let (depth_texture, depth_view) = Self::create_depth_texture(&self.device, width, height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;
+        self.post_process
+            .resize_targets(&self.device, &self.depth_view, width, height);
     }
 
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) {
@@ -1617,7 +1677,7 @@ impl WgpuSurface {
                     module: &shader,
                     entry_point: "fs_main",
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: self.config.format,
+                        format: crate::post_process::HDR_FORMAT,
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],

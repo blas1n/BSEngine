@@ -138,21 +138,23 @@ use crate::ops::{
     ZOECIUM_SNAPSHOT, ZOETIC_SNAPSHOT, ZOETROPE_SNAPSHOT, ZOIC_SNAPSHOT, ZOKOR_SNAPSHOT,
     ZOMBIE_SNAPSHOT, ZOMBIFY_SNAPSHOT, ZONAL_SNAPSHOT, ZONATE_SNAPSHOT, ZONATION_SNAPSHOT,
     ZONER_SNAPSHOT, ZONE_SNAPSHOT, ZONING_SNAPSHOT, ZONK_SNAPSHOT, ZOOANTHROPY_SNAPSHOT,
-    ZOOARCHAEOLOGY_SNAPSHOT, ZOOBIOTIC_SNAPSHOT, ZOOBLAST_SNAPSHOT, ZOOCARP_SNAPSHOT,
-    ZOOCHEMISTRY_SNAPSHOT, ZOOCHORY_SNAPSHOT, ZOOCHROMY_SNAPSHOT, ZOOCIDE_SNAPSHOT,
-    ZOOCOENOSIS_SNAPSHOT, ZOOCULTURE_SNAPSHOT, ZOODEME_SNAPSHOT, ZOODENDRIUM_SNAPSHOT,
-    ZOODYNAMICS_SNAPSHOT, ZOOECIUM_SNAPSHOT, ZOOECOLOGY_SNAPSHOT, ZOOFLAGELLATE_SNAPSHOT,
-    ZOOGAMY_SNAPSHOT, ZOOGENESIS_SNAPSHOT, ZOOGENIC_SNAPSHOT, ZOOGENOUS_SNAPSHOT,
-    ZOOGEOGRAPHY_SNAPSHOT, ZOOGLEA_SNAPSHOT, ZOOGNOMY_SNAPSHOT, ZOOGNOSIS_SNAPSHOT,
-    ZOOGONIUM_SNAPSHOT, ZOOGRAPHY_SNAPSHOT, ZOOHYGRIC_SNAPSHOT, ZOOID_SNAPSHOT, ZOOKEEPER_SNAPSHOT,
-    ZOOKINESIS_SNAPSHOT, ZOOLATRY_SNAPSHOT, ZOOLEMMA_SNAPSHOT, ZOOLITE_SNAPSHOT,
-    ZOOLOGICAL_SNAPSHOT, ZOOLOGIST_SNAPSHOT, ZOOLOGY_SNAPSHOT, ZOOMANCY_SNAPSHOT, ZOOMASS_SNAPSHOT,
-    ZOOMETRY_SNAPSHOT, ZOOMORPHIC_SNAPSHOT, ZOOMORPHISM_SNAPSHOT, ZOOMORPHOLOGY_SNAPSHOT,
-    ZOOMORPHOSIS_SNAPSHOT, ZOOMORPH_SNAPSHOT, ZOOM_SNAPSHOT, ZOONOMY_SNAPSHOT, ZOONOSIS_SNAPSHOT,
-    ZOONOTIC_SNAPSHOT, ZOOPARASITE_SNAPSHOT, ZOOPATHIA_SNAPSHOT, ZOOPATHOLOGY_SNAPSHOT,
-    ZOOPERY_SNAPSHOT, ZOOPHAGOUS_SNAPSHOT, ZOOPHAGY_SNAPSHOT, ZOOPHARMACOLOGY_SNAPSHOT,
-    ZOOPHILE_SNAPSHOT, ZOOPHILIA_SNAPSHOT, ZOOPHILOUS_SNAPSHOT, ZOOPHILY_SNAPSHOT,
-    ZOOPHOBIA_SNAPSHOT, ZOOPHYSICS_SNAPSHOT, ZOOPHYTE_SNAPSHOT, ZOOPLANKTON_SNAPSHOT,
+    ZOOARCHAEOLOGY_SNAPSHOT, ZOOBENTHOS_SNAPSHOT, ZOOBIOTIC_SNAPSHOT, ZOOBLAST_SNAPSHOT,
+    ZOOCARP_SNAPSHOT, ZOOCATALYSIS_SNAPSHOT, ZOOCHEMISTRY_SNAPSHOT, ZOOCHORY_SNAPSHOT,
+    ZOOCHROMY_SNAPSHOT, ZOOCIDE_SNAPSHOT, ZOOCOENOSIS_SNAPSHOT, ZOOCULTURE_SNAPSHOT,
+    ZOODEME_SNAPSHOT, ZOODENDRIUM_SNAPSHOT, ZOODYNAMICS_SNAPSHOT, ZOOECIUM_SNAPSHOT,
+    ZOOECOLOGY_SNAPSHOT, ZOOFLAGELLATE_SNAPSHOT, ZOOGAMY_SNAPSHOT, ZOOGENESIS_SNAPSHOT,
+    ZOOGENIC_SNAPSHOT, ZOOGENOUS_SNAPSHOT, ZOOGEOGRAPHY_SNAPSHOT, ZOOGLEA_SNAPSHOT,
+    ZOOGNOMY_SNAPSHOT, ZOOGNOSIS_SNAPSHOT, ZOOGONIUM_SNAPSHOT, ZOOGRAFT_SNAPSHOT,
+    ZOOGRAPHY_SNAPSHOT, ZOOHORMONE_SNAPSHOT, ZOOHYGRIC_SNAPSHOT, ZOOID_SNAPSHOT,
+    ZOOKEEPER_SNAPSHOT, ZOOKINESIS_SNAPSHOT, ZOOKINETICS_SNAPSHOT, ZOOLATRY_SNAPSHOT,
+    ZOOLEMMA_SNAPSHOT, ZOOLITE_SNAPSHOT, ZOOLOGICAL_SNAPSHOT, ZOOLOGIST_SNAPSHOT, ZOOLOGY_SNAPSHOT,
+    ZOOMANCY_SNAPSHOT, ZOOMASS_SNAPSHOT, ZOOMENOLOGY_SNAPSHOT, ZOOMETRY_SNAPSHOT,
+    ZOOMORPHIC_SNAPSHOT, ZOOMORPHISM_SNAPSHOT, ZOOMORPHOLOGY_SNAPSHOT, ZOOMORPHOSIS_SNAPSHOT,
+    ZOOMORPH_SNAPSHOT, ZOOM_SNAPSHOT, ZOONOMY_SNAPSHOT, ZOONOSIS_SNAPSHOT, ZOONOTIC_SNAPSHOT,
+    ZOOPARASITE_SNAPSHOT, ZOOPATHIA_SNAPSHOT, ZOOPATHOLOGY_SNAPSHOT, ZOOPERY_SNAPSHOT,
+    ZOOPHAGOUS_SNAPSHOT, ZOOPHAGY_SNAPSHOT, ZOOPHARMACOLOGY_SNAPSHOT, ZOOPHILE_SNAPSHOT,
+    ZOOPHILIA_SNAPSHOT, ZOOPHILOUS_SNAPSHOT, ZOOPHILY_SNAPSHOT, ZOOPHOBIA_SNAPSHOT,
+    ZOOPHOTISM_SNAPSHOT, ZOOPHYSICS_SNAPSHOT, ZOOPHYTE_SNAPSHOT, ZOOPLANKTON_SNAPSHOT,
     ZOOPLASMA_SNAPSHOT, ZOOPLASTY_SNAPSHOT, ZOOPSIA_SNAPSHOT, ZOOPSYCHOLOGY_SNAPSHOT,
     ZOOSCOPY_SNAPSHOT, ZOOSEMIOTICS_SNAPSHOT, ZOOSOCIOLOGY_SNAPSHOT, ZOOSPERMIA_SNAPSHOT,
     ZOOSPERM_SNAPSHOT, ZOOSPHERE_SNAPSHOT, ZOOSPORANGIA_SNAPSHOT, ZOOSPORE_SNAPSHOT,
@@ -9722,6 +9724,139 @@ fn run_scripts(world: &mut World) {
             );
         }
         ZOOSYMBIONT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoobenthos;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoobenthos)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.depth,
+                    c.max_depth,
+                    c.sink_rate,
+                    c.just_settled,
+                    c.just_suspended,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOBENTHOS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoocatalysis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoocatalysis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.rate,
+                    c.max_rate,
+                    c.activate_rate,
+                    c.just_activated,
+                    c.just_inhibited,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCATALYSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoograft;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoograft)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.viability,
+                    c.max_viability,
+                    c.integrate_rate,
+                    c.just_integrated,
+                    c.just_rejected,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGRAFT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoohormone;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoohormone)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.level,
+                    c.max_level,
+                    c.secrete_rate,
+                    c.just_secreted,
+                    c.just_suppressed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOHORMONE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zookinetics;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zookinetics)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.momentum,
+                    c.max_momentum,
+                    c.accelerate_rate,
+                    c.just_accelerated,
+                    c.just_decelerated,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOKINETICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomenology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomenology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.phase,
+                    c.max_phase,
+                    c.cycle_rate,
+                    c.just_peaked,
+                    c.just_troughed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMENOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophotism;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophotism)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.luminance,
+                    c.max_luminance,
+                    c.illuminate_rate,
+                    c.just_illuminated,
+                    c.just_dimmed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHOTISM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
     }
     {
         use bsengine_core::Shield;
@@ -40879,6 +41014,237 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut w) = world.get_mut::<bsengine_core::Zoosymbiont>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SettleZoobenthos { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoobenthos>(e) {
+                        w.settle(amount);
+                    }
+                }
+            }
+            ScriptCommand::SuspendZoobenthos { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoobenthos>(e) {
+                        w.suspend(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZoobenthosEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoobenthos>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::ActivateZoocatalysis { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoocatalysis>(e) {
+                        w.activate(amount);
+                    }
+                }
+            }
+            ScriptCommand::InhibitZoocatalysis { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoocatalysis>(e) {
+                        w.inhibit(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZoocatalysisEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoocatalysis>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::IntegrateZoograft { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoograft>(e) {
+                        w.integrate(amount);
+                    }
+                }
+            }
+            ScriptCommand::RejectZoograft { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoograft>(e) {
+                        w.reject(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZoograftEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoograft>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SecreteZoohormone { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoohormone>(e) {
+                        w.secrete(amount);
+                    }
+                }
+            }
+            ScriptCommand::SuppressZoohormone { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoohormone>(e) {
+                        w.suppress(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZoohormoneEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoohormone>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::AccelerateZookinetics { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zookinetics>(e) {
+                        w.accelerate(amount);
+                    }
+                }
+            }
+            ScriptCommand::DecelerateZookinetics { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zookinetics>(e) {
+                        w.decelerate(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZookineticsEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zookinetics>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::PeakZoomenology { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoomenology>(e) {
+                        w.peak(amount);
+                    }
+                }
+            }
+            ScriptCommand::TroughZoomenology { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoomenology>(e) {
+                        w.trough(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZoomenologyEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoomenology>(e) {
+                        w.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::IlluminateZoophotism { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoophotism>(e) {
+                        w.illuminate(amount);
+                    }
+                }
+            }
+            ScriptCommand::DimZoophotism { name, amount } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoophotism>(e) {
+                        w.dim(amount);
+                    }
+                }
+            }
+            ScriptCommand::SetZoophotismEnabled { name, enabled } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut w) = world.get_mut::<bsengine_core::Zoophotism>(e) {
                         w.enabled = enabled;
                     }
                 }

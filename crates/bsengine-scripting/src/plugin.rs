@@ -5,7 +5,7 @@ use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
     CursorConfig, GlobalTransform, HudTexts, Material, Parent, ScreenSize, SkyboxPath, Tag,
-    Transform, Visible,
+    Transform, UiState, UiWidget, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_physics::CollisionEvent;
@@ -76,10 +76,10 @@ use crate::ops::{
     THAW_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TINT_SNAPSHOT,
     TONE_MAP_SNAPSHOT, TRAMPLE_SNAPSHOT, TRANCE_SNAPSHOT, TRANQUIL_SNAPSHOT, TRANSFIX_SNAPSHOT,
     TRANSFORM_SNAPSHOT, TREMBLE_SNAPSHOT, TREMOR_SNAPSHOT, TRIGGER_SNAPSHOT, TROVE_SNAPSHOT,
-    TUSK_SNAPSHOT, TWEEN_SNAPSHOT, UNREST_SNAPSHOT, UPKEEP_SNAPSHOT, URGE_SNAPSHOT,
-    VELOCITY_SNAPSHOT, VENOM_SNAPSHOT, VENTURE_SNAPSHOT, VERGE_SNAPSHOT, VERIFY_SNAPSHOT,
-    VERILY_SNAPSHOT, VERMIN_SNAPSHOT, VERNAL_SNAPSHOT, VERSE_SNAPSHOT, VERTEX_SNAPSHOT,
-    VERVE_SNAPSHOT, VEST_SNAPSHOT, VEX_SNAPSHOT, VIBRATE_SNAPSHOT, VICE_SNAPSHOT,
+    TUSK_SNAPSHOT, TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, UNREST_SNAPSHOT, UPKEEP_SNAPSHOT,
+    URGE_SNAPSHOT, VELOCITY_SNAPSHOT, VENOM_SNAPSHOT, VENTURE_SNAPSHOT, VERGE_SNAPSHOT,
+    VERIFY_SNAPSHOT, VERILY_SNAPSHOT, VERMIN_SNAPSHOT, VERNAL_SNAPSHOT, VERSE_SNAPSHOT,
+    VERTEX_SNAPSHOT, VERVE_SNAPSHOT, VEST_SNAPSHOT, VEX_SNAPSHOT, VIBRATE_SNAPSHOT, VICE_SNAPSHOT,
     VIEWPORT_SNAPSHOT, VIGNETTE_SNAPSHOT, VIGOR_SNAPSHOT, VILE_SNAPSHOT, VIM_SNAPSHOT,
     VIPER_SNAPSHOT, VIRAL_SNAPSHOT, VISIBLE_SNAPSHOT, VISION_SNAPSHOT, VISIT_SNAPSHOT,
     VISTA_SNAPSHOT, VOID_SNAPSHOT, VOLLEY_SNAPSHOT, VOLUMETRIC_LIGHT_SNAPSHOT, VORTEX_SNAPSHOT,
@@ -600,6 +600,11 @@ fn run_scripts(world: &mut World) {
     MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_released);
     MOUSE_POS_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_pos);
     MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
+    let ui_clicked: Vec<String> = world
+        .get_resource::<UiState>()
+        .map(|ui| ui.clicked.iter().cloned().collect())
+        .unwrap_or_default();
+    UI_CLICKED_SNAPSHOT.with(|s| *s.borrow_mut() = ui_clicked);
     let mass_snapshot: HashMap<String, f32> = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| {
@@ -40992,6 +40997,88 @@ fn run_scripts(world: &mut World) {
             ScriptCommand::ClearHudText { id } => {
                 if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
                     hud.0.remove(&id);
+                }
+            }
+            ScriptCommand::SetUiLabel {
+                id,
+                text,
+                x,
+                y,
+                font_size,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(UiWidget::Label {
+                        id,
+                        text,
+                        x,
+                        y,
+                        font_size,
+                    });
+                }
+            }
+            ScriptCommand::SetUiButton {
+                id,
+                label,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(UiWidget::Button {
+                        id,
+                        label,
+                        x,
+                        y,
+                        width,
+                        height,
+                    });
+                }
+            }
+            ScriptCommand::SetUiPanel {
+                id,
+                title,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(UiWidget::Panel {
+                        id,
+                        title,
+                        x,
+                        y,
+                        width,
+                        height,
+                    });
+                }
+            }
+            ScriptCommand::SetUiTextInput {
+                id,
+                hint,
+                x,
+                y,
+                width,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(UiWidget::TextInput {
+                        id,
+                        hint,
+                        x,
+                        y,
+                        width,
+                    });
+                }
+            }
+            ScriptCommand::RemoveUiWidget { id } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.remove_widget(&id);
+                }
+            }
+            ScriptCommand::ClearUiWidgets => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.clear();
                 }
             }
             ScriptCommand::LoadScene { path } => {

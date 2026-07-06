@@ -2,9 +2,10 @@ use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, HudTexts, Material, Parent, PointLight, SkyboxPath,
-    SpotLight, Transform, Visible,
+    SpotLight, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
+use bsengine_input::{Input, MouseButton, MouseState};
 use bsengine_rhi_wgpu::{
     GpuMeshRegistry, GpuTextureRegistry, LightData, MaterialParams, PointLightEntry,
     SpotLightEntry, WgpuSurfaceResource,
@@ -85,6 +86,9 @@ fn render_frame(
     tex_registry: Option<Res<GpuTextureRegistry>>,
     hud_texts: Option<Res<HudTexts>>,
     skybox_path: Option<Res<SkyboxPath>>,
+    mut ui_state: Option<ResMut<UiState>>,
+    mouse_state: Option<Res<MouseState>>,
+    mouse_buttons: Option<Res<Input<MouseButton>>>,
     camera_query: Query<(&Camera, &Transform)>,
     mesh_query: Query<(
         &MeshRenderer,
@@ -102,6 +106,20 @@ fn render_frame(
     };
     let empty = std::collections::HashMap::new();
     let hud_map = hud_texts.as_deref().map(|h| &h.0).unwrap_or(&empty);
+    let empty_ui = UiState::default();
+    let ui = ui_state.as_deref().unwrap_or(&empty_ui);
+    let (cursor_x, cursor_y) = mouse_state
+        .as_deref()
+        .map(|ms| (ms.position.0 as f32, ms.position.1 as f32))
+        .unwrap_or((0.0, 0.0));
+    let left_just_pressed = mouse_buttons
+        .as_deref()
+        .map(|b| b.just_pressed(&MouseButton::Left))
+        .unwrap_or(false);
+    let left_just_released = mouse_buttons
+        .as_deref()
+        .map(|b| b.just_released(&MouseButton::Left))
+        .unwrap_or(false);
 
     // Load or reload skybox when SkyboxPath changes
     if let Some(sp) = &skybox_path {
@@ -225,7 +243,7 @@ fn render_frame(
     let light_view_proj = compute_light_view_proj(light.direction);
     let tex_reg_ref = tex_registry.as_deref();
 
-    if let Err(e) = surface.0.render_frame(
+    match surface.0.render_frame(
         view_proj,
         cam_pos,
         light_view_proj,
@@ -235,8 +253,18 @@ fn render_frame(
         light,
         tex_reg_ref,
         hud_map,
+        ui,
+        cursor_x,
+        cursor_y,
+        left_just_pressed,
+        left_just_released,
     ) {
-        tracing::warn!("render_frame error: {e}");
+        Ok(clicked) => {
+            if let Some(ref mut state) = ui_state {
+                state.clicked = clicked;
+            }
+        }
+        Err(e) => tracing::warn!("render_frame error: {e}"),
     }
 }
 
@@ -252,12 +280,13 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<WindowResized>();
-        app.add_systems(Update, update_camera_aspect);
-        app.add_systems(
-            PostUpdate,
-            (propagate_roots, propagate_children, render_frame).chain(),
-        );
+        app.init_resource::<UiState>()
+            .add_event::<WindowResized>()
+            .add_systems(Update, update_camera_aspect)
+            .add_systems(
+                PostUpdate,
+                (propagate_roots, propagate_children, render_frame).chain(),
+            );
     }
 }
 

@@ -1114,7 +1114,12 @@ impl WgpuSurface {
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         hud_texts: &std::collections::HashMap<String, String>,
-    ) -> Result<(), String> {
+        ui_state: &bsengine_core::UiState,
+        cursor_x: f32,
+        cursor_y: f32,
+        left_just_pressed: bool,
+        left_just_released: bool,
+    ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
@@ -1346,32 +1351,151 @@ impl WgpuSurface {
             sky_pass.draw(0..3, 0..1);
         }
 
-        // HUD overlay via egui
-        if !hud_texts.is_empty() {
+        // UI + HUD overlay via egui
+        let has_ui = !hud_texts.is_empty() || !ui_state.widgets.is_empty();
+        let mut clicked = std::collections::HashSet::<String>::new();
+        if has_ui {
             let screen_rect = egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
                 egui::vec2(self.config.width as f32, self.config.height as f32),
             );
+            let cursor_pos = egui::Pos2::new(cursor_x, cursor_y);
+            let mut egui_events = vec![egui::Event::PointerMoved(cursor_pos)];
+            if left_just_pressed {
+                egui_events.push(egui::Event::PointerButton {
+                    pos: cursor_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                });
+            }
+            if left_just_released {
+                egui_events.push(egui::Event::PointerButton {
+                    pos: cursor_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                });
+            }
             let raw_input = egui::RawInput {
                 screen_rect: Some(screen_rect),
+                events: egui_events,
                 ..Default::default()
             };
+
+            let mut new_text_values = ui_state.text_values.clone();
             let full_output = self.egui_ctx.run(raw_input, |ctx| {
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("hud"),
-                ));
-                let mut sorted_keys: Vec<&String> = hud_texts.keys().collect();
-                sorted_keys.sort();
-                for (i, key) in sorted_keys.iter().enumerate() {
-                    let text = &hud_texts[*key];
-                    painter.text(
-                        egui::pos2(8.0, 8.0 + i as f32 * 24.0),
-                        egui::Align2::LEFT_TOP,
-                        text,
-                        egui::FontId::proportional(20.0),
-                        egui::Color32::WHITE,
-                    );
+                // HUD texts — text-only overlay at top-left
+                if !hud_texts.is_empty() {
+                    let painter = ctx.layer_painter(egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("hud"),
+                    ));
+                    let mut sorted_keys: Vec<&String> = hud_texts.keys().collect();
+                    sorted_keys.sort();
+                    for (i, key) in sorted_keys.iter().enumerate() {
+                        let text = &hud_texts[*key];
+                        painter.text(
+                            egui::pos2(8.0, 8.0 + i as f32 * 24.0),
+                            egui::Align2::LEFT_TOP,
+                            text,
+                            egui::FontId::proportional(20.0),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                }
+
+                // Interactive UI widgets
+                for widget in &ui_state.widgets {
+                    use bsengine_core::UiWidget;
+                    match widget {
+                        UiWidget::Label {
+                            id,
+                            text,
+                            x,
+                            y,
+                            font_size,
+                        } => {
+                            egui::Area::new(egui::Id::new(id.as_str()))
+                                .fixed_pos(egui::pos2(*x, *y))
+                                .show(ctx, |ui| {
+                                    ui.label(egui::RichText::new(text.as_str()).size(*font_size));
+                                });
+                        }
+                        UiWidget::Button {
+                            id,
+                            label,
+                            x,
+                            y,
+                            width,
+                            height,
+                        } => {
+                            egui::Area::new(egui::Id::new(id.as_str()))
+                                .fixed_pos(egui::pos2(*x, *y))
+                                .show(ctx, |ui| {
+                                    if ui
+                                        .add_sized(
+                                            egui::vec2(*width, *height),
+                                            egui::Button::new(label.as_str()),
+                                        )
+                                        .clicked()
+                                    {
+                                        clicked.insert(id.clone());
+                                    }
+                                });
+                        }
+                        UiWidget::Panel {
+                            id,
+                            title,
+                            x,
+                            y,
+                            width,
+                            height,
+                        } => {
+                            egui::Window::new(title.as_str())
+                                .id(egui::Id::new(id.as_str()))
+                                .fixed_pos(egui::pos2(*x, *y))
+                                .fixed_size(egui::vec2(*width, *height))
+                                .collapsible(false)
+                                .resizable(false)
+                                .show(ctx, |_ui| {});
+                        }
+                        UiWidget::TextInput {
+                            id,
+                            hint,
+                            x,
+                            y,
+                            width,
+                        } => {
+                            let text_val = new_text_values.entry(id.clone()).or_default();
+                            egui::Area::new(egui::Id::new(id.as_str()))
+                                .fixed_pos(egui::pos2(*x, *y))
+                                .show(ctx, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(text_val)
+                                            .hint_text(hint.as_str())
+                                            .desired_width(*width),
+                                    );
+                                });
+                        }
+                        UiWidget::Image {
+                            id,
+                            x,
+                            y,
+                            width,
+                            height,
+                            ..
+                        } => {
+                            egui::Area::new(egui::Id::new(id.as_str()))
+                                .fixed_pos(egui::pos2(*x, *y))
+                                .show(ctx, |ui| {
+                                    ui.allocate_exact_size(
+                                        egui::vec2(*width, *height),
+                                        egui::Sense::hover(),
+                                    );
+                                });
+                        }
+                    }
                 }
             });
 
@@ -1397,7 +1521,7 @@ impl WgpuSurface {
             {
                 let mut egui_pass = encoder
                     .begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("egui hud pass"),
+                        label: Some("egui ui pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
                             resolve_target: None,
@@ -1416,11 +1540,12 @@ impl WgpuSurface {
             for id in &full_output.textures_delta.free {
                 self.egui_renderer.free_texture(id);
             }
+            let _ = new_text_values;
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        Ok(())
+        Ok(clicked)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

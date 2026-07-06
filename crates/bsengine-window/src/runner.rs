@@ -6,7 +6,7 @@ use winit::event::{DeviceEvent, DeviceId, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use bsengine_core::ScreenSize;
+use bsengine_core::{CursorPos, ScreenSize};
 
 use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized};
 
@@ -131,6 +131,10 @@ impl ApplicationHandler for BsWinitApp {
                         x: position.x,
                         y: position.y,
                     });
+                }
+                if let Some(mut cp) = self.ecs_app.world_mut().get_resource_mut::<CursorPos>() {
+                    cp.x = position.x as f32;
+                    cp.y = position.y as f32;
                 }
             }
             WindowEvent::RedrawRequested => {

@@ -2,7 +2,7 @@ use crate::runner::winit_runner;
 use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized};
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::*;
-use bsengine_core::CursorConfig;
+use bsengine_core::{CursorConfig, CursorPos};
 use winit::window::CursorGrabMode;
 
 #[derive(Default)]
@@ -13,6 +13,7 @@ pub struct WindowPlugin {
 impl Plugin for WindowPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.descriptor.clone())
+            .init_resource::<CursorPos>()
             .add_event::<WindowCreated>()
             .add_event::<WindowResized>()
             .add_event::<WindowClosed>()

@@ -6,19 +6,21 @@ use crate::{
     state::Input,
     types::{
         CursorMoved, ElementState, GamepadButton, GamepadSticks, KeyCode, KeyInput, MouseButton,
-        MouseInput, MouseMotion,
+        MouseInput, MouseMotion, MouseWheel,
     },
 };
 
 pub struct GilrsResource(gilrs::Gilrs);
 
-/// Per-frame mouse position and raw movement delta.
+/// Per-frame mouse position, raw movement delta, and scroll wheel delta.
 /// `position` tracks the last cursor position (pixels, top-left origin).
 /// `delta` accumulates raw mouse motion for the current frame and resets each frame.
+/// `scroll_delta` accumulates scroll wheel input for the current frame and resets each frame.
 #[derive(Resource, Default, Clone)]
 pub struct MouseState {
     pub position: (f64, f64),
     pub delta: (f64, f64),
+    pub scroll_delta: f64,
 }
 
 pub struct InputPlugin;
@@ -29,6 +31,7 @@ impl Plugin for InputPlugin {
             .add_event::<MouseInput>()
             .add_event::<CursorMoved>()
             .add_event::<MouseMotion>()
+            .add_event::<MouseWheel>()
             .insert_resource(Input::<KeyCode>::default())
             .insert_resource(Input::<MouseButton>::default())
             .insert_resource(Input::<GamepadButton>::default())
@@ -41,6 +44,7 @@ impl Plugin for InputPlugin {
                     update_keyboard_state,
                     update_mouse_button_state,
                     update_mouse_position_state,
+                    update_scroll_state,
                 )
                     .chain(),
             );
@@ -59,10 +63,12 @@ fn clear_input_state(
     mut keys: ResMut<Input<KeyCode>>,
     mut buttons: ResMut<Input<MouseButton>>,
     mut gamepad: ResMut<Input<GamepadButton>>,
+    mut mouse: ResMut<MouseState>,
 ) {
     keys.clear_transient();
     buttons.clear_transient();
     gamepad.clear_transient();
+    mouse.scroll_delta = 0.0;
 }
 
 fn poll_gamepad_events(
@@ -152,6 +158,15 @@ fn update_mouse_position_state(
     for ev in motion_events.read() {
         mouse_state.delta.0 += ev.dx;
         mouse_state.delta.1 += ev.dy;
+    }
+}
+
+fn update_scroll_state(
+    mut mouse_state: ResMut<MouseState>,
+    mut wheel_events: EventReader<MouseWheel>,
+) {
+    for ev in wheel_events.read() {
+        mouse_state.scroll_delta += ev.delta;
     }
 }
 

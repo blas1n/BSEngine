@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 bsengine-ecs    = { workspace = true }
+bsengine-input  = { workspace = true }
 bsengine-mcp    = { workspace = true }
 bsengine-scene  = { workspace = true }
 bsengine-core   = { workspace = true }

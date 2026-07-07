@@ -500,9 +500,69 @@ fn parse_position(s: &str) -> Option<[f32; 3]> {
     }
 }
 
+fn update_editor_camera(
+    inspector: Option<ResMut<InspectorState>>,
+    mouse: Option<bsengine_ecs::Res<bsengine_input::MouseState>>,
+    buttons: Option<bsengine_ecs::Res<bsengine_input::Input<bsengine_input::MouseButton>>>,
+) {
+    let Some(mut insp) = inspector else { return };
+    if !insp.editor_mode {
+        return;
+    }
+
+    if let (Some(mouse), Some(buttons)) = (mouse, buttons) {
+        if insp.viewport_contains_cursor {
+            let dx = mouse.delta.0 as f32;
+            let dy = mouse.delta.1 as f32;
+            let scroll = mouse.scroll_delta as f32;
+
+            if buttons.is_pressed(&bsengine_input::MouseButton::Right) {
+                insp.cam_yaw -= dx * 0.005;
+                insp.cam_pitch = (insp.cam_pitch - dy * 0.005).clamp(-1.5, 1.5);
+            }
+
+            if buttons.is_pressed(&bsengine_input::MouseButton::Middle) {
+                let right =
+                    glam::Vec3::new(insp.cam_yaw.sin(), 0.0, -insp.cam_yaw.cos());
+                let speed = 0.01 * insp.cam_distance;
+                let target = glam::Vec3::from(insp.cam_target)
+                    - right * dx * speed
+                    + glam::Vec3::Y * dy * speed;
+                insp.cam_target = target.to_array();
+            }
+
+            if scroll != 0.0 {
+                insp.cam_distance =
+                    (insp.cam_distance - scroll * insp.cam_distance * 0.1).max(0.5);
+            }
+        }
+    }
+
+    let aspect = if insp.viewport_size[1] > 0.0 {
+        insp.viewport_size[0] / insp.viewport_size[1]
+    } else {
+        16.0 / 9.0
+    };
+    let pitch = insp.cam_pitch;
+    let yaw = insp.cam_yaw;
+    let dist = insp.cam_distance;
+    let target = glam::Vec3::from(insp.cam_target);
+    let eye = target
+        + glam::Vec3::new(
+            dist * yaw.cos() * pitch.cos(),
+            dist * pitch.sin(),
+            dist * yaw.sin() * pitch.cos(),
+        );
+    let view = glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y);
+    let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.1, 1000.0);
+    insp.editor_view_proj = Some((proj * view).to_cols_array_2d());
+    insp.editor_proj = proj.to_cols_array_2d();
+    insp.editor_cam_pos = eye.to_array();
+}
+
 fn populate_inspector(
     snapshot_res: Res<EditorSnapshotResource>,
-    mut inspector: Option<ResMut<InspectorState>>,
+    inspector: Option<ResMut<InspectorState>>,
 ) {
     let Some(mut inspector) = inspector else {
         return;
@@ -522,7 +582,7 @@ fn populate_inspector(
 }
 
 fn apply_inspector_cmds(
-    mut inspector: Option<ResMut<InspectorState>>,
+    inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
 ) {
     let Some(mut inspector) = inspector else {
@@ -561,6 +621,7 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorSelectionResource(selection.clone()));
         app.insert_resource(InspectorState::default());
         app.add_systems(Update, update_editor_snapshot);
+        app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);

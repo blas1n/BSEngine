@@ -92,6 +92,14 @@ pub struct MouseMotion {
     pub dy: f64,
 }
 
+/// Scroll wheel delta for the current frame.
+/// Positive = scroll up / zoom in; negative = scroll down / zoom out.
+/// Line deltas are passed as-is; pixel deltas are normalised by 40 px/line.
+#[derive(Event, Debug, Clone)]
+pub struct MouseWheel {
+    pub delta: f64,
+}
+
 /// Gamepad face and shoulder buttons. Bit indices match the scripting API (0=South..15=DPadRight).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadButton {

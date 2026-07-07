@@ -1108,7 +1108,7 @@ pub use imbue::Imbue;
 pub use immune::Immune;
 pub use impact::Impact;
 pub use input_map::{Binding, InputCode, InputMap};
-pub use inspector::{InspectorCmd, InspectorEntityInfo, InspectorState};
+pub use inspector::{EditorPlayState, InspectorCmd, InspectorEntityInfo, InspectorState};
 pub use interactable::{InteractTrigger, Interactable};
 pub use intercept::Intercept;
 pub use interrupt::Interrupt;

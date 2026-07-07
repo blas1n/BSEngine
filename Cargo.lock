@@ -556,6 +556,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "bsengine-editor-app"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "bsengine-app",
+ "bsengine-core",
+ "bsengine-ecs",
+ "bsengine-editor",
+ "bsengine-gltf",
+ "bsengine-input",
+ "bsengine-render",
+ "bsengine-rhi-wgpu",
+ "bsengine-scene",
+ "bsengine-window",
+ "glam 0.29.3",
+]
+
+[[package]]
 name = "bsengine-gltf"
 version = "0.1.0"
 dependencies = [

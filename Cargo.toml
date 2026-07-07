@@ -23,6 +23,7 @@ members = [
     "games/cube-roller",
     "games/cube-evader",
     "crates/bsengine-network",
+    "apps/bsengine-editor-app",
 ]
 
 [workspace.package]

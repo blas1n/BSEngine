@@ -78,6 +78,13 @@ impl Default for InspectorState {
 }
 
 impl InspectorState {
+    pub fn editor() -> Self {
+        Self {
+            editor_mode: true,
+            ..Default::default()
+        }
+    }
+
     pub fn sync_selection(&mut self) {
         if self.selected_id != self.prev_selected_id {
             self.prev_selected_id = self.selected_id;

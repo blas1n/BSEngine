@@ -106,14 +106,20 @@
 
 ---
 
-### 8. Runtime Inspector / Editor ✅
+### 8. Editor Viewport (Unity/Unreal 수준) ✅
 
-**목표:** 런타임에 엔티티/컴포넌트를 inspect 및 수정 가능
+**목표:** Unity/Unreal 수준의 씬 에디터 — 오프스크린 렌더 텍스처 뷰포트, 에디터 카메라, Play/Stop 툴바, 도킹 패널 레이아웃
 
 **완료 조건:**
-- [x] 엔티티 목록 패널
-- [x] 컴포넌트 프로퍼티 인라인 편집
-- [x] 플레이 중 값 변경이 즉시 반영
+- [x] 씬을 스왑체인 대신 오프스크린 `wgpu::Texture`로 렌더링 (editor mode)
+- [x] egui `CentralPanel`에 씬 텍스처 표시 (render-to-texture)
+- [x] 에디터 오빗 카메라: 우클릭 드래그=오빗, 중간클릭 드래그=팬, 스크롤=줌
+- [x] Toolbar (Play ▶ / Stop ■ 토글)
+- [x] Hierarchy 패널 (엔티티 목록 + 선택)
+- [x] Inspector 패널 (Transform DragValue 편집)
+- [x] 오버레이 모드 유지 (editor_mode=false 시 기존 런타임 인스펙터)
+- [x] `MouseWheel` 이벤트 + `scroll_delta` InputPlugin에 추가
+- [x] RenderPlugin: editor_mode 시 InspectorState 카메라 행렬로 view/proj 오버라이드
 - [x] CI 통과
 
 ---
@@ -129,4 +135,5 @@
 | 5. Custom Shaders | 2026-07-06 | [#1666](https://github.com/blas1n/BSEngine/pull/1666) |
 | 6. Post-Processing | 2026-07-06 | [#1667](https://github.com/blas1n/BSEngine/pull/1667) |
 | 7. Networking | 2026-07-06 | [#1668](https://github.com/blas1n/BSEngine/pull/1668) |
-| 8. Runtime Inspector / Editor | 2026-07-06 | [#1669](https://github.com/blas1n/BSEngine/pull/1669) |
+| 8. Runtime Inspector / Editor (debug overlay) | 2026-07-06 | [#1669](https://github.com/blas1n/BSEngine/pull/1669) |
+| 8. Editor Viewport (Unity/Unreal 수준) | 2026-07-07 | [#1670](https://github.com/blas1n/BSEngine/pull/1670) |

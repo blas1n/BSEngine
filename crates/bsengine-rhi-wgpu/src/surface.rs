@@ -557,7 +557,9 @@ impl WgpuSurface {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(96),
+                    min_binding_size: wgpu::BufferSize::new(
+                        std::mem::size_of::<ModelUniformData>() as u64,
+                    ),
                 },
                 count: None,
             }],

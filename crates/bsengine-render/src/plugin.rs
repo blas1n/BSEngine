@@ -146,21 +146,33 @@ fn render_frame(
         }
     }
 
-    let (view_proj, cam_pos, cam_proj, bloom, tone_map, ambient_occlusion) = camera_query
-        .iter()
-        .next()
-        .map(|(cam, t, b, tm, ao)| {
-            let proj = cam.projection_matrix();
-            (
-                proj * t.view_matrix(),
-                t.translation,
-                proj,
-                b.copied(),
-                tm.copied(),
-                ao.copied(),
-            )
-        })
-        .unwrap_or((Mat4::IDENTITY, Vec3::ZERO, Mat4::IDENTITY, None, None, None));
+    let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion) =
+        camera_query
+            .iter()
+            .next()
+            .map(|(cam, t, b, tm, ao)| {
+                let proj = cam.projection_matrix();
+                (
+                    proj * t.view_matrix(),
+                    t.translation,
+                    proj,
+                    b.copied(),
+                    tm.copied(),
+                    ao.copied(),
+                )
+            })
+            .unwrap_or((Mat4::IDENTITY, Vec3::ZERO, Mat4::IDENTITY, None, None, None));
+
+    // In editor mode, override camera matrices from orbit camera computed by EditorPlugin
+    if let Some(insp) = inspector.as_deref() {
+        if insp.editor_mode {
+            if let Some(vp) = insp.editor_view_proj {
+                view_proj = Mat4::from_cols_array_2d(&vp);
+            }
+            cam_pos = Vec3::from(insp.editor_cam_pos);
+            cam_proj = Mat4::from_cols_array_2d(&insp.editor_proj);
+        }
+    }
 
     // Rotation-only VP inverse for skybox (no translation → direction-only)
     let sky_vp_inv: Option<Mat4> = if surface.0.has_skybox() {

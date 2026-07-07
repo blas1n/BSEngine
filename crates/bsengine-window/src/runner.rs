@@ -137,6 +137,21 @@ impl ApplicationHandler for BsWinitApp {
                     cp.y = position.y as f32;
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                use bevy_ecs::event::Events;
+                use bsengine_input::MouseWheel;
+                let scroll = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64,
+                    winit::event::MouseScrollDelta::PixelDelta(d) => d.y / 40.0,
+                };
+                if let Some(mut events) = self
+                    .ecs_app
+                    .world_mut()
+                    .get_resource_mut::<Events<MouseWheel>>()
+                {
+                    events.send(MouseWheel { delta: scroll });
+                }
+            }
             WindowEvent::RedrawRequested => {
                 self.ecs_app.update();
                 if let Some(w) = &self.window {

@@ -450,6 +450,9 @@ pub struct WgpuSurface {
     pipeline_layout: wgpu::PipelineLayout,
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
+    scene_view_texture: wgpu::Texture,
+    scene_view_view: wgpu::TextureView,
+    scene_view_egui_id: egui::TextureId,
 }
 
 impl WgpuSurface {
@@ -778,7 +781,7 @@ impl WgpuSurface {
         });
 
         let egui_ctx = egui::Context::default();
-        let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
+        let mut egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
         let post_process = crate::post_process::PostProcessState::new(
             &device,
@@ -786,6 +789,14 @@ impl WgpuSurface {
             config.height,
             &depth_view,
             format,
+        );
+
+        let (scene_view_texture, scene_view_view) =
+            Self::create_scene_view_texture(&device, config.width, config.height, format);
+        let scene_view_egui_id = egui_renderer.register_native_texture(
+            &device,
+            &scene_view_view,
+            wgpu::FilterMode::Linear,
         );
 
         Ok(Self {
@@ -817,7 +828,34 @@ impl WgpuSurface {
             pipeline_layout,
             custom_pipelines: std::collections::HashMap::new(),
             post_process,
+            scene_view_texture,
+            scene_view_view,
+            scene_view_egui_id,
         })
+    }
+
+    fn create_scene_view_texture(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("scene view texture"),
+            size: wgpu::Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
     }
 
     fn create_depth_texture(
@@ -1415,11 +1453,23 @@ impl WgpuSurface {
             sky_pass.draw(0..3, 0..1);
         }
 
-        // --- post-process passes: bloom → SSAO → composite → surface ---
-        self.post_process.apply(&mut encoder, &view);
+        // --- post-process passes: bloom → SSAO → composite → surface or scene_view ---
+        let is_editor = inspector.as_ref().map(|i| i.editor_mode).unwrap_or(false);
+        if is_editor {
+            crate::post_process::PostProcessState::apply(
+                &self.post_process,
+                &mut encoder,
+                &self.scene_view_view,
+            );
+        } else {
+            self.post_process.apply(&mut encoder, &view);
+        }
 
-        // UI + HUD overlay via egui
-        let has_ui = !hud_texts.is_empty() || !ui_state.widgets.is_empty() || inspector.is_some();
+        // UI + HUD overlay via egui (always on in editor mode)
+        let has_ui = is_editor
+            || !hud_texts.is_empty()
+            || !ui_state.widgets.is_empty()
+            || inspector.is_some();
         let mut clicked = std::collections::HashSet::<String>::new();
         if has_ui {
             let screen_rect = egui::Rect::from_min_size(
@@ -1451,6 +1501,7 @@ impl WgpuSurface {
             };
 
             let mut new_text_values = ui_state.text_values.clone();
+            let scene_view_egui_id = self.scene_view_egui_id;
             let full_output = self.egui_ctx.run(raw_input, |ctx| {
                 // HUD texts — text-only overlay at top-left
                 if !hud_texts.is_empty() {
@@ -1565,132 +1616,322 @@ impl WgpuSurface {
                     }
                 }
 
-                // Runtime inspector panels
+                // Runtime inspector panels / full editor layout
                 if let Some(insp) = inspector.as_deref_mut() {
-                    let entities_snapshot = insp.entities.clone();
-                    let current_sel = insp.selected_id;
-                    let mut new_sel = insp.selected_id;
-
-                    egui::SidePanel::left("bse_insp_entities")
-                        .default_width(200.0)
-                        .show(ctx, |ui| {
-                            ui.heading("Entities");
-                            ui.separator();
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                for info in &entities_snapshot {
-                                    let label = info.name.as_deref().unwrap_or("(unnamed)");
-                                    let text = format!("[{}] {}", info.id, label);
-                                    if ui
-                                        .selectable_label(current_sel == Some(info.id), text)
-                                        .clicked()
+                    if insp.editor_mode {
+                        // ── Full editor layout ──
+                        let play_label =
+                            if insp.play_state == bsengine_core::EditorPlayState::Playing {
+                                "■  Stop"
+                            } else {
+                                "▶  Play"
+                            };
+                        egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
+                            ui.horizontal(|ui| {
+                                if ui.button(play_label).clicked() {
+                                    insp.play_state = if insp.play_state
+                                        == bsengine_core::EditorPlayState::Playing
                                     {
-                                        new_sel = Some(info.id);
-                                    }
+                                        bsengine_core::EditorPlayState::Stopped
+                                    } else {
+                                        bsengine_core::EditorPlayState::Playing
+                                    };
                                 }
+                                ui.separator();
+                                let mode_label =
+                                    if insp.play_state == bsengine_core::EditorPlayState::Playing {
+                                        "● Playing"
+                                    } else {
+                                        "◆ Editor"
+                                    };
+                                ui.label(mode_label);
                             });
                         });
 
-                    if new_sel != insp.selected_id {
-                        insp.selected_id = new_sel;
-                        insp.sync_selection();
-                    }
-
-                    if let Some(sel_id) = insp.selected_id {
-                        let entity_name = insp
-                            .entities
-                            .iter()
-                            .find(|e| e.id == sel_id)
-                            .and_then(|e| e.name.as_deref().map(String::from))
-                            .unwrap_or_else(|| format!("Entity {sel_id}"));
-
-                        let mut pos_changed = false;
-                        let mut rot_changed = false;
-                        let mut scale_changed = false;
-
-                        egui::SidePanel::right("bse_insp_props")
+                        let entities_snapshot = insp.entities.clone();
+                        let current_sel = insp.selected_id;
+                        let mut new_sel = insp.selected_id;
+                        egui::SidePanel::left("bse_hierarchy")
                             .default_width(220.0)
                             .show(ctx, |ui| {
-                                ui.heading(&entity_name);
+                                ui.heading("Hierarchy");
                                 ui.separator();
-                                ui.strong("Transform");
-                                ui.horizontal(|ui| {
-                                    ui.label("Pos");
-                                    pos_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut insp.edit_pos[0]).speed(0.05),
-                                        )
-                                        .changed();
-                                    pos_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut insp.edit_pos[1]).speed(0.05),
-                                        )
-                                        .changed();
-                                    pos_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut insp.edit_pos[2]).speed(0.05),
-                                        )
-                                        .changed();
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    for info in &entities_snapshot {
+                                        let label = info.name.as_deref().unwrap_or("(unnamed)");
+                                        let text = format!("[{}] {}", info.id, label);
+                                        if ui
+                                            .selectable_label(current_sel == Some(info.id), text)
+                                            .clicked()
+                                        {
+                                            new_sel = Some(info.id);
+                                        }
+                                    }
                                 });
-                                ui.horizontal(|ui| {
-                                    ui.label("Rot°");
-                                    rot_changed |= ui
-                                        .add(egui::DragValue::new(&mut insp.edit_rot[0]).speed(0.5))
-                                        .changed();
-                                    rot_changed |= ui
-                                        .add(egui::DragValue::new(&mut insp.edit_rot[1]).speed(0.5))
-                                        .changed();
-                                    rot_changed |= ui
-                                        .add(egui::DragValue::new(&mut insp.edit_rot[2]).speed(0.5))
-                                        .changed();
+                            });
+                        if new_sel != insp.selected_id {
+                            insp.selected_id = new_sel;
+                            insp.sync_selection();
+                        }
+
+                        if let Some(sel_id) = insp.selected_id {
+                            let entity_name = insp
+                                .entities
+                                .iter()
+                                .find(|e| e.id == sel_id)
+                                .and_then(|e| e.name.as_deref().map(String::from))
+                                .unwrap_or_else(|| format!("Entity {sel_id}"));
+                            let mut pos_changed = false;
+                            let mut rot_changed = false;
+                            let mut scale_changed = false;
+                            egui::SidePanel::right("bse_inspector")
+                                .default_width(260.0)
+                                .show(ctx, |ui| {
+                                    ui.heading(&entity_name);
+                                    ui.separator();
+                                    ui.strong("Transform");
+                                    ui.horizontal(|ui| {
+                                        ui.label("Pos");
+                                        pos_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_pos[0])
+                                                    .speed(0.05),
+                                            )
+                                            .changed();
+                                        pos_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_pos[1])
+                                                    .speed(0.05),
+                                            )
+                                            .changed();
+                                        pos_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_pos[2])
+                                                    .speed(0.05),
+                                            )
+                                            .changed();
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Rot°");
+                                        rot_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_rot[0])
+                                                    .speed(0.5),
+                                            )
+                                            .changed();
+                                        rot_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_rot[1])
+                                                    .speed(0.5),
+                                            )
+                                            .changed();
+                                        rot_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_rot[2])
+                                                    .speed(0.5),
+                                            )
+                                            .changed();
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Scale");
+                                        scale_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_scale[0])
+                                                    .speed(0.01),
+                                            )
+                                            .changed();
+                                        scale_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_scale[1])
+                                                    .speed(0.01),
+                                            )
+                                            .changed();
+                                        scale_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_scale[2])
+                                                    .speed(0.01),
+                                            )
+                                            .changed();
+                                    });
                                 });
-                                ui.horizontal(|ui| {
-                                    ui.label("Scale");
-                                    scale_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut insp.edit_scale[0])
-                                                .speed(0.01),
-                                        )
-                                        .changed();
-                                    scale_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut insp.edit_scale[1])
-                                                .speed(0.01),
-                                        )
-                                        .changed();
-                                    scale_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut insp.edit_scale[2])
-                                                .speed(0.01),
-                                        )
-                                        .changed();
+                            if pos_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::SetPosition {
+                                        id: sel_id,
+                                        x: insp.edit_pos[0],
+                                        y: insp.edit_pos[1],
+                                        z: insp.edit_pos[2],
+                                    });
+                            }
+                            if rot_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::SetRotation {
+                                        id: sel_id,
+                                        rx: insp.edit_rot[0],
+                                        ry: insp.edit_rot[1],
+                                        rz: insp.edit_rot[2],
+                                    });
+                            }
+                            if scale_changed {
+                                insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
+                                    id: sel_id,
+                                    sx: insp.edit_scale[0],
+                                    sy: insp.edit_scale[1],
+                                    sz: insp.edit_scale[2],
+                                });
+                            }
+                        }
+
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let avail = ui.available_size();
+                            insp.viewport_size = [avail.x, avail.y];
+                            let panel_rect = ui.max_rect();
+                            insp.viewport_contains_cursor =
+                                panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
+                            ui.add(egui::Image::new(egui::load::SizedTexture::new(
+                                scene_view_egui_id,
+                                avail,
+                            )));
+                        });
+                    } else {
+                        // Overlay mode: side panels rendered over the running game
+                        let entities_snapshot = insp.entities.clone();
+                        let current_sel = insp.selected_id;
+                        let mut new_sel = insp.selected_id;
+
+                        egui::SidePanel::left("bse_insp_entities")
+                            .default_width(200.0)
+                            .show(ctx, |ui| {
+                                ui.heading("Entities");
+                                ui.separator();
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    for info in &entities_snapshot {
+                                        let label = info.name.as_deref().unwrap_or("(unnamed)");
+                                        let text = format!("[{}] {}", info.id, label);
+                                        if ui
+                                            .selectable_label(current_sel == Some(info.id), text)
+                                            .clicked()
+                                        {
+                                            new_sel = Some(info.id);
+                                        }
+                                    }
                                 });
                             });
 
-                        if pos_changed {
-                            insp.cmd_queue
-                                .push(bsengine_core::InspectorCmd::SetPosition {
-                                    id: sel_id,
-                                    x: insp.edit_pos[0],
-                                    y: insp.edit_pos[1],
-                                    z: insp.edit_pos[2],
-                                });
+                        if new_sel != insp.selected_id {
+                            insp.selected_id = new_sel;
+                            insp.sync_selection();
                         }
-                        if rot_changed {
-                            insp.cmd_queue
-                                .push(bsengine_core::InspectorCmd::SetRotation {
-                                    id: sel_id,
-                                    rx: insp.edit_rot[0],
-                                    ry: insp.edit_rot[1],
-                                    rz: insp.edit_rot[2],
+
+                        if let Some(sel_id) = insp.selected_id {
+                            let entity_name = insp
+                                .entities
+                                .iter()
+                                .find(|e| e.id == sel_id)
+                                .and_then(|e| e.name.as_deref().map(String::from))
+                                .unwrap_or_else(|| format!("Entity {sel_id}"));
+
+                            let mut pos_changed = false;
+                            let mut rot_changed = false;
+                            let mut scale_changed = false;
+
+                            egui::SidePanel::right("bse_insp_props")
+                                .default_width(220.0)
+                                .show(ctx, |ui| {
+                                    ui.heading(&entity_name);
+                                    ui.separator();
+                                    ui.strong("Transform");
+                                    ui.horizontal(|ui| {
+                                        ui.label("Pos");
+                                        pos_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_pos[0])
+                                                    .speed(0.05),
+                                            )
+                                            .changed();
+                                        pos_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_pos[1])
+                                                    .speed(0.05),
+                                            )
+                                            .changed();
+                                        pos_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_pos[2])
+                                                    .speed(0.05),
+                                            )
+                                            .changed();
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Rot°");
+                                        rot_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_rot[0])
+                                                    .speed(0.5),
+                                            )
+                                            .changed();
+                                        rot_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_rot[1])
+                                                    .speed(0.5),
+                                            )
+                                            .changed();
+                                        rot_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_rot[2])
+                                                    .speed(0.5),
+                                            )
+                                            .changed();
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Scale");
+                                        scale_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_scale[0])
+                                                    .speed(0.01),
+                                            )
+                                            .changed();
+                                        scale_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_scale[1])
+                                                    .speed(0.01),
+                                            )
+                                            .changed();
+                                        scale_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut insp.edit_scale[2])
+                                                    .speed(0.01),
+                                            )
+                                            .changed();
+                                    });
                                 });
-                        }
-                        if scale_changed {
-                            insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
-                                id: sel_id,
-                                sx: insp.edit_scale[0],
-                                sy: insp.edit_scale[1],
-                                sz: insp.edit_scale[2],
-                            });
+
+                            if pos_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::SetPosition {
+                                        id: sel_id,
+                                        x: insp.edit_pos[0],
+                                        y: insp.edit_pos[1],
+                                        z: insp.edit_pos[2],
+                                    });
+                            }
+                            if rot_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::SetRotation {
+                                        id: sel_id,
+                                        rx: insp.edit_rot[0],
+                                        ry: insp.edit_rot[1],
+                                        rz: insp.edit_rot[2],
+                                    });
+                            }
+                            if scale_changed {
+                                insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
+                                    id: sel_id,
+                                    sx: insp.edit_scale[0],
+                                    sy: insp.edit_scale[1],
+                                    sz: insp.edit_scale[2],
+                                });
+                            }
                         }
                     }
                 }
@@ -1757,6 +1998,16 @@ impl WgpuSurface {
         self.depth_view = depth_view;
         self.post_process
             .resize_targets(&self.device, &self.depth_view, width, height);
+        let (sv_texture, sv_view) =
+            Self::create_scene_view_texture(&self.device, width, height, self.config.format);
+        self.egui_renderer.update_egui_texture_from_wgpu_texture(
+            &self.device,
+            &sv_view,
+            wgpu::FilterMode::Linear,
+            self.scene_view_egui_id,
+        );
+        self.scene_view_texture = sv_texture;
+        self.scene_view_view = sv_view;
     }
 
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) {

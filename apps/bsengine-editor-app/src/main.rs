@@ -18,6 +18,19 @@ use std::env;
 fn main() {
     let scene_path = env::args().nth(1);
 
+    // Derive the game project root from the scene file path so that relative
+    // script paths (e.g. "assets/scripts/player.js") resolve correctly.
+    // Convention: scene lives at <project_root>/assets/<subdir>/<file>.ron
+    // so we walk up 3 parent segments from the file to reach the root.
+    let project_dir = scene_path
+        .as_deref()
+        .and_then(|p| std::path::Path::new(p).parent()) // <root>/assets/<subdir>
+        .and_then(|p| p.parent()) // <root>/assets
+        .and_then(|p| p.parent()) // <root>
+        .and_then(|p| p.to_str())
+        .unwrap_or(".")
+        .to_string();
+
     let mut app = new_app();
     app.add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
@@ -32,7 +45,7 @@ fn main() {
         .add_plugins(GltfPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(EditorPlugin)
-        .add_plugins(ScriptingPlugin::default())
+        .add_plugins(ScriptingPlugin { project_dir })
         .add_systems(Update, resolve_primitives)
         .insert_resource(InspectorState::editor());
 

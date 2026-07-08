@@ -162,6 +162,16 @@ pub enum EditorCommand {
         inner_angle: Option<f32>,
         outer_angle: Option<f32>,
     },
+    AttachPointLight {
+        entity_id: u64,
+        color: [f32; 3],
+        intensity: f32,
+        range: f32,
+    },
+    AttachCamera {
+        entity_id: u64,
+        fov_y_degrees: f32,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

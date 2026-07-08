@@ -454,6 +454,29 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::AttachPointLight {
+                entity_id,
+                color,
+                intensity,
+                range,
+            } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).insert(PointLight {
+                        color: glam::Vec3::from(color),
+                        intensity,
+                        range,
+                    });
+                }
+            }
+            EditorCommand::AttachCamera { entity_id, fov_y_degrees } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .insert(Camera::perspective(fov_y_degrees, 16.0 / 9.0));
+                }
+            }
             EditorCommand::LoadScene(path) => {
                 let content = match std::fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -577,6 +600,12 @@ fn populate_inspector(
             position: e.position,
             rotation: e.rotation,
             scale: e.scale,
+            light_type: e.light_type.clone(),
+            light_color: e.light_color,
+            light_intensity: e.light_intensity,
+            light_range: e.light_range,
+            camera_fov: e.camera_fov,
+            visible: e.visible,
         })
         .collect();
 }
@@ -603,6 +632,40 @@ fn apply_inspector_cmds(
             }
             InspectorCmd::SetScale { id, sx, sy, sz } => {
                 queue.push(EditorCommand::SetScale { entity_id: id, sx, sy, sz });
+            }
+            InspectorCmd::SpawnEntity { name } => {
+                queue.push(EditorCommand::SpawnNamed(name));
+            }
+            InspectorCmd::Despawn { id } => {
+                queue.push(EditorCommand::Despawn { entity_id: id });
+            }
+            InspectorCmd::UpdateLight { id, color, intensity, range } => {
+                queue.push(EditorCommand::UpdatePointLight {
+                    entity_id: id,
+                    color,
+                    intensity,
+                    range,
+                });
+            }
+            InspectorCmd::UpdateCamera { id, fov_y_degrees } => {
+                queue.push(EditorCommand::UpdateCamera { entity_id: id, fov_y_degrees });
+            }
+            InspectorCmd::SetVisible { id, visible } => {
+                queue.push(EditorCommand::SetVisible { entity_id: id, visible });
+            }
+            InspectorCmd::AddPointLight { id } => {
+                queue.push(EditorCommand::AttachPointLight {
+                    entity_id: id,
+                    color: [1.0, 1.0, 1.0],
+                    intensity: 1.0,
+                    range: 10.0,
+                });
+            }
+            InspectorCmd::AddCamera { id } => {
+                queue.push(EditorCommand::AttachCamera {
+                    entity_id: id,
+                    fov_y_degrees: 60.0,
+                });
             }
         }
     }

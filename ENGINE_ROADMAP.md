@@ -108,11 +108,10 @@
 
 ### 8. Editor Viewport (Unity/Unreal 수준) ✅
 
-**목표:** Unity/Unreal 수준의 씬 에디터 — 오프스크린 렌더 텍스처 뷰포트, 에디터 카메라, Play/Stop 툴바, 도킹 패널 레이아웃
+**목표:** Unity/Unreal 수준의 씬 에디터 — 씬 뷰포트, 에디터 카메라, Play/Stop 툴바, 도킹 패널 레이아웃
 
 **완료 조건:**
-- [x] 씬을 스왑체인 대신 오프스크린 `wgpu::Texture`로 렌더링 (editor mode)
-- [x] egui `CentralPanel`에 씬 텍스처 표시 (render-to-texture)
+- [x] 씬이 CentralPanel에 보임 (투명 패널로 swapchain 통과, egui 패널은 불투명 오버레이)
 - [x] 에디터 오빗 카메라: 우클릭 드래그=오빗, 중간클릭 드래그=팬, 스크롤=줌
 - [x] Toolbar (Play ▶ / Stop ■ 토글)
 - [x] Hierarchy 패널 (엔티티 목록 + 선택)
@@ -121,6 +120,23 @@
 - [x] `MouseWheel` 이벤트 + `scroll_delta` InputPlugin에 추가
 - [x] RenderPlugin: editor_mode 시 InspectorState 카메라 행렬로 view/proj 오버라이드
 - [x] CI 통과
+
+---
+
+### 9. Editor Full Feature Parity (Unity/Unreal 수준)
+
+**목표:** 에디터에서 엔진의 모든 기능을 사용할 수 있도록 — 엔티티 추가/제거, 모든 컴포넌트 편집, 에셋 드롭
+
+**완료 조건:**
+- [ ] Hierarchy: 엔티티 추가 버튼 (+) → 빈 엔티티 스폰
+- [ ] Hierarchy: 선택된 엔티티 삭제 버튼 (−)
+- [ ] Inspector: 컴포넌트 목록 표시 (엔티티가 가진 모든 컴포넌트)
+- [ ] Inspector: Camera 컴포넌트 편집 (fov, near, far)
+- [ ] Inspector: DirectionalLight / PointLight / SpotLight 편집 (color, intensity, range)
+- [ ] Inspector: Material/PBR 파라미터 편집 (base_color, metallic, roughness, emissive)
+- [ ] Inspector: 컴포넌트 추가 드롭다운 (Add Component)
+- [ ] Scripting 이벤트(play/stop)를 에디터 Play/Stop과 연동
+- [ ] CI 통과
 
 ---
 
@@ -138,3 +154,4 @@
 | 8. Runtime Inspector / Editor (debug overlay) | 2026-07-06 | [#1669](https://github.com/blas1n/BSEngine/pull/1669) |
 | 8. Editor Viewport (Unity/Unreal 수준) | 2026-07-07 | [#1670](https://github.com/blas1n/BSEngine/pull/1670) |
 | 8. Standalone Editor Binary | 2026-07-07 | [#1671](https://github.com/blas1n/BSEngine/pull/1671) |
+| 8. Fix blank viewport (transparent CentralPanel) | 2026-07-08 | [#1674](https://github.com/blas1n/BSEngine/pull/1674) |

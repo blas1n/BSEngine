@@ -10,6 +10,7 @@ use bsengine_rhi_wgpu::{
     WgpuRHIPlugin,
 };
 use bsengine_scene::{Primitive, PrimitiveMesh, ScenePlugin};
+use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 use glam::{Quat, Vec3};
 use std::env;
@@ -31,6 +32,7 @@ fn main() {
         .add_plugins(GltfPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(EditorPlugin)
+        .add_plugins(ScriptingPlugin::default())
         .add_systems(Update, resolve_primitives)
         .insert_resource(InspectorState::editor());
 

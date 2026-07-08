@@ -19,7 +19,8 @@ bsengine-gltf   = { workspace = true }
 bsengine-input  = { workspace = true }
 bsengine-render = { workspace = true }
 bsengine-rhi-wgpu = { workspace = true }
-bsengine-scene  = { workspace = true }
-bsengine-window = { workspace = true }
+bsengine-scene     = { workspace = true }
+bsengine-scripting = { workspace = true }
+bsengine-window    = { workspace = true }
 bevy_ecs        = { workspace = true }
 glam            = { workspace = true }

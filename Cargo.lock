@@ -569,6 +569,7 @@ dependencies = [
  "bsengine-render",
  "bsengine-rhi-wgpu",
  "bsengine-scene",
+ "bsengine-scripting",
  "bsengine-window",
  "glam 0.29.3",
 ]

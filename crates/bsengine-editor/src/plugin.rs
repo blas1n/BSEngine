@@ -7,7 +7,7 @@ use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, InspectorCmd, InspectorEntityInfo, InspectorState,
-    Parent, PointLight, SpotLight, Transform,
+    Material, Parent, PointLight, SpotLight, Transform,
 };
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
@@ -31,6 +31,7 @@ fn update_editor_snapshot(
         Option<&Parent>,
         Option<&Tags>,
         Option<&Visible>,
+        Option<&Material>,
     )>,
 ) {
     let selection = selection_res.0.lock().unwrap().clone();
@@ -38,7 +39,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis)| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat)| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -71,6 +72,10 @@ fn update_editor_snapshot(
                     light_intensity,
                     light_range,
                     camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
+                    material_base_color: mat.map(|m| m.base_color.to_array()),
+                    material_metallic: mat.map(|m| m.metallic),
+                    material_roughness: mat.map(|m| m.roughness),
+                    material_emissive: mat.map(|m| m.emissive.to_array()),
                     parent_id: parent.map(|p| p.0.index() as u64),
                     tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
                     visible: vis.map(|v| v.0).unwrap_or(true),
@@ -92,6 +97,7 @@ fn process_editor_commands(
         Query<(Entity, &mut SpotLight)>,
         Query<(Entity, &mut Camera)>,
         Query<(Entity, &mut Tags)>,
+        Query<(Entity, &mut Material)>,
     )>,
     mut commands: Commands,
 ) {
@@ -454,6 +460,54 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::UpdateMaterial {
+                entity_id,
+                base_color,
+                metallic,
+                roughness,
+                emissive,
+            } => {
+                for (e, mut mat) in params.p7().iter_mut() {
+                    if e.index() as u64 == entity_id {
+                        if let Some(c) = base_color {
+                            mat.base_color = glam::Vec3::from(c);
+                        }
+                        if let Some(m) = metallic {
+                            mat.metallic = m;
+                        }
+                        if let Some(r) = roughness {
+                            mat.roughness = r;
+                        }
+                        if let Some(em) = emissive {
+                            mat.emissive = glam::Vec3::from(em);
+                        }
+                        break;
+                    }
+                }
+            }
+            EditorCommand::AttachPointLight {
+                entity_id,
+                color,
+                intensity,
+                range,
+            } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).insert(PointLight {
+                        color: glam::Vec3::from(color),
+                        intensity,
+                        range,
+                    });
+                }
+            }
+            EditorCommand::AttachCamera { entity_id, fov_y_degrees } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .insert(Camera::perspective(fov_y_degrees, 16.0 / 9.0));
+                }
+            }
             EditorCommand::LoadScene(path) => {
                 let content = match std::fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -577,6 +631,16 @@ fn populate_inspector(
             position: e.position,
             rotation: e.rotation,
             scale: e.scale,
+            light_type: e.light_type.clone(),
+            light_color: e.light_color,
+            light_intensity: e.light_intensity,
+            light_range: e.light_range,
+            camera_fov: e.camera_fov,
+            material_base_color: e.material_base_color,
+            material_metallic: e.material_metallic,
+            material_roughness: e.material_roughness,
+            material_emissive: e.material_emissive,
+            visible: e.visible,
         })
         .collect();
 }
@@ -603,6 +667,49 @@ fn apply_inspector_cmds(
             }
             InspectorCmd::SetScale { id, sx, sy, sz } => {
                 queue.push(EditorCommand::SetScale { entity_id: id, sx, sy, sz });
+            }
+            InspectorCmd::SpawnEntity { name } => {
+                queue.push(EditorCommand::SpawnNamed(name));
+            }
+            InspectorCmd::Despawn { id } => {
+                queue.push(EditorCommand::Despawn { entity_id: id });
+            }
+            InspectorCmd::UpdateLight { id, color, intensity, range } => {
+                queue.push(EditorCommand::UpdatePointLight {
+                    entity_id: id,
+                    color,
+                    intensity,
+                    range,
+                });
+            }
+            InspectorCmd::UpdateCamera { id, fov_y_degrees } => {
+                queue.push(EditorCommand::UpdateCamera { entity_id: id, fov_y_degrees });
+            }
+            InspectorCmd::SetVisible { id, visible } => {
+                queue.push(EditorCommand::SetVisible { entity_id: id, visible });
+            }
+            InspectorCmd::AddPointLight { id } => {
+                queue.push(EditorCommand::AttachPointLight {
+                    entity_id: id,
+                    color: [1.0, 1.0, 1.0],
+                    intensity: 1.0,
+                    range: 10.0,
+                });
+            }
+            InspectorCmd::AddCamera { id } => {
+                queue.push(EditorCommand::AttachCamera {
+                    entity_id: id,
+                    fov_y_degrees: 60.0,
+                });
+            }
+            InspectorCmd::UpdateMaterial { id, base_color, metallic, roughness, emissive } => {
+                queue.push(EditorCommand::UpdateMaterial {
+                    entity_id: id,
+                    base_color,
+                    metallic,
+                    roughness,
+                    emissive,
+                });
             }
         }
     }

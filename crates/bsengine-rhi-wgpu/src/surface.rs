@@ -1606,10 +1606,24 @@ impl WgpuSurface {
                         let entities_snapshot = insp.entities.clone();
                         let current_sel = insp.selected_id;
                         let mut new_sel = insp.selected_id;
+                        let mut spawn_entity = false;
+                        let mut despawn_entity = false;
                         egui::SidePanel::left("bse_hierarchy")
                             .default_width(220.0)
                             .show(ctx, |ui| {
                                 ui.heading("Hierarchy");
+                                ui.separator();
+                                ui.horizontal(|ui| {
+                                    if ui.button("＋").clicked() {
+                                        spawn_entity = true;
+                                    }
+                                    if ui
+                                        .add_enabled(current_sel.is_some(), egui::Button::new("－"))
+                                        .clicked()
+                                    {
+                                        despawn_entity = true;
+                                    }
+                                });
                                 ui.separator();
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     for info in &entities_snapshot {
@@ -1624,91 +1638,243 @@ impl WgpuSurface {
                                     }
                                 });
                             });
+                        if spawn_entity {
+                            insp.cmd_queue
+                                .push(bsengine_core::InspectorCmd::SpawnEntity {
+                                    name: format!("Entity {}", entities_snapshot.len()),
+                                });
+                        }
+                        if despawn_entity {
+                            if let Some(id) = current_sel {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::Despawn { id });
+                                insp.selected_id = None;
+                            }
+                        }
                         if new_sel != insp.selected_id {
                             insp.selected_id = new_sel;
                             insp.sync_selection();
                         }
 
                         if let Some(sel_id) = insp.selected_id {
-                            let entity_name = insp
-                                .entities
+                            let sel_info = entities_snapshot
                                 .iter()
                                 .find(|e| e.id == sel_id)
-                                .and_then(|e| e.name.as_deref().map(String::from))
+                                .cloned()
+                                .unwrap_or_default();
+                            let entity_name = sel_info
+                                .name
+                                .as_deref()
+                                .map(String::from)
                                 .unwrap_or_else(|| format!("Entity {sel_id}"));
+                            let has_transform = sel_info.position.is_some();
+                            let light_type = sel_info.light_type.clone();
+                            let has_camera = sel_info.camera_fov.is_some();
+                            let has_material = sel_info.material_base_color.is_some();
+
                             let mut pos_changed = false;
                             let mut rot_changed = false;
                             let mut scale_changed = false;
+                            let mut light_changed = false;
+                            let mut cam_fov_changed = false;
+                            let mut mat_changed = false;
+                            let mut visible_changed = false;
+                            let mut add_point_light = false;
+                            let mut add_camera = false;
+
                             egui::SidePanel::right("bse_inspector")
                                 .default_width(260.0)
                                 .show(ctx, |ui| {
                                     ui.heading(&entity_name);
                                     ui.separator();
-                                    ui.strong("Transform");
+
+                                    // Visible toggle
+                                    if ui.checkbox(&mut insp.edit_visible, "Visible").changed() {
+                                        visible_changed = true;
+                                    }
+                                    ui.separator();
+
+                                    // Transform
+                                    if has_transform {
+                                        ui.strong("Transform");
+                                        ui.horizontal(|ui| {
+                                            ui.label("Pos");
+                                            pos_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_pos[0])
+                                                        .speed(0.05),
+                                                )
+                                                .changed();
+                                            pos_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_pos[1])
+                                                        .speed(0.05),
+                                                )
+                                                .changed();
+                                            pos_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_pos[2])
+                                                        .speed(0.05),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Rot°");
+                                            rot_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_rot[0])
+                                                        .speed(0.5),
+                                                )
+                                                .changed();
+                                            rot_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_rot[1])
+                                                        .speed(0.5),
+                                                )
+                                                .changed();
+                                            rot_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_rot[2])
+                                                        .speed(0.5),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Scale");
+                                            scale_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_scale[0])
+                                                        .speed(0.01),
+                                                )
+                                                .changed();
+                                            scale_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_scale[1])
+                                                        .speed(0.01),
+                                                )
+                                                .changed();
+                                            scale_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_scale[2])
+                                                        .speed(0.01),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.separator();
+                                    }
+
+                                    // Light
+                                    if let Some(lt) = &light_type {
+                                        ui.strong(format!("Light ({})", lt));
+                                        ui.horizontal(|ui| {
+                                            ui.label("Color");
+                                            light_changed |= ui
+                                                .color_edit_button_rgb(&mut insp.edit_light_color)
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Intensity");
+                                            light_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut insp.edit_light_intensity,
+                                                    )
+                                                    .speed(0.05)
+                                                    .range(0.0..=f32::MAX),
+                                                )
+                                                .changed();
+                                        });
+                                        if lt != "directional" {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Range");
+                                                light_changed |= ui
+                                                    .add(
+                                                        egui::DragValue::new(
+                                                            &mut insp.edit_light_range,
+                                                        )
+                                                        .speed(0.1)
+                                                        .range(0.1..=f32::MAX),
+                                                    )
+                                                    .changed();
+                                            });
+                                        }
+                                        ui.separator();
+                                    }
+
+                                    // Camera
+                                    if has_camera {
+                                        ui.strong("Camera");
+                                        ui.horizontal(|ui| {
+                                            ui.label("FOV°");
+                                            cam_fov_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(&mut insp.edit_camera_fov)
+                                                        .speed(0.5)
+                                                        .range(10.0..=170.0),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.separator();
+                                    }
+
+                                    // Material
+                                    if has_material {
+                                        ui.strong("Material");
+                                        ui.horizontal(|ui| {
+                                            ui.label("Base Color");
+                                            mat_changed |= ui
+                                                .color_edit_button_rgb(
+                                                    &mut insp.edit_mat_base_color,
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Metallic");
+                                            mat_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut insp.edit_mat_metallic,
+                                                    )
+                                                    .speed(0.01)
+                                                    .range(0.0..=1.0),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Roughness");
+                                            mat_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut insp.edit_mat_roughness,
+                                                    )
+                                                    .speed(0.01)
+                                                    .range(0.0..=1.0),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Emissive");
+                                            mat_changed |= ui
+                                                .color_edit_button_rgb(&mut insp.edit_mat_emissive)
+                                                .changed();
+                                        });
+                                        ui.separator();
+                                    }
+
+                                    // Add Component
+                                    ui.strong("Add Component");
                                     ui.horizontal(|ui| {
-                                        ui.label("Pos");
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[0])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[1])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[2])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("Rot°");
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[0])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[1])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[2])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("Scale");
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[0])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[1])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[2])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
+                                        if light_type.is_none()
+                                            && ui.button("Point Light").clicked()
+                                        {
+                                            add_point_light = true;
+                                        }
+                                        if !has_camera && ui.button("Camera").clicked() {
+                                            add_camera = true;
+                                        }
                                     });
                                 });
+
                             if pos_changed {
                                 insp.cmd_queue
                                     .push(bsengine_core::InspectorCmd::SetPosition {
@@ -1734,6 +1900,49 @@ impl WgpuSurface {
                                     sy: insp.edit_scale[1],
                                     sz: insp.edit_scale[2],
                                 });
+                            }
+                            if light_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::UpdateLight {
+                                        id: sel_id,
+                                        color: Some(insp.edit_light_color),
+                                        intensity: Some(insp.edit_light_intensity),
+                                        range: Some(insp.edit_light_range),
+                                    });
+                            }
+                            if cam_fov_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::UpdateCamera {
+                                        id: sel_id,
+                                        fov_y_degrees: Some(insp.edit_camera_fov),
+                                    });
+                            }
+                            if mat_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::UpdateMaterial {
+                                        id: sel_id,
+                                        base_color: Some(insp.edit_mat_base_color),
+                                        metallic: Some(insp.edit_mat_metallic),
+                                        roughness: Some(insp.edit_mat_roughness),
+                                        emissive: Some(insp.edit_mat_emissive),
+                                    });
+                            }
+                            if visible_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::SetVisible {
+                                        id: sel_id,
+                                        visible: insp.edit_visible,
+                                    });
+                            }
+                            if add_point_light {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::AddPointLight {
+                                        id: sel_id,
+                                    });
+                            }
+                            if add_camera {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::AddCamera { id: sel_id });
                             }
                         }
 

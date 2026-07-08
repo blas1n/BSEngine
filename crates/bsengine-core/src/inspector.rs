@@ -7,12 +7,73 @@ pub struct InspectorEntityInfo {
     pub position: Option<[f32; 3]>,
     pub rotation: Option<[f32; 3]>,
     pub scale: Option<[f32; 3]>,
+    // light
+    pub light_type: Option<String>,
+    pub light_color: Option<[f32; 3]>,
+    pub light_intensity: Option<f32>,
+    pub light_range: Option<f32>,
+    // camera
+    pub camera_fov: Option<f32>,
+    // material
+    pub material_base_color: Option<[f32; 3]>,
+    pub material_metallic: Option<f32>,
+    pub material_roughness: Option<f32>,
+    pub material_emissive: Option<[f32; 3]>,
+    pub visible: bool,
 }
 
 pub enum InspectorCmd {
-    SetPosition { id: u64, x: f32, y: f32, z: f32 },
-    SetRotation { id: u64, rx: f32, ry: f32, rz: f32 },
-    SetScale { id: u64, sx: f32, sy: f32, sz: f32 },
+    SetPosition {
+        id: u64,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    SetRotation {
+        id: u64,
+        rx: f32,
+        ry: f32,
+        rz: f32,
+    },
+    SetScale {
+        id: u64,
+        sx: f32,
+        sy: f32,
+        sz: f32,
+    },
+    SpawnEntity {
+        name: String,
+    },
+    Despawn {
+        id: u64,
+    },
+    UpdateLight {
+        id: u64,
+        color: Option<[f32; 3]>,
+        intensity: Option<f32>,
+        range: Option<f32>,
+    },
+    UpdateCamera {
+        id: u64,
+        fov_y_degrees: Option<f32>,
+    },
+    SetVisible {
+        id: u64,
+        visible: bool,
+    },
+    AddPointLight {
+        id: u64,
+    },
+    AddCamera {
+        id: u64,
+    },
+    UpdateMaterial {
+        id: u64,
+        base_color: Option<[f32; 3]>,
+        metallic: Option<f32>,
+        roughness: Option<f32>,
+        emissive: Option<[f32; 3]>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -30,6 +91,15 @@ pub struct InspectorState {
     pub edit_pos: [f32; 3],
     pub edit_rot: [f32; 3],
     pub edit_scale: [f32; 3],
+    pub edit_light_color: [f32; 3],
+    pub edit_light_intensity: f32,
+    pub edit_light_range: f32,
+    pub edit_camera_fov: f32,
+    pub edit_mat_base_color: [f32; 3],
+    pub edit_mat_metallic: f32,
+    pub edit_mat_roughness: f32,
+    pub edit_mat_emissive: [f32; 3],
+    pub edit_visible: bool,
     prev_selected_id: Option<u64>,
 
     // Editor mode toggle and play state
@@ -61,6 +131,15 @@ impl Default for InspectorState {
             edit_pos: [0.0; 3],
             edit_rot: [0.0; 3],
             edit_scale: [1.0, 1.0, 1.0],
+            edit_light_color: [1.0, 1.0, 1.0],
+            edit_light_intensity: 1.0,
+            edit_light_range: 10.0,
+            edit_camera_fov: 60.0,
+            edit_mat_base_color: [1.0, 1.0, 1.0],
+            edit_mat_metallic: 0.0,
+            edit_mat_roughness: 0.5,
+            edit_mat_emissive: [0.0, 0.0, 0.0],
+            edit_visible: true,
             prev_selected_id: None,
             editor_mode: false,
             play_state: EditorPlayState::Stopped,
@@ -93,6 +172,15 @@ impl InspectorState {
                     self.edit_pos = info.position.unwrap_or([0.0; 3]);
                     self.edit_rot = info.rotation.unwrap_or([0.0; 3]);
                     self.edit_scale = info.scale.unwrap_or([1.0, 1.0, 1.0]);
+                    self.edit_light_color = info.light_color.unwrap_or([1.0, 1.0, 1.0]);
+                    self.edit_light_intensity = info.light_intensity.unwrap_or(1.0);
+                    self.edit_light_range = info.light_range.unwrap_or(10.0);
+                    self.edit_camera_fov = info.camera_fov.unwrap_or(60.0);
+                    self.edit_mat_base_color = info.material_base_color.unwrap_or([1.0, 1.0, 1.0]);
+                    self.edit_mat_metallic = info.material_metallic.unwrap_or(0.0);
+                    self.edit_mat_roughness = info.material_roughness.unwrap_or(0.5);
+                    self.edit_mat_emissive = info.material_emissive.unwrap_or([0.0, 0.0, 0.0]);
+                    self.edit_visible = info.visible;
                 }
             }
         }
@@ -122,6 +210,7 @@ mod tests {
             position: Some([1.0, 2.0, 3.0]),
             rotation: Some([10.0, 20.0, 30.0]),
             scale: Some([2.0, 2.0, 2.0]),
+            ..Default::default()
         });
         s.selected_id = Some(1);
         s.sync_selection();
@@ -137,8 +226,7 @@ mod tests {
             id: 1,
             name: None,
             position: Some([5.0, 0.0, 0.0]),
-            rotation: None,
-            scale: None,
+            ..Default::default()
         });
         s.selected_id = Some(1);
         s.sync_selection();
@@ -153,10 +241,7 @@ mod tests {
         let mut s = InspectorState::default();
         s.entities.push(InspectorEntityInfo {
             id: 2,
-            name: None,
-            position: None,
-            rotation: None,
-            scale: None,
+            ..Default::default()
         });
         s.selected_id = Some(2);
         s.sync_selection();
@@ -168,5 +253,36 @@ mod tests {
     fn editor_cam_default_distance() {
         let s = InspectorState::default();
         assert!((s.cam_distance - 10.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sync_selection_loads_light_params() {
+        let mut s = InspectorState::default();
+        s.entities.push(InspectorEntityInfo {
+            id: 3,
+            light_type: Some("point".into()),
+            light_color: Some([0.5, 0.8, 1.0]),
+            light_intensity: Some(2.5),
+            light_range: Some(20.0),
+            ..Default::default()
+        });
+        s.selected_id = Some(3);
+        s.sync_selection();
+        assert_eq!(s.edit_light_color, [0.5, 0.8, 1.0]);
+        assert!((s.edit_light_intensity - 2.5).abs() < 1e-6);
+        assert!((s.edit_light_range - 20.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sync_selection_loads_camera_fov() {
+        let mut s = InspectorState::default();
+        s.entities.push(InspectorEntityInfo {
+            id: 4,
+            camera_fov: Some(90.0),
+            ..Default::default()
+        });
+        s.selected_id = Some(4);
+        s.sync_selection();
+        assert!((s.edit_camera_fov - 90.0).abs() < 1e-6);
     }
 }

@@ -1,12 +1,16 @@
-use bevy_app::PostStartup;
+use bevy_app::{PostStartup, Update};
 use bsengine_app::new_app;
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Parent, PointLight, Transform};
-use bsengine_ecs::{Commands, Res, ResMut};
+use bsengine_ecs::{Added, Commands, Entity, Query, Res, ResMut};
 use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
 use bsengine_mcp::{McpPlugin, McpRegistryResource, McpServer};
 use bsengine_render::{MeshRenderer, RenderPlugin};
-use bsengine_rhi_wgpu::{cube_vertices, GpuMeshRegistry, WgpuRHIPlugin};
+use bsengine_rhi_wgpu::{
+    capsule_vertices, cube_vertices, plane_vertices, sphere_vertices, GpuMeshRegistry,
+    WgpuRHIPlugin,
+};
+use bsengine_scene::{Primitive, PrimitiveMesh};
 use bsengine_window::WindowPlugin;
 use glam::Vec3;
 
@@ -19,6 +23,7 @@ fn main() {
         .add_plugins(McpPlugin)
         .add_plugins(EditorPlugin)
         .add_systems(PostStartup, (setup, start_mcp_server))
+        .add_systems(Update, resolve_primitives)
         .run();
 }
 
@@ -27,6 +32,39 @@ fn start_mcp_server(registry: Res<McpRegistryResource>) {
     std::thread::spawn(move || {
         McpServer::new(arc).run_stdio();
     });
+}
+
+fn resolve_primitives(
+    query: Query<(Entity, &PrimitiveMesh), Added<PrimitiveMesh>>,
+    mut commands: Commands,
+    registry: Option<ResMut<GpuMeshRegistry>>,
+) {
+    let Some(mut registry) = registry else { return };
+    let mut cube_id: Option<u64> = None;
+    let mut sphere_id: Option<u64> = None;
+    let mut plane_id: Option<u64> = None;
+    let mut capsule_id: Option<u64> = None;
+    for (entity, prim) in query.iter() {
+        let mesh_id = match &prim.0 {
+            Primitive::Cube => *cube_id.get_or_insert_with(|| {
+                let (v, i) = cube_vertices();
+                registry.register(&v, &i)
+            }),
+            Primitive::Sphere => *sphere_id.get_or_insert_with(|| {
+                let (v, i) = sphere_vertices();
+                registry.register(&v, &i)
+            }),
+            Primitive::Plane => *plane_id.get_or_insert_with(|| {
+                let (v, i) = plane_vertices();
+                registry.register(&v, &i)
+            }),
+            Primitive::Capsule => *capsule_id.get_or_insert_with(|| {
+                let (v, i) = capsule_vertices();
+                registry.register(&v, &i)
+            }),
+        };
+        commands.entity(entity).insert(MeshRenderer { mesh_id });
+    }
 }
 
 fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {

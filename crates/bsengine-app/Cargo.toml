@@ -19,6 +19,7 @@ bsengine-rhi-wgpu.workspace = true
 bsengine-render.workspace = true
 bsengine-mcp.workspace = true
 bsengine-editor.workspace = true
+bsengine-scene.workspace = true
 glam.workspace = true
 
 [dev-dependencies]

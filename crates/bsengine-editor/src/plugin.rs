@@ -12,7 +12,7 @@ use bsengine_core::{
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
 use bsengine_render::MeshRenderer;
-use bsengine_scene::{EntityDescriptor, Name, SceneDescriptor};
+use bsengine_scene::{EntityDescriptor, Name, PrimitiveMesh, SceneDescriptor};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
@@ -524,33 +524,52 @@ fn process_editor_commands(
                     }
                 };
                 for entity in scene.entities {
-                    let pos = entity.components.iter().find_map(|(k, v)| {
-                        if k == "transform_position" {
-                            parse_position(v)
-                        } else {
-                            None
-                        }
-                    });
-                    if let Some([x, y, z]) = pos {
-                        commands.spawn((
-                            Name(entity.name),
-                            Transform::from_translation(glam::Vec3::new(x, y, z)),
+                    let mut eb = commands.spawn(Name(entity.name));
+                    if let Some(t) = &entity.transform {
+                        let rotation = glam::Quat::from_xyzw(
+                            t.rotation[0],
+                            t.rotation[1],
+                            t.rotation[2],
+                            t.rotation[3],
+                        );
+                        eb.insert((
+                            Transform {
+                                translation: glam::Vec3::from(t.translation),
+                                rotation,
+                                scale: glam::Vec3::from(t.scale),
+                            },
+                            GlobalTransform::default(),
                         ));
-                    } else {
-                        commands.spawn(Name(entity.name));
+                    }
+                    if let Some(prim) = &entity.primitive {
+                        eb.insert(PrimitiveMesh(prim.clone()));
+                    }
+                    if entity.camera {
+                        eb.insert(Camera::default());
+                    }
+                    if let Some(dl) = &entity.directional_light {
+                        eb.insert(DirectionalLight {
+                            direction: glam::Vec3::from(dl.direction),
+                            color: glam::Vec3::from(dl.color),
+                            ambient: glam::Vec3::from(dl.ambient),
+                        });
+                    }
+                    if entity.emissive.is_some() || entity.color.is_some() {
+                        eb.insert(Material {
+                            emissive: entity
+                                .emissive
+                                .map(glam::Vec3::from)
+                                .unwrap_or(glam::Vec3::ZERO),
+                            base_color: entity
+                                .color
+                                .map(glam::Vec3::from)
+                                .unwrap_or(glam::Vec3::ONE),
+                            ..Default::default()
+                        });
                     }
                 }
             }
         }
-    }
-}
-
-fn parse_position(s: &str) -> Option<[f32; 3]> {
-    let parts: Vec<f32> = s.split(',').filter_map(|p| p.trim().parse().ok()).collect();
-    if parts.len() == 3 {
-        Some([parts[0], parts[1], parts[2]])
-    } else {
-        None
     }
 }
 
@@ -726,7 +745,7 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
         app.insert_resource(EditorSelectionResource(selection.clone()));
-        app.insert_resource(InspectorState::default());
+        app.insert_resource(InspectorState::editor());
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -903,17 +922,37 @@ impl Plugin for EditorPlugin {
                         .iter()
                         .filter_map(|e| {
                             e.name.as_ref().map(|name| {
-                                let mut components = Vec::new();
-                                if let Some([x, y, z]) = e.position {
-                                    components.push((
-                                        "transform_position".to_string(),
-                                        format!("{x},{y},{z}"),
-                                    ));
-                                }
+                                let transform =
+                                    if e.position.is_some()
+                                        || e.rotation.is_some()
+                                        || e.scale.is_some()
+                                    {
+                                        let translation =
+                                            e.position.unwrap_or([0.0, 0.0, 0.0]);
+                                        let scale = e.scale.unwrap_or([1.0, 1.0, 1.0]);
+                                        let quat = if let Some([rx, ry, rz]) = e.rotation {
+                                            let q = glam::Quat::from_euler(
+                                                glam::EulerRot::XYZ,
+                                                rx.to_radians(),
+                                                ry.to_radians(),
+                                                rz.to_radians(),
+                                            );
+                                            [q.x, q.y, q.z, q.w]
+                                        } else {
+                                            [0.0, 0.0, 0.0, 1.0]
+                                        };
+                                        Some(bsengine_scene::TransformDescriptor {
+                                            translation,
+                                            rotation: quat,
+                                            scale,
+                                        })
+                                    } else {
+                                        None
+                                    };
                                 EntityDescriptor {
                                     name: name.clone(),
-                                    components,
-                                    transform: None,
+                                    components: Vec::new(),
+                                    transform,
                                     gltf: None,
                                     camera: false,
                                     directional_light: None,

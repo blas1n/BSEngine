@@ -4,8 +4,8 @@ use bevy_app::{App, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    CursorConfig, CustomShader, GlobalTransform, HudTexts, Material, Parent, ScreenSize,
-    SkyboxPath, Tag, Transform, UiState, UiWidget, Visible,
+    CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts, InspectorState,
+    Material, Parent, ScreenSize, SkyboxPath, Tag, Transform, UiState, UiWidget, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_network::NetworkSession;
@@ -308,6 +308,13 @@ const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
 ];
 
 fn run_scripts(world: &mut World) {
+    // In editor mode, only run scripts when Play is active
+    if let Some(insp) = world.get_resource::<InspectorState>() {
+        if insp.editor_mode && insp.play_state == EditorPlayState::Stopped {
+            return;
+        }
+    }
+
     {
         let mut q = world.query::<&Script>();
         if q.iter(world).next().is_none() {

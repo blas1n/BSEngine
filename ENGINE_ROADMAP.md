@@ -128,14 +128,15 @@
 **목표:** 에디터에서 엔진의 모든 기능을 사용할 수 있도록 — 엔티티 추가/제거, 모든 컴포넌트 편집, 에셋 드롭
 
 **완료 조건:**
-- [ ] Hierarchy: 엔티티 추가 버튼 (+) → 빈 엔티티 스폰
-- [ ] Hierarchy: 선택된 엔티티 삭제 버튼 (−)
-- [ ] Inspector: 컴포넌트 목록 표시 (엔티티가 가진 모든 컴포넌트)
-- [ ] Inspector: Camera 컴포넌트 편집 (fov, near, far)
-- [ ] Inspector: DirectionalLight / PointLight / SpotLight 편집 (color, intensity, range)
-- [ ] Inspector: Material/PBR 파라미터 편집 (base_color, metallic, roughness, emissive)
-- [ ] Inspector: 컴포넌트 추가 드롭다운 (Add Component)
-- [ ] Scripting 이벤트(play/stop)를 에디터 Play/Stop과 연동
+- [x] Hierarchy: 엔티티 추가 버튼 (+) → 빈 엔티티 스폰
+- [x] Hierarchy: 선택된 엔티티 삭제 버튼 (−)
+- [x] Inspector: 컴포넌트 목록 표시 (Transform, Light, Camera, Material 섹션)
+- [x] Inspector: Camera 컴포넌트 편집 (fov)
+- [x] Inspector: DirectionalLight / PointLight 편집 (color, intensity, range)
+- [x] Inspector: Material/PBR 파라미터 편집 (base_color, metallic, roughness, emissive)
+- [x] Inspector: 컴포넌트 추가 (Add Point Light, Add Camera 버튼)
+- [x] Visible 토글 체크박스
+- [x] Scripting 이벤트(play/stop)를 에디터 Play/Stop과 연동
 - [ ] CI 통과
 
 ---

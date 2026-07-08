@@ -123,7 +123,7 @@
 
 ---
 
-### 9. Editor Full Feature Parity (Unity/Unreal 수준)
+### 9. Editor Full Feature Parity (Unity/Unreal 수준) ✅
 
 **목표:** 에디터에서 엔진의 모든 기능을 사용할 수 있도록 — 엔티티 추가/제거, 모든 컴포넌트 편집, 에셋 드롭
 
@@ -137,7 +137,7 @@
 - [x] Inspector: 컴포넌트 추가 (Add Point Light, Add Camera 버튼)
 - [x] Visible 토글 체크박스
 - [x] Scripting 이벤트(play/stop)를 에디터 Play/Stop과 연동
-- [ ] CI 통과
+- [x] CI 통과
 
 ---
 
@@ -156,3 +156,4 @@
 | 8. Editor Viewport (Unity/Unreal 수준) | 2026-07-07 | [#1670](https://github.com/blas1n/BSEngine/pull/1670) |
 | 8. Standalone Editor Binary | 2026-07-07 | [#1671](https://github.com/blas1n/BSEngine/pull/1671) |
 | 8. Fix blank viewport (transparent CentralPanel) | 2026-07-08 | [#1674](https://github.com/blas1n/BSEngine/pull/1674) |
+| 9. Editor Full Feature Parity | 2026-07-08 | [#1675](https://github.com/blas1n/BSEngine/pull/1675) |

@@ -15,7 +15,7 @@ impl Default for Visible {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct EntityInfo {
     pub id: u64,
     pub name: Option<String>,
@@ -28,6 +28,10 @@ pub struct EntityInfo {
     pub light_intensity: Option<f32>,
     pub light_range: Option<f32>,
     pub camera_fov: Option<f32>,
+    pub material_base_color: Option<[f32; 3]>,
+    pub material_metallic: Option<f32>,
+    pub material_roughness: Option<f32>,
+    pub material_emissive: Option<[f32; 3]>,
     pub parent_id: Option<u64>,
     pub tags: Vec<String>,
     pub visible: bool,
@@ -172,6 +176,13 @@ pub enum EditorCommand {
         entity_id: u64,
         fov_y_degrees: f32,
     },
+    UpdateMaterial {
+        entity_id: u64,
+        base_color: Option<[f32; 3]>,
+        metallic: Option<f32>,
+        roughness: Option<f32>,
+        emissive: Option<[f32; 3]>,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;
@@ -203,18 +214,8 @@ mod tests {
             id: 42,
             name: Some("Player".to_string()),
             position: Some([1.0, 2.0, 3.0]),
-            mesh_id: None,
-            light_type: None,
-            rotation: None,
-            scale: None,
-            light_color: None,
-            light_intensity: None,
-            light_range: None,
-            camera_fov: None,
-            parent_id: None,
-            tags: vec![],
             visible: true,
-            selected: false,
+            ..Default::default()
         };
         assert_eq!(e.id, 42);
         assert_eq!(e.name.as_deref(), Some("Player"));
@@ -225,20 +226,8 @@ mod tests {
     fn entity_info_without_transform_has_none_position() {
         let e = EntityInfo {
             id: 1,
-            name: None,
-            mesh_id: None,
-            light_type: None,
-            rotation: None,
-            scale: None,
-            light_color: None,
-            light_intensity: None,
-            light_range: None,
-            camera_fov: None,
-            parent_id: None,
-            tags: vec![],
             visible: true,
-            selected: false,
-            position: None,
+            ..Default::default()
         };
         assert!(e.position.is_none());
     }

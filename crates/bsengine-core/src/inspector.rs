@@ -14,6 +14,11 @@ pub struct InspectorEntityInfo {
     pub light_range: Option<f32>,
     // camera
     pub camera_fov: Option<f32>,
+    // material
+    pub material_base_color: Option<[f32; 3]>,
+    pub material_metallic: Option<f32>,
+    pub material_roughness: Option<f32>,
+    pub material_emissive: Option<[f32; 3]>,
     pub visible: bool,
 }
 
@@ -62,6 +67,13 @@ pub enum InspectorCmd {
     AddCamera {
         id: u64,
     },
+    UpdateMaterial {
+        id: u64,
+        base_color: Option<[f32; 3]>,
+        metallic: Option<f32>,
+        roughness: Option<f32>,
+        emissive: Option<[f32; 3]>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -83,6 +95,10 @@ pub struct InspectorState {
     pub edit_light_intensity: f32,
     pub edit_light_range: f32,
     pub edit_camera_fov: f32,
+    pub edit_mat_base_color: [f32; 3],
+    pub edit_mat_metallic: f32,
+    pub edit_mat_roughness: f32,
+    pub edit_mat_emissive: [f32; 3],
     pub edit_visible: bool,
     prev_selected_id: Option<u64>,
 
@@ -119,6 +135,10 @@ impl Default for InspectorState {
             edit_light_intensity: 1.0,
             edit_light_range: 10.0,
             edit_camera_fov: 60.0,
+            edit_mat_base_color: [1.0, 1.0, 1.0],
+            edit_mat_metallic: 0.0,
+            edit_mat_roughness: 0.5,
+            edit_mat_emissive: [0.0, 0.0, 0.0],
             edit_visible: true,
             prev_selected_id: None,
             editor_mode: false,
@@ -156,6 +176,10 @@ impl InspectorState {
                     self.edit_light_intensity = info.light_intensity.unwrap_or(1.0);
                     self.edit_light_range = info.light_range.unwrap_or(10.0);
                     self.edit_camera_fov = info.camera_fov.unwrap_or(60.0);
+                    self.edit_mat_base_color = info.material_base_color.unwrap_or([1.0, 1.0, 1.0]);
+                    self.edit_mat_metallic = info.material_metallic.unwrap_or(0.0);
+                    self.edit_mat_roughness = info.material_roughness.unwrap_or(0.5);
+                    self.edit_mat_emissive = info.material_emissive.unwrap_or([0.0, 0.0, 0.0]);
                     self.edit_visible = info.visible;
                 }
             }

@@ -1670,12 +1670,14 @@ impl WgpuSurface {
                             let has_transform = sel_info.position.is_some();
                             let light_type = sel_info.light_type.clone();
                             let has_camera = sel_info.camera_fov.is_some();
+                            let has_material = sel_info.material_base_color.is_some();
 
                             let mut pos_changed = false;
                             let mut rot_changed = false;
                             let mut scale_changed = false;
                             let mut light_changed = false;
                             let mut cam_fov_changed = false;
+                            let mut mat_changed = false;
                             let mut visible_changed = false;
                             let mut add_point_light = false;
                             let mut add_camera = false;
@@ -1815,6 +1817,50 @@ impl WgpuSurface {
                                         ui.separator();
                                     }
 
+                                    // Material
+                                    if has_material {
+                                        ui.strong("Material");
+                                        ui.horizontal(|ui| {
+                                            ui.label("Base Color");
+                                            mat_changed |= ui
+                                                .color_edit_button_rgb(
+                                                    &mut insp.edit_mat_base_color,
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Metallic");
+                                            mat_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut insp.edit_mat_metallic,
+                                                    )
+                                                    .speed(0.01)
+                                                    .range(0.0..=1.0),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Roughness");
+                                            mat_changed |= ui
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut insp.edit_mat_roughness,
+                                                    )
+                                                    .speed(0.01)
+                                                    .range(0.0..=1.0),
+                                                )
+                                                .changed();
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Emissive");
+                                            mat_changed |= ui
+                                                .color_edit_button_rgb(&mut insp.edit_mat_emissive)
+                                                .changed();
+                                        });
+                                        ui.separator();
+                                    }
+
                                     // Add Component
                                     ui.strong("Add Component");
                                     ui.horizontal(|ui| {
@@ -1869,6 +1915,16 @@ impl WgpuSurface {
                                     .push(bsengine_core::InspectorCmd::UpdateCamera {
                                         id: sel_id,
                                         fov_y_degrees: Some(insp.edit_camera_fov),
+                                    });
+                            }
+                            if mat_changed {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::UpdateMaterial {
+                                        id: sel_id,
+                                        base_color: Some(insp.edit_mat_base_color),
+                                        metallic: Some(insp.edit_mat_metallic),
+                                        roughness: Some(insp.edit_mat_roughness),
+                                        emissive: Some(insp.edit_mat_emissive),
                                     });
                             }
                             if visible_changed {

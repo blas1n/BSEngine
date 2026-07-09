@@ -1,3 +1,4 @@
+pub mod gizmo;
 pub mod mesh;
 pub mod plugin;
 pub mod post_process;

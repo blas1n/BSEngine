@@ -141,7 +141,7 @@
 
 ---
 
-### 10. Editor Viewport Interactivity (Unity/Unreal 수준 조작성)
+### 10. Editor Viewport Interactivity (Unity/Unreal 수준 조작성) ✅
 
 **목표:** 마우스로 뷰포트를 직접 조작하는 UX — 트랜스폼 기즈모, 멀티셀렉트, Undo/Redo, 키보드 단축키
 
@@ -149,8 +149,8 @@
 - [x] 뷰포트 트랜스폼(이동) 기즈모: 선택된 엔티티를 X/Y/Z 핸들로 드래그하여 이동
 - [x] 멀티셀렉트: Hierarchy에서 Ctrl/Shift-클릭으로 여러 엔티티 선택
 - [x] Undo/Redo: 에디터 명령 히스토리 스택
-- [ ] 키보드 단축키 (Delete, Ctrl+D 복제, Ctrl+Z/Y)
-- [ ] CI 통과
+- [x] 키보드 단축키 (Delete, Ctrl+D 복제, Ctrl+Z/Y)
+- [x] CI 통과
 
 ---
 
@@ -179,3 +179,4 @@
 | 10. Viewport translate gizmo | 2026-07-09 | [#1684](https://github.com/blas1n/BSEngine/pull/1684) |
 | 10. Hierarchy multi-select (Ctrl/Shift-click) | 2026-07-09 | [#1685](https://github.com/blas1n/BSEngine/pull/1685) |
 | 10. Undo/Redo (snapshot checkpoint reconciliation) | 2026-07-09 | [#1686](https://github.com/blas1n/BSEngine/pull/1686) |
+| 10. Keyboard shortcuts (Delete, Ctrl+D, Ctrl+Z/Y) | 2026-07-09 | [#1687](https://github.com/blas1n/BSEngine/pull/1687) |

@@ -15,18 +15,23 @@ use bsengine_window::{WindowDescriptor, WindowPlugin};
 use glam::{Quat, Vec3};
 use std::env;
 
+// winit requires its EventLoop to be created on the real OS main thread, so
+// the extra stack space V8 needs (IsOnCentralStack() requires the isolate to
+// be initialized and called from a thread with sufficient stack) comes from
+// growing the actual main thread via linker flag (.cargo/config.toml
+// `/STACK:67108864`) rather than from spawning a worker thread.
 fn main() {
-    let scene_path = env::args().nth(1);
+    let args: Vec<String> = env::args().collect();
+    let scene_path = args.into_iter().nth(1);
 
     // Derive the game project root from the scene file path so that relative
     // script paths (e.g. "assets/scripts/player.js") resolve correctly.
     // Convention: scene lives at <project_root>/assets/<subdir>/<file>.ron
-    // so we walk up 3 parent segments from the file to reach the root.
     let project_dir = scene_path
         .as_deref()
-        .and_then(|p| std::path::Path::new(p).parent()) // <root>/assets/<subdir>
-        .and_then(|p| p.parent()) // <root>/assets
-        .and_then(|p| p.parent()) // <root>
+        .and_then(|p| std::path::Path::new(p).parent())
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
         .and_then(|p| p.to_str())
         .unwrap_or(".")
         .to_string();
@@ -104,7 +109,6 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
 
     commands.spawn(DirectionalLight::default());
 
-    // Default ground plane so the viewport is not completely empty
     if let Some(ref mut reg) = registry {
         let (verts, indices) = cube_vertices();
         let mesh_id = reg.register(&verts, &indices);

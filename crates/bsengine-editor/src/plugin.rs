@@ -1,10 +1,10 @@
 use crate::snapshot::{
-    EditorCommand, EditorCommandQueueResource, EditorSelectionResource, EditorSnapshot,
-    EditorSnapshotResource, EntityInfo, SharedCommandQueue, SharedSelection, SharedSnapshot, Tags,
-    Visible,
+    EditorCommand, EditorCommandQueueResource, EditorHistory, EditorHistoryResource,
+    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
+    SharedCommandQueue, SharedHistory, SharedSelection, SharedSnapshot, Tags, Visible,
 };
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut};
+use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, InspectorCmd, InspectorEntityInfo, InspectorState,
     Material, Parent, PointLight, SpotLight, Transform,
@@ -86,9 +86,12 @@ fn update_editor_snapshot(
         .collect();
 }
 
+const MAX_UNDO_HISTORY: usize = 100;
+
 fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
     snapshot_res: Res<EditorSnapshotResource>,
+    history_res: Res<EditorHistoryResource>,
     mut params: ParamSet<(
         Query<Entity>,
         Query<(Entity, &mut Transform)>,
@@ -105,6 +108,16 @@ fn process_editor_commands(
         let mut queue = queue_res.0.lock().unwrap();
         queue.drain(..).collect()
     };
+
+    if !cmds.is_empty() {
+        let checkpoint = snapshot_res.0.lock().unwrap().clone();
+        let mut history = history_res.0.lock().unwrap();
+        history.undo_stack.push(checkpoint);
+        history.redo_stack.clear();
+        if history.undo_stack.len() > MAX_UNDO_HISTORY {
+            history.undo_stack.remove(0);
+        }
+    }
 
     for cmd in cmds {
         match cmd {
@@ -573,6 +586,304 @@ fn process_editor_commands(
     }
 }
 
+/// Restores world state to match `target`, diffing against `current` to
+/// know which entities to despawn (existed now, not in target) versus spawn
+/// fresh (existed in target, not now). Entities present in both are updated
+/// in place.
+///
+/// Only fields fully captured by `EntityInfo` are ever replaced wholesale
+/// (Transform, MeshRenderer, PointLight, Name, Visible, Tags, Parent).
+/// Camera/DirectionalLight/SpotLight/Material carry fields `EntityInfo`
+/// doesn't track (aspect/near/far, direction/ambient, cone angles,
+/// texture_id) — for those, only the tracked sub-fields are patched in
+/// place on an already-existing component, and a missing component is never
+/// fabricated from partial data, to avoid silently losing untracked state.
+fn reconcile_to_snapshot(world: &mut World, current: &EditorSnapshot, target: &EditorSnapshot) {
+    let mut live_by_id: std::collections::HashMap<u64, Entity> = std::collections::HashMap::new();
+    {
+        let mut q = world.query::<Entity>();
+        for e in q.iter(world) {
+            live_by_id.insert(e.index() as u64, e);
+        }
+    }
+
+    let target_ids: std::collections::HashSet<u64> =
+        target.entities.iter().map(|e| e.id).collect();
+    for info in &current.entities {
+        if !target_ids.contains(&info.id) {
+            if let Some(e) = live_by_id.remove(&info.id) {
+                world.despawn(e);
+            }
+        }
+    }
+
+    for info in &target.entities {
+        if let Some(&e) = live_by_id.get(&info.id) {
+            sync_entity_to_info(world, e, info);
+        } else {
+            let e = spawn_entity_from_info(world, info);
+            live_by_id.insert(info.id, e);
+        }
+    }
+
+    // Parent links are resolved last, once every target entity (updated or
+    // freshly respawned) has a live Entity handle.
+    for info in &target.entities {
+        let Some(&child) = live_by_id.get(&info.id) else {
+            continue;
+        };
+        match info.parent_id.and_then(|pid| live_by_id.get(&pid).copied()) {
+            Some(parent) => {
+                world.entity_mut(child).insert(Parent(parent));
+            }
+            None => {
+                world.entity_mut(child).remove::<Parent>();
+            }
+        }
+    }
+}
+
+fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
+    let mut e = world.entity_mut(entity);
+
+    match &info.name {
+        Some(name) => {
+            e.insert(Name(name.clone()));
+        }
+        None => {
+            e.remove::<Name>();
+        }
+    }
+
+    if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
+        e.insert((
+            Transform {
+                translation: glam::Vec3::from(pos),
+                rotation: glam::Quat::from_euler(
+                    glam::EulerRot::XYZ,
+                    rot[0].to_radians(),
+                    rot[1].to_radians(),
+                    rot[2].to_radians(),
+                ),
+                scale: glam::Vec3::from(scale),
+            },
+            GlobalTransform::default(),
+        ));
+    } else {
+        e.remove::<Transform>();
+        e.remove::<GlobalTransform>();
+    }
+
+    match info.mesh_id {
+        Some(mesh_id) => {
+            e.insert(MeshRenderer { mesh_id });
+        }
+        None => {
+            e.remove::<MeshRenderer>();
+        }
+    }
+
+    e.insert(Visible(info.visible));
+
+    if info.tags.is_empty() {
+        e.remove::<Tags>();
+    } else {
+        e.insert(Tags(info.tags.clone()));
+    }
+
+    match info.light_type.as_deref() {
+        Some("point") => {
+            e.remove::<DirectionalLight>();
+            e.remove::<SpotLight>();
+            e.insert(PointLight {
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                intensity: info.light_intensity.unwrap_or(1.0),
+                range: info.light_range.unwrap_or(10.0),
+            });
+        }
+        Some("directional") => {
+            e.remove::<PointLight>();
+            e.remove::<SpotLight>();
+            if let Some(mut dl) = e.get_mut::<DirectionalLight>() {
+                if let Some(c) = info.light_color {
+                    dl.color = glam::Vec3::from(c);
+                }
+            }
+        }
+        Some("spot") => {
+            e.remove::<PointLight>();
+            e.remove::<DirectionalLight>();
+            if let Some(mut sl) = e.get_mut::<SpotLight>() {
+                if let Some(c) = info.light_color {
+                    sl.color = glam::Vec3::from(c);
+                }
+                if let Some(i) = info.light_intensity {
+                    sl.intensity = i;
+                }
+                if let Some(r) = info.light_range {
+                    sl.range = r;
+                }
+            }
+        }
+        _ => {
+            e.remove::<PointLight>();
+            e.remove::<DirectionalLight>();
+            e.remove::<SpotLight>();
+        }
+    }
+
+    match info.camera_fov {
+        Some(fov_deg) => {
+            if let Some(mut cam) = e.get_mut::<Camera>() {
+                cam.fov_y_radians = fov_deg.to_radians();
+            }
+        }
+        None => {
+            e.remove::<Camera>();
+        }
+    }
+
+    match info.material_base_color {
+        Some(base_color) => {
+            if let Some(mut mat) = e.get_mut::<Material>() {
+                mat.base_color = glam::Vec3::from(base_color);
+                if let Some(m) = info.material_metallic {
+                    mat.metallic = m;
+                }
+                if let Some(r) = info.material_roughness {
+                    mat.roughness = r;
+                }
+                if let Some(em) = info.material_emissive {
+                    mat.emissive = glam::Vec3::from(em);
+                }
+            }
+        }
+        None => {
+            e.remove::<Material>();
+        }
+    }
+}
+
+fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
+    let mut e = world.spawn_empty();
+    if let Some(name) = &info.name {
+        e.insert(Name(name.clone()));
+    }
+    if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
+        e.insert((
+            Transform {
+                translation: glam::Vec3::from(pos),
+                rotation: glam::Quat::from_euler(
+                    glam::EulerRot::XYZ,
+                    rot[0].to_radians(),
+                    rot[1].to_radians(),
+                    rot[2].to_radians(),
+                ),
+                scale: glam::Vec3::from(scale),
+            },
+            GlobalTransform::default(),
+        ));
+    }
+    if let Some(mesh_id) = info.mesh_id {
+        e.insert(MeshRenderer { mesh_id });
+    }
+    if !info.visible {
+        e.insert(Visible(false));
+    }
+    if !info.tags.is_empty() {
+        e.insert(Tags(info.tags.clone()));
+    }
+    match info.light_type.as_deref() {
+        Some("point") => {
+            e.insert(PointLight {
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                intensity: info.light_intensity.unwrap_or(1.0),
+                range: info.light_range.unwrap_or(10.0),
+                ..PointLight::default()
+            });
+        }
+        Some("directional") => {
+            e.insert(DirectionalLight {
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                ..DirectionalLight::default()
+            });
+        }
+        Some("spot") => {
+            e.insert(SpotLight {
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                intensity: info.light_intensity.unwrap_or(1.0),
+                range: info.light_range.unwrap_or(10.0),
+                ..SpotLight::default()
+            });
+        }
+        _ => {}
+    }
+    if let Some(fov_deg) = info.camera_fov {
+        e.insert(Camera::perspective(fov_deg, 16.0 / 9.0));
+    }
+    if let Some(base_color) = info.material_base_color {
+        e.insert(Material {
+            base_color: glam::Vec3::from(base_color),
+            metallic: info.material_metallic.unwrap_or(0.0),
+            roughness: info.material_roughness.unwrap_or(0.5),
+            emissive: info.material_emissive.map(glam::Vec3::from).unwrap_or(glam::Vec3::ZERO),
+            ..Material::default()
+        });
+    }
+    e.id()
+}
+
+fn apply_history_action(world: &mut World) {
+    let is_undo = {
+        let Some(mut insp) = world.get_resource_mut::<InspectorState>() else {
+            return;
+        };
+        if insp.request_undo {
+            insp.request_undo = false;
+            true
+        } else if insp.request_redo {
+            insp.request_redo = false;
+            false
+        } else {
+            return;
+        }
+    };
+
+    let current = {
+        let snap_res = world.resource::<EditorSnapshotResource>();
+        let s = snap_res.0.lock().unwrap().clone();
+        s
+    };
+
+    let target = {
+        let hist_res = world.resource::<EditorHistoryResource>();
+        let mut history = hist_res.0.lock().unwrap();
+        let popped = if is_undo {
+            history.undo_stack.pop()
+        } else {
+            history.redo_stack.pop()
+        };
+        let Some(target) = popped else {
+            return;
+        };
+        if is_undo {
+            history.redo_stack.push(current.clone());
+        } else {
+            history.undo_stack.push(current.clone());
+        }
+        target
+    };
+
+    reconcile_to_snapshot(world, &current, &target);
+
+    if let Some(mut insp) = world.get_resource_mut::<InspectorState>() {
+        insp.selected_id = None;
+    }
+    if let Some(sel_res) = world.get_resource::<EditorSelectionResource>() {
+        sel_res.0.lock().unwrap().clear();
+    }
+}
+
 fn update_editor_camera(
     inspector: Option<ResMut<InspectorState>>,
     mouse: Option<bsengine_ecs::Res<bsengine_input::MouseState>>,
@@ -749,16 +1060,19 @@ impl Plugin for EditorPlugin {
         let snapshot: SharedSnapshot = Arc::new(Mutex::new(EditorSnapshot::default()));
         let cmd_queue: SharedCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let selection: SharedSelection = Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let history: SharedHistory = Arc::new(Mutex::new(EditorHistory::default()));
 
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
         app.insert_resource(EditorSelectionResource(selection.clone()));
+        app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
+        app.add_systems(Update, apply_history_action.after(process_editor_commands));
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
             // list_entities
@@ -28202,7 +28516,9 @@ mod tests {
     use glam::Vec3;
     use serde_json::json;
 
-    use crate::snapshot::{EditorSelectionResource, EditorSnapshotResource};
+    use crate::snapshot::{
+        EditorCommand, EditorCommandQueueResource, EditorSelectionResource, EditorSnapshotResource,
+    };
 
     #[test]
     fn editor_plugin_builds_without_panic() {
@@ -28352,6 +28668,190 @@ mod tests {
         assert!(!selection.contains(&id_a));
         assert!(selection.contains(&id_b));
         assert_eq!(selection.len(), 1);
+    }
+
+    #[test]
+    fn undo_restores_despawned_entity() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id = app
+            .world_mut()
+            .spawn((
+                Name("Box".to_string()),
+                Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+            ))
+            .id()
+            .index() as u64;
+        app.update();
+
+        {
+            let queue_res = app.world().resource::<EditorCommandQueueResource>();
+            queue_res
+                .0
+                .lock()
+                .unwrap()
+                .push(EditorCommand::Despawn { entity_id: id });
+        }
+        app.update();
+        app.update();
+
+        {
+            let snapshot = app
+                .world()
+                .resource::<EditorSnapshotResource>()
+                .0
+                .lock()
+                .unwrap();
+            assert!(!snapshot.entities.iter().any(|e| e.name.as_deref() == Some("Box")));
+        }
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .request_undo = true;
+        app.update();
+        app.update();
+
+        let snapshot = app
+            .world()
+            .resource::<EditorSnapshotResource>()
+            .0
+            .lock()
+            .unwrap();
+        let restored = snapshot
+            .entities
+            .iter()
+            .find(|e| e.name.as_deref() == Some("Box"))
+            .expect("Box should be restored by undo");
+        let pos = restored.position.expect("restored Box has a transform");
+        assert!((pos[0] - 1.0).abs() < 1e-5);
+        assert!((pos[1] - 2.0).abs() < 1e-5);
+        assert!((pos[2] - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn redo_reapplies_despawn_after_undo() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id = app
+            .world_mut()
+            .spawn(Name("Box".to_string()))
+            .id()
+            .index() as u64;
+        app.update();
+
+        {
+            let queue_res = app.world().resource::<EditorCommandQueueResource>();
+            queue_res
+                .0
+                .lock()
+                .unwrap()
+                .push(EditorCommand::Despawn { entity_id: id });
+        }
+        app.update();
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .request_undo = true;
+        app.update();
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .request_redo = true;
+        app.update();
+        app.update();
+
+        let snapshot = app
+            .world()
+            .resource::<EditorSnapshotResource>()
+            .0
+            .lock()
+            .unwrap();
+        assert!(
+            !snapshot.entities.iter().any(|e| e.name.as_deref() == Some("Box")),
+            "redo should reapply the despawn"
+        );
+    }
+
+    #[test]
+    fn undo_reverts_position_change() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id = app
+            .world_mut()
+            .spawn((
+                Name("Box".to_string()),
+                Transform::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+            ))
+            .id()
+            .index() as u64;
+        app.update();
+
+        {
+            let queue_res = app.world().resource::<EditorCommandQueueResource>();
+            queue_res.0.lock().unwrap().push(EditorCommand::SetPosition {
+                entity_id: id,
+                x: 9.0,
+                y: 9.0,
+                z: 9.0,
+            });
+        }
+        app.update();
+        app.update();
+
+        {
+            let snapshot = app
+                .world()
+                .resource::<EditorSnapshotResource>()
+                .0
+                .lock()
+                .unwrap();
+            let pos = snapshot
+                .entities
+                .iter()
+                .find(|e| e.id == id)
+                .and_then(|e| e.position)
+                .expect("Box has a transform");
+            assert!((pos[0] - 9.0).abs() < 1e-5);
+        }
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .request_undo = true;
+        app.update();
+        app.update();
+
+        let snapshot = app
+            .world()
+            .resource::<EditorSnapshotResource>()
+            .0
+            .lock()
+            .unwrap();
+        let pos = snapshot
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .and_then(|e| e.position)
+            .expect("Box still has a transform after undo");
+        assert!((pos[0] - 1.0).abs() < 1e-5, "expected x reverted to 1.0, got {}", pos[0]);
+    }
+
+    #[test]
+    fn undo_with_empty_history_does_not_panic() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .request_undo = true;
+        app.update();
+        app.update();
     }
 
     #[test]

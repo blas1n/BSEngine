@@ -120,6 +120,12 @@ pub struct InspectorState {
     pub editor_view_proj: Option<[[f32; 4]; 4]>,
     pub editor_proj: [[f32; 4]; 4],
     pub editor_cam_pos: [f32; 3],
+
+    // Translate-gizmo drag state (viewport panel). `gizmo_drag_axis` is
+    // 0=X, 1=Y, 2=Z while a handle is being dragged.
+    pub gizmo_drag_axis: Option<u8>,
+    pub gizmo_drag_start_world: [f32; 3],
+    pub gizmo_drag_start_mouse: [f32; 2],
 }
 
 impl Default for InspectorState {
@@ -152,6 +158,9 @@ impl Default for InspectorState {
             editor_view_proj: None,
             editor_proj: [[0.0; 4]; 4],
             editor_cam_pos: [0.0; 3],
+            gizmo_drag_axis: None,
+            gizmo_drag_start_world: [0.0; 3],
+            gizmo_drag_start_mouse: [0.0; 2],
         }
     }
 }

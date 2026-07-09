@@ -1953,7 +1953,93 @@ impl WgpuSurface {
                                 insp.viewport_size = [panel_rect.width(), panel_rect.height()];
                                 insp.viewport_contains_cursor =
                                     panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
-                                ui.allocate_rect(panel_rect, egui::Sense::hover());
+                                let response =
+                                    ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
+
+                                if let (Some(sel_id), Some(view_proj)) =
+                                    (insp.selected_id, insp.editor_view_proj)
+                                {
+                                    let has_transform = entities_snapshot
+                                        .iter()
+                                        .find(|e| e.id == sel_id)
+                                        .is_some_and(|e| e.position.is_some());
+                                    if has_transform {
+                                        let pos = glam::Vec3::from(insp.edit_pos);
+                                        let cam_pos = glam::Vec3::from(insp.editor_cam_pos);
+                                        let handle_len = crate::gizmo::handle_length(pos, cam_pos);
+
+                                        if response.drag_started() {
+                                            if let Some(mp) = response.interact_pointer_pos() {
+                                                if let Some(axis) = crate::gizmo::hit_test(
+                                                    pos, handle_len, &view_proj, panel_rect, mp,
+                                                ) {
+                                                    insp.gizmo_drag_axis = Some(axis);
+                                                    insp.gizmo_drag_start_world = insp.edit_pos;
+                                                    insp.gizmo_drag_start_mouse = [mp.x, mp.y];
+                                                }
+                                            }
+                                        }
+
+                                        let mut pos_changed = false;
+                                        if let Some(axis) = insp.gizmo_drag_axis {
+                                            if response.dragged() {
+                                                if let (Some((dir2d, px_per_unit)), Some(mp)) = (
+                                                    crate::gizmo::axis_screen_dir_and_scale(
+                                                        glam::Vec3::from(
+                                                            insp.gizmo_drag_start_world,
+                                                        ),
+                                                        axis,
+                                                        handle_len.max(0.01),
+                                                        &view_proj,
+                                                        panel_rect,
+                                                    ),
+                                                    response.interact_pointer_pos(),
+                                                ) {
+                                                    let start = egui::Pos2::new(
+                                                        insp.gizmo_drag_start_mouse[0],
+                                                        insp.gizmo_drag_start_mouse[1],
+                                                    );
+                                                    let screen_delta = mp - start;
+                                                    let world_delta =
+                                                        screen_delta.dot(dir2d) / px_per_unit;
+                                                    let new_pos = glam::Vec3::from(
+                                                        insp.gizmo_drag_start_world,
+                                                    ) + crate::gizmo::axis_dir(axis)
+                                                        * world_delta;
+                                                    insp.edit_pos = new_pos.to_array();
+                                                    pos_changed = true;
+                                                }
+                                            } else if response.drag_stopped() {
+                                                insp.gizmo_drag_axis = None;
+                                            }
+                                        }
+                                        if pos_changed {
+                                            insp.cmd_queue.push(
+                                                bsengine_core::InspectorCmd::SetPosition {
+                                                    id: sel_id,
+                                                    x: insp.edit_pos[0],
+                                                    y: insp.edit_pos[1],
+                                                    z: insp.edit_pos[2],
+                                                },
+                                            );
+                                        }
+
+                                        let hovered = response.hover_pos().and_then(|mp| {
+                                            crate::gizmo::hit_test(
+                                                pos, handle_len, &view_proj, panel_rect, mp,
+                                            )
+                                        });
+                                        crate::gizmo::draw(
+                                            ui.painter(),
+                                            pos,
+                                            handle_len,
+                                            &view_proj,
+                                            panel_rect,
+                                            hovered,
+                                            insp.gizmo_drag_axis,
+                                        );
+                                    }
+                                }
                             });
                     } else {
                         // Overlay mode: side panels rendered over the running game

@@ -1616,6 +1616,39 @@ impl WgpuSurface {
                         let mut new_selection: Option<Vec<u64>> = None;
                         let mut spawn_entity = false;
                         let mut despawn_entity = false;
+                        let mut duplicate_selected = false;
+
+                        // Keyboard shortcuts. Ignored while an egui widget (e.g. a
+                        // DragValue or text field) has focus, so Ctrl+Z etc. don't
+                        // get stolen from in-progress text editing.
+                        if ctx.memory(|m| m.focused()).is_none() {
+                            let (del, dup, undo, redo) = ctx.input(|i| {
+                                (
+                                    i.key_pressed(egui::Key::Delete),
+                                    i.modifiers.ctrl && i.key_pressed(egui::Key::D),
+                                    i.modifiers.ctrl
+                                        && !i.modifiers.shift
+                                        && i.key_pressed(egui::Key::Z),
+                                    (i.modifiers.ctrl
+                                        && i.modifiers.shift
+                                        && i.key_pressed(egui::Key::Z))
+                                        || (i.modifiers.ctrl && i.key_pressed(egui::Key::Y)),
+                                )
+                            });
+                            if del {
+                                despawn_entity = true;
+                            }
+                            if dup {
+                                duplicate_selected = true;
+                            }
+                            if undo {
+                                insp.request_undo = true;
+                            }
+                            if redo {
+                                insp.request_redo = true;
+                            }
+                        }
+
                         egui::SidePanel::left("bse_hierarchy")
                             .default_width(220.0)
                             .show(ctx, |ui| {
@@ -1703,6 +1736,22 @@ impl WgpuSurface {
                             insp.selected_id = None;
                             insp.cmd_queue
                                 .push(bsengine_core::InspectorCmd::SetSelection { ids: vec![] });
+                        }
+                        if duplicate_selected {
+                            let ids: Vec<u64> = entities_snapshot
+                                .iter()
+                                .filter(|e| e.selected)
+                                .map(|e| e.id)
+                                .collect();
+                            let ids: Vec<u64> = if ids.is_empty() {
+                                current_sel.into_iter().collect()
+                            } else {
+                                ids
+                            };
+                            for id in ids {
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::Duplicate { id });
+                            }
                         }
                         if let Some(ids) = new_selection {
                             insp.cmd_queue

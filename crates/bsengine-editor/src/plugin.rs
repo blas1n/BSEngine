@@ -997,6 +997,9 @@ fn apply_inspector_cmds(
                 sel.extend(ids);
                 continue;
             }
+            InspectorCmd::Duplicate { id } => {
+                queue.push(EditorCommand::DuplicateEntity { entity_id: id });
+            }
             InspectorCmd::SetPosition { id, x, y, z } => {
                 queue.push(EditorCommand::SetPosition { entity_id: id, x, y, z });
             }
@@ -28852,6 +28855,52 @@ mod tests {
             .request_undo = true;
         app.update();
         app.update();
+    }
+
+    #[test]
+    fn inspector_duplicate_cmd_spawns_a_copy() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id = app
+            .world_mut()
+            .spawn((
+                Name("Box".to_string()),
+                Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+            ))
+            .id()
+            .index() as u64;
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::Duplicate { id });
+        app.update();
+        app.update();
+
+        let snapshot = app
+            .world()
+            .resource::<EditorSnapshotResource>()
+            .0
+            .lock()
+            .unwrap();
+        assert!(
+            snapshot
+                .entities
+                .iter()
+                .any(|e| e.name.as_deref() == Some("Box (copy)")),
+            "expected a duplicated entity named 'Box (copy)'"
+        );
+        assert_eq!(
+            snapshot
+                .entities
+                .iter()
+                .filter(|e| e.name.as_deref() == Some("Box"))
+                .count(),
+            1,
+            "original Box should still exist exactly once"
+        );
     }
 
     #[test]

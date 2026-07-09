@@ -20,6 +20,7 @@ pub struct InspectorEntityInfo {
     pub material_roughness: Option<f32>,
     pub material_emissive: Option<[f32; 3]>,
     pub visible: bool,
+    pub selected: bool,
 }
 
 pub enum InspectorCmd {
@@ -73,6 +74,9 @@ pub enum InspectorCmd {
         metallic: Option<f32>,
         roughness: Option<f32>,
         emissive: Option<[f32; 3]>,
+    },
+    SetSelection {
+        ids: Vec<u64>,
     },
 }
 

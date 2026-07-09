@@ -15,18 +15,36 @@ use bsengine_window::{WindowDescriptor, WindowPlugin};
 use glam::{Quat, Vec3};
 use std::env;
 
+// V8's IsOnCentralStack() check requires that V8 is both initialized and
+// called from the same thread, and that the thread has sufficient stack space.
+// run_scripts uses ~13 000 lines of local state; on Windows the default 1 MB
+// main-thread stack is exhausted before V8 can compile its per-frame snippet.
+// Running everything on a 64 MB thread keeps the SP inside V8's recorded stack
+// bounds for the lifetime of the process.
+const STACK_SIZE: usize = 64 * 1024 * 1024;
+
 fn main() {
-    let scene_path = env::args().nth(1);
+    let args: Vec<String> = env::args().collect();
+    std::thread::Builder::new()
+        .name("bsengine-main".to_string())
+        .stack_size(STACK_SIZE)
+        .spawn(move || run(args))
+        .expect("failed to spawn main thread")
+        .join()
+        .expect("main thread panicked");
+}
+
+fn run(args: Vec<String>) {
+    let scene_path = args.into_iter().nth(1);
 
     // Derive the game project root from the scene file path so that relative
     // script paths (e.g. "assets/scripts/player.js") resolve correctly.
     // Convention: scene lives at <project_root>/assets/<subdir>/<file>.ron
-    // so we walk up 3 parent segments from the file to reach the root.
     let project_dir = scene_path
         .as_deref()
-        .and_then(|p| std::path::Path::new(p).parent()) // <root>/assets/<subdir>
-        .and_then(|p| p.parent()) // <root>/assets
-        .and_then(|p| p.parent()) // <root>
+        .and_then(|p| std::path::Path::new(p).parent())
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
         .and_then(|p| p.to_str())
         .unwrap_or(".")
         .to_string();
@@ -104,7 +122,6 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
 
     commands.spawn(DirectionalLight::default());
 
-    // Default ground plane so the viewport is not completely empty
     if let Some(ref mut reg) = registry {
         let (verts, indices) = cube_vertices();
         let mesh_id = reg.register(&verts, &indices);

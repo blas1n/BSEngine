@@ -148,7 +148,7 @@
 **완료 조건:**
 - [x] 뷰포트 트랜스폼(이동) 기즈모: 선택된 엔티티를 X/Y/Z 핸들로 드래그하여 이동
 - [x] 멀티셀렉트: Hierarchy에서 Ctrl/Shift-클릭으로 여러 엔티티 선택
-- [ ] Undo/Redo: 에디터 명령 히스토리 스택
+- [x] Undo/Redo: 에디터 명령 히스토리 스택
 - [ ] 키보드 단축키 (Delete, Ctrl+D 복제, Ctrl+Z/Y)
 - [ ] CI 통과
 
@@ -178,3 +178,4 @@
 | 8. Fix editor Play V8 IsOnCentralStack crash (explicit V8 --stack-size flag) | 2026-07-09 | [#1683](https://github.com/blas1n/BSEngine/pull/1683) |
 | 10. Viewport translate gizmo | 2026-07-09 | [#1684](https://github.com/blas1n/BSEngine/pull/1684) |
 | 10. Hierarchy multi-select (Ctrl/Shift-click) | 2026-07-09 | [#1685](https://github.com/blas1n/BSEngine/pull/1685) |
+| 10. Undo/Redo (snapshot checkpoint reconciliation) | 2026-07-09 | [#1686](https://github.com/blas1n/BSEngine/pull/1686) |

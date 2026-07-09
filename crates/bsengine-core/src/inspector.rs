@@ -78,6 +78,9 @@ pub enum InspectorCmd {
     SetSelection {
         ids: Vec<u64>,
     },
+    Duplicate {
+        id: u64,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

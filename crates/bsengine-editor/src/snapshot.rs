@@ -185,9 +185,20 @@ pub enum EditorCommand {
     },
 }
 
+/// Undo/redo checkpoint stacks. Each entry is a full `EditorSnapshot` taken
+/// just before an `EditorCommand` batch was applied, so undo/redo restores
+/// state by diffing+reconciling against a target snapshot rather than
+/// replaying inverse commands.
+#[derive(Default)]
+pub struct EditorHistory {
+    pub undo_stack: Vec<EditorSnapshot>,
+    pub redo_stack: Vec<EditorSnapshot>,
+}
+
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;
 pub type SharedCommandQueue = Arc<Mutex<Vec<EditorCommand>>>;
 pub type SharedSelection = Arc<Mutex<HashSet<u64>>>;
+pub type SharedHistory = Arc<Mutex<EditorHistory>>;
 
 #[derive(Resource)]
 pub struct EditorSnapshotResource(pub SharedSnapshot);
@@ -197,6 +208,9 @@ pub struct EditorCommandQueueResource(pub SharedCommandQueue);
 
 #[derive(Resource)]
 pub struct EditorSelectionResource(pub SharedSelection);
+
+#[derive(Resource)]
+pub struct EditorHistoryResource(pub SharedHistory);
 
 #[cfg(test)]
 mod tests {

@@ -130,6 +130,11 @@ pub struct InspectorState {
     pub gizmo_drag_axis: Option<u8>,
     pub gizmo_drag_start_world: [f32; 3],
     pub gizmo_drag_start_mouse: [f32; 2],
+
+    // Set by the toolbar/keyboard to request an undo/redo; consumed and
+    // cleared by EditorPlugin's history system the same frame.
+    pub request_undo: bool,
+    pub request_redo: bool,
 }
 
 impl Default for InspectorState {
@@ -165,6 +170,8 @@ impl Default for InspectorState {
             gizmo_drag_axis: None,
             gizmo_drag_start_world: [0.0; 3],
             gizmo_drag_start_mouse: [0.0; 2],
+            request_undo: false,
+            request_redo: false,
         }
     }
 }

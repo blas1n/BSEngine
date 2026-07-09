@@ -1600,6 +1600,13 @@ impl WgpuSurface {
                                         "◆ Editor"
                                     };
                                 ui.label(mode_label);
+                                ui.separator();
+                                if ui.button("↩ Undo").clicked() {
+                                    insp.request_undo = true;
+                                }
+                                if ui.button("↪ Redo").clicked() {
+                                    insp.request_redo = true;
+                                }
                             });
                         });
 

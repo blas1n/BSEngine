@@ -1,4 +1,23 @@
 use deno_core::{JsRuntime, RuntimeOptions};
+use std::sync::Once;
+
+// V8 auto-detects its internal JS-stack limit from the current thread's OS
+// stack at isolate-creation time, but on Windows this detection can fall back
+// to a tiny default (~984 KB) regardless of the actual reserved thread stack
+// (see .cargo/config.toml's /STACK:67108864), causing V8 to abort with
+// "Check failed: IsOnCentralStack()" while compiling even trivial scripts.
+// Set --stack-size explicitly (in KB) so V8's own limit is generous, well
+// within the real 64 MB OS-reserved stack.
+static INIT_V8_FLAGS: Once = Once::new();
+
+fn ensure_v8_flags() {
+    INIT_V8_FLAGS.call_once(|| {
+        deno_core::v8_set_flags(vec![
+            "bsengine".to_string(),
+            "--stack-size=16384".to_string(),
+        ]);
+    });
+}
 
 pub struct ScriptRuntime {
     runtime: JsRuntime,
@@ -6,6 +25,7 @@ pub struct ScriptRuntime {
 
 impl ScriptRuntime {
     pub fn new() -> Self {
+        ensure_v8_flags();
         let runtime = JsRuntime::new(RuntimeOptions {
             ..Default::default()
         });
@@ -13,6 +33,7 @@ impl ScriptRuntime {
     }
 
     pub fn new_with_ops() -> Self {
+        ensure_v8_flags();
         let runtime = JsRuntime::new(RuntimeOptions {
             extensions: vec![crate::ops::bsengine_ops::init()],
             ..Default::default()

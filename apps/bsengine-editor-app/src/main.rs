@@ -15,26 +15,13 @@ use bsengine_window::{WindowDescriptor, WindowPlugin};
 use glam::{Quat, Vec3};
 use std::env;
 
-// V8's IsOnCentralStack() check requires that V8 is both initialized and
-// called from the same thread, and that the thread has sufficient stack space.
-// run_scripts uses ~13 000 lines of local state; on Windows the default 1 MB
-// main-thread stack is exhausted before V8 can compile its per-frame snippet.
-// Running everything on a 64 MB thread keeps the SP inside V8's recorded stack
-// bounds for the lifetime of the process.
-const STACK_SIZE: usize = 64 * 1024 * 1024;
-
+// winit requires its EventLoop to be created on the real OS main thread, so
+// the extra stack space V8 needs (IsOnCentralStack() requires the isolate to
+// be initialized and called from a thread with sufficient stack) comes from
+// growing the actual main thread via linker flag (.cargo/config.toml
+// `/STACK:67108864`) rather than from spawning a worker thread.
 fn main() {
     let args: Vec<String> = env::args().collect();
-    std::thread::Builder::new()
-        .name("bsengine-main".to_string())
-        .stack_size(STACK_SIZE)
-        .spawn(move || run(args))
-        .expect("failed to spawn main thread")
-        .join()
-        .expect("main thread panicked");
-}
-
-fn run(args: Vec<String>) {
     let scene_path = args.into_iter().nth(1);
 
     // Derive the game project root from the scene file path so that relative

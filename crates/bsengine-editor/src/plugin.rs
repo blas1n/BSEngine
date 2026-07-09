@@ -660,6 +660,7 @@ fn populate_inspector(
             material_roughness: e.material_roughness,
             material_emissive: e.material_emissive,
             visible: e.visible,
+            selected: e.selected,
         })
         .collect();
 }
@@ -667,6 +668,7 @@ fn populate_inspector(
 fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
+    selection_res: Res<EditorSelectionResource>,
 ) {
     let Some(mut inspector) = inspector else {
         return;
@@ -678,6 +680,12 @@ fn apply_inspector_cmds(
     let mut queue = queue_res.0.lock().unwrap();
     for cmd in cmds {
         match cmd {
+            InspectorCmd::SetSelection { ids } => {
+                let mut sel = selection_res.0.lock().unwrap();
+                sel.clear();
+                sel.extend(ids);
+                continue;
+            }
             InspectorCmd::SetPosition { id, x, y, z } => {
                 queue.push(EditorCommand::SetPosition { entity_id: id, x, y, z });
             }
@@ -28188,13 +28196,13 @@ fn parse_vec3_input(v: &serde_json::Value) -> Option<[f32; 3]> {
 mod tests {
     use super::EditorPlugin;
     use bsengine_app::new_app;
-    use bsengine_core::Transform;
+    use bsengine_core::{InspectorCmd, InspectorState, Transform};
     use bsengine_mcp::McpPlugin;
     use bsengine_scene::Name;
     use glam::Vec3;
     use serde_json::json;
 
-    use crate::snapshot::EditorSnapshotResource;
+    use crate::snapshot::{EditorSelectionResource, EditorSnapshotResource};
 
     #[test]
     fn editor_plugin_builds_without_panic() {
@@ -28254,6 +28262,96 @@ mod tests {
         assert!((pos[0] - 1.0).abs() < 1e-5);
         assert!((pos[1] - 2.0).abs() < 1e-5);
         assert!((pos[2] - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn inspector_set_selection_updates_selection_resource() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id_a = app.world_mut().spawn(Name("A".to_string())).id().index() as u64;
+        let id_b = app.world_mut().spawn(Name("B".to_string())).id().index() as u64;
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::SetSelection {
+                ids: vec![id_a, id_b],
+            });
+        app.update();
+
+        let selection = app
+            .world()
+            .resource::<EditorSelectionResource>()
+            .0
+            .lock()
+            .unwrap();
+        assert!(selection.contains(&id_a));
+        assert!(selection.contains(&id_b));
+        assert_eq!(selection.len(), 2);
+    }
+
+    #[test]
+    fn editor_snapshot_reflects_multi_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id_a = app.world_mut().spawn(Name("A".to_string())).id().index() as u64;
+        let id_b = app.world_mut().spawn(Name("B".to_string())).id().index() as u64;
+        let id_c = app.world_mut().spawn(Name("C".to_string())).id().index() as u64;
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::SetSelection {
+                ids: vec![id_a, id_b],
+            });
+        app.update();
+        app.update();
+
+        let snapshot = app
+            .world()
+            .resource::<EditorSnapshotResource>()
+            .0
+            .lock()
+            .unwrap();
+        let selected = |id: u64| snapshot.entities.iter().find(|e| e.id == id).unwrap().selected;
+        assert!(selected(id_a));
+        assert!(selected(id_b));
+        assert!(!selected(id_c));
+    }
+
+    #[test]
+    fn inspector_set_selection_replaces_previous_selection() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id_a = app.world_mut().spawn(Name("A".to_string())).id().index() as u64;
+        let id_b = app.world_mut().spawn(Name("B".to_string())).id().index() as u64;
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::SetSelection { ids: vec![id_a] });
+        app.update();
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::SetSelection { ids: vec![id_b] });
+        app.update();
+
+        let selection = app
+            .world()
+            .resource::<EditorSelectionResource>()
+            .0
+            .lock()
+            .unwrap();
+        assert!(!selection.contains(&id_a));
+        assert!(selection.contains(&id_b));
+        assert_eq!(selection.len(), 1);
     }
 
     #[test]

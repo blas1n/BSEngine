@@ -1606,6 +1606,7 @@ impl WgpuSurface {
                         let entities_snapshot = insp.entities.clone();
                         let current_sel = insp.selected_id;
                         let mut new_sel = insp.selected_id;
+                        let mut new_selection: Option<Vec<u64>> = None;
                         let mut spawn_entity = false;
                         let mut despawn_entity = false;
                         egui::SidePanel::left("bse_hierarchy")
@@ -1624,15 +1625,48 @@ impl WgpuSurface {
                                         despawn_entity = true;
                                     }
                                 });
+                                ui.label("Ctrl+click: toggle · Shift+click: range");
                                 ui.separator();
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    for info in &entities_snapshot {
+                                    for (idx, info) in entities_snapshot.iter().enumerate() {
                                         let label = info.name.as_deref().unwrap_or("(unnamed)");
                                         let text = format!("[{}] {}", info.id, label);
-                                        if ui
-                                            .selectable_label(current_sel == Some(info.id), text)
-                                            .clicked()
-                                        {
+                                        let resp = ui.selectable_label(info.selected, text);
+                                        if resp.clicked() {
+                                            let mods = ui.ctx().input(|i| i.modifiers);
+                                            if mods.shift {
+                                                let anchor_idx = current_sel
+                                                    .and_then(|id| {
+                                                        entities_snapshot
+                                                            .iter()
+                                                            .position(|e| e.id == id)
+                                                    })
+                                                    .unwrap_or(idx);
+                                                let (lo, hi) =
+                                                    (anchor_idx.min(idx), anchor_idx.max(idx));
+                                                new_selection = Some(
+                                                    entities_snapshot[lo..=hi]
+                                                        .iter()
+                                                        .map(|e| e.id)
+                                                        .collect(),
+                                                );
+                                            } else if mods.ctrl {
+                                                let mut ids: Vec<u64> = entities_snapshot
+                                                    .iter()
+                                                    .filter(|e| e.selected)
+                                                    .map(|e| e.id)
+                                                    .collect();
+                                                if let Some(pos) =
+                                                    ids.iter().position(|&id| id == info.id)
+                                                {
+                                                    ids.remove(pos);
+                                                } else {
+                                                    ids.push(info.id);
+                                                }
+                                                new_selection = Some(ids);
+                                            } else {
+                                                new_selection = Some(vec![info.id]);
+                                            }
                                             new_sel = Some(info.id);
                                         }
                                     }
@@ -1645,11 +1679,27 @@ impl WgpuSurface {
                                 });
                         }
                         if despawn_entity {
-                            if let Some(id) = current_sel {
+                            let ids: Vec<u64> = entities_snapshot
+                                .iter()
+                                .filter(|e| e.selected)
+                                .map(|e| e.id)
+                                .collect();
+                            let ids: Vec<u64> = if ids.is_empty() {
+                                current_sel.into_iter().collect()
+                            } else {
+                                ids
+                            };
+                            for id in ids {
                                 insp.cmd_queue
                                     .push(bsengine_core::InspectorCmd::Despawn { id });
-                                insp.selected_id = None;
                             }
+                            insp.selected_id = None;
+                            insp.cmd_queue
+                                .push(bsengine_core::InspectorCmd::SetSelection { ids: vec![] });
+                        }
+                        if let Some(ids) = new_selection {
+                            insp.cmd_queue
+                                .push(bsengine_core::InspectorCmd::SetSelection { ids });
                         }
                         if new_sel != insp.selected_id {
                             insp.selected_id = new_sel;

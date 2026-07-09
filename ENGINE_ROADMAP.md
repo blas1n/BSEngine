@@ -161,3 +161,4 @@
 | 8. Fix editor viewport gray (resolve_primitives missing in editor-app) | 2026-07-08 | [#1679](https://github.com/blas1n/BSEngine/pull/1679) |
 | 8. Fix editor Play button (ScriptingPlugin missing in editor-app) | 2026-07-08 | [#1680](https://github.com/blas1n/BSEngine/pull/1680) |
 | 8. Fix editor Play script path (project_dir from scene path) | 2026-07-08 | [#1681](https://github.com/blas1n/BSEngine/pull/1681) |
+| 8. Fix editor Play V8 stack crash (run_scripts refactor + main-thread stack) | 2026-07-09 | [#1682](https://github.com/blas1n/BSEngine/pull/1682) |
